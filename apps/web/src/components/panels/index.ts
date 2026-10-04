@@ -1,5 +1,6 @@
-import type { PanelId } from "@studio/shared";
 import type { ComponentType } from "react";
+import type { WebPanelId } from "@/lib/layout";
+import { ExportPanel } from "./ExportPanel";
 import { InspectorPanel } from "./InspectorPanel";
 import { JobsPanel } from "./JobsPanel";
 import { LibraryPanel } from "./LibraryPanel";
@@ -10,15 +11,16 @@ import { SubtitlesPanel } from "./SubtitlesPanel";
 import { TimelinePanel } from "./TimelinePanel";
 import { VoicePanel } from "./VoicePanel";
 
-/** PanelId -> component. Adding a panel = add the id in @studio/shared + an entry here. */
-export const PANEL_COMPONENTS: Record<PanelId, ComponentType> = {
+/** Panel id -> component. Adding a panel = add it to PANELS in lib/layout.ts + an entry here. */
+export const PANEL_COMPONENTS: Record<WebPanelId, ComponentType> = {
   media: MediaPanel,
+  library: LibraryPanel,
   preview: PreviewPanel,
   inspector: InspectorPanel,
   timeline: TimelinePanel,
   motion: MotionPanel,
   voice: VoicePanel,
   subtitles: SubtitlesPanel,
-  library: LibraryPanel,
+  export: ExportPanel,
   jobs: JobsPanel,
 };

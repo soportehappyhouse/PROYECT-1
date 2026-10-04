@@ -13,22 +13,32 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
     "@studio/shared": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
     "dockview": "^8.4.0",
+    "dockview-react": "^8.4.0",
     "lucide-react": "^1.52.0",
     "next": "^15.5.27",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "react-hotkeys-hook": "^5.3.3",
+    "sonner": "^2.0.8",
     "tailwind-merge": "^3.7.0",
-    "wavesurfer.js": "^8.0.1"
+    "wavesurfer.js": "^8.0.1",
+    "zod": "^4.6.5",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
     "@types/node": "^22.20.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "jsdom": "^30.1.1",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.3",
     "vitest": "^4.1.11"

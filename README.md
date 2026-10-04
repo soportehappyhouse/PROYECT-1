@@ -8,6 +8,10 @@ sonidos. Corre 100 % en tu PC Windows (sin nube, sin cuentas). Las API externas 
 > Arquitectura y contratos: [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md); guía Windows:
 > [`docs/INSTALACION-WINDOWS.md`](docs/INSTALACION-WINDOWS.md).
 
+**Manual de usuario**: [`docs/manual/MANUAL-USUARIO.md`](docs/manual/MANUAL-USUARIO.md)
+(también en [HTML](docs/manual/index.html) y [PDF](docs/manual/MANUAL-USUARIO.pdf)): paneles, flujos paso
+a paso, formatos, límites, atajos, solución de problemas y pruebas para hacer hoy.
+
 ## Inicio rápido (Windows 10/11)
 
 Abrí **PowerShell** en la carpeta del proyecto:

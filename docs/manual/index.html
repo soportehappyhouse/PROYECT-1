@@ -1,0 +1,3244 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Manual de Studio</title>
+    <meta
+      name="description"
+      content="Manual de usuario de Studio: editor de video, motion graphics y voz que corre en tu PC Windows."
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23c42b31'/%3E%3Cpath d='M12 9l12 7-12 7z' fill='white'/%3E%3C/svg%3E"
+    />
+    <style>
+      :root {
+        --bg: #fbfaf8;
+        --surface: #ffffff;
+        --text: #1d1d1f;
+        --muted: #5f6368;
+        --border: #e3e1dc;
+        --accent: #c42b31;
+        --accent-soft: #fbeaea;
+        --code-bg: #f2f0ec;
+        --th-bg: #f5f3ef;
+        --ph-bg: repeating-linear-gradient(45deg, #f2f0ec 0 10px, #ebe8e2 10px 20px);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+          --bg: #141416;
+          --surface: #1c1c1f;
+          --text: #ececef;
+          --muted: #a1a1aa;
+          --border: #2e2e33;
+          --accent: #f0676c;
+          --accent-soft: #3a1c1e;
+          --code-bg: #26262b;
+          --th-bg: #222226;
+          --ph-bg: repeating-linear-gradient(45deg, #222226 0 10px, #26262b 10px 20px);
+        }
+      }
+      :root[data-theme="dark"] {
+        --bg: #141416;
+        --surface: #1c1c1f;
+        --text: #ececef;
+        --muted: #a1a1aa;
+        --border: #2e2e33;
+        --accent: #f0676c;
+        --accent-soft: #3a1c1e;
+        --code-bg: #26262b;
+        --th-bg: #222226;
+        --ph-bg: repeating-linear-gradient(45deg, #222226 0 10px, #26262b 10px 20px);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+        scroll-padding-top: 16px;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          16px/1.6 system-ui,
+          -apple-system,
+          "Segoe UI",
+          Roboto,
+          "Helvetica Neue",
+          Arial,
+          sans-serif;
+        -webkit-text-size-adjust: 100%;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 280px minmax(0, 1fr);
+        max-width: 1280px;
+        margin: 0 auto;
+      }
+      nav.toc {
+        position: sticky;
+        top: 0;
+        align-self: start;
+        height: 100vh;
+        overflow: auto;
+        padding: 24px 16px 32px 20px;
+        border-right: 1px solid var(--border);
+        font-size: 14px;
+      }
+      nav.toc .brand {
+        font-weight: 700;
+        font-size: 17px;
+        margin: 0 0 4px;
+      }
+      nav.toc .sub {
+        color: var(--muted);
+        font-size: 13px;
+        margin: 0 0 16px;
+      }
+      nav.toc ol {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      nav.toc li {
+        margin: 0;
+      }
+      nav.toc li.d3 {
+        padding-left: 14px;
+        font-size: 13px;
+      }
+      nav.toc a {
+        display: block;
+        padding: 3px 8px;
+        border-radius: 6px;
+        color: var(--text);
+        text-decoration: none;
+      }
+      nav.toc li.d3 a {
+        color: var(--muted);
+      }
+      nav.toc a:hover {
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+      main {
+        padding: 32px 48px 80px;
+        min-width: 0;
+      }
+      main > h1:first-child {
+        margin-top: 0;
+      }
+      h1 {
+        font-size: 2rem;
+        line-height: 1.2;
+        margin: 0 0 16px;
+      }
+      h2 {
+        font-size: 1.5rem;
+        margin: 48px 0 12px;
+        padding-top: 12px;
+        border-top: 2px solid var(--border);
+      }
+      h3 {
+        font-size: 1.2rem;
+        margin: 32px 0 8px;
+      }
+      h4 {
+        font-size: 1.05rem;
+        margin: 24px 0 8px;
+      }
+      p,
+      ul,
+      ol {
+        margin: 0 0 12px;
+      }
+      li {
+        margin: 2px 0;
+      }
+      a {
+        color: var(--accent);
+      }
+      code {
+        font-family: ui-monospace, "Cascadia Code", Consolas, "Courier New", monospace;
+        font-size: 0.88em;
+        background: var(--code-bg);
+        padding: 1px 5px;
+        border-radius: 4px;
+        overflow-wrap: break-word;
+      }
+      pre {
+        background: var(--code-bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px 14px;
+        overflow: auto;
+        font-size: 13.5px;
+        line-height: 1.45;
+      }
+      pre code {
+        background: none;
+        padding: 0;
+        overflow-wrap: normal;
+      }
+      blockquote {
+        margin: 0 0 16px;
+        padding: 10px 16px;
+        border-left: 4px solid var(--accent);
+        background: var(--accent-soft);
+        border-radius: 0 8px 8px 0;
+      }
+      blockquote p:last-child {
+        margin: 0;
+      }
+      .table-wrap {
+        overflow-x: auto;
+        margin: 0 0 16px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 14px;
+      }
+      th,
+      td {
+        padding: 7px 10px;
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        background: var(--th-bg);
+        font-weight: 600;
+      }
+      tr:last-child td {
+        border-bottom: 0;
+      }
+      hr {
+        border: 0;
+        border-top: 1px solid var(--border);
+        margin: 24px 0;
+      }
+      figure {
+        margin: 16px 0 24px;
+      }
+      figure img {
+        max-width: 100%;
+        height: auto;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        display: block;
+      }
+      figure .ph {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        aspect-ratio: 16/9;
+        max-height: 320px;
+        border: 1px dashed var(--border);
+        border-radius: 8px;
+        background: var(--ph-bg);
+        color: var(--muted);
+        font-weight: 600;
+      }
+      figcaption {
+        color: var(--muted);
+        font-size: 13px;
+        margin-top: 6px;
+      }
+      .top {
+        display: none;
+      }
+      @media (max-width: 900px) {
+        .layout {
+          display: block;
+        }
+        nav.toc {
+          position: static;
+          height: auto;
+          border-right: 0;
+          border-bottom: 1px solid var(--border);
+          padding: 16px;
+        }
+        main {
+          padding: 20px 16px 60px;
+        }
+      }
+      @media print {
+        body {
+          background: #fff;
+          color: #000;
+          font-size: 10.5pt;
+        }
+        :root {
+          --text: #000;
+          --muted: #444;
+          --border: #ccc;
+          --accent: #a3161c;
+          --accent-soft: #f7eaea;
+          --code-bg: #f3f3f3;
+          --th-bg: #eee;
+          --surface: #fff;
+        }
+        .layout {
+          display: block;
+        }
+        nav.toc {
+          position: static;
+          height: auto;
+          border: 0;
+          padding: 0 0 12px;
+          page-break-after: always;
+          font-size: 11pt;
+        }
+        nav.toc a {
+          padding: 1px 0;
+        }
+        main {
+          padding: 0;
+        }
+        h2 {
+          page-break-before: always;
+          border-top: 0;
+          margin-top: 0;
+        }
+        h2:first-of-type {
+          page-break-before: auto;
+        }
+        h2,
+        h3,
+        h4 {
+          page-break-after: avoid;
+        }
+        table,
+        pre,
+        figure,
+        blockquote {
+          page-break-inside: avoid;
+        }
+        .table-wrap {
+          overflow: visible;
+          border: 0;
+        }
+        a {
+          color: inherit;
+          text-decoration: none;
+        }
+        figure .ph {
+          max-height: 120px;
+        }
+      }
+      @page {
+        size: A4;
+        margin: 16mm 14mm;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <nav class="toc" aria-label="Índice">
+        <p class="brand">Studio — Manual</p>
+        <p class="sub">Versión 0.1.0 · Windows 10/11</p>
+        <ol>
+          <li class="d2"><a href="#1-qué-es-y-para-qué-sirve">1. Qué es y para qué sirve</a></li>
+          <li class="d2"><a href="#2-requisitos">2. Requisitos</a></li>
+          <li class="d2"><a href="#3-instalación-y-arranque">3. Instalación y arranque</a></li>
+          <li class="d2">
+            <a href="#4-recorrido-por-el-dashboard">4. Recorrido por el dashboard</a>
+          </li>
+          <li class="d3"><a href="#41-encabezado">4.1 Encabezado</a></li>
+          <li class="d3"><a href="#42-los-10-paneles">4.2 Los 10 paneles</a></li>
+          <li class="d3"><a href="#43-personalizar">4.3 Personalizar</a></li>
+          <li class="d3"><a href="#44-guardado-del-proyecto">4.4 Guardado del proyecto</a></li>
+          <li class="d2"><a href="#5-flujos-paso-a-paso">5. Flujos paso a paso</a></li>
+          <li class="d3">
+            <a href="#flujo-1--cortar-y-exportar-un-clip">Flujo 1 — Cortar y exportar un clip</a>
+          </li>
+          <li class="d3">
+            <a href="#flujo-2--video-vertical-para-reelstiktok-con-subtítulos-animados"
+              >Flujo 2 — Video vertical para Reels/TikTok con subtítulos animados</a
+            >
+          </li>
+          <li class="d3">
+            <a href="#flujo-3--locución-con-tts--música-con-ducking"
+              >Flujo 3 — Locución con TTS + música con ducking</a
+            >
+          </li>
+          <li class="d3">
+            <a href="#flujo-4--cambiar-la-voz-con-rvc">Flujo 4 — Cambiar la voz con RVC</a>
+          </li>
+          <li class="d3">
+            <a href="#flujo-5--título-lower-third-y-pantalla-final-con-remotion"
+              >Flujo 5 — Título, lower-third y pantalla final con Remotion</a
+            >
+          </li>
+          <li class="d3">
+            <a href="#flujo-6--agregar-efectos-de-sonido-desde-la-biblioteca"
+              >Flujo 6 — Agregar efectos de sonido desde la biblioteca</a
+            >
+          </li>
+          <li class="d3">
+            <a href="#flujo-7--exportar-en-varios-formatos"
+              >Flujo 7 — Exportar en varios formatos</a
+            >
+          </li>
+          <li class="d2"><a href="#6-formatos-soportados">6. Formatos soportados</a></li>
+          <li class="d3">
+            <a href="#61-entrada-lo-que-podés-importar-en-media"
+              >6.1 Entrada (lo que podés importar en Media)</a
+            >
+          </li>
+          <li class="d3">
+            <a href="#62-salida-presets-de-exportación">6.2 Salida: presets de exportación</a>
+          </li>
+          <li class="d3">
+            <a href="#63-salida-de-motion-graphics">6.3 Salida de motion graphics</a>
+          </li>
+          <li class="d3">
+            <a href="#64-salida-de-voz-y-subtítulos">6.4 Salida de voz y subtítulos</a>
+          </li>
+          <li class="d2">
+            <a href="#7-límites-y-recomendaciones">7. Límites y recomendaciones</a>
+          </li>
+          <li class="d2">
+            <a href="#8-motion-graphics-catálogo-de-plantillas"
+              >8. Motion graphics: catálogo de plantillas</a
+            >
+          </li>
+          <li class="d2"><a href="#9-voz-piper-efectos-y-rvc">9. Voz: Piper, efectos y RVC</a></li>
+          <li class="d3">
+            <a href="#91-voces-piper-texto-a-voz-local">9.1 Voces Piper (texto a voz local)</a>
+          </li>
+          <li class="d3"><a href="#92-efectos-de-voz">9.2 Efectos de voz</a></li>
+          <li class="d3"><a href="#93-rvc-conversión-de-voz">9.3 RVC (conversión de voz)</a></li>
+          <li class="d2"><a href="#10-atajos-de-teclado">10. Atajos de teclado</a></li>
+          <li class="d2">
+            <a href="#11-variables-de-env-que-podés-tocar">11. Variables de .env que podés tocar</a>
+          </li>
+          <li class="d2"><a href="#12-solución-de-problemas">12. Solución de problemas</a></li>
+          <li class="d2"><a href="#13-cómo-reportar-un-error">13. Cómo reportar un error</a></li>
+          <li class="d2">
+            <a href="#14-pruebas-que-podés-hacer-hoy">14. Pruebas que podés hacer hoy</a>
+          </li>
+          <li class="d3">
+            <a href="#prompts-para-claude-listos-para-copiar-y-pegar"
+              >Prompts para Claude (listos para copiar y pegar)</a
+            >
+          </li>
+          <li class="d2"><a href="#15-limitaciones-conocidas">15. Limitaciones conocidas</a></li>
+          <li class="d2"><a href="#16-glosario">16. Glosario</a></li>
+        </ol>
+      </nav>
+      <main>
+        <h1 id="manual-de-usuario--studio">Manual de usuario — Studio</h1>
+        <blockquote>
+          <p>
+            Versión 0.1.0 · Escrito para personas que <strong>no</strong> programan. Todo lo que
+            aparece acá fue verificado contra el código del proyecto. Cuando algo no está limitado
+            por el programa, se indica como
+            <strong>&quot;sin límite impuesto; recomendado …&quot;</strong> con el motivo.
+          </p>
+        </blockquote>
+        <h2 id="1-qué-es-y-para-qué-sirve">1. Qué es y para qué sirve</h2>
+        <p>
+          <strong>Studio</strong> es un editor de video que se usa desde el navegador pero corre
+          <strong>entero en tu PC</strong> (Windows 10/11). No necesita cuenta ni nube: el navegador
+          habla con tres programas locales que se abren con <code>start.ps1</code>.
+        </p>
+        <p>Con Studio podés:</p>
+        <ul>
+          <li>
+            <strong>Editar video</strong>: importar archivos, ponerlos en una línea de tiempo con
+            pistas de video, audio, texto y motion; cortar, recortar, cambiar velocidad y volumen,
+            poner transiciones y un video dentro de otro (PiP).
+          </li>
+          <li>
+            <strong>Hacer motion graphics</strong> con 9 plantillas animadas (títulos, rótulos,
+            subtítulos animados, pantalla final, etc.), con fondo transparente para superponerlas al
+            video.
+          </li>
+          <li>
+            <strong>Trabajar la voz</strong>: generar locuciones con voces en español (texto a voz,
+            Piper), aplicar efectos (robot, teléfono, eco, voz grave…), limpiar y normalizar el
+            volumen, y cambiar una voz por otra con modelos RVC.
+          </li>
+          <li>
+            <strong>Generar subtítulos automáticos</strong> con Whisper, editarlos y quemarlos en el
+            video.
+          </li>
+          <li>
+            <strong>Agregar efectos de sonido y música</strong> desde una biblioteca local (con
+            packs CC0 de Kenney y tus propios archivos; Freesound opcional).
+          </li>
+          <li>
+            <strong>Exportar</strong> con presets listos: YouTube 1080p y 4K, Reels/TikTok, Shorts,
+            GIF y WebM con transparencia, o crear los tuyos.
+          </li>
+        </ul>
+        <p>Cómo está armado (solo para entender los mensajes):</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Pieza</th>
+                <th>Dirección</th>
+                <th>Qué hace</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>web</strong></td>
+                <td><code>http://localhost:3000</code></td>
+                <td>El dashboard que ves en el navegador.</td>
+              </tr>
+              <tr>
+                <td><strong>api</strong></td>
+                <td><code>http://127.0.0.1:3001</code></td>
+                <td>Guarda proyectos y archivos, maneja la cola de trabajos, FFmpeg.</td>
+              </tr>
+              <tr>
+                <td><strong>workers</strong></td>
+                <td><code>http://127.0.0.1:8001</code></td>
+                <td>Inteligencia artificial local: Whisper, Piper y RVC.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          Todo escucha solo en <code>127.0.0.1</code> (tu propia PC): nadie de tu red puede entrar.
+        </p>
+        <h2 id="2-requisitos">2. Requisitos</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Requisito</th>
+                <th>Mínimo</th>
+                <th>Recomendado</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Sistema</td>
+                <td>Windows 10 (21H2 o superior) u 11, <strong>64 bits</strong></td>
+                <td>Windows 11</td>
+              </tr>
+              <tr>
+                <td>Memoria (RAM)</td>
+                <td>8 GB</td>
+                <td>16 GB</td>
+              </tr>
+              <tr>
+                <td>Disco libre</td>
+                <td>10 GB para la instalación</td>
+                <td>
+                  20 GB (+4 GB si instalás CUDA) + espacio para tus proyectos (ver
+                  <a href="#7-límites-y-recomendaciones">§7</a>)
+                </td>
+              </tr>
+              <tr>
+                <td>GPU</td>
+                <td><strong>No hace falta</strong>: todo funciona en CPU</td>
+                <td>NVIDIA con driver 570 o superior (acelera Whisper y RVC)</td>
+              </tr>
+              <tr>
+                <td>Navegador</td>
+                <td>Microsoft Edge o Google Chrome</td>
+                <td>Chrome/Edge actualizados</td>
+              </tr>
+              <tr>
+                <td>Internet</td>
+                <td>Solo para instalar y para descargar modelos</td>
+                <td>—</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Notas:</p>
+        <ul>
+          <li>
+            <strong>Internet</strong>: se usa durante <code>setup.ps1</code> (programas,
+            dependencias, voz Piper, modelo Whisper, activos de RVC, navegador de Remotion) y cuando
+            pedís algo que no está descargado (por ejemplo, un modelo Whisper distinto o una voz
+            nueva). Las API de ElevenLabs, OpenAI y Freesound son <strong>opcionales</strong> y solo
+            se usan si ponés su clave.
+          </li>
+          <li>
+            <strong>GPU</strong>: el codificador de video por hardware (NVIDIA NVENC, Intel
+            QuickSync o AMD AMF) se detecta solo para exportar H.264; si falla, Studio vuelve al
+            codificador por CPU (<code>libx264</code>).
+          </li>
+          <li>
+            <strong>Navegador</strong>: usá Chrome o Edge. Chromium &quot;pelado&quot; no reproduce
+            H.264 en la vista previa.
+          </li>
+        </ul>
+        <h2 id="3-instalación-y-arranque">3. Instalación y arranque</h2>
+        <p>
+          La guía completa, con la solución de los errores típicos de instalación, está en
+          <strong><a href="../INSTALACION-WINDOWS.md">Instalación en Windows</a></strong
+          >. Resumen:
+        </p>
+        <ol>
+          <li>
+            <p>
+              Descargá el proyecto (ZIP o <code>git clone</code>) a una <strong>ruta corta</strong>,
+              por ejemplo <code>C:\dev\studio</code>. Si bajaste el ZIP, desbloqueá los scripts:
+              <code>Get-ChildItem -Recurse C:\dev\studio\scripts | Unblock-File</code>
+            </p>
+          </li>
+          <li>
+            <p>
+              Abrí <strong>Windows PowerShell</strong> (no hace falta como administrador) y entrá a
+              la carpeta: <code>cd C:\dev\studio</code>
+            </p>
+          </li>
+          <li>
+            <p>
+              Instalá todo (15–40 minutos según tu conexión; aceptá los avisos de Control de
+              cuentas):
+            </p>
+            <pre><code class="language-powershell">powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\setup.ps1
+</code></pre>
+            <p>
+              Con GPU NVIDIA agregá <code>-WithCuda</code> (también acepta <code>-Cuda</code>). Al
+              final verás una tabla con ✅/❌.
+            </p>
+          </li>
+          <li>
+            <p>Arrancá Studio (o doble clic en <code>scripts\windows\start.cmd</code>):</p>
+            <pre><code class="language-powershell">powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\start.ps1
+</code></pre>
+            <p>
+              Se abren tres ventanas (workers, api, web) y el navegador en
+              <a href="http://localhost:3000" rel="noopener">http://localhost:3000</a>.
+            </p>
+          </li>
+          <li>
+            <p>Para cerrar: cerrá esas ventanas o ejecutá <code>scripts\windows\stop.ps1</code>.</p>
+          </li>
+        </ol>
+        <p>Opciones de los scripts (verificadas en <code>scripts/windows/*.ps1</code>):</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Script</th>
+                <th>Opción</th>
+                <th>Para qué</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>setup.ps1</code></td>
+                <td><code>-WithCuda</code> (alias <code>-Cuda</code>)</td>
+                <td>
+                  Instala PyTorch con CUDA 12.8 y pone <code>USE_CUDA=true</code> en
+                  <code>.env</code>.
+                </td>
+              </tr>
+              <tr>
+                <td><code>setup.ps1</code></td>
+                <td><code>-WhisperModel small</code></td>
+                <td>Descarga otro modelo de subtítulos (por defecto <code>base</code>).</td>
+              </tr>
+              <tr>
+                <td><code>setup.ps1</code></td>
+                <td><code>-PiperVoice es_MX-claude-high</code></td>
+                <td>Descarga otra voz (por defecto la de <code>PIPER_DEFAULT_VOICE</code>).</td>
+              </tr>
+              <tr>
+                <td><code>setup.ps1</code></td>
+                <td><code>-SkipRvc</code></td>
+                <td>Instalación liviana sin PyTorch/RVC (RVC queda deshabilitado).</td>
+              </tr>
+              <tr>
+                <td><code>setup.ps1</code></td>
+                <td>
+                  <code>-SkipModels</code>, <code>-SkipBrowser</code>, <code>-SkipBuild</code>
+                </td>
+                <td>Saltea descargas de modelos, el navegador de Remotion o la compilación.</td>
+              </tr>
+              <tr>
+                <td><code>setup.ps1</code></td>
+                <td><code>-SkipWinget</code></td>
+                <td>No instala nada con winget (Git, Node 22, Python 3.11 y FFmpeg ya en PATH).</td>
+              </tr>
+              <tr>
+                <td><code>start.ps1</code></td>
+                <td><code>-SingleConsole</code></td>
+                <td>
+                  Todo en una sola consola con prefijos <code>[workers]</code>, <code>[api]</code>,
+                  <code>[web]</code>; Ctrl+C detiene todo.
+                </td>
+              </tr>
+              <tr>
+                <td><code>start.ps1</code></td>
+                <td><code>-NoBrowser</code></td>
+                <td>No abre el navegador.</td>
+              </tr>
+              <tr>
+                <td><code>start.ps1</code></td>
+                <td><code>-TimeoutSec 300</code></td>
+                <td>Espera más por cada servicio (por defecto 180 s).</td>
+              </tr>
+              <tr>
+                <td><code>start.ps1</code></td>
+                <td><code>-Dev</code></td>
+                <td>Modo desarrollo (recarga en caliente). No hace falta para usar Studio.</td>
+              </tr>
+              <tr>
+                <td><code>doctor.ps1</code></td>
+                <td>—</td>
+                <td>
+                  Diagnóstico de versiones, FFmpeg, GPU, modelos, puertos y servicios. No cambia
+                  nada.
+                </td>
+              </tr>
+              <tr>
+                <td><code>stop.ps1</code></td>
+                <td>—</td>
+                <td>Detiene lo que levantó <code>start.ps1</code>.</td>
+              </tr>
+              <tr>
+                <td><code>import-cc0.ps1</code> (en <code>scripts\library</code>)</td>
+                <td>
+                  <code>-ZipDir</code>, <code>-Packs</code>, <code>-Force</code>,
+                  <code>-NoScan</code>
+                </td>
+                <td>Descarga packs de sonidos CC0 de Kenney a la biblioteca.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <h2 id="4-recorrido-por-el-dashboard">4. Recorrido por el dashboard</h2>
+        <figure class="placeholder">
+          <div class="ph" role="img" aria-label="Captura pendiente">Captura pendiente</div>
+          <figcaption>
+            Vista general del dashboard: encabezado, paneles Media, Vista previa, Propiedades y
+            Línea de tiempo.
+          </figcaption>
+        </figure>
+        <p>
+          La pantalla tiene un <strong>encabezado</strong> arriba y debajo los
+          <strong>paneles</strong>, que podés mover, agrupar en pestañas, redimensionar y ocultar.
+        </p>
+        <h3 id="41-encabezado">4.1 Encabezado</h3>
+        <p>De izquierda a derecha:</p>
+        <ul>
+          <li>
+            <strong>Studio / nombre del proyecto</strong> y un indicador de guardado:
+            <em>Cambios sin guardar</em>, <em>Guardando…</em>, <em>Guardado</em>,
+            <em>Guardado local</em> (la API no responde: se guardó solo en este navegador) o
+            <em>Error al guardar</em>.
+          </li>
+          <li><strong>Comandos</strong> (<code>Ctrl+K</code>): abre la paleta de comandos.</li>
+          <li><strong>Paneles</strong> (ícono de paneles): mostrar u ocultar cada panel.</li>
+          <li>
+            <strong>Layouts</strong> (ícono de cuadrícula): <em>Restaurar layout</em>,
+            <em>Guardar layout actual…</em>, tus layouts guardados y <em>Gestionar layouts…</em>.
+          </li>
+          <li><strong>Tema</strong> (sol / luna / monitor): Claro, Oscuro o Sistema.</li>
+          <li>
+            <strong>Ajustes</strong> (engranaje): pestañas <em>Apariencia</em>, <em>Atajos</em> y
+            <em>Layouts</em>.
+          </li>
+        </ul>
+        <h3 id="42-los-10-paneles">4.2 Los 10 paneles</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Panel</th>
+                <th>Para qué sirve</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Media</strong></td>
+                <td>
+                  Importar archivos (botón <strong>Importar</strong> o arrastrar y soltar), ver
+                  miniatura y datos (duración, resolución, fps, tamaño), <strong>+</strong> para
+                  agregar a la línea de tiempo, varita para <strong>Generar proxy</strong>, tacho
+                  para borrar, filtro por nombre.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Biblioteca</strong></td>
+                <td>
+                  Buscar efectos de sonido y música (<em>Efectos</em>, <em>Música</em>,
+                  <em>Ambiente</em>), escucharlos, <strong>+</strong> para agregarlos a la línea de
+                  tiempo, <strong>Re-escanear</strong> la carpeta de la biblioteca y
+                  <strong>subir</strong> sonidos propios.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Vista previa</strong></td>
+                <td>
+                  Reproductor sincronizado con el cursor de la línea de tiempo: ir al inicio,
+                  fotograma anterior/siguiente, reproducir/pausar. Muestra el clip bajo el cursor
+                  (usa el proxy si existe), el audio, los textos, los subtítulos y los motion ya
+                  renderizados.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Línea de tiempo</strong></td>
+                <td>
+                  Pistas y clips. Barra: <strong>Pista</strong> (agregar pista de video, audio,
+                  texto o motion), <strong>Texto</strong> (clip de texto en el cursor),
+                  deshacer/rehacer, tijera (<strong>dividir</strong> en el cursor), tacho,
+                  <strong>imán</strong>, tiempo actual / total y zoom.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Propiedades</strong></td>
+                <td>
+                  Sin clip seleccionado: nombre y tamaño del proyecto (ancho, alto, FPS y botones
+                  <em>16:9 1080p</em>, <em>9:16 vertical</em>, <em>1:1</em>) y datos del medio
+                  seleccionado. Con un clip: tiempo (inicio, entrada, salida, velocidad), imagen
+                  (opacidad, escala y posición PiP, transiciones), audio (volumen, efectos
+                  guardados), texto (fuente, tamaño, color, posición).
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Motion graphics</strong></td>
+                <td>
+                  Elegir plantilla, editar parámetros, duración y formato;
+                  <strong>Renderizar y añadir</strong>, <strong>Añadir sin render</strong> o
+                  <strong>Actualizar clip y renderizar</strong>. Arriba se ve qué motores están
+                  disponibles.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Voz y audio</strong></td>
+                <td>
+                  Tres pestañas: <strong>Texto a voz</strong>, <strong>Efectos</strong> y
+                  <strong>RVC</strong>.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Subtítulos</strong></td>
+                <td>
+                  <strong>Transcribir (Whisper)</strong> el clip seleccionado (idioma y modelo),
+                  editar segmentos, <strong>Descargar SRT</strong>, elegir <strong>estilo</strong> y
+                  <strong>Renderizar subtítulos como motion</strong>.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Exportar</strong></td>
+                <td>
+                  Elegir preset, duplicarlo y editarlo, nombre del archivo, exportar un rango, y la
+                  lista de <strong>Exportaciones recientes</strong> con <strong>Descargar</strong>.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Trabajos</strong></td>
+                <td>
+                  Todo lo que tarda (análisis, proxies, renders, voz, transcripción, exportación)
+                  con su progreso. Permite cancelar, abrir el resultado, filtrar
+                  <em>Todos/Activos</em> y limpiar terminados. Arriba indica la conexión:
+                  <em>En vivo</em>, <em>Consulta periódica</em> o <em>Sin conexión</em>.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Cómo se trabaja en la <strong>línea de tiempo</strong>:</p>
+        <ul>
+          <li>
+            <strong>Mover</strong> un clip: arrastralo (puede pasar a otra pista del mismo tipo).
+          </li>
+          <li><strong>Recortar</strong>: arrastrá los bordes del clip.</li>
+          <li><strong>Dividir</strong>: poné el cursor y tocá <code>S</code> (o la tijera).</li>
+          <li>
+            <strong>Zoom</strong>: <code>Ctrl</code> + rueda del mouse, el control deslizante o las
+            teclas <code>=</code> y <code>-</code>.
+          </li>
+          <li>
+            <strong>Imán</strong> (<code>N</code>): pega los clips al 0, al cursor y a los bordes de
+            otros clips.
+          </li>
+          <li>
+            Cada pista tiene botones para <strong>silenciar</strong>, <strong>ocultar</strong>,
+            <strong>bloquear</strong> y <strong>eliminar</strong> (solo se elimina si está vacía).
+          </li>
+          <li>
+            <strong>Orden de las capas</strong>: las pistas se apilan en el orden de la lista; la
+            pista de <strong>más arriba queda al fondo</strong> de la imagen y las que agregás
+            después quedan <strong>encima</strong>. (No hay forma de reordenar pistas desde la
+            interfaz.)
+          </li>
+          <li>Hasta <strong>100 pasos</strong> de deshacer/rehacer.</li>
+        </ul>
+        <figure class="placeholder">
+          <div class="ph" role="img" aria-label="Captura pendiente">Captura pendiente</div>
+          <figcaption>Línea de tiempo con pistas de video, audio, texto y motion.</figcaption>
+        </figure>
+        <h3 id="43-personalizar">4.3 Personalizar</h3>
+        <ul>
+          <li>
+            <strong>Mover paneles</strong>: arrastrá la pestaña del panel a otro lugar (al centro de
+            otro grupo para sumarlo como pestaña, o a un borde para dividir). Los bordes entre
+            paneles se arrastran para cambiar el tamaño.
+          </li>
+          <li>
+            <strong>Ocultar / mostrar</strong>: menú <strong>Paneles</strong> del encabezado o, en
+            la paleta, <em>Mostrar panel: …</em> / <em>Ocultar panel: …</em>.
+          </li>
+          <li>
+            <strong>Layouts guardados</strong>: menú
+            <strong>Layouts → Guardar layout actual…</strong> y escribí un nombre. Los ves en el
+            mismo menú y en <strong>Ajustes → Layouts</strong> (Aplicar, eliminar).
+            <strong>Restaurar layout</strong> (<code>Ctrl+Shift+R</code>) vuelve a la distribución
+            original.
+          </li>
+          <li>
+            <strong>Apariencia</strong> (Ajustes → Apariencia): tema Claro/Oscuro/Sistema,
+            <strong>color de acento</strong> (muestras o <em>Personalizado</em>) y
+            <strong>densidad</strong> Compacta/Cómoda/Amplia.
+          </li>
+          <li>
+            <strong>Atajos</strong> (Ajustes → Atajos): hacé clic en un atajo y apretá la nueva
+            combinación; <code>Esc</code> cancela y <code>Retroceso</code> lo deja vacío. Si dos
+            acciones usan la misma tecla aparece el aviso <em>Hay atajos repetidos</em>.
+            <strong>Restablecer</strong> vuelve a los de fábrica.
+          </li>
+          <li>
+            <strong>Paleta de comandos</strong> (<code>Ctrl+K</code> o botón
+            <strong>Comandos</strong>): escribí parte del nombre y Enter. Incluye todas las acciones
+            con atajo, mostrar/ocultar/ir a cada panel, aplicar layouts, cambiar tema, abrir
+            ajustes, agregar pistas, <em>Añadir clip de texto en el cursor</em>,
+            <em>Nuevo proyecto</em> y <em>Reportar error</em> (ver
+            <a href="#13-cómo-reportar-un-error">§13</a>).
+          </li>
+        </ul>
+        <p>
+          Dónde se guarda: los ajustes y el layout se guardan en el navegador <strong>y</strong> en
+          la API local (gana la copia más nueva), así sobreviven a borrar el historial del
+          navegador.
+        </p>
+        <figure class="placeholder">
+          <div class="ph" role="img" aria-label="Captura pendiente">Captura pendiente</div>
+          <figcaption>Ajustes: apariencia, atajos y layouts.</figcaption>
+        </figure>
+        <h3 id="44-guardado-del-proyecto">4.4 Guardado del proyecto</h3>
+        <ul>
+          <li>
+            Studio trabaja con <strong>un proyecto abierto a la vez</strong>. Cada cambio se guarda
+            solo (a los 1,5 s) en el navegador y en la API. <code>Ctrl+S</code> fuerza el guardado.
+          </li>
+          <li>
+            <strong>Nuevo proyecto</strong> (paleta) reemplaza el proyecto abierto por uno vacío de
+            1920×1080 a 30 fps con cuatro pistas (video, audio, texto, motion).
+            <strong>No hay una lista para volver a abrir proyectos anteriores</strong> desde la
+            interfaz: exportá antes de empezar otro.
+          </li>
+        </ul>
+        <h2 id="5-flujos-paso-a-paso">5. Flujos paso a paso</h2>
+        <h3 id="flujo-1--cortar-y-exportar-un-clip">Flujo 1 — Cortar y exportar un clip</h3>
+        <ol>
+          <li>
+            En <strong>Media</strong>, tocá <strong>Importar</strong> (o arrastrá el archivo al
+            panel). Esperá en <strong>Trabajos</strong> a que terminen <em>Analizar medio</em> y
+            <em>Generar proxy</em>.
+          </li>
+          <li>
+            Tocá <strong>+</strong> en el medio (o arrastralo a la pista de video). El clip arranca
+            en el cursor.
+          </li>
+          <li>
+            Llevá el cursor al punto de corte (clic en la regla o <code>←</code>/<code>→</code>
+            fotograma a fotograma) y tocá <code>S</code>.
+          </li>
+          <li>
+            Seleccioná la parte que no querés y apretá <code>Supr</code>. Repetí para el final.
+          </li>
+          <li>
+            Si quedó un hueco al principio, seleccioná el clip y en
+            <strong>Propiedades → Tiempo</strong> poné <em>Inicio en timeline (s)</em> en
+            <code>0</code>. Para recortes exactos usá <em>Entrada (s)</em> y <em>Salida (s)</em>.
+          </li>
+          <li>
+            Abrí <strong>Exportar</strong> (<code>Ctrl+E</code>), elegí
+            <strong>YouTube 1080p (16:9)</strong>, escribí un nombre (opcional) y tocá
+            <strong>Exportar</strong>.
+          </li>
+          <li>
+            Cuando el trabajo diga <em>Completado</em>, tocá <strong>Descargar</strong> en
+            <em>Exportaciones recientes</em>. El archivo también queda en
+            <code>storage\exports\&lt;nombre&gt;-&lt;fecha&gt;.mp4</code>.
+          </li>
+        </ol>
+        <p>
+          Tip: para exportar solo un tramo sin cortar, marcá <em>Exportar solo un rango</em> y
+          completá <em>Desde (s)</em> / <em>Hasta (s)</em>.
+        </p>
+        <h3 id="flujo-2--video-vertical-para-reelstiktok-con-subtítulos-animados">
+          Flujo 2 — Video vertical para Reels/TikTok con subtítulos animados
+        </h3>
+        <p><strong>Decidí primero el lienzo</strong> (Propiedades, sin clip seleccionado):</p>
+        <ul>
+          <li>
+            <strong>Video grabado vertical</strong>: tocá
+            <strong>9:16 vertical</strong> (1080×1920).
+          </li>
+          <li>
+            <strong>Video horizontal</strong>: dejá el proyecto en 16:9. Al exportar con el preset
+            vertical, Studio pone el cuadro completo centrado con un
+            <strong>fondo desenfocado</strong> arriba y abajo. (Si en cambio ponés el proyecto en
+            9:16 con un video horizontal, el video queda con <strong>barras negras</strong>: no hay
+            recorte ni zoom en la interfaz.)
+          </li>
+        </ul>
+        <p>Pasos:</p>
+        <ol>
+          <li>Importá el video y agregalo a la pista de video (como en el flujo 1).</li>
+          <li>
+            Seleccioná el clip. En <strong>Subtítulos → Transcribir (Whisper)</strong> elegí
+            <em>Idioma</em> (Español) y <em>Modelo</em> (<em>Por defecto</em> usa
+            <code>WHISPER_MODEL</code> de <code>.env</code>) y tocá
+            <strong>Transcribir clip</strong>.
+          </li>
+          <li>
+            Cuando termine, los segmentos aparecen en la lista. Corregí el texto que haga falta (al
+            editar un segmento se pierden los tiempos por palabra de ese segmento) y ajustá
+            <em>Estilo de subtítulos</em>: los presets <em>Clásico</em>,
+            <em>Reels (palabra a palabra)</em>, <em>Karaoke</em>, <em>Minimal</em> y
+            <em>Titular arriba</em>, más tamaño, posición, colores, animación y mayúsculas.
+          </li>
+          <li>
+            <strong>Subtítulos simples (quemados)</strong>: con eso alcanza. Al exportar, los
+            segmentos se queman con FFmpeg usando la fuente, tamaño, color, posición y mayúsculas
+            del estilo (sin animación).
+          </li>
+          <li>
+            <strong>Subtítulos animados (palabra a palabra)</strong>: el botón
+            <em>Renderizar subtítulos como motion</em> hoy <strong>falla</strong> (ver
+            <a href="#15-limitaciones-conocidas">§15</a>). Hacelo así:
+            <ol>
+              <li>
+                En el aviso de <em>Transcripción: completado</em> (o en
+                <strong>Trabajos → Abrir resultado</strong>) se abre un archivo
+                <code>.json</code> (<code>storage\renders\&lt;id&gt;.json</code>). Copiá todo su
+                contenido.
+              </li>
+              <li>
+                En <strong>Motion graphics</strong> elegí
+                <strong>Subtítulos animados · remotion</strong>.
+              </li>
+              <li>
+                Pegá el contenido en <em>Transcripción (palabra a palabra) (JSON)</em> y hacé clic
+                fuera del campo.
+              </li>
+              <li>
+                Elegí <em>Estilo</em> (<code>highlight</code>, <code>karaoke</code>,
+                <code>pop</code>, <code>box</code>), <em>Posición</em>, colores, etc. Dejá
+                <em>Fondo</em> en <code>transparent</code> y <em>Formato</em> en
+                <strong>WebM VP9 con alfa (overlay)</strong>.
+              </li>
+              <li>En <em>Duración (s)</em> poné la duración del clip.</li>
+              <li>
+                Llevá el cursor al <strong>inicio del clip de video</strong> y tocá
+                <strong>Renderizar y añadir</strong>. Los tiempos del JSON cuentan desde el comienzo
+                del archivo original: coinciden si el clip tiene <em>Entrada (s)</em> = 0.
+              </li>
+              <li>
+                Para no ver los subtítulos dos veces, borrá los segmentos de la lista del panel
+                Subtítulos (tacho de cada uno): esos se queman siempre al exportar.
+              </li>
+            </ol>
+          </li>
+          <li>
+            Exportá con <strong>Reels / TikTok (9:16)</strong> (1080×1920, 30 fps) o
+            <strong>YouTube Shorts (9:16)</strong> (1080×1920, 60 fps).
+          </li>
+        </ol>
+        <figure class="placeholder">
+          <div class="ph" role="img" aria-label="Captura pendiente">Captura pendiente</div>
+          <figcaption>Panel Subtítulos: transcripción con Whisper, segmentos y estilos.</figcaption>
+        </figure>
+        <h3 id="flujo-3--locución-con-tts--música-con-ducking">
+          Flujo 3 — Locución con TTS + música con ducking
+        </h3>
+        <p><strong>Generar la voz</strong></p>
+        <ol>
+          <li>Llevá el cursor a donde querés que empiece la voz.</li>
+          <li>
+            <strong>Voz y audio → Texto a voz</strong>: <em>Proveedor</em>
+            <strong>Piper (local)</strong>, elegí la <em>Voz</em>, escribí el <em>Texto</em> (hasta
+            20 000 caracteres), ajustá <em>Velocidad</em> (0,5× a 2×) y tocá
+            <strong>Generar y añadir al cursor</strong>. El audio aparece en una pista de audio.
+          </li>
+          <li>
+            Opcional: seleccioná el clip y en <strong>Efectos</strong> usá el preset
+            <strong>Voz limpia</strong> (reducción de ruido + normalización a −16 LUFS) →
+            <strong>Aplicar (crea un nuevo audio)</strong>.
+          </li>
+        </ol>
+        <p><strong>Agregar la música</strong></p>
+        <ol start="4">
+          <li>
+            Importá la música en <strong>Media</strong> (o buscala en
+            <strong>Biblioteca</strong> con el filtro <em>Música</em>) y agregala. Queda en otra
+            pista de audio.
+          </li>
+        </ol>
+        <p><strong>Bajar la música bajo la voz — dos opciones</strong></p>
+        <ul>
+          <li>
+            <strong>Opción A, desde el dashboard (sin ducking automático)</strong>: seleccioná el
+            clip de música y en <strong>Propiedades → Audio</strong> bajá el <em>Volumen</em> (por
+            ejemplo al 20–30 %). Si querés que suba en las pausas, dividí la música (<code>S</code>)
+            y poné volúmenes distintos a cada parte.
+          </li>
+          <li>
+            <strong>Opción B, ducking automático (avanzado)</strong>: el efecto
+            <em>ducking</em> existe en el motor de audio pero
+            <strong>no tiene botón en el dashboard</strong> (ver
+            <a href="#15-limitaciones-conocidas">§15</a>). Se pide a la API desde PowerShell y
+            genera un único audio con la voz + la música que baja sola cuando hay voz:
+            <ol>
+              <li>
+                <p>
+                  Averiguá los identificadores: clic en el medio de la voz en
+                  <strong>Media</strong> (sin clip seleccionado en la línea de tiempo) y mirá en
+                  <strong>Propiedades → Medio seleccionado</strong> la ruta
+                  <code>media/&lt;ID&gt;.&lt;ext&gt;</code>; hacé lo mismo con la música.
+                </p>
+              </li>
+              <li>
+                <p>En PowerShell:</p>
+                <pre><code class="language-powershell">$body = @{
+  assetId = &quot;ID_DE_LA_VOZ&quot;
+  format  = &quot;wav&quot;
+  effects = @(@{ type = &quot;ducking&quot;; musicAssetId = &quot;ID_DE_LA_MUSICA&quot;;
+                 threshold = 0.05; ratio = 8; attackMs = 20; releaseMs = 400; musicVolume = 1 })
+} | ConvertTo-Json -Depth 5
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3001/api/voice/effects `
+  -ContentType &#39;application/json&#39; -Body $body
+</code></pre>
+              </li>
+              <li>
+                <p>
+                  Aparece un trabajo <em>Efecto de voz</em>. Al terminar, en
+                  <strong>Media</strong> (botón recargar) hay un audio nuevo llamado
+                  <code>&lt;nombre de la voz&gt; (efecto)</code>. Reemplazá los dos clips por ese.
+                </p>
+              </li>
+            </ol>
+            <ul>
+              <li>
+                <code>threshold</code> (0,000977–1): desde qué nivel de voz baja la música.
+                <code>ratio</code> (1–20): cuánto baja.
+                <code>attackMs</code>/<code>releaseMs</code>: qué tan rápido baja y vuelve.
+                <code>musicVolume</code> (0–4): volumen base de la música. El audio resultante dura
+                lo que el más largo de los dos.
+              </li>
+            </ul>
+          </li>
+        </ul>
+        <figure class="placeholder">
+          <div class="ph" role="img" aria-label="Captura pendiente">Captura pendiente</div>
+          <figcaption>Panel Voz y audio: texto a voz, efectos y RVC.</figcaption>
+        </figure>
+        <h3 id="flujo-4--cambiar-la-voz-con-rvc">Flujo 4 — Cambiar la voz con RVC</h3>
+        <ol>
+          <li>
+            Conseguí un modelo RVC <strong>ya entrenado</strong> (Studio no entrena modelos) y
+            copialo en <code>models\rvc\&lt;nombre&gt;\</code> (ver
+            <a href="#93-rvc-conversión-de-voz">§9.3</a>). Recargá la página.
+          </li>
+          <li>Seleccioná en la línea de tiempo el clip con la voz original.</li>
+          <li>
+            <strong>Voz y audio → RVC</strong>: elegí <em>Modelo</em>, <em>Cambio de tono</em> (−24
+            a +24 semitonos; +12 suele usarse para pasar de voz masculina a femenina y −12 al
+            revés), <em>Índice de rasgos</em> (0 a 1, por defecto 0,75), <em>Método F0</em> (<strong
+              >rmvpe</strong
+            >
+            recomendado, <strong>pm</strong> más rápido, harvest, crepe) y, si está habilitado,
+            <em>Usar GPU (CUDA)</em>.
+          </li>
+          <li>
+            Tocá <strong>Convertir voz</strong>. En CPU tarda (ver
+            <a href="#7-límites-y-recomendaciones">§7</a>). Al terminar, el clip pasa a usar el
+            audio convertido.
+          </li>
+        </ol>
+        <p>Usá solo voces propias o con permiso explícito de la persona.</p>
+        <h3 id="flujo-5--título-lower-third-y-pantalla-final-con-remotion">
+          Flujo 5 — Título, lower-third y pantalla final con Remotion
+        </h3>
+        <ol>
+          <li>Llevá el cursor a donde va el gráfico.</li>
+          <li>
+            <strong>Motion graphics → Plantilla</strong>: elegí <strong>Título</strong>,
+            <strong>Rótulo (lower third)</strong> o <strong>Pantalla final (CTA)</strong> (todas del
+            motor <code>remotion</code>).
+          </li>
+          <li>
+            Editá los <em>Parámetros</em> (textos, estilo, tipografía, colores). Para que se
+            superponga al video, escribí <code>transparent</code> en el campo de texto de
+            <em>Fondo</em> (el selector de color solo elige colores).
+          </li>
+          <li>
+            <em>Formato</em>: <strong>WebM VP9 con alfa (overlay)</strong> para usarlo dentro de
+            Studio. <em>Duración (s)</em>: por defecto 3 s (título), 5 s (rótulo) y 8 s (pantalla
+            final).
+          </li>
+          <li>
+            Tocá <strong>Renderizar y añadir</strong>: se crea el clip en la pista
+            <strong>Motion</strong> y se renderiza (mirá <strong>Trabajos → Render motion</strong>).
+            La vista del panel es aproximada; cuando termina aparece el video del último render.
+          </li>
+          <li>
+            Para cambiarlo: seleccioná el clip, tocá <em>Editar el clip motion seleccionado</em>,
+            cambiá los parámetros y <strong>Actualizar clip y renderizar</strong>.
+          </li>
+        </ol>
+        <p>
+          Un clip motion que dice <em>Sin renderizar</em> en Propiedades
+          <strong>no sale en la exportación</strong>.
+        </p>
+        <figure class="placeholder">
+          <div class="ph" role="img" aria-label="Captura pendiente">Captura pendiente</div>
+          <figcaption>Panel Motion graphics: plantilla, parámetros y render.</figcaption>
+        </figure>
+        <h3 id="flujo-6--agregar-efectos-de-sonido-desde-la-biblioteca">
+          Flujo 6 — Agregar efectos de sonido desde la biblioteca
+        </h3>
+        <ol>
+          <li>
+            Una vez: cargá sonidos. Opciones:
+            <ul>
+              <li>
+                Packs CC0 de Kenney:
+                <code
+                  >powershell -NoProfile -ExecutionPolicy Bypass -File
+                  scripts\library\import-cc0.ps1</code
+                >
+              </li>
+              <li>
+                Copiá tus archivos a <code>storage\library\sfx\</code>, <code>music\</code> o
+                <code>ambience\</code> (las subcarpetas se vuelven etiquetas) y tocá
+                <strong>Re-escanear</strong> en <strong>Biblioteca</strong>.
+              </li>
+              <li>
+                O usá el botón de subir de <strong>Biblioteca</strong> (los archivos subidos entran
+                como <em>Efectos</em> con licencia &quot;unknown&quot;).
+              </li>
+            </ul>
+          </li>
+          <li>
+            En <strong>Biblioteca</strong>, escribí en <em>Buscar sonidos y música…</em> (por
+            ejemplo <code>click</code>, <code>puerta</code>), filtrá por tipo y proveedor (<em
+              >Local</em
+            >
+            o Freesound si configuraste la clave).
+          </li>
+          <li>Tocá ▶ para escuchar y <strong>+</strong> para agregarlo a la línea de tiempo.</li>
+          <li>
+            Movelo al momento justo y ajustá su volumen en <strong>Propiedades → Audio</strong>.
+          </li>
+        </ol>
+        <p>
+          La licencia y la atribución de cada sonido se ven en la lista. Si la licencia pide
+          atribución (por ejemplo CC-BY), poné el crédito en la descripción de tu video.
+        </p>
+        <h3 id="flujo-7--exportar-en-varios-formatos">Flujo 7 — Exportar en varios formatos</h3>
+        <ol>
+          <li>
+            Abrí <strong>Exportar</strong> y elegí un preset de la tabla de
+            <a href="#62-salida-presets-de-exportación">§6.2</a>.
+          </li>
+          <li>
+            Para un formato propio: elegí uno parecido, tocá <strong>Duplicar preset</strong> y
+            cambiá <em>Nombre</em>, <em>Aspecto</em>, <em>Ancho</em>, <em>Alto</em>, <em>FPS</em>,
+            <em>Contenedor</em>, <em>Códec de video</em>, <em>Calidad CRF (0–51)</em> o
+            <em>Bitrate video (kbps)</em> (si lo completás, se ignora el CRF),
+            <em>Códec de audio</em> y <em>Bitrate audio (kbps)</em>. Tocá
+            <strong>Guardar preset</strong>.
+            <ul>
+              <li>Los presets incluidos no se editan ni se borran: duplicalos.</li>
+              <li>
+                Combinaciones que funcionan: <strong>MP4 + H.264 o H.265 + AAC</strong>,
+                <strong>WebM + VP9</strong> (el audio pasa siempre a Opus),
+                <strong>MOV + ProRes + AAC o PCM</strong>.
+              </li>
+              <li>
+                Ejemplos útiles: Instagram 4:5 (1080×1350), cuadrado 1:1 (1080×1080), H.265 para
+                archivos más chicos, ProRes para llevar a otro editor.
+              </li>
+            </ul>
+          </li>
+          <li>
+            Exportá una vez por preset. Cada exportación es un trabajo nuevo y un archivo nuevo en
+            <code>storage\exports\</code>.
+          </li>
+          <li>
+            <strong>Con transparencia</strong>: el preset
+            <strong>WebM con transparencia (VP9)</strong> deja transparente lo que no tiene imagen
+            (útil para exportar solo gráficos). Si hay un video ocupando todo el cuadro, no va a
+            quedar nada transparente.
+          </li>
+          <li><strong>GIF 480p</strong>: 480×270 a 12 fps, sin audio, en bucle.</li>
+        </ol>
+        <figure class="placeholder">
+          <div class="ph" role="img" aria-label="Captura pendiente">Captura pendiente</div>
+          <figcaption>Panel Exportar: presets, rango y exportaciones recientes.</figcaption>
+        </figure>
+        <h2 id="6-formatos-soportados">6. Formatos soportados</h2>
+        <h3 id="61-entrada-lo-que-podés-importar-en-media">
+          6.1 Entrada (lo que podés importar en Media)
+        </h3>
+        <p>
+          El tipo se decide por la <strong>extensión</strong> del archivo
+          (<code>apps/api/src/services/media-files.ts</code>).
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Tipo</th>
+                <th>Extensiones aceptadas</th>
+                <th>Qué hace Studio</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Video</td>
+                <td>mp4, mov, mkv, webm, avi, m4v, mts, m2ts, ts, wmv, flv, mpg, mpeg, 3gp, gif</td>
+                <td>
+                  Analiza (duración, resolución, fps, audio), miniatura, tira de miniaturas, forma
+                  de onda y <strong>proxy 360p</strong> automático.
+                </td>
+              </tr>
+              <tr>
+                <td>Audio</td>
+                <td>mp3, wav, m4a, aac, flac, ogg, opus, wma, aif, aiff</td>
+                <td>Analiza y calcula la forma de onda.</td>
+              </tr>
+              <tr>
+                <td>Imagen</td>
+                <td>png, jpg, jpeg, webp, bmp, tif, tiff</td>
+                <td>Se usa como clip de video fijo (dura lo que estires el clip).</td>
+              </tr>
+              <tr>
+                <td>Subtítulos</td>
+                <td>srt, ass, vtt</td>
+                <td>
+                  Se guardan en Media, pero <strong>hoy no se cargan</strong> en el panel Subtítulos
+                  ni se queman (ver <a href="#15-limitaciones-conocidas">§15</a>).
+                </td>
+              </tr>
+              <tr>
+                <td>Lottie</td>
+                <td>json, lottie</td>
+                <td>
+                  Se guardan en Media. Para animarlos usá la plantilla
+                  <strong>Animación Lottie</strong> con la URL del archivo (ver
+                  <a href="#8-motion-graphics-catálogo-de-plantillas">§8</a>).
+                </td>
+              </tr>
+              <tr>
+                <td>Biblioteca de sonidos</td>
+                <td>wav, mp3, ogg, oga, opus, flac, m4a, aac</td>
+                <td>Se indexan con búsqueda, etiquetas, licencia y forma de onda.</td>
+              </tr>
+              <tr>
+                <td>Modelos RVC</td>
+                <td>
+                  <code>.pth</code> (obligatorio) + <code>.index</code> (opcional) en
+                  <code>models\rvc\&lt;nombre&gt;\</code>
+                </td>
+                <td>Aparecen en <strong>Voz y audio → RVC</strong>.</td>
+              </tr>
+              <tr>
+                <td>Voces Piper</td>
+                <td>
+                  <code>&lt;voz&gt;.onnx</code> + <code>&lt;voz&gt;.onnx.json</code> en
+                  <code>models\piper\</code>
+                </td>
+                <td>Aparecen en <strong>Texto a voz</strong>.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          Si el archivo no tiene extensión reconocida pero el navegador informa un tipo
+          <code>video/*</code>, <code>audio/*</code> o <code>image/*</code>, también se acepta.
+          Cualquier otro tipo da <em>Tipo de archivo no soportado</em>.
+        </p>
+        <h3 id="62-salida-presets-de-exportación">6.2 Salida: presets de exportación</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Preset</th>
+                <th>Contenedor</th>
+                <th>Video</th>
+                <th>Resolución</th>
+                <th>FPS</th>
+                <th>Calidad</th>
+                <th>Audio</th>
+                <th>Alfa</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>YouTube 1080p (16:9)</td>
+                <td>MP4</td>
+                <td>H.264</td>
+                <td>1920×1080</td>
+                <td>30</td>
+                <td>CRF 20</td>
+                <td>AAC 192 kbps</td>
+                <td>No</td>
+              </tr>
+              <tr>
+                <td>YouTube 4K (16:9)</td>
+                <td>MP4</td>
+                <td>H.264</td>
+                <td>3840×2160</td>
+                <td>30</td>
+                <td>CRF 18</td>
+                <td>AAC 192 kbps</td>
+                <td>No</td>
+              </tr>
+              <tr>
+                <td>Reels / TikTok (9:16)</td>
+                <td>MP4</td>
+                <td>H.264</td>
+                <td>1080×1920</td>
+                <td>30</td>
+                <td>CRF 21</td>
+                <td>AAC 160 kbps</td>
+                <td>No</td>
+              </tr>
+              <tr>
+                <td>YouTube Shorts (9:16)</td>
+                <td>MP4</td>
+                <td>H.264</td>
+                <td>1080×1920</td>
+                <td>60</td>
+                <td>CRF 20</td>
+                <td>AAC 192 kbps</td>
+                <td>No</td>
+              </tr>
+              <tr>
+                <td>GIF 480p</td>
+                <td>GIF</td>
+                <td>GIF (paleta)</td>
+                <td>480×270</td>
+                <td>12</td>
+                <td>—</td>
+                <td>sin audio</td>
+                <td>No</td>
+              </tr>
+              <tr>
+                <td>WebM con transparencia (VP9)</td>
+                <td>WebM</td>
+                <td>VP9 (<code>yuva420p</code>)</td>
+                <td>1920×1080</td>
+                <td>30</td>
+                <td>CRF 30</td>
+                <td>Opus 160 kbps</td>
+                <td>Sí</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Detalles:</p>
+        <ul>
+          <li>
+            Audio siempre a 48 kHz. MP4 y MOV salen con <em>faststart</em> (empiezan a reproducirse
+            antes de descargarse del todo).
+          </li>
+          <li>
+            <strong>H.264</strong> usa el codificador por hardware si existe (NVENC, QuickSync o
+            AMF) o <code>libx264</code> (preset <em>medium</em>, perfil <em>high</em>).
+            <strong>H.265</strong> usa <code>libx265</code> (CPU). <strong>VP9</strong> usa
+            <code>libvpx-vp9</code>. <strong>ProRes</strong> usa <code>prores_ks</code> (perfil HQ;
+            4444 con alfa).
+          </li>
+          <li>
+            Si el aspecto del proyecto y del preset difieren, el cuadro entra completo con
+            <strong>fondo desenfocado</strong> (o con bordes transparentes si el preset tiene alfa).
+          </li>
+          <li>
+            Nombre del archivo:
+            <code
+              >storage\exports\&lt;nombre-o-proyecto&gt;-&lt;AAAAMMDD-HHMMSS&gt;.&lt;ext&gt;</code
+            >.
+          </li>
+        </ul>
+        <h3 id="63-salida-de-motion-graphics">6.3 Salida de motion graphics</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Formato (panel Motion)</th>
+                <th>Archivo</th>
+                <th>Alfa</th>
+                <th>Uso</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>MP4 H.264 (sin alfa)</td>
+                <td><code>.mp4</code></td>
+                <td>No</td>
+                <td>Gráfico con fondo propio.</td>
+              </tr>
+              <tr>
+                <td>WebM VP9 con alfa (overlay)</td>
+                <td><code>.webm</code></td>
+                <td>Sí</td>
+                <td><strong>Recomendado</strong> para usar en Studio.</td>
+              </tr>
+              <tr>
+                <td>ProRes 4444 con alfa</td>
+                <td><code>.mov</code></td>
+                <td>Sí</td>
+                <td>Llevar a otro editor (Premiere, Resolve, Final Cut).</td>
+              </tr>
+              <tr>
+                <td>Secuencia PNG</td>
+                <td>carpeta de <code>.png</code></td>
+                <td>Sí</td>
+                <td>Otros programas de composición.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Se guardan en <code>storage\renders\&lt;id-del-trabajo&gt;.&lt;ext&gt;</code>.</p>
+        <h3 id="64-salida-de-voz-y-subtítulos">6.4 Salida de voz y subtítulos</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Función</th>
+                <th>Archivo</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Texto a voz</td>
+                <td>WAV en <code>storage\renders\</code> (nuevo medio de audio).</td>
+              </tr>
+              <tr>
+                <td>Efectos de voz</td>
+                <td>WAV 48 kHz (la API también acepta MP3 y M4A).</td>
+              </tr>
+              <tr>
+                <td>RVC</td>
+                <td>Audio nuevo en <code>storage\renders\</code>.</td>
+              </tr>
+              <tr>
+                <td>Transcripción</td>
+                <td>
+                  JSON + SRT + ASS (karaoke) en <code>storage\renders\</code>; botón
+                  <strong>Descargar SRT</strong> en el panel.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <h2 id="7-límites-y-recomendaciones">7. Límites y recomendaciones</h2>
+        <p><strong>Impuestos por el programa</strong> (si los superás, Studio muestra un error):</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Qué</th>
+                <th>Límite</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Tamaño de cada archivo importado</td>
+                <td>20 GB (error <em>El archivo supera el límite</em>).</td>
+              </tr>
+              <tr>
+                <td>Proyecto guardado (JSON)</td>
+                <td>10 MB por pedido a la API (un proyecto normal pesa unos KB).</td>
+              </tr>
+              <tr>
+                <td>Texto a voz</td>
+                <td>20 000 caracteres por pedido; velocidad 0,5× a 2×.</td>
+              </tr>
+              <tr>
+                <td>Velocidad de un clip</td>
+                <td>0,1× a 4× en Propiedades.</td>
+              </tr>
+              <tr>
+                <td>Volumen de un clip</td>
+                <td>0 % a 400 %.</td>
+              </tr>
+              <tr>
+                <td>Transiciones</td>
+                <td>0,05 a 10 s.</td>
+              </tr>
+              <tr>
+                <td>Escala PiP / posición</td>
+                <td>Escala 0,05 a 1; posición X/Y 0 a 1.</td>
+              </tr>
+              <tr>
+                <td>Motion graphics (Remotion)</td>
+                <td>Hasta 1800 s (30 min) y 120 fps por render.</td>
+              </tr>
+              <tr>
+                <td>Motion graphics (FFmpeg)</td>
+                <td>Hasta 600 s y 60 fps.</td>
+              </tr>
+              <tr>
+                <td>RVC</td>
+                <td>Tono −24 a +24 semitonos; índice 0 a 1.</td>
+              </tr>
+              <tr>
+                <td>Deshacer</td>
+                <td>100 pasos.</td>
+              </tr>
+              <tr>
+                <td>Trabajos simultáneos</td>
+                <td>
+                  FFmpeg 2 (1–8), motion 1 (1–4), IA 1 (1–4); se cambian en <code>.env</code>.
+                </td>
+              </tr>
+              <tr>
+                <td>Trabajo interrumpido por un reinicio</td>
+                <td>Se reintenta solo hasta 2 intentos; después queda <em>Falló</em>.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p><strong>Sin límite impuesto</strong> (recomendaciones y por qué):</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Qué</th>
+                <th>Recomendado</th>
+                <th>Por qué</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Duración del video</td>
+                <td>Sin límite impuesto; recomendado ≤ 30 min por proyecto</td>
+                <td>
+                  La exportación arma un único proceso FFmpeg con todo el proyecto: proyectos largos
+                  tardan mucho y si falla hay que empezar de nuevo.
+                </td>
+              </tr>
+              <tr>
+                <td>Resolución</td>
+                <td>Sin límite impuesto; recomendado ≤ 4K (3840×2160)</td>
+                <td>
+                  Es la mayor resolución de los presets incluidos; más allá FFmpeg usa mucha
+                  memoria.
+                </td>
+              </tr>
+              <tr>
+                <td>Cantidad de pistas</td>
+                <td>Sin límite impuesto; recomendado ≤ 6 pistas de video/motion</td>
+                <td>
+                  Cada pista visual se superpone en el mismo proceso de exportación: más pistas =
+                  más RAM y más tiempo.
+                </td>
+              </tr>
+              <tr>
+                <td>Cantidad de clips</td>
+                <td>Sin límite impuesto; recomendado ≤ 200</td>
+                <td>
+                  El proyecto se guarda completo cada 1,5 s y el historial de deshacer guarda
+                  copias.
+                </td>
+              </tr>
+              <tr>
+                <td>Archivos de la Biblioteca</td>
+                <td>Sin límite impuesto (20 GB); recomendado ≤ 100 MB por archivo</td>
+                <td>
+                  Las subidas a la Biblioteca se cargan enteras en memoria antes de guardarse.
+                </td>
+              </tr>
+              <tr>
+                <td>Motion graphics</td>
+                <td>Recomendado ≤ 60 s por render</td>
+                <td>
+                  El render en CPU con navegador es lento; para piezas largas conviene dividir.
+                </td>
+              </tr>
+              <tr>
+                <td>RVC</td>
+                <td>Recomendado clips ≤ 1 min en CPU</td>
+                <td>En CPU tarda del orden de la duración del audio o más.</td>
+              </tr>
+              <tr>
+                <td>Texto a voz</td>
+                <td>Recomendado ≤ 1000 caracteres por bloque</td>
+                <td>
+                  Un error a mitad de un texto largo obliga a repetir todo; en bloques es más fácil
+                  corregir.
+                </td>
+              </tr>
+              <tr>
+                <td>Espacio en disco por proyecto</td>
+                <td>Recomendado: 3 veces el tamaño de tus originales libre</td>
+                <td>
+                  Studio guarda el original, un proxy, renders intermedios y cada exportación (no se
+                  borran solos).
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          <strong>Tiempos esperados en CPU</strong> (orientativos;
+          <strong>no medidos en este proyecto</strong>: medilos con las recetas de
+          <a href="#14-pruebas-que-podés-hacer-hoy">§14</a>):
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Tarea</th>
+                <th>Referencia</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Whisper <code>small</code> (int8)</td>
+                <td>
+                  13 min de audio en ≈ 1 min 42 s en un i7-12700K (benchmark publicado de
+                  faster-whisper). <code>base</code> es más rápido; <code>medium</code> ≈ 3 veces
+                  más lento que <code>small</code>; <code>large-v3</code> en CPU es poco práctico
+                  para videos largos.
+                </td>
+              </tr>
+              <tr>
+                <td>Texto a voz (Piper)</td>
+                <td>Más rápido que tiempo real (según la documentación de Piper).</td>
+              </tr>
+              <tr>
+                <td>RVC</td>
+                <td>
+                  Del orden de la duración del audio o más; con <code>-WithCuda</code> es varias
+                  veces más rápido.
+                </td>
+              </tr>
+              <tr>
+                <td>Remotion</td>
+                <td>
+                  Sin dato medido. Usa por defecto la mitad de los hilos de tu CPU
+                  (<code>REMOTION_CONCURRENCY</code>).
+                </td>
+              </tr>
+              <tr>
+                <td>Exportación</td>
+                <td>
+                  Depende de la duración, la resolución y si hay codificador por hardware. H.265,
+                  VP9 y 4K son los más lentos.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p><strong>Espacio en disco</strong>:</p>
+        <ul>
+          <li>
+            Instalación: 10 GB mínimo, 20 GB recomendado, +4 GB con CUDA (PyTorch CUDA ≈ 3 GB).
+          </li>
+          <li>
+            Modelos: se guardan en <code>models\</code> (Whisper, Piper, RVC). Cada modelo Whisper
+            extra ocupa más espacio cuanto más grande es.
+          </li>
+          <li>
+            Tus datos: <code>storage\media</code> (originales),
+            <code>storage\proxies</code> (proxies y miniaturas), <code>storage\renders</code> (voz,
+            motion, transcripciones), <code>storage\exports</code> (exportaciones). Podés borrar
+            <code>storage\tmp</code> con Studio cerrado. Borrar un medio desde Media borra también
+            su proxy y miniaturas, pero <strong>no</strong> los renders ni las exportaciones.
+          </li>
+        </ul>
+        <h2 id="8-motion-graphics-catálogo-de-plantillas">
+          8. Motion graphics: catálogo de plantillas
+        </h2>
+        <p>
+          Todas las plantillas Remotion admiten fondo <code>transparent</code> salvo
+          <strong>Transición entre clips</strong>. Las tipografías disponibles son: Inter,
+          Montserrat, Poppins, Roboto, Oswald, Playfair Display, Bebas Neue, Anton, Archivo Black y
+          Bangers (con <code>REMOTION_FONTS=system</code>, el valor por defecto, se usan las fuentes
+          instaladas en Windows y no se descarga nada). Los colores aceptan <code>#rrggbb</code>,
+          <code>rgba(...)</code>, nombres CSS y <code>transparent</code>.
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Plantilla (id)</th>
+                <th>Duración por defecto</th>
+                <th>Para qué</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>1</td>
+                <td><strong>Título</strong> (<code>title-card</code>)</td>
+                <td>3 s</td>
+                <td>Título + subtítulo con 5 estilos de animación.</td>
+              </tr>
+              <tr>
+                <td>2</td>
+                <td><strong>Rótulo (lower third)</strong> (<code>lower-third</code>)</td>
+                <td>5 s</td>
+                <td>Nombre y cargo con entrada y salida configurables.</td>
+              </tr>
+              <tr>
+                <td>3</td>
+                <td><strong>Subtítulos animados</strong> (<code>animated-captions</code>)</td>
+                <td>5 s</td>
+                <td>Subtítulos palabra a palabra estilo TikTok/CapCut.</td>
+              </tr>
+              <tr>
+                <td>4</td>
+                <td><strong>Transición entre clips</strong> (<code>transition</code>)</td>
+                <td>4 s</td>
+                <td>Une dos medios con fundido, deslizamiento, barrido o giro. Sin alfa.</td>
+              </tr>
+              <tr>
+                <td>5</td>
+                <td><strong>Visualizador de audio</strong> (<code>audio-visualizer</code>)</td>
+                <td>10 s</td>
+                <td>Barras u onda que reaccionan a un audio, con título.</td>
+              </tr>
+              <tr>
+                <td>6</td>
+                <td><strong>Animación Lottie</strong> (<code>lottie-overlay</code>)</td>
+                <td>3 s</td>
+                <td>Superpone una animación Lottie con fondo transparente.</td>
+              </tr>
+              <tr>
+                <td>7</td>
+                <td><strong>Pantalla final (CTA)</strong> (<code>end-screen</code>)</td>
+                <td>8 s</td>
+                <td>Cierre con llamada a la acción, usuario y recuadros de videos sugeridos.</td>
+              </tr>
+              <tr>
+                <td>8</td>
+                <td><strong>Barra de progreso</strong> (<code>progress-bar</code>)</td>
+                <td>10 s</td>
+                <td>Barra del avance del video, con capítulos opcionales.</td>
+              </tr>
+              <tr>
+                <td>9</td>
+                <td><strong>Tipografía cinética</strong> (<code>kinetic-typography</code>)</td>
+                <td>4 s</td>
+                <td>Texto que entra palabra por palabra con animaciones de impacto.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Parámetros (nombre en el panel → valores; <strong>negrita</strong> = por defecto):</p>
+        <ol>
+          <li>
+            <strong>Título</strong>: Título (<strong>Mi título</strong>), Subtítulo, Estilo
+            (<strong>fade-up</strong>, pop, slide, typewriter, boxed), Alineación
+            (<strong>center</strong>, left), Tipografía (<strong>Montserrat</strong>), Tamaño del
+            título (16–400, <strong>120</strong>), Color del título, Color del subtítulo, Color de
+            acento, Fondo (<strong>#111111</strong>), Animación de salida (<strong>sí</strong>).
+          </li>
+          <li>
+            <strong>Rótulo</strong>: Nombre, Cargo / descripción, Estilo (<strong>bar</strong>, box,
+            underline, split), Posición (<strong>bottom-left</strong>, bottom-center, bottom-right,
+            top-left, top-right), Animación de entrada (<strong>slide</strong>, fade, wipe, pop),
+            Animación de salida (<strong>slide</strong>, fade, wipe, pop, none), Duración entrada
+            (0,1–3 s, <strong>0,6</strong>), Duración salida (0,1–3 s, <strong>0,5</strong>),
+            Tipografía (<strong>Inter</strong>), Escala (0,3–3, <strong>1</strong>), Margen (0–30 %,
+            <strong>6</strong>), colores de acento, nombre, cargo y caja.
+          </li>
+          <li>
+            <strong>Subtítulos animados</strong>: Transcripción (JSON con <code>segments</code> y
+            <code>words</code>; trae un ejemplo), Captions (formato Remotion, opcional), Estilo
+            (<strong>highlight</strong>, karaoke, pop, box), Posición (<strong>bottom</strong>,
+            center, top), Tipografía (<strong>Montserrat</strong>), Grosor (400, 700,
+            <strong>900</strong>), Tamaño (16–300, <strong>88</strong>), Mayúsculas
+            (<strong>sí</strong>), colores de texto, resaltado, caja y borde, Grosor del borde
+            (0–40, <strong>10</strong>), Agrupar palabras dentro de (0–5000 ms,
+            <strong>900</strong>), Zona segura (%) (si no la ponés, se calcula sola según 9:16 o
+            16:9), Video de fondo (URL), Fondo (<strong>transparent</strong>).
+          </li>
+          <li>
+            <strong>Transición</strong>: Transición (fade, <strong>slide</strong>, wipe, flip),
+            Dirección (<strong>from-right</strong>, from-left, from-top, from-bottom), Duración de
+            la transición (0,1–5 s, <strong>0,8</strong>), Curva (linear, <strong>spring</strong>),
+            Clip A y Clip B (URL de video o imagen), Ajuste (<strong>cover</strong>, contain),
+            colores y etiquetas para cuando no hay medio.
+          </li>
+          <li>
+            <strong>Visualizador de audio</strong>: Audio (URL de mp3/wav), Estilo
+            (<strong>bars</strong>, wave, mirror-bars), Cantidad de barras (8–128,
+            <strong>48</strong>), colores principal y secundario, Fondo (<strong>#0b1020</strong>),
+            Título (<strong>Escucha esto</strong>), Subtítulo, Tipografía
+            (<strong>Poppins</strong>), Sensibilidad (0,2–5, <strong>1,5</strong>).
+          </li>
+          <li>
+            <strong>Animación Lottie</strong>: Animación Lottie (URL del <code>.json</code>; si no
+            ponés nada usa una animación de ejemplo), Repetir (<strong>sí</strong>), Velocidad
+            (0,1–4, <strong>1</strong>), Tamaño (0,05–1 del lado menor, <strong>0,5</strong>),
+            Posición (<strong>center</strong> o una esquina), Margen (0–30 %, <strong>5</strong>),
+            Fondo (<strong>transparent</strong>).
+          </li>
+          <li>
+            <strong>Pantalla final</strong>: Título (<strong>¡Gracias por ver!</strong>), Subtítulo,
+            Botón (CTA) (<strong>Suscríbete</strong>), Usuario / canal (<strong>@tucanal</strong>),
+            Diseño (<strong>youtube</strong>, minimal), Recuadro 1, Recuadro 2, Tipografía
+            (<strong>Poppins</strong>), colores de acento y texto, Fondo (<strong>#0f0f12</strong>).
+          </li>
+          <li>
+            <strong>Barra de progreso</strong>: Posición (top, <strong>bottom</strong>), Grosor
+            (2–80 px, <strong>12</strong>), Color de la barra, Color del fondo de barra, Bordes
+            redondeados (<strong>sí</strong>), Margen (0–20 %, <strong>0</strong>), Capítulos (lista
+            de <code>{ &quot;label&quot;: &quot;...&quot;, &quot;startSec&quot;: 0 }</code>),
+            Mostrar capítulo actual (<strong>no</strong>), Tipografía, Color de la etiqueta, Fondo
+            (<strong>transparent</strong>).
+          </li>
+          <li>
+            <strong>Tipografía cinética</strong>: Texto, Dividir por (<strong>word</strong>,
+            phrase), Animación (<strong>slam</strong>, slide-up, rotate, stagger), Tipografía
+            (<strong>Bebas Neue</strong>), Tamaño (24–600, <strong>220</strong>), Mayúsculas
+            (<strong>sí</strong>), Paleta (1 a 8 colores que rotan por palabra), Fondo
+            (<strong>#111111</strong>).
+          </li>
+        </ol>
+        <p>
+          <strong>Usar tus archivos en una plantilla</strong> (Video de fondo, Clip A/B, Audio,
+          Animación Lottie): primero importalo en <strong>Media</strong>, mirá su ruta en
+          <strong>Propiedades → Medio seleccionado</strong>
+          (<code>media/&lt;ID&gt;.&lt;ext&gt;</code>) y escribí en el campo la URL
+          <code>http://127.0.0.1:3001/files/media/&lt;ID&gt;.&lt;ext&gt;</code>.
+        </p>
+        <p>
+          Ejemplo de parámetros de un <strong>Rótulo</strong> (lo que la API recibe en
+          <code>POST /api/motion/render</code>):
+        </p>
+        <pre><code class="language-json">{
+  &quot;engine&quot;: &quot;remotion&quot;,
+  &quot;template&quot;: &quot;lower-third&quot;,
+  &quot;durationSec&quot;: 5,
+  &quot;format&quot;: &quot;webm-vp9-alpha&quot;,
+  &quot;width&quot;: 1920,
+  &quot;height&quot;: 1080,
+  &quot;fps&quot;: 30,
+  &quot;props&quot;: {
+    &quot;name&quot;: &quot;Ana Pérez&quot;,
+    &quot;role&quot;: &quot;Productora audiovisual&quot;,
+    &quot;style&quot;: &quot;box&quot;,
+    &quot;position&quot;: &quot;bottom-left&quot;,
+    &quot;enter&quot;: &quot;slide&quot;,
+    &quot;exit&quot;: &quot;fade&quot;,
+    &quot;accentColor&quot;: &quot;#e13238&quot;,
+    &quot;boxColor&quot;: &quot;rgba(0,0,0,0.75)&quot;
+  }
+}
+</code></pre>
+        <p><strong>Otros motores</strong> que también aparecen en el selector:</p>
+        <ul>
+          <li>
+            <strong>Título con fundido (FFmpeg)</strong> (<code>ffmpeg-title</code>, motor
+            <code>ffmpeg-lottie</code>): título con FFmpeg (fundido y subida), sobre color,
+            transparente o un video. Hasta 600 s y 60 fps.
+          </li>
+          <li>
+            <strong>Círculo animado (ejemplo)</strong> (motor <code>motion-canvas</code>): figura
+            como <em>no disponible</em>; es un esqueleto para el futuro.
+          </li>
+        </ul>
+        <h2 id="9-voz-piper-efectos-y-rvc">9. Voz: Piper, efectos y RVC</h2>
+        <h3 id="91-voces-piper-texto-a-voz-local">9.1 Voces Piper (texto a voz local)</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Voz (id)</th>
+                <th>Nombre en el panel</th>
+                <th>Idioma</th>
+                <th>Calidad</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>es_AR-daniela-high</code></td>
+                <td>Daniela (Argentina, rioplatense)</td>
+                <td>es-AR</td>
+                <td>high — <strong>se instala por defecto</strong></td>
+              </tr>
+              <tr>
+                <td><code>es_MX-claude-high</code></td>
+                <td>Claude (Mexico)</td>
+                <td>es-MX</td>
+                <td>high</td>
+              </tr>
+              <tr>
+                <td><code>es_MX-ald-medium</code></td>
+                <td>Ald (Mexico)</td>
+                <td>es-MX</td>
+                <td>medium</td>
+              </tr>
+              <tr>
+                <td><code>es_ES-davefx-medium</code></td>
+                <td>Davefx (Espana)</td>
+                <td>es-ES</td>
+                <td>medium</td>
+              </tr>
+              <tr>
+                <td><code>es_ES-sharvard-medium</code></td>
+                <td>Sharvard (Espana, multi-voz)</td>
+                <td>es-ES</td>
+                <td>medium</td>
+              </tr>
+              <tr>
+                <td><code>es_ES-mls_10246-low</code></td>
+                <td>MLS 10246 (Espana, baja)</td>
+                <td>es-ES</td>
+                <td>low</td>
+              </tr>
+              <tr>
+                <td><code>es_ES-mls_9972-low</code></td>
+                <td>MLS 9972 (Espana, baja)</td>
+                <td>es-ES</td>
+                <td>low</td>
+              </tr>
+              <tr>
+                <td><code>es_ES-carlfm-x_low</code></td>
+                <td>Carlfm (Espana, muy baja)</td>
+                <td>es-ES</td>
+                <td>x_low</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          Las voces no instaladas aparecen como <em>(no instalada)</em>. Para bajar otra (necesita
+          internet):
+        </p>
+        <pre><code class="language-powershell">apps\workers\.venv\Scripts\python.exe -m studio_workers.models_cli --piper es_MX-claude-high
+</code></pre>
+        <p>
+          Cada voz tiene su propia licencia (ver su <code>MODEL_CARD</code> en Hugging Face).
+          <strong>ElevenLabs</strong> y <strong>OpenAI</strong> aparecen como proveedores solo si
+          ponés su clave en <code>.env</code> (si no, dicen <em>(sin API key)</em>).
+        </p>
+        <h3 id="92-efectos-de-voz">9.2 Efectos de voz</h3>
+        <p>
+          En <strong>Voz y audio → Efectos</strong>: tocá un preset o armá una
+          <em>Cadena de efectos</em> (se aplican en orden).
+          <strong>Aplicar (crea un nuevo audio)</strong> genera un archivo nuevo y lo pone en el
+          clip. <strong>Aplicar al exportar</strong> guarda la cadena en el clip y se aplica recién
+          al exportar (en ese caso <em>Normalizar volumen</em> se hace en una sola pasada).
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Efecto</th>
+                <th>Parámetros (rango, por defecto)</th>
+                <th>Cómo suena</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Tono</td>
+                <td>Semitonos (−24 a 24)</td>
+                <td>Más aguda o más grave sin cambiar la duración.</td>
+              </tr>
+              <tr>
+                <td>Robot</td>
+                <td>Intensidad (0–1, 0,7)</td>
+                <td>Voz metálica y monótona, de robot de película.</td>
+              </tr>
+              <tr>
+                <td>Reverberación</td>
+                <td>Tamaño de sala (0–1, 0,5), Mezcla (0–1, 0,3)</td>
+                <td>Como hablar en una habitación o un salón grande.</td>
+              </tr>
+              <tr>
+                <td>Teléfono</td>
+                <td>—</td>
+                <td>Fina y comprimida, como por un teléfono fijo.</td>
+              </tr>
+              <tr>
+                <td>Eco</td>
+                <td>Retardo (1–5000 ms, 250), Decaimiento (0–1, 0,4)</td>
+                <td>La voz se repite apagándose, como en una montaña.</td>
+              </tr>
+              <tr>
+                <td>Velocidad</td>
+                <td>Factor (0,25–4, 1)</td>
+                <td>Más rápida o más lenta (puede alterar levemente el tono).</td>
+              </tr>
+              <tr>
+                <td>Ardilla</td>
+                <td>—</td>
+                <td>Muy aguda y graciosa, tipo dibujo animado.</td>
+              </tr>
+              <tr>
+                <td>Voz grave</td>
+                <td>—</td>
+                <td>Más grave y oscura, tipo locutor de tráiler.</td>
+              </tr>
+              <tr>
+                <td>Radio AM</td>
+                <td>—</td>
+                <td>Radio vieja: sin graves ni agudos y algo sucia.</td>
+              </tr>
+              <tr>
+                <td>Megáfono</td>
+                <td>—</td>
+                <td>Estridente y saturada, como por un altoparlante.</td>
+              </tr>
+              <tr>
+                <td>Bajo el agua</td>
+                <td>—</td>
+                <td>Apagada, con eco corto y un leve vaivén.</td>
+              </tr>
+              <tr>
+                <td>Reducción de ruido</td>
+                <td>Reducción (0,01–97 dB, 12), Piso de ruido (−80 a −20 dB, −25)</td>
+                <td>Baja el zumbido o el ruido de fondo constante.</td>
+              </tr>
+              <tr>
+                <td>Normalizar volumen</td>
+                <td>
+                  Sonoridad (−70 a −5 LUFS, −16), Pico real (−9 a 0 dBTP, −1,5), Rango (1–50 LU, 11)
+                </td>
+                <td>Volumen parejo al estándar de plataformas (−16 YouTube, −14 Reels/TikTok).</td>
+              </tr>
+              <tr>
+                <td>Ducking</td>
+                <td>Solo por API (ver flujo 3)</td>
+                <td>La música baja sola cuando hay voz.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          Presets de un clic: <strong>Tono +4</strong>, <strong>Tono -4</strong>,
+          <strong>Ardilla</strong>, <strong>Voz grave</strong>, <strong>Robot</strong>,
+          <strong>Teléfono</strong>, <strong>Radio AM</strong>, <strong>Sala</strong>,
+          <strong>Eco</strong>, <strong>Voz limpia</strong> (reducción de ruido + normalizar),
+          <strong>Monstruo</strong> (tono −10 + reverberación),
+          <strong>Catedral</strong> (reverberación grande), <strong>Bajo el agua</strong> y
+          <strong>Megáfono</strong>.
+        </p>
+        <p>
+          Si <code>doctor.ps1</code> avisa que falta <code>rubberband</code> en FFmpeg, los cambios
+          de tono usan un método de respaldo (algo menos natural). El build &quot;full&quot; de
+          Gyan, que instala <code>setup.ps1</code>, lo incluye.
+        </p>
+        <h3 id="93-rvc-conversión-de-voz">9.3 RVC (conversión de voz)</h3>
+        <ul>
+          <li>
+            <p>
+              <strong>Dónde poner los modelos</strong>: una carpeta por voz dentro de
+              <code>models\rvc\</code>:
+            </p>
+            <pre><code>models\rvc\mi-voz\mi-voz.pth      (obligatorio)
+models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
+</code></pre>
+            <p>
+              El nombre de la carpeta es el id del modelo. Si hay varios <code>.pth</code>, se usa
+              el que se llama igual que la carpeta; si hay varios <code>.index</code>, se prefiere
+              el que contiene <code>added</code>.
+            </p>
+          </li>
+          <li>
+            <p>
+              <code>setup.ps1</code> descarga los activos base que RVC necesita (<code
+                >rmvpe.pt</code
+              >
+              y <code>hubert_base</code>); los modelos de voz los ponés vos.
+            </p>
+          </li>
+          <li>
+            <p>
+              Parámetros: ver <a href="#flujo-4--cambiar-la-voz-con-rvc">flujo 4</a>.
+              <em>Usar GPU (CUDA)</em> solo se habilita si <code>USE_CUDA=true</code>.
+            </p>
+          </li>
+          <li>
+            <p>Studio <strong>no entrena</strong> modelos (solo los usa).</p>
+          </li>
+        </ul>
+        <h2 id="10-atajos-de-teclado">10. Atajos de teclado</h2>
+        <p>
+          Todos se cambian en <strong>Ajustes → Atajos</strong>. Mientras escribís en un campo de
+          texto solo funcionan <code>Ctrl+K</code>, <code>Ctrl+S</code> y <code>Ctrl+E</code>.
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Acción</th>
+                <th>Atajo por defecto</th>
+                <th>Grupo</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Reproducir / pausar</td>
+                <td><code>Espacio</code></td>
+                <td>Reproducción</td>
+              </tr>
+              <tr>
+                <td>Ir al inicio</td>
+                <td><code>Inicio</code></td>
+                <td>Reproducción</td>
+              </tr>
+              <tr>
+                <td>Fotograma anterior</td>
+                <td><code>←</code></td>
+                <td>Reproducción</td>
+              </tr>
+              <tr>
+                <td>Fotograma siguiente</td>
+                <td><code>→</code></td>
+                <td>Reproducción</td>
+              </tr>
+              <tr>
+                <td>Dividir clip en el cursor</td>
+                <td><code>S</code></td>
+                <td>Línea de tiempo</td>
+              </tr>
+              <tr>
+                <td>Eliminar clip seleccionado</td>
+                <td><code>Supr</code></td>
+                <td>Línea de tiempo</td>
+              </tr>
+              <tr>
+                <td>Acercar</td>
+                <td><code>=</code></td>
+                <td>Línea de tiempo</td>
+              </tr>
+              <tr>
+                <td>Alejar</td>
+                <td><code>-</code></td>
+                <td>Línea de tiempo</td>
+              </tr>
+              <tr>
+                <td>Activar / desactivar imán</td>
+                <td><code>N</code></td>
+                <td>Línea de tiempo</td>
+              </tr>
+              <tr>
+                <td>Deshacer</td>
+                <td><code>Ctrl+Z</code></td>
+                <td>Edición</td>
+              </tr>
+              <tr>
+                <td>Rehacer</td>
+                <td><code>Ctrl+Shift+Z</code></td>
+                <td>Edición</td>
+              </tr>
+              <tr>
+                <td>Exportar (abre el panel)</td>
+                <td><code>Ctrl+E</code></td>
+                <td>Proyecto</td>
+              </tr>
+              <tr>
+                <td>Guardar proyecto</td>
+                <td><code>Ctrl+S</code></td>
+                <td>Proyecto</td>
+              </tr>
+              <tr>
+                <td>Paleta de comandos</td>
+                <td><code>Ctrl+K</code></td>
+                <td>Interfaz</td>
+              </tr>
+              <tr>
+                <td>Restaurar layout</td>
+                <td><code>Ctrl+Shift+R</code></td>
+                <td>Interfaz</td>
+              </tr>
+              <tr>
+                <td>Zoom de la línea de tiempo</td>
+                <td><code>Ctrl</code> + rueda</td>
+                <td>(fijo)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <h2 id="11-variables-de-env-que-podés-tocar">
+          11. Variables de <code>.env</code> que podés tocar
+        </h2>
+        <p>
+          El archivo <code>.env</code> está en la carpeta del proyecto (lo crea
+          <code>setup.ps1</code> copiando <code>.env.example</code>). Abrilo con el Bloc de notas.
+          <strong
+            >Después de cambiarlo, cerrá Studio (<code>stop.ps1</code>) y volvé a abrirlo con
+            <code>start.ps1</code>.</strong
+          >
+          Nunca lo compartas ni lo subas a internet: puede tener tus claves.
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Variable</th>
+                <th>Por defecto</th>
+                <th>Para qué</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>WEB_PORT</code>, <code>API_PORT</code>, <code>WORKERS_PORT</code></td>
+                <td>3000, 3001, 8001</td>
+                <td>Puertos. Cambialos si otro programa los usa.</td>
+              </tr>
+              <tr>
+                <td><code>NEXT_PUBLIC_API_URL</code></td>
+                <td><code>http://127.0.0.1:3001</code></td>
+                <td>
+                  Dirección de la API que usa el dashboard. Si cambiás <code>API_PORT</code>,
+                  cambiala igual (<code>start.ps1</code> recompila la web).
+                </td>
+              </tr>
+              <tr>
+                <td><code>WORKERS_URL</code></td>
+                <td><code>http://127.0.0.1:8001</code></td>
+                <td>
+                  Dirección de los workers. Si cambiás <code>WORKERS_PORT</code>, cambiala igual.
+                </td>
+              </tr>
+              <tr>
+                <td><code>STORAGE_DIR</code></td>
+                <td><code>./storage</code></td>
+                <td>
+                  Carpeta de tus medios, renders, exportaciones y base de datos (podés usar otro
+                  disco).
+                </td>
+              </tr>
+              <tr>
+                <td><code>MODELS_DIR</code></td>
+                <td><code>./models</code></td>
+                <td>Carpeta de los modelos Whisper, Piper y RVC.</td>
+              </tr>
+              <tr>
+                <td><code>FFMPEG_PATH</code>, <code>FFPROBE_PATH</code></td>
+                <td>vacío (usa el del PATH)</td>
+                <td>
+                  Ruta completa a <code>ffmpeg.exe</code> / <code>ffprobe.exe</code> si querés otro.
+                </td>
+              </tr>
+              <tr>
+                <td><code>USE_CUDA</code></td>
+                <td><code>false</code></td>
+                <td>
+                  <code>true</code> para usar la GPU NVIDIA en Whisper y RVC (requiere instalar con
+                  <code>-WithCuda</code>).
+                </td>
+              </tr>
+              <tr>
+                <td><code>WHISPER_MODEL</code></td>
+                <td><code>base</code> si lo creó <code>setup.ps1</code></td>
+                <td>
+                  Modelo de subtítulos por defecto: <code>tiny</code>, <code>base</code>,
+                  <code>small</code>, <code>medium</code>, <code>large-v3</code>,
+                  <code>large-v3-turbo</code>.
+                </td>
+              </tr>
+              <tr>
+                <td><code>WHISPER_COMPUTE_TYPE</code></td>
+                <td><code>auto</code></td>
+                <td><code>auto</code> = int8 en CPU, float16 en GPU.</td>
+              </tr>
+              <tr>
+                <td><code>PIPER_DEFAULT_VOICE</code></td>
+                <td><code>es_AR-daniela-high</code></td>
+                <td>Voz Piper por defecto (la que descarga <code>setup.ps1</code>).</td>
+              </tr>
+              <tr>
+                <td><code>LOG_LEVEL</code></td>
+                <td><code>info</code></td>
+                <td>
+                  Detalle de los registros: <code>error</code>, <code>warn</code>,
+                  <code>info</code>, <code>debug</code>.
+                </td>
+              </tr>
+              <tr>
+                <td><code>HW_ENCODER</code></td>
+                <td><code>auto</code></td>
+                <td>
+                  <code>off</code> para exportar siempre con CPU (<code>libx264</code>) si el
+                  codificador de la GPU da problemas.
+                </td>
+              </tr>
+              <tr>
+                <td><code>QUEUE_FFMPEG_CONCURRENCY</code></td>
+                <td><code>2</code> (1–8)</td>
+                <td>Exportaciones/efectos/proxies al mismo tiempo.</td>
+              </tr>
+              <tr>
+                <td><code>QUEUE_MOTION_CONCURRENCY</code></td>
+                <td><code>1</code> (1–4)</td>
+                <td>Renders de motion al mismo tiempo.</td>
+              </tr>
+              <tr>
+                <td><code>QUEUE_WORKERS_CONCURRENCY</code></td>
+                <td><code>1</code> (1–4)</td>
+                <td>Trabajos de IA (Whisper, TTS, RVC) al mismo tiempo.</td>
+              </tr>
+              <tr>
+                <td><code>REMOTION_CONCURRENCY</code></td>
+                <td>vacío (= 50 % de los hilos)</td>
+                <td>
+                  Pestañas de navegador por render (número o porcentaje). Bajalo si la PC se pone
+                  lenta.
+                </td>
+              </tr>
+              <tr>
+                <td><code>REMOTION_BROWSER_EXECUTABLE</code></td>
+                <td>vacío (autodetecta)</td>
+                <td>Ruta al Chrome Headless Shell si no lo encuentra solo.</td>
+              </tr>
+              <tr>
+                <td><code>REMOTION_HW_ACCEL</code></td>
+                <td><code>false</code></td>
+                <td><code>true</code> para intentar codificar motion con la GPU.</td>
+              </tr>
+              <tr>
+                <td><code>REMOTION_FONTS</code></td>
+                <td><code>system</code></td>
+                <td>
+                  <code>system</code> no descarga nada; <code>google</code> baja Google Fonts la
+                  primera vez (necesita internet).
+                </td>
+              </tr>
+              <tr>
+                <td><code>REMOTION_BUNDLE_CACHE</code></td>
+                <td>vacío (<code>storage/tmp/remotion-bundle</code>)</td>
+                <td>Carpeta de caché de Remotion.</td>
+              </tr>
+              <tr>
+                <td><code>REMOTION_TIMEOUT_MS</code></td>
+                <td>vacío (60000)</td>
+                <td>Espera máxima por fotograma para cargar fuentes y medios.</td>
+              </tr>
+              <tr>
+                <td><code>ELEVENLABS_API_KEY</code>, <code>ELEVENLABS_MODEL</code></td>
+                <td>vacío, <code>eleven_multilingual_v2</code></td>
+                <td>Voces de ElevenLabs (opcional, pago).</td>
+              </tr>
+              <tr>
+                <td><code>OPENAI_API_KEY</code>, <code>OPENAI_TTS_MODEL</code></td>
+                <td>vacío, <code>gpt-4o-mini-tts</code></td>
+                <td>Voces de OpenAI (opcional, pago).</td>
+              </tr>
+              <tr>
+                <td><code>FREESOUND_API_KEY</code></td>
+                <td>vacío</td>
+                <td>
+                  Búsqueda en Freesound desde la Biblioteca (se descargan las versiones
+                  <em>preview</em>).
+                </td>
+              </tr>
+              <tr>
+                <td><code>ANTHROPIC_API_KEY</code>, <code>PIXABAY_API_KEY</code></td>
+                <td>vacío</td>
+                <td>
+                  Reservadas: hoy <strong>no habilitan ninguna función</strong> en el dashboard.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <h2 id="12-solución-de-problemas">12. Solución de problemas</h2>
+        <p>
+          Primero, siempre:
+          <code>powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\doctor.ps1</code
+          >. Muestra versiones, FFmpeg (y si tiene <code>rubberband</code>), GPU, paquetes de
+          Python, modelos, puertos y si cada servicio responde. No cambia nada. También podés abrir
+          <a href="http://127.0.0.1:3001/api/health" rel="noopener"
+            >http://127.0.0.1:3001/api/health</a
+          >
+          en el navegador: <code>&quot;status&quot;: &quot;ok&quot;</code> significa que la API,
+          FFmpeg y los workers responden; <code>&quot;degraded&quot;</code> indica cuál no (<code
+            >ffmpeg.available</code
+          >
+          o <code>workers.reachable</code> en <code>false</code>).
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Síntoma</th>
+                <th>Causa probable</th>
+                <th>Qué hacer</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>
+                  El encabezado dice <strong>Guardado local</strong> o Trabajos dice
+                  <strong>Sin conexión</strong>
+                </td>
+                <td>La API (3001) no está corriendo.</td>
+                <td>
+                  Mirá la ventana &quot;api&quot;. Corré <code>stop.ps1</code> y
+                  <code>start.ps1</code>. Revisá <code>doctor.ps1</code>.
+                </td>
+              </tr>
+              <tr>
+                <td>Un panel dice <strong>Módulo en desarrollo</strong></td>
+                <td>La API respondió &quot;no implementado&quot; (versión vieja de la API).</td>
+                <td>Actualizá el proyecto y corré <code>setup.ps1</code> otra vez.</td>
+              </tr>
+              <tr>
+                <td>Pantalla en blanco o el navegador no abre</td>
+                <td>La web no terminó de arrancar o se compiló con otra URL.</td>
+                <td>
+                  Abrí <a href="http://localhost:3000" rel="noopener">http://localhost:3000</a> a
+                  mano; mirá la ventana &quot;web&quot; o <code>storage\logs\web.log</code> (con
+                  <code>-SingleConsole</code>).
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Tipo de archivo no soportado</strong> al importar</td>
+                <td>
+                  La extensión no está en la lista de
+                  <a href="#61-entrada-lo-que-podés-importar-en-media">§6.1</a>.
+                </td>
+                <td>
+                  Convertí el archivo (por ejemplo a MP4) o renombrá la extensión si está mal.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>El archivo supera el límite</strong></td>
+                <td>Más de 20 GB.</td>
+                <td>Cortalo o recomprimilo antes de importarlo.</td>
+              </tr>
+              <tr>
+                <td>La vista previa dice <strong>El navegador no puede reproducir…</strong></td>
+                <td>Códec que el navegador no soporta (por ejemplo HEVC, ProRes).</td>
+                <td>En Media tocá <strong>Generar proxy</strong> (varita). Usá Chrome o Edge.</td>
+              </tr>
+              <tr>
+                <td>El medio dice <strong>Sin proxy</strong> por mucho tiempo</td>
+                <td>El trabajo <em>Generar proxy</em> falló o sigue en cola.</td>
+                <td>
+                  Mirá <strong>Trabajos</strong>; volvé a tocar <strong>Generar proxy</strong>.
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <strong>Sin voces instaladas</strong> (los workers no responden) o todas las voces
+                  dicen <strong>(no instalada)</strong>
+                </td>
+                <td>Workers caídos, o no se descargó ninguna voz Piper.</td>
+                <td>
+                  Revisá la ventana &quot;workers&quot; y <code>doctor.ps1</code>; para bajar la
+                  voz:
+                  <code
+                    >apps\workers\.venv\Scripts\python.exe -m studio_workers.models_cli --piper
+                    es_AR-daniela-high</code
+                  >
+                  y reiniciá.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Sin modelos en models/rvc</strong></td>
+                <td>No hay carpetas con <code>.pth</code> en <code>models\rvc\</code>.</td>
+                <td>
+                  Copiá el modelo como en <a href="#93-rvc-conversión-de-voz">§9.3</a> y recargá la
+                  página.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Usar GPU (CUDA) — no disponible</strong></td>
+                <td><code>USE_CUDA=false</code>.</td>
+                <td>
+                  Reinstalá con <code>setup.ps1 -WithCuda</code> (pone <code>USE_CUDA=true</code>).
+                </td>
+              </tr>
+              <tr>
+                <td>ElevenLabs/OpenAI dicen <strong>(sin API key)</strong></td>
+                <td>Falta la clave en <code>.env</code>.</td>
+                <td>
+                  Poné la clave y reiniciá con <code>stop.ps1</code> + <code>start.ps1</code>.
+                </td>
+              </tr>
+              <tr>
+                <td>Motor de motion en gris o plantilla <strong>(no disponible)</strong></td>
+                <td>Falta el Chrome Headless Shell de Remotion.</td>
+                <td>
+                  Pasá el mouse sobre el motor para ver el motivo; desde la carpeta del proyecto:
+                  <code>pnpm --filter @studio/remotion browser:ensure</code>.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Parámetros inválidos</strong> o error al renderizar motion</td>
+                <td>Un valor fuera de rango, un color inválido o JSON mal escrito.</td>
+                <td>
+                  Leé el mensaje (dice el campo). Para colores usá <code>#rrggbb</code>,
+                  <code>rgba(...)</code> o <code>transparent</code>.
+                </td>
+              </tr>
+              <tr>
+                <td>Falla <strong>Renderizar subtítulos como motion</strong></td>
+                <td>Error conocido (ver <a href="#15-limitaciones-conocidas">§15</a>).</td>
+                <td>
+                  Usá el camino alternativo del
+                  <a href="#flujo-2--video-vertical-para-reelstiktok-con-subtítulos-animados"
+                    >flujo 2</a
+                  >.
+                </td>
+              </tr>
+              <tr>
+                <td>Los subtítulos salen <strong>dos veces</strong> en la exportación</td>
+                <td>Los segmentos del panel se queman siempre, además del motion animado.</td>
+                <td>Borrá los segmentos de la lista después de renderizar el motion.</td>
+              </tr>
+              <tr>
+                <td>Un gráfico no aparece en la exportación</td>
+                <td>El clip motion está <em>Sin renderizar</em>, o la pista está oculta.</td>
+                <td>
+                  Renderizalo (<strong>Actualizar clip y renderizar</strong>) y revisá el botón de
+                  ocultar de la pista.
+                </td>
+              </tr>
+              <tr>
+                <td>Un video tapa a otro</td>
+                <td>Orden de pistas: la de más abajo en la lista queda encima.</td>
+                <td>Mové los clips a la pista correcta o usá Escala/Posición (PiP).</td>
+              </tr>
+              <tr>
+                <td><strong>El proyecto no tiene contenido para exportar en ese rango</strong></td>
+                <td>Línea de tiempo vacía o rango fuera del contenido.</td>
+                <td>
+                  Revisá <em>Desde</em>/<em>Hasta</em> o desmarcá <em>Exportar solo un rango</em>.
+                </td>
+              </tr>
+              <tr>
+                <td>La exportación falla con la GPU</td>
+                <td>El codificador por hardware no funciona en tu PC.</td>
+                <td>
+                  Studio reintenta con <code>libx264</code> y lo recuerda. Si sigue, poné
+                  <code>HW_ENCODER=off</code>.
+                </td>
+              </tr>
+              <tr>
+                <td>Transcribir es muy lento</td>
+                <td>Modelo grande en CPU.</td>
+                <td>
+                  Elegí <code>base</code> o <code>small</code> en <em>Modelo</em>. Con GPU:
+                  <code>-WithCuda</code>.
+                </td>
+              </tr>
+              <tr>
+                <td>Subtítulos con GPU dicen &quot;CUDA no disponible, usando CPU&quot;</td>
+                <td>Driver o librerías CUDA.</td>
+                <td>
+                  Actualizá el driver NVIDIA (570+). Ver
+                  <a href="../INSTALACION-WINDOWS.md#8-solución-de-problemas">Instalación §8</a>.
+                </td>
+              </tr>
+              <tr>
+                <td>Falla la transcripción con un modelo nuevo sin internet</td>
+                <td>El modelo se descarga la primera vez que se usa.</td>
+                <td>Conectate o usá el modelo instalado (<em>Por defecto</em>).</td>
+              </tr>
+              <tr>
+                <td>RVC tarda muchísimo</td>
+                <td>Normal en CPU.</td>
+                <td>
+                  Clips cortos, <em>Método F0</em> <strong>pm</strong>, o <code>-WithCuda</code>.
+                </td>
+              </tr>
+              <tr>
+                <td>El cambio de tono suena raro</td>
+                <td>FFmpeg sin <code>rubberband</code> (método de respaldo).</td>
+                <td><code>winget install -e --id Gyan.FFmpeg</code> y reiniciá.</td>
+              </tr>
+              <tr>
+                <td><strong>El puerto 3000/3001/8001 está ocupado</strong></td>
+                <td>Otra copia de Studio u otro programa.</td>
+                <td><code>stop.ps1</code>; si sigue, cambiá el puerto en <code>.env</code>.</td>
+              </tr>
+              <tr>
+                <td>Un trabajo quedó <strong>Falló</strong> después de cerrar Studio</td>
+                <td>Se cortó a mitad y ya usó sus 2 intentos.</td>
+                <td>Volvé a lanzarlo desde el panel correspondiente.</td>
+              </tr>
+              <tr>
+                <td>Perdí el proyecto anterior al tocar <em>Nuevo proyecto</em></td>
+                <td>No hay lista de proyectos en la interfaz.</td>
+                <td>
+                  Sigue guardado en la API, pero no se puede reabrir desde el dashboard. Exportá
+                  antes de crear otro.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          Problemas de instalación (scripts bloqueados, <code>winget</code> faltante, rutas largas,
+          Python abre la Microsoft Store, <code>VCRUNTIME140.dll</code>, etc.): ver
+          <a href="../INSTALACION-WINDOWS.md#8-solución-de-problemas">Instalación en Windows §8</a>.
+        </p>
+        <h2 id="13-cómo-reportar-un-error">13. Cómo reportar un error</h2>
+        <p>
+          La guía completa está en
+          <strong><a href="../REPORTAR-ERRORES.md">Reportar errores</a></strong
+          >. Resumen:
+        </p>
+        <ol>
+          <li>
+            <p>
+              <strong>Desde el dashboard</strong>: botón <strong>Reportar error</strong> en el panel
+              <strong>Trabajos</strong> (o en la paleta <code>Ctrl+K</code> →
+              <em>Reportar error</em>).
+            </p>
+          </li>
+          <li>
+            <p>
+              <strong>Desde PowerShell</strong> (sirve aunque el dashboard o la API no arranquen):
+            </p>
+            <pre><code class="language-powershell">powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\reportar-error.ps1
+</code></pre>
+            <p>
+              Pregunta título, pasos y severidad (o usá <code>-Titulo</code>, <code>-Pasos</code>,
+              <code>-Severidad baja|media|alta|bloqueante</code>; <code>-SinDoctor</code>,
+              <code>-NoAbrir</code>, <code>-NoInteractivo</code>). Genera
+              <code>storage\reports\&lt;fecha&gt;-&lt;titulo&gt;\</code> y un <code>.zip</code> con
+              <code>reporte.md</code> (con un &quot;Prompt para Claude&quot; arriba, que además
+              copia al portapapeles), <code>entorno.json</code>, <code>doctor.txt</code>, los
+              últimos 20 trabajos, el último proyecto, los logs y tu <code>.env</code> con las
+              claves reemplazadas por <code>[REDACTED]</code>.
+            </p>
+          </li>
+          <li>
+            <p>
+              <strong>En GitHub</strong>: abrí un <em>issue</em> con la plantilla
+              <strong>bug</strong> (<code>.github/ISSUE_TEMPLATE/bug.yml</code>) y adjuntá lo que
+              generaron los pasos anteriores.
+            </p>
+          </li>
+        </ol>
+        <p>
+          Contá siempre: qué hiciste (pasos), qué esperabas, qué pasó, y la receta de
+          <a href="#14-pruebas-que-podés-hacer-hoy">§14</a> si fue una de ellas.
+          <strong>No pegues tu <code>.env</code> ni tus claves.</strong>
+        </p>
+        <figure class="placeholder">
+          <div class="ph" role="img" aria-label="Captura pendiente">Captura pendiente</div>
+          <figcaption>Panel Trabajos: progreso, resultado y errores de cada tarea.</figcaption>
+        </figure>
+        <h2 id="14-pruebas-que-podés-hacer-hoy">14. Pruebas que podés hacer hoy</h2>
+        <p>
+          Hacelas en orden (cada una usa lo anterior). Necesitás: un video corto (10–60 s, MP4, con
+          voz) y, para la 5, un audio con voz. Anotá el resultado en la planilla del final.
+        </p>
+        <p>
+          <strong>Cómo marcar un fallo</strong>: escribí
+          <code>FALLÓ R&lt;n&gt; paso &lt;m&gt;</code> con lo que viste, sacá una captura del panel
+          <strong>Trabajos</strong> (abrí el trabajo para ver el mensaje en rojo) y seguí
+          <a href="#13-cómo-reportar-un-error">§13</a>.
+        </p>
+        <p><strong>R1 — Arranque y diagnóstico</strong></p>
+        <ol>
+          <li>
+            <code>scripts\windows\doctor.ps1</code> → no debería haber líneas en rojo críticas.
+          </li>
+          <li>
+            <code>scripts\windows\start.ps1</code> → se abre
+            <a href="http://localhost:3000" rel="noopener">http://localhost:3000</a>.
+          </li>
+          <li>
+            Abrí
+            <a href="http://127.0.0.1:3001/api/health" rel="noopener"
+              >http://127.0.0.1:3001/api/health</a
+            >.
+          </li>
+        </ol>
+        <p>
+          Esperado: el dashboard con los paneles; <code>health</code> dice
+          <code>&quot;status&quot;:&quot;ok&quot;</code>. <strong>Falla si</strong>: pantalla en
+          blanco, <code>&quot;degraded&quot;</code> o alguna ventana se cierra sola.
+        </p>
+        <p><strong>R2 — Importar un video</strong></p>
+        <ol>
+          <li>Arrastrá tu video al panel <strong>Media</strong>.</li>
+          <li>Mirá <strong>Trabajos</strong>.</li>
+        </ol>
+        <p>
+          Esperado: barra <em>Subiendo…</em>, luego <em>Analizar medio</em> y
+          <em>Generar proxy</em> en <em>Completado</em>; el medio muestra miniatura, duración,
+          resolución y fps, y desaparece <em>Sin proxy</em>. <strong>Falla si</strong>: error al
+          importar, o algún trabajo queda en <em>Falló</em>.
+        </p>
+        <p><strong>R3 — Cortar y exportar (YouTube 1080p)</strong></p>
+        <ol>
+          <li>
+            <strong>+</strong> sobre el video. Cursor a los 3 s → <code>S</code>. Seleccioná la
+            primera parte → <code>Supr</code>.
+          </li>
+          <li>Propiedades: <em>Inicio en timeline (s)</em> = 0.</li>
+          <li>
+            <code>Ctrl+E</code> → <strong>YouTube 1080p (16:9)</strong> → nombre
+            <code>prueba-r3</code> → <strong>Exportar</strong>.
+          </li>
+        </ol>
+        <p>
+          Esperado: <em>Exportación</em> llega a <em>Completado</em>;
+          <strong>Descargar</strong> baja <code>prueba-r3-&lt;fecha&gt;.mp4</code>, que dura 3 s
+          menos que el original y se reproduce con sonido. <strong>Falla si</strong>: el trabajo
+          falla, el archivo no abre, o dura lo mismo que el original.
+        </p>
+        <p><strong>R4 — Texto a voz</strong></p>
+        <ol>
+          <li>
+            Cursor en 0. <strong>Voz y audio → Texto a voz</strong>, voz <strong>Daniela</strong>,
+            texto <code>Hola, esto es una prueba de Studio.</code> →
+            <strong>Generar y añadir al cursor</strong>.
+          </li>
+        </ol>
+        <p>
+          Esperado: trabajo <em>Texto a voz</em> completado y un clip de audio nuevo en 0 que se
+          escucha con <code>Espacio</code>. Anotá cuántos segundos tardó. <strong>Falla si</strong>:
+          <em>Sin voces instaladas</em>, la voz dice <em>(no instalada)</em> o el trabajo falla.
+        </p>
+        <p><strong>R5 — Efecto de voz</strong></p>
+        <ol>
+          <li>
+            Seleccioná el clip de R4. <strong>Efectos</strong> → preset <strong>Robot</strong> →
+            <strong>Aplicar (crea un nuevo audio)</strong>.
+          </li>
+        </ol>
+        <p>
+          Esperado: trabajo <em>Efecto de voz</em> completado; el clip ahora suena metálico y en
+          Media aparece <code>… (efecto)</code>. <strong>Falla si</strong>: el botón está gris con
+          el clip seleccionado o el trabajo falla.
+        </p>
+        <p><strong>R6 — Subtítulos automáticos</strong></p>
+        <ol>
+          <li>
+            Seleccioná el clip de video. <strong>Subtítulos</strong> → Idioma <em>Español</em>,
+            Modelo <em>Por defecto</em> → <strong>Transcribir clip</strong>.
+          </li>
+          <li>Tocá <strong>Descargar SRT</strong>.</li>
+        </ol>
+        <p>
+          Esperado: aparecen segmentos con texto y tiempos razonables; el SRT se abre con el Bloc de
+          notas. Anotá cuánto tardó y la duración del video. <strong>Falla si</strong>: el trabajo
+          falla o el texto no tiene relación con lo que se dice.
+        </p>
+        <p><strong>R7 — Título con fondo transparente</strong></p>
+        <ol>
+          <li>
+            Cursor en 0. <strong>Motion graphics</strong> → <strong>Título · remotion</strong>.
+            Título <code>Mi prueba</code>, <em>Fondo</em> <code>transparent</code>, <em>Formato</em>
+            <strong>WebM VP9 con alfa (overlay)</strong> → <strong>Renderizar y añadir</strong>.
+          </li>
+          <li>Exportá con <strong>YouTube 1080p</strong> (nombre <code>prueba-r7</code>).</li>
+        </ol>
+        <p>
+          Esperado: trabajo <em>Render motion</em> completado (anotá el tiempo); en Propiedades el
+          clip dice <em>Renderizado</em>; en el MP4 se ve el título <strong>sobre</strong> el video,
+          no sobre negro. <strong>Falla si</strong>: el motor está en gris, el render falla o el
+          título tapa todo con fondo negro.
+        </p>
+        <p><strong>R8 — Biblioteca de sonidos</strong></p>
+        <ol>
+          <li>
+            Corré <code>scripts\library\import-cc0.ps1</code> (o copiá un <code>.wav</code> a
+            <code>storage\library\sfx\</code> y tocá <strong>Re-escanear</strong>).
+          </li>
+          <li>
+            En <strong>Biblioteca</strong> buscá <code>click</code> (o el nombre de tu archivo) → ▶
+            → <strong>+</strong>.
+          </li>
+        </ol>
+        <p>
+          Esperado: resultados con licencia (CC0), se escucha la vista previa y aparece un clip de
+          audio. <strong>Falla si</strong>: <em>Sin resultados</em> después de importar, o no suena.
+        </p>
+        <p><strong>R9 — Vertical para Reels</strong></p>
+        <ol>
+          <li>
+            Con el proyecto en 16:9, exportá con <strong>Reels / TikTok (9:16)</strong> (nombre
+            <code>prueba-r9</code>).
+          </li>
+          <li>
+            En el Explorador de Windows: clic derecho en el archivo →
+            <strong>Propiedades → Detalles</strong>.
+          </li>
+        </ol>
+        <p>
+          Esperado: <em>Ancho de fotograma</em> 1080 y <em>Alto de fotograma</em> 1920; al
+          reproducirlo se ve el video completo en el centro con fondo desenfocado y los subtítulos
+          de R6 quemados. <strong>Falla si</strong>: otra resolución, video estirado o deformado.
+        </p>
+        <p><strong>R10 — Personalización que se recuerda</strong></p>
+        <ol>
+          <li>
+            Arrastrá la pestaña <strong>Biblioteca</strong> al lado derecho.
+            <strong>Layouts → Guardar layout actual…</strong> → <code>Mi layout</code>.
+          </li>
+          <li>
+            <strong>Ajustes → Apariencia</strong>: tema Oscuro, otro color de acento.
+            <strong>Ajustes → Atajos</strong>: cambiá <em>Dividir clip en el cursor</em> a
+            <code>X</code>.
+          </li>
+          <li>
+            Recargá la página (<code>F5</code>). <strong>Layouts → Restaurar layout</strong> y
+            después <strong>Layouts → Mi layout</strong>.
+          </li>
+        </ol>
+        <p>
+          Esperado: tras recargar se mantienen tema, acento, atajo (<code>X</code> divide) y layout;
+          Restaurar vuelve al original y <strong>Mi layout</strong> recupera el tuyo. Probá asignar
+          <code>X</code> a otra acción: debe aparecer <em>Hay atajos repetidos</em>.
+          <strong>Falla si</strong>: algo vuelve a lo de fábrica al recargar.
+        </p>
+        <p><strong>Planilla de resultados</strong></p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Receta</th>
+                <th>OK / FALLÓ</th>
+                <th>Tiempo</th>
+                <th>Nota</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>R1</td>
+                <td></td>
+                <td></td>
+                <td></td>
+              </tr>
+              <tr>
+                <td>R2</td>
+                <td></td>
+                <td></td>
+                <td></td>
+              </tr>
+              <tr>
+                <td>R3</td>
+                <td></td>
+                <td></td>
+                <td></td>
+              </tr>
+              <tr>
+                <td>R4</td>
+                <td></td>
+                <td></td>
+                <td></td>
+              </tr>
+              <tr>
+                <td>R5</td>
+                <td></td>
+                <td></td>
+                <td></td>
+              </tr>
+              <tr>
+                <td>R6</td>
+                <td></td>
+                <td></td>
+                <td></td>
+              </tr>
+              <tr>
+                <td>R7</td>
+                <td></td>
+                <td></td>
+                <td></td>
+              </tr>
+              <tr>
+                <td>R8</td>
+                <td></td>
+                <td></td>
+                <td></td>
+              </tr>
+              <tr>
+                <td>R9</td>
+                <td></td>
+                <td></td>
+                <td></td>
+              </tr>
+              <tr>
+                <td>R10</td>
+                <td></td>
+                <td></td>
+                <td></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <h3 id="prompts-para-claude-listos-para-copiar-y-pegar">
+          Prompts para Claude (listos para copiar y pegar)
+        </h3>
+        <p>Reemplazá lo que está entre <code>&lt;…&gt;</code>.</p>
+        <ol>
+          <li>
+            <p><strong>Reportar un fallo</strong></p>
+            <pre><code class="language-text">Falló la receta &lt;R#&gt; del manual (docs/manual/MANUAL-USUARIO.md) en el paso &lt;n&gt;.
+Qué hice: &lt;pasos exactos&gt;. Qué esperaba: &lt;resultado esperado del manual&gt;.
+Qué pasó: &lt;mensaje de error exacto o descripción&gt;.
+Adjunto el reporte generado con &quot;Reportar error&quot; y la salida de scripts\windows\doctor.ps1.
+Encontrá la causa en el código, corregila con un test que lo cubra y decime cómo verificarlo en Windows.
+</code></pre>
+          </li>
+          <li>
+            <p><strong>Arreglar un error conocido del manual</strong></p>
+            <pre><code class="language-text">En docs/manual/MANUAL-USUARIO.md §15 figura &quot;&lt;limitación, ej.: Renderizar subtítulos como motion falla&gt;&quot;.
+Corregilo en el código para que funcione desde el dashboard, agregá tests y actualizá el manual
+(MD, index.html y PDF) quitando el camino alternativo.
+</code></pre>
+          </li>
+          <li>
+            <p><strong>Agregar una función</strong></p>
+            <pre><code class="language-text">Agregá la función &quot;&lt;Z, ej.: un botón de ducking en Voz y audio → Efectos que permita elegir la música&gt;&quot;
+al dashboard de Studio. Respetá los contratos de packages/shared, agregá tests y documentala en
+docs/manual/MANUAL-USUARIO.md (sección del panel y un flujo paso a paso).
+</code></pre>
+          </li>
+          <li>
+            <p><strong>Rendimiento</strong></p>
+            <pre><code class="language-text">En mi PC (&lt;CPU&gt;, &lt;RAM&gt;, &lt;GPU o &quot;sin GPU&quot;&gt;) la receta &lt;R#&gt; tardó &lt;tiempo&gt; para un video de &lt;duración&gt;.
+¿Es normal? Revisá qué parámetros de .env o del código conviene ajustar y proponé cambios medibles.
+</code></pre>
+          </li>
+          <li>
+            <p><strong>Instalación</strong></p>
+            <pre><code class="language-text">setup.ps1 terminó con ❌ en &quot;&lt;componente&gt;&quot;. Pego la tabla final y la salida de doctor.ps1:
+&lt;pegar aquí&gt;
+Decime qué falló y cómo resolverlo sin reinstalar todo.
+</code></pre>
+          </li>
+          <li>
+            <p><strong>Nueva plantilla de motion</strong></p>
+            <pre><code class="language-text">Creá una plantilla Remotion nueva &quot;&lt;nombre, ej.: contador regresivo&gt;&quot; en packages/remotion con props
+validadas por zod (textos en español), soporte de fondo transparente y miniatura, siguiendo las 9
+existentes. Agregala al catálogo, a los tests y al manual (§8).
+</code></pre>
+          </li>
+        </ol>
+        <h2 id="15-limitaciones-conocidas">15. Limitaciones conocidas</h2>
+        <p>Comprobadas en el código; están para que no pierdas tiempo:</p>
+        <ul>
+          <li>
+            <strong>Renderizar subtítulos como motion</strong> (panel Subtítulos) falla: envía los
+            datos con un formato que la plantilla <em>Subtítulos animados</em> no acepta (el campo
+            <em>Estilo</em> va como objeto). Usá el camino alternativo del
+            <a href="#flujo-2--video-vertical-para-reelstiktok-con-subtítulos-animados">flujo 2</a>.
+          </li>
+          <li>
+            Los <strong>segmentos de subtítulos se queman siempre</strong> en la exportación (estilo
+            fijo, sin animación).
+          </li>
+          <li>
+            <strong>Ducking</strong>: solo por API (no hay botón) y no se aplica al exportar desde
+            la línea de tiempo.
+          </li>
+          <li>
+            <strong
+              >Archivos <code>.srt</code>/<code>.vtt</code>/<code>.ass</code> importados</strong
+            >
+            no se cargan como segmentos ni se queman.
+          </li>
+          <li>
+            <strong>Lottie importado</strong> (<code>.json</code>) puesto directamente en la línea
+            de tiempo no se exporta: usá la plantilla <strong>Animación Lottie</strong> con la URL
+            del archivo.
+          </li>
+          <li>
+            <strong>Vista previa</strong>: muestra un solo clip de video a la vez (el de la primera
+            pista de video de la lista que tenga algo bajo el cursor, al revés que la exportación) y
+            no compone PiP ni varias pistas; la <strong>exportación sí</strong>. La vista previa de
+            motion en su panel es aproximada hasta que renderizás.
+          </li>
+          <li>
+            <strong>Sin recorte (crop) ni zoom</strong> en la interfaz: un video horizontal en un
+            proyecto vertical queda con barras.
+          </li>
+          <li>
+            <strong>Un proyecto a la vez</strong>: no hay lista para reabrir proyectos anteriores.
+          </li>
+          <li><strong>No se pueden reordenar pistas</strong> desde la interfaz.</li>
+          <li>
+            El estilo de subtítulos no se recarga desde el proyecto al abrir otro navegador (queda
+            el guardado en ese navegador).
+          </li>
+          <li>Motor <strong>Motion Canvas</strong>: solo esqueleto (no disponible).</li>
+          <li>
+            Nunca probado en un Windows real por el equipo que lo armó (se desarrolló en Linux): las
+            recetas de <a href="#14-pruebas-que-podés-hacer-hoy">§14</a> sirven justamente para eso.
+          </li>
+        </ul>
+        <h2 id="16-glosario">16. Glosario</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Término</th>
+                <th>Qué significa</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Alfa / transparencia</strong></td>
+                <td>
+                  Canal que guarda qué partes de la imagen son transparentes. Necesario para
+                  superponer gráficos.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>API</strong></td>
+                <td>
+                  El programa local (puerto 3001) que guarda todo y hace los trabajos pesados.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Bitrate</strong></td>
+                <td>
+                  Cantidad de datos por segundo (kbps). Más bitrate = más calidad y archivo más
+                  grande.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Clip</strong></td>
+                <td>Un pedazo de un medio puesto en la línea de tiempo.</td>
+              </tr>
+              <tr>
+                <td><strong>Códec</strong></td>
+                <td>
+                  Forma de comprimir el video o el audio (H.264, H.265, VP9, ProRes, AAC, Opus).
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Contenedor</strong></td>
+                <td>El tipo de archivo que guarda video y audio juntos (MP4, WebM, MOV, GIF).</td>
+              </tr>
+              <tr>
+                <td><strong>CRF</strong></td>
+                <td>
+                  Calidad constante: número de 0 a 51; <strong>más bajo = mejor calidad</strong> y
+                  archivo más grande (18–23 es lo habitual).
+                </td>
+              </tr>
+              <tr>
+                <td><strong>CUDA</strong></td>
+                <td>Tecnología de las placas NVIDIA para acelerar la IA.</td>
+              </tr>
+              <tr>
+                <td><strong>Ducking</strong></td>
+                <td>Bajar automáticamente la música cuando alguien habla.</td>
+              </tr>
+              <tr>
+                <td><strong>F0</strong></td>
+                <td>
+                  La frecuencia fundamental (el tono) de la voz; RVC la detecta con métodos como
+                  rmvpe o pm.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>FPS</strong></td>
+                <td>Fotogramas por segundo (30 es lo normal; 60 se ve más fluido).</td>
+              </tr>
+              <tr>
+                <td><strong>Layout</strong></td>
+                <td>La distribución de los paneles en la pantalla.</td>
+              </tr>
+              <tr>
+                <td><strong>Lottie</strong></td>
+                <td>Formato de animaciones vectoriales en un archivo <code>.json</code>.</td>
+              </tr>
+              <tr>
+                <td><strong>Lower third / rótulo</strong></td>
+                <td>Cartel en el tercio inferior con nombre y cargo de quien habla.</td>
+              </tr>
+              <tr>
+                <td><strong>LUFS</strong></td>
+                <td>Unidad de sonoridad. Las plataformas piden alrededor de −14 a −16 LUFS.</td>
+              </tr>
+              <tr>
+                <td><strong>Motion graphics</strong></td>
+                <td>Gráficos animados (títulos, rótulos, subtítulos animados).</td>
+              </tr>
+              <tr>
+                <td><strong>Piper</strong></td>
+                <td>Motor local de texto a voz.</td>
+              </tr>
+              <tr>
+                <td><strong>PiP</strong></td>
+                <td><em>Picture in picture</em>: un video chico encima de otro.</td>
+              </tr>
+              <tr>
+                <td><strong>Preset</strong></td>
+                <td>Configuración guardada con nombre (de exportación, de efectos o de layout).</td>
+              </tr>
+              <tr>
+                <td><strong>Proxy</strong></td>
+                <td>
+                  Copia liviana (360p) de un video para que la vista previa ande fluida. La
+                  exportación usa siempre el original.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Remotion</strong></td>
+                <td>
+                  Motor que dibuja las plantillas de motion graphics con un navegador interno.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Render</strong></td>
+                <td>Generar el archivo final de un gráfico, una voz o una exportación.</td>
+              </tr>
+              <tr>
+                <td><strong>RVC</strong></td>
+                <td>
+                  <em>Retrieval-based Voice Conversion</em>: convierte una voz grabada en otra
+                  usando un modelo entrenado.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>SRT</strong></td>
+                <td>Formato de texto de subtítulos con tiempos.</td>
+              </tr>
+              <tr>
+                <td><strong>Trabajo (job)</strong></td>
+                <td>Tarea que corre en segundo plano y se ve en el panel Trabajos.</td>
+              </tr>
+              <tr>
+                <td><strong>TTS</strong></td>
+                <td><em>Text to speech</em>: texto a voz.</td>
+              </tr>
+              <tr>
+                <td><strong>Whisper</strong></td>
+                <td>Modelo de IA que transcribe audio a texto (Studio usa faster-whisper).</td>
+              </tr>
+              <tr>
+                <td><strong>Workers</strong></td>
+                <td>El programa local en Python (puerto 8001) que corre Whisper, Piper y RVC.</td>
+              </tr>
+              <tr>
+                <td><strong>Zona segura</strong></td>
+                <td>
+                  Margen donde no conviene poner texto porque la interfaz de TikTok/Reels/YouTube lo
+                  tapa.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

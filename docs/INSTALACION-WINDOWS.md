@@ -4,6 +4,10 @@ Guía para una PC con **Windows 10 (21H2 o superior) u 11 de 64 bits**, sin nada
 en tu PC (`127.0.0.1`); no hace falta cuenta ni nube. Las API keys (ElevenLabs, OpenAI, Freesound…)
 son **opcionales**.
 
+Una vez instalado, el **[Manual de usuario](manual/MANUAL-USUARIO.md)** explica cómo usar cada panel,
+los flujos paso a paso, los límites y la solución de problemas (también en
+[HTML](manual/index.html) y [PDF](manual/MANUAL-USUARIO.pdf)).
+
 | Requisito   | Mínimo                                  | Recomendado                                  |
 | ----------- | --------------------------------------- | -------------------------------------------- |
 | Disco libre | 10 GB                                   | 20 GB (+4 GB con CUDA)                       |

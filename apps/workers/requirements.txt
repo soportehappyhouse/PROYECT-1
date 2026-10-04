@@ -1,0 +1,14 @@
+# Full runtime install used by scripts/windows/setup.ps1:
+#   python -m venv .venv ; .venv\Scripts\pip install -r requirements.txt
+# Target interpreter: Python 3.11.9. Source of truth for versions is pyproject.toml
+# (this file = core + whisper + tts extras).
+# CUDA: setup.ps1 -Cuda installs NVIDIA cuBLAS/cuDNN wheels on top (TODO(module-d)).
+fastapi>=0.142.2,<1
+uvicorn[standard]>=0.54.0,<1
+pydantic>=2.13,<3
+pydantic-settings>=2.15,<3
+python-multipart>=0.0.32
+faster-whisper==1.2.1
+piper-tts==1.8.0
+# RVC is installed in a separate step by setup.ps1 (torch CPU/CUDA profile first):
+#   pip install "pip>=24" "setuptools<=80.6.0" ; pip install infer-rvc-python==1.3.1

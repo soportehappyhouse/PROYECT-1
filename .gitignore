@@ -1,0 +1,69 @@
+# --- Node / pnpm ---
+node_modules/
+.pnpm-store/
+.pnpm-debug.log*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.tsbuildinfo
+
+# --- Build output ---
+dist/
+build/
+out/
+.next/
+.turbo/
+coverage/
+next-env.d.ts
+
+# --- Remotion ---
+.remotion/
+packages/remotion/out/
+
+# --- Runtime data (never commit user media, renders or models) ---
+storage/
+models/
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# --- Model weights / large binaries ---
+*.pth
+*.pt
+*.onnx
+*.onnx.json
+*.ckpt
+*.safetensors
+*.bin
+*.index
+
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.python-version
+
+# --- Tools / OS / editors ---
+tools/ffmpeg/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log

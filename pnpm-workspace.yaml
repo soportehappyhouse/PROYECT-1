@@ -1,0 +1,18 @@
+# pnpm 12 workspace definition (settings live here, not in .npmrc).
+# apps/workers is a Python project (no package.json) and is intentionally not a pnpm package.
+packages:
+  - "apps/*"
+  - "packages/*"
+
+autoInstallPeers: true
+strictPeerDependencies: false
+
+# Dependency build scripts are denied by default; approve only what we need.
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true
+  sharp: false
+  "@tailwindcss/oxide": false
+  unrs-resolver: false
+minimumReleaseAgeExclude:
+  - lucide-react@1.52.0

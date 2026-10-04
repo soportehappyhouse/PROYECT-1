@@ -1,0 +1,39 @@
+{
+  "name": "studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Studio: local video editor + motion graphics + voice dashboard (monorepo root)",
+  "type": "module",
+  "packageManager": "pnpm@12.9.1",
+  "engines": {
+    "node": ">=22.12.0 <23",
+    "pnpm": ">=12"
+  },
+  "scripts": {
+    "build:packages": "pnpm --filter \"./packages/**\" build",
+    "dev": "pnpm build:packages && pnpm --parallel --filter @studio/web --filter @studio/api dev",
+    "dev:web": "pnpm --filter @studio/web dev",
+    "dev:api": "pnpm --filter @studio/api dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "pnpm -r test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "clean": "pnpm -r exec node -e \"for (const d of ['dist','.next']) require('node:fs').rmSync(d,{recursive:true,force:true})\""
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@next/eslint-plugin-next": "^15.5.27",
+    "@types/node": "^22.20.5",
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.9",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.71.0",
+    "vitest": "^4.1.11"
+  }
+}

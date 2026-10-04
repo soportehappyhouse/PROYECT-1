@@ -62,6 +62,13 @@ if (-not $Dev) {
     if ($needBuild) {
         Write-Step 'No hay build de produccion: ejecutando pnpm build (solo la primera vez)'
         Invoke-Native 'pnpm' @('build')
+    } else {
+        # NEXT_PUBLIC_API_URL is inlined at build time: rebuild the web if .env changed since then.
+        $buildId = Get-Item (Join-Path $RepoRoot 'apps\web\.next\BUILD_ID')
+        if ((Get-Item $EnvFile).LastWriteTimeUtc -gt $buildId.LastWriteTimeUtc) {
+            Write-Step '.env cambio despues del ultimo build del dashboard: recompilando la web'
+            Invoke-Native 'pnpm' @('--filter', '@studio/web', 'build')
+        }
     }
 }
 

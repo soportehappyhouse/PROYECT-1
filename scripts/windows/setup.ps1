@@ -17,11 +17,13 @@
 .PARAMETER PiperVoice
   Voz Piper a descargar (default: PIPER_DEFAULT_VOICE de .env, es_AR-daniela-high).
 .PARAMETER SkipWinget
-  No instala prerrequisitos del sistema (solo verifica).
+  No usa winget: asume Git, Node.js 22, Python 3.11 y FFmpeg ya en el PATH (solo verifica).
 .PARAMETER SkipRvc
   No instala torch / infer-rvc-python (instalacion mas liviana; RVC queda deshabilitado).
 .PARAMETER SkipModels
   No descarga modelos (whisper / piper / rvc).
+.PARAMETER SkipBrowser
+  No descarga Chrome Headless Shell para Remotion.
 .PARAMETER SkipBuild
   No ejecuta pnpm build.
 .EXAMPLE
@@ -37,6 +39,7 @@ param(
     [switch]$SkipWinget,
     [switch]$SkipRvc,
     [switch]$SkipModels,
+    [switch]$SkipBrowser,
     [switch]$SkipBuild,
     [switch]$IncludeLegacyHubert
 )
@@ -56,6 +59,7 @@ Write-Step 'Verificando el sistema'
 if (-not [Environment]::Is64BitOperatingSystem) { throw 'Se requiere Windows de 64 bits.' }
 Write-Info ("Windows {0}, PowerShell {1}" -f [Environment]::OSVersion.Version, $PSVersionTable.PSVersion)
 $hasWinget = Test-Cmd 'winget'
+if ($SkipWinget) { Write-Info '-SkipWinget: se usan Git/Node/Python/FFmpeg del PATH (sin instalar nada)' }
 if (-not $hasWinget -and -not $SkipWinget) {
     Write-Bad 'winget no esta disponible. Instala "App Installer" desde Microsoft Store y reintenta:'
     Write-Info 'https://apps.microsoft.com/detail/9NBLGGH4NNS1  (o usa -SkipWinget e instala a mano)'
@@ -192,7 +196,9 @@ if ($nodeVer) {
     } catch {
         Add-Result 'Dependencias JS (pnpm install)' fail $_.Exception.Message
     }
-    if ($pnpmOk) {
+    if ($pnpmOk -and $SkipBrowser) {
+        Add-Result 'Remotion (Chrome Headless Shell)' skip '-SkipBrowser'
+    } elseif ($pnpmOk) {
         try {
             # Chrome Headless Shell for Remotion renders, run from the repo root: pnpm executes the
             # script inside packages\remotion, so it lands in packages\remotion\node_modules\.remotion
@@ -200,7 +206,7 @@ if ($nodeVer) {
             Invoke-Native 'pnpm' @('--filter', '@studio/remotion', 'browser:ensure') $RepoRoot
             Add-Result 'Remotion (Chrome Headless Shell)' ok ''
         } catch {
-            Add-Result 'Remotion (Chrome Headless Shell)' warn ("{0} - se reintenta al primer render" -f $_.Exception.Message)
+            Add-Result 'Remotion (Chrome Headless Shell)' fail ("{0} - reintenta setup.ps1" -f $_.Exception.Message)
         }
     }
 } else {
@@ -304,11 +310,49 @@ if ($SkipBuild) {
     Add-Result 'Build' skip 'requiere pnpm install'
 } else {
     try {
+        # NEXT_PUBLIC_API_URL / API_PORT from .env reach next.config.ts (inlined into the web build).
+        Import-DotEnvToProcess
         Invoke-Native 'pnpm' @('build')
         Add-Result 'Build' ok 'pnpm build'
     } catch {
         Add-Result 'Build' fail ("{0} (podes usar start.ps1 -Dev)" -f $_.Exception.Message)
     }
+}
+
+# ============================================================================ 7. final check
+# Required assets must exist after the run (not only "the step did not throw").
+Write-Step 'Verificacion final (voz Piper, Whisper, navegador de Remotion)'
+$missingAssets = @()
+if (-not $SkipModels) {
+    $voice = $PiperVoice
+    if (-not $voice) { $voice = Get-EnvSetting 'PIPER_DEFAULT_VOICE' 'es_AR-daniela-high' }
+    $piperDir = Join-Path $models 'piper'
+    if (-not ((Test-Path (Join-Path $piperDir "$voice.onnx")) -and (Test-Path (Join-Path $piperDir "$voice.onnx.json")))) {
+        $missingAssets += "voz Piper $voice (models\piper)"
+    }
+    $wModel = Get-EnvSetting 'WHISPER_MODEL' $WhisperModel
+    $wHit = Get-ChildItem -Path (Join-Path $models 'whisper') -Filter 'model.bin' -Recurse -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -match ('models--[^\\]+--faster-whisper-' + [regex]::Escape($wModel) + '\\snapshots\\') } |
+        Select-Object -First 1
+    if (-not $wHit) { $missingAssets += "modelo Whisper $wModel (models\whisper)" }
+}
+if (-not $SkipBrowser) {
+    $browserExe = Get-EnvSetting 'REMOTION_BROWSER_EXECUTABLE' ''
+    $browserOk = $false
+    if ($browserExe) {
+        $browserOk = Test-Path (Resolve-RepoPath $browserExe)
+    } else {
+        $rel = 'node_modules\.remotion\chrome-headless-shell\win64\chrome-headless-shell-win64\chrome-headless-shell.exe'
+        foreach ($root in @('packages\remotion', '.', 'apps\api')) {
+            if (Test-Path (Join-Path (Join-Path $RepoRoot $root) $rel)) { $browserOk = $true }
+        }
+    }
+    if (-not $browserOk) { $missingAssets += 'Chrome Headless Shell de Remotion (pnpm --filter @studio/remotion browser:ensure)' }
+}
+if ($missingAssets.Count -gt 0) {
+    foreach ($m in $missingAssets) { Add-Result 'Falta' fail $m }
+} else {
+    Write-Good 'Activos requeridos presentes'
 }
 
 # ============================================================================ summary
@@ -324,5 +368,6 @@ if ($failed -eq 0) {
 }
 Write-Host ''
 Write-Host "$failed componente(s) con error. Diagnostico: scripts\windows\doctor.ps1" -ForegroundColor Red
+foreach ($m in $missingAssets) { Write-Host "  FALTA: $m" -ForegroundColor Red }
 Write-Host 'Si se instalo algo nuevo con winget, cerra y abri una terminal nueva y volve a correr setup.ps1.'
 exit 1

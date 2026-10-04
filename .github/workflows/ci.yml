@@ -31,7 +31,17 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      - name: Install ffmpeg (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install ffmpeg (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install ffmpeg -y --no-progress
       - run: pnpm install --frozen-lockfile
+      # Chrome Headless Shell for the Remotion integration test (skipped only if the host is blocked).
+      - run: pnpm --filter @studio/remotion browser:ensure
+        continue-on-error: false
       - run: pnpm lint
       - run: pnpm format:check
       - run: pnpm typecheck
@@ -60,3 +70,48 @@ jobs:
       - run: python -m ruff check .
       - run: python -m ruff format --check .
       - run: python -m pytest -q
+
+  windows-smoke:
+    name: Windows smoke (setup.ps1 + start.ps1)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11.9"
+      - run: choco install ffmpeg -y --no-progress
+      # -SkipWinget: Git, Node 22, Python 3.11 and ffmpeg come from the steps above (on PATH).
+      - run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/setup.ps1 -SkipWinget -SkipRvc -SkipModels -SkipBrowser
+      - name: Start services and poll health (3 min)
+        run: |
+          Start-Process powershell -WindowStyle Hidden -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts\windows\start.ps1', '-SingleConsole', '-NoBrowser')
+          $urls = @('http://127.0.0.1:3000/', 'http://127.0.0.1:3001/api/health', 'http://127.0.0.1:8001/health')
+          $ok = @{}
+          $deadline = (Get-Date).AddMinutes(3)
+          while ((Get-Date) -lt $deadline -and $ok.Count -lt $urls.Count) {
+            foreach ($u in $urls) {
+              if ($ok.ContainsKey($u)) { continue }
+              try {
+                $r = Invoke-WebRequest -Uri $u -UseBasicParsing -TimeoutSec 5
+                if ($r.StatusCode -ge 200 -and $r.StatusCode -lt 400) { $ok[$u] = $true; Write-Host "OK $u" }
+              } catch { }
+            }
+            Start-Sleep -Seconds 3
+          }
+          foreach ($u in $urls) { if (-not $ok.ContainsKey($u)) { Write-Host "FAIL $u" } }
+          if ($ok.Count -lt $urls.Count) { exit 1 }
+      - name: Stop services
+        if: always()
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/stop.ps1
+      - name: Service logs
+        if: failure()
+        run: Get-ChildItem storage\logs -Filter *.log -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "== $($_.Name)"; Get-Content $_.FullName -Tail 80 }

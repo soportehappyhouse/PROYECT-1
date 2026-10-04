@@ -15,13 +15,16 @@ son **opcionales**.
 
 Usá una **ruta corta** (las dependencias generan rutas muy largas): por ejemplo `C:\dev\studio`.
 
-- Con Git: `git clone <url-del-repo> C:\dev\studio`
-- Con ZIP: descomprimilo en `C:\dev\studio` y luego, en PowerShell, desbloqueá los scripts
-  (Windows marca los archivos bajados de internet):
+- **Recomendado — ZIP** (no necesita Git): en la página del repo, **Code → Download ZIP**,
+  descomprimilo en `C:\dev\studio` (que `package.json` quede directamente dentro) y luego, en
+  PowerShell, desbloqueá los scripts (Windows marca los archivos bajados de internet):
 
   ```powershell
   Get-ChildItem -Recurse C:\dev\studio\scripts | Unblock-File
   ```
+
+- Alternativa con Git: `git clone <url-del-repo> C:\dev\studio` (si no tenés Git, `setup.ps1` lo
+  instala; actualizar luego es un `git pull`).
 
 ## 2. Abrir PowerShell en la carpeta
 
@@ -40,7 +43,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\setup.ps1
 (o doble clic en `scripts\windows\setup.cmd`). `-ExecutionPolicy Bypass` vale solo para ese proceso:
 no cambia la configuración de seguridad de Windows.
 
-Qué hace (se puede repetir sin romper nada; lo ya instalado se saltea):
+Sin pasos manuales extra, salvo aceptar UAC: los instaladores de winget (Node.js, VC++) muestran
+el aviso de **Control de cuentas de usuario** y eso es lo esperado. Qué hace (se puede repetir sin
+romper nada; lo ya instalado se saltea):
 
 1. Con **winget** instala lo que falte: Git, **Node.js 22**, **Python 3.11**, **FFmpeg** (build
    "full" de Gyan) y **Visual C++ Redistributable x64**. Node y VC++ muestran un aviso de
@@ -51,8 +56,11 @@ Qué hace (se puede repetir sin romper nada; lo ya instalado se saltea):
 4. Crea el entorno Python `apps\workers\.venv` con faster-whisper, Piper y RVC (torch CPU).
 5. Descarga los modelos: voz **es_AR-daniela-high**, Whisper **base**, activos de RVC
    (`rmvpe.pt` + `hubert_base`). Los archivos se verifican por tamaño/checksum.
-6. Compila el proyecto (`pnpm build`).
-7. Muestra un **resumen con ✅ / ❌** por componente.
+6. Compila el proyecto (`pnpm build`) con los valores de `.env` (la URL de la API que usa el
+   dashboard se toma de `NEXT_PUBLIC_API_URL` o `API_PORT`; si cambiás `.env`, `start.ps1` recompila
+   la web).
+7. Muestra un **resumen con ✅ / ❌** por componente. Si al final falta la voz Piper, el modelo
+   Whisper o el navegador de Remotion, termina con error (código 1) y los lista en rojo.
 
 Duración típica: 15–40 minutos según la conexión (torch ≈ 200 MB, CUDA ≈ 3 GB).
 
@@ -61,13 +69,14 @@ Duración típica: 15–40 minutos según la conexión (torch ≈ 200 MB, CUDA �
 
 ### Opciones útiles
 
-| Opción                                       | Para qué                                                                        |
-| -------------------------------------------- | ------------------------------------------------------------------------------- |
-| `-WithCuda`                                  | GPU NVIDIA: torch CUDA 12.8 (cu128) y `USE_CUDA=true` en `.env`                 |
-| `-WhisperModel small`                        | Otro modelo de subtítulos (`tiny`, `base`, `small`, `medium`, `large-v3-turbo`) |
-| `-PiperVoice es_MX-claude-high`              | Otra voz por defecto                                                            |
-| `-SkipRvc`                                   | Instalación liviana sin torch/RVC                                               |
-| `-SkipModels` / `-SkipBuild` / `-SkipWinget` | Saltear pasos                                                                   |
+| Opción                                        | Para qué                                                                        |
+| --------------------------------------------- | ------------------------------------------------------------------------------- |
+| `-WithCuda`                                   | GPU NVIDIA: torch CUDA 12.8 (cu128) y `USE_CUDA=true` en `.env`                 |
+| `-WhisperModel small`                         | Otro modelo de subtítulos (`tiny`, `base`, `small`, `medium`, `large-v3-turbo`) |
+| `-PiperVoice es_MX-claude-high`               | Otra voz por defecto                                                            |
+| `-SkipRvc`                                    | Instalación liviana sin torch/RVC                                               |
+| `-SkipModels` / `-SkipBuild` / `-SkipBrowser` | Saltear pasos                                                                   |
+| `-SkipWinget`                                 | No usa winget: Git, Node 22, Python 3.11 y FFmpeg ya deben estar en el PATH     |
 
 ## 4. Abrir Studio
 
@@ -82,7 +91,11 @@ sonidos y abre **http://localhost:3000** en el navegador.
 - `-SingleConsole`: todo en una sola consola con logs `[workers]`, `[api]`, `[web]`; **Ctrl+C** detiene todo.
 - `-Dev`: modo desarrollo con recarga en caliente.
 - Para detener: cerrá las ventanas o ejecutá `scripts\windows\stop.ps1`.
-- Los puertos se cambian en `.env` (`WEB_PORT`, `API_PORT`, `WORKERS_PORT`).
+- Los puertos se cambian en `.env` (`WEB_PORT`, `API_PORT`, `WORKERS_PORT`). Las URLs internas
+  (`NEXT_PUBLIC_API_URL`, `WORKERS_URL`) usan `127.0.0.1`, no `localhost`, porque los servicios
+  escuchan solo en `127.0.0.1`.
+- Los gráficos de Remotion usan fuentes del sistema (`REMOTION_FONTS=system`, funciona sin
+  internet); `REMOTION_FONTS=google` descarga Google Fonts la primera vez.
 
 Si aparece el **Firewall de Windows** preguntando por `node.exe` o `python.exe`: todo escucha solo en
 `127.0.0.1`, así que podés elegir **Cancelar** (o solo "Redes privadas").
@@ -156,6 +169,7 @@ puertos y estado de los servicios. No modifica nada.
 
 ## 9. Actualizar y desinstalar
 
-- Actualizar: `git pull` y volver a correr `setup.ps1` (solo instala lo nuevo).
+- Actualizar: bajá el ZIP nuevo y descomprimilo encima (conservá `.env`, `storage\` y `models\`), o
+  `git pull` si clonaste; después volvé a correr `setup.ps1` (solo instala lo nuevo).
 - Desinstalar Studio: borrar la carpeta `C:\dev\studio` (incluye `storage\`, `models\` y `.venv`).
   Node, Python, Git y FFmpeg se quitan desde "Aplicaciones" o con `winget uninstall --id <ID>`.

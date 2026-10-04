@@ -29,6 +29,7 @@
 - Solo se copia código con licencia MIT/Apache/BSD/CC0; Remotion se usa bajo su licencia gratuita para uso personal. Todo queda registrado en `docs/trabajo/fuentes.md`.
 - Node 22 LTS, Python 3.11, pnpm. Monorepo: `apps/web`, `apps/api`, `apps/workers` (Python), `packages/remotion`, `packages/motion-engines`, `packages/shared`.
 - Claude/otros LLM dentro de la app: solo como asistente opcional (guiones, prompts) con key en `.env`; no es requisito para funcionar.
+- piper-tts es dependencia GPL-3 en tiempo de ejecución (no se copia código); aceptable para uso personal cerrado.
 
 ## Restricciones
 - Fable solo coordina; búsqueda → Sonnet, código → Opus, auditoría → agente de solo lectura.
@@ -43,4 +44,4 @@
 5. Commit + push + `docs/DEVOLUCION-2026-10-04-studio.md`.
 
 ## Descubierto (fuera de alcance)
-- (vacío)
+- Motor Motion Canvas real vía Revideo; rasterizador Lottie propio para el motor FFmpeg; preview multi-clip/PiP en el navegador.

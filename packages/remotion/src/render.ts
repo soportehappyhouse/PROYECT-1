@@ -26,7 +26,7 @@ export interface RemotionRendererSettings {
   browserExecutable: string | null;
   /** NVENC etc. Env: REMOTION_HW_ACCEL=true -> "if-possible". CPU only by default. */
   hardwareAcceleration: "disable" | "if-possible";
-  /** "system" never downloads Google Fonts (offline PCs). Env: REMOTION_FONTS=system. */
+  /** "system" (default) never downloads Google Fonts; "google" is opt-in. Env: REMOTION_FONTS. */
   fontMode: "google" | "system";
   /** Bundle cache root. Null = `<storageDir>/tmp/remotion-bundle`. Env: REMOTION_BUNDLE_CACHE. */
   bundleCacheDir: string | null;
@@ -42,7 +42,7 @@ function fromEnv(env: NodeJS.ProcessEnv = process.env): RemotionRendererSettings
     hardwareAcceleration: /^(1|true)$/i.test(env.REMOTION_HW_ACCEL ?? "")
       ? "if-possible"
       : "disable",
-    fontMode: env.REMOTION_FONTS?.trim() === "system" ? "system" : "google",
+    fontMode: env.REMOTION_FONTS?.trim() === "google" ? "google" : "system",
     bundleCacheDir: env.REMOTION_BUNDLE_CACHE?.trim() || null,
     timeoutInMilliseconds:
       Number(env.REMOTION_TIMEOUT_MS) > 0 ? Number(env.REMOTION_TIMEOUT_MS) : 60_000,

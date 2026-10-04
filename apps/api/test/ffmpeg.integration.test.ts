@@ -23,6 +23,11 @@ import { makeApp, multipart, tempStorage, waitFor } from "./helpers.js";
 const hasFfmpeg =
   spawnSync("ffmpeg", ["-version"]).status === 0 && spawnSync("ffprobe", ["-version"]).status === 0;
 
+// CI installs ffmpeg: there a missing binary must fail instead of silently skipping the suite.
+it.runIf(process.env.CI === "true")("ffmpeg and ffprobe are on PATH (CI)", () => {
+  expect(hasFfmpeg, "ffmpeg/ffprobe not found on PATH; the CI workflow installs them").toBe(true);
+});
+
 const gen = (args: string[]) =>
   execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", ...args]);
 

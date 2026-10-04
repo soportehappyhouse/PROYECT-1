@@ -1,47 +1,74 @@
 import type { MotionTemplateInfo } from "@studio/shared";
+import { z } from "zod";
+import { findTemplateDef, TEMPLATE_DEFS, THUMBNAIL_SUFFIX, type TemplateDef } from "./catalog.js";
+import { REMOTION_COLOR_BRAND, REMOTION_TEXTAREA_BRAND } from "./schemas/common.js";
+
+export { TEMPLATE_DEFS, type RemotionTemplateId } from "./catalog.js";
+
+/** MotionTemplateInfo + Remotion-specific extras (ignored by MotionTemplateInfoSchema). */
+export interface RemotionTemplateInfo extends MotionTemplateInfo {
+  engine: "remotion";
+  category: TemplateDef["category"];
+  defaultSize: { width: number; height: number };
+  /** Still composition for previews: render with renderStill or show in <Player>. */
+  thumbnail: { compositionId: string; frame: number };
+}
 
 /**
- * Catalog of Remotion compositions. Ids MUST match <Composition id> in Root.tsx and
- * REMOTION_TEMPLATE_IDS in @studio/shared.
- * TODO(module-c): one zod props schema per template (+ z.toJSONSchema -> propsSchema).
+ * zod -> JSON Schema (draft 2020-12) for the dashboard form. Studio brands become
+ * `format: "color"` / `format: "textarea"`. Uses the *input* shape so defaulted keys are optional.
  */
-export const REMOTION_TEMPLATES = [
-  {
-    engine: "remotion",
-    id: "title-card",
-    name: "Título",
-    description: "Animated centered title with subtitle.",
-    defaultProps: { title: "Mi título", subtitle: "", color: "#ffffff", background: "#111111" },
-    defaultDurationSec: 3,
-    supportsAlpha: true,
-  },
-  {
-    engine: "remotion",
-    id: "lower-third",
-    name: "Lower third",
-    description: "Name + role bar sliding in from the left.",
-    defaultProps: { name: "Nombre Apellido", role: "Cargo", accent: "#e13238" },
-    defaultDurationSec: 5,
-    supportsAlpha: true,
-  },
-  {
-    engine: "remotion",
-    id: "animated-captions",
-    name: "Subtítulos animados",
-    description: "Word-by-word highlighted captions from a Whisper transcript.",
-    defaultProps: { segments: [], highlightColor: "#ffd400", fontSize: 72 },
-    defaultDurationSec: 10,
-    supportsAlpha: true,
-  },
-  {
-    engine: "remotion",
-    id: "transition",
-    name: "Transición",
-    description: "Full-frame wipe/fade transition overlay.",
-    defaultProps: { kind: "wipe", color: "#000000" },
-    defaultDurationSec: 1,
-    supportsAlpha: true,
-  },
-] as const satisfies readonly MotionTemplateInfo[];
+export function toPropsJsonSchema(schema: z.ZodType): Record<string, unknown> {
+  return z.toJSONSchema(schema, {
+    io: "input",
+    unrepresentable: "any",
+    override: (ctx) => {
+      const js = ctx.jsonSchema as Record<string, unknown>;
+      if (js.description === REMOTION_COLOR_BRAND) {
+        delete js.description;
+        js.format = "color";
+      } else if (js.description === REMOTION_TEXTAREA_BRAND) {
+        delete js.description;
+        js.format = "textarea";
+      }
+    },
+  }) as Record<string, unknown>;
+}
 
-export type RemotionTemplateId = (typeof REMOTION_TEMPLATES)[number]["id"];
+function toInfo(def: TemplateDef): RemotionTemplateInfo {
+  return {
+    engine: "remotion",
+    id: def.id,
+    name: def.name,
+    description: def.description,
+    category: def.category,
+    propsSchema: toPropsJsonSchema(def.schema),
+    defaultProps: def.schema.parse({}) as Record<string, unknown>,
+    defaultDurationSec: def.defaultDurationSec,
+    defaultSize: def.defaultSize,
+    supportsAlpha: def.supportsAlpha,
+    thumbnail: { compositionId: `${def.id}${THUMBNAIL_SUFFIX}`, frame: def.thumbnailFrame },
+  };
+}
+
+/** Catalog of Remotion templates exposed by GET /api/motion/templates. */
+export const REMOTION_TEMPLATES: readonly RemotionTemplateInfo[] = (
+  TEMPLATE_DEFS as readonly TemplateDef[]
+).map(toInfo);
+
+export type PropsValidation =
+  { ok: true; props: Record<string, unknown> } | { ok: false; errors: string[] };
+
+/** Validate + apply defaults. Errors are Spanish, prefixed with the prop path. */
+export function validateRemotionProps(templateId: string, props: unknown): PropsValidation {
+  const def = findTemplateDef(templateId);
+  if (!def) return { ok: false, errors: [`Plantilla Remotion desconocida: ${templateId}`] };
+  const parsed = def.schema.safeParse(props ?? {});
+  if (parsed.success) return { ok: true, props: parsed.data as Record<string, unknown> };
+  return {
+    ok: false,
+    errors: parsed.error.issues.map(
+      (i) => `${i.path.length ? i.path.join(".") : "props"}: ${i.message}`,
+    ),
+  };
+}

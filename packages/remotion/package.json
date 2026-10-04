@@ -2,7 +2,7 @@
   "name": "@studio/remotion",
   "version": "0.1.0",
   "private": true,
-  "description": "Remotion 4 compositions (titles, lower-thirds, animated subtitles, transitions) + programmatic render",
+  "description": "Remotion 4 compositions (titles, lower-thirds, animated captions, transitions, audio visualizer, Lottie, end screen, progress bar, kinetic typography) + programmatic render",
   "type": "module",
   "exports": {
     ".": {
@@ -21,21 +21,31 @@
     "lint": "eslint .",
     "test": "vitest run --passWithNoTests",
     "studio": "remotion studio src/entry.ts",
-    "render:example": "remotion render src/entry.ts title-card out/title-card.mp4"
+    "render": "tsx --conditions=@studio/source src/cli/render.ts",
+    "render:example": "tsx --conditions=@studio/source src/cli/render.ts --template title-card --out out/title-card.mp4",
+    "browser:ensure": "remotion browser ensure"
   },
   "dependencies": {
     "@remotion/bundler": "4.0.532",
+    "@remotion/captions": "4.0.532",
+    "@remotion/google-fonts": "4.0.532",
+    "@remotion/lottie": "4.0.532",
+    "@remotion/media-utils": "4.0.532",
     "@remotion/renderer": "4.0.532",
+    "@remotion/transitions": "4.0.532",
     "@studio/motion-engines": "workspace:*",
     "@studio/shared": "workspace:*",
+    "lottie-web": "5.13.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "remotion": "4.0.532"
+    "remotion": "4.0.532",
+    "zod": "4.5.4"
   },
   "devDependencies": {
     "@remotion/cli": "4.0.532",
     "@types/node": "^22.20.5",
     "@types/react": "^19.3.0",
+    "tsx": "^4.23.15",
     "typescript": "~6.0.3",
     "vitest": "^4.1.11"
   }

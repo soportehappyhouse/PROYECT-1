@@ -22,6 +22,11 @@ const EnvSchema = z.object({
   FFMPEG_PATH: z.string().optional(),
   FFPROBE_PATH: z.string().optional(),
   USE_CUDA: boolish,
+  /** Hardware H.264 encoder: auto-detect (nvenc/qsv/amf) or force libx264 with "off". */
+  HW_ENCODER: z.enum(["auto", "off"]).default("auto"),
+  QUEUE_FFMPEG_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(2),
+  QUEUE_MOTION_CONCURRENCY: z.coerce.number().int().min(1).max(4).default(1),
+  QUEUE_WORKERS_CONCURRENCY: z.coerce.number().int().min(1).max(4).default(1),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   ELEVENLABS_API_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
@@ -42,6 +47,9 @@ export interface ApiConfig {
   ffmpegPath: string;
   ffprobePath: string;
   useCuda: boolean;
+  hwEncoder: "auto" | "off";
+  /** Max concurrent jobs per queue lane. */
+  queue: { ffmpeg: number; motion: number; workers: number };
   logLevel: string;
   /** Secrets: never sent to the client; only `Boolean(key)` is exposed via /api/config. */
   keys: {
@@ -71,6 +79,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     ffmpegPath: e.FFMPEG_PATH ?? "ffmpeg",
     ffprobePath: e.FFPROBE_PATH ?? "ffprobe",
     useCuda: e.USE_CUDA,
+    hwEncoder: e.HW_ENCODER,
+    queue: {
+      ffmpeg: e.QUEUE_FFMPEG_CONCURRENCY,
+      motion: e.QUEUE_MOTION_CONCURRENCY,
+      workers: e.QUEUE_WORKERS_CONCURRENCY,
+    },
     logLevel: e.LOG_LEVEL,
     keys: {
       elevenlabs: e.ELEVENLABS_API_KEY,

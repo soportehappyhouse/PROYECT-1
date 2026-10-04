@@ -8,7 +8,7 @@ export type { SqlDatabase as Db } from "./adapter.js";
 
 /**
  * Schema v1. JSON columns hold zod-validated documents from @studio/shared.
- * TODO(module-b): proper migrations table if the schema evolves; FTS5 table for library search.
+ * Later changes go into MIGRATIONS (tracked with PRAGMA user_version).
  */
 const SCHEMA = /* sql */ `
 CREATE TABLE IF NOT EXISTS projects (
@@ -56,6 +56,35 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 `;
 
+/**
+ * Incremental migrations; index + 1 = resulting user_version. Append only, never edit.
+ * Library FTS5 tables belong to module (d) and should be added here as a new entry.
+ */
+const MIGRATIONS: readonly string[] = [
+  /* v1 (module b): job retry/priority/log, ffprobe JSON, project autosaves */ `
+  ALTER TABLE jobs ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE jobs ADD COLUMN log_tail TEXT;
+  ALTER TABLE media ADD COLUMN probe TEXT;
+  CREATE INDEX IF NOT EXISTS jobs_queue_idx ON jobs(status, priority DESC, created_at);
+  CREATE TABLE IF NOT EXISTS project_autosaves (
+    project_id TEXT PRIMARY KEY,
+    data TEXT NOT NULL,          -- Project JSON snapshot
+    saved_at TEXT NOT NULL
+  );
+  `,
+];
+
+function migrate(db: Database.Database): void {
+  const current = db.pragma("user_version", { simple: true }) as number;
+  for (let v = current; v < MIGRATIONS.length; v++) {
+    db.transaction(() => {
+      db.exec(MIGRATIONS[v]!);
+      db.pragma(`user_version = ${v + 1}`);
+    })();
+  }
+}
+
 /** better-sqlite3 implementation of the SqlDatabase adapter. */
 function wrapBetterSqlite(db: Database.Database): SqlDatabase {
   return {
@@ -83,6 +112,8 @@ export function openDatabase(storageDir: string | ":memory:"): SqlDatabase {
   const db = new Database(file);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
+  db.pragma("busy_timeout = 5000");
   db.exec(SCHEMA);
+  migrate(db);
   return wrapBetterSqlite(db);
 }

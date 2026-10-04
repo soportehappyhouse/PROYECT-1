@@ -8,13 +8,17 @@ import { ZodError } from "zod";
 import type { ApiConfig } from "./config.js";
 import type { AppContext } from "./context.js";
 import { openDatabase } from "./db/database.js";
+import { registerModuleBHandlers } from "./jobs/handlers/index.js";
 import { JobQueue } from "./jobs/queue.js";
 import { SqliteJobStore } from "./jobs/store.js";
+import { allowedOrigins } from "./lib/cors.js";
 import { errorBody, HttpError } from "./lib/errors.js";
+import { createRepos } from "./repos/index.js";
 import { registerRoutes } from "./routes/index.js";
 import { createFfmpegService } from "./services/ffmpeg.js";
 import { ensureStorageLayout } from "./services/storage.js";
 import { createWorkersClient } from "./services/workers-client.js";
+import { registerVoiceAiHandlers } from "./voice-ai/handlers.js";
 
 export interface BuildAppOptions {
   config: ApiConfig;
@@ -32,7 +36,7 @@ export async function buildApp({
 
   const db = openDatabase(inMemoryDb ? ":memory:" : config.storageDir);
   const jobs = new SqliteJobStore(db);
-  const queue = new JobQueue({ store: jobs, storageDir: config.storageDir });
+  const queue = new JobQueue({ store: jobs, storageDir: config.storageDir, lanes: config.queue });
   const ctx: AppContext = {
     config,
     db,
@@ -44,8 +48,12 @@ export async function buildApp({
       ffmpegPath: config.ffmpegPath,
       remotion: { templates: REMOTION_TEMPLATES, render: renderMotion },
     }),
+    repos: createRepos(db),
   };
-  // TODO(module-b/c/d): register job handlers here, e.g. queue.register(createProbeHandler(ctx)).
+  // Job handlers, dispatched by JobType (contract: jobs/types.ts JobHandler; lanes: jobs/state.ts).
+  registerModuleBHandlers(ctx); // media.probe, media.proxy, voice.effect, project.export
+  registerVoiceAiHandlers(ctx); // module d: voice.tts, voice.rvc, subtitles.transcribe
+  // Module (c): queue.register(createMotionRenderHandler(ctx)) — files under src/jobs/handlers/.
 
   const app = Fastify({
     logger: logger ? { level: config.logLevel } : false,
@@ -64,14 +72,15 @@ export async function buildApp({
     return reply.code(status).send(errorBody("INTERNAL_ERROR", message));
   });
 
-  await app.register(cors, {
-    origin: [config.webOrigin, /^http:\/\/(localhost|127\.0\.0\.1):\d+$/],
-  });
+  await app.register(cors, { origin: allowedOrigins(config) });
   await app.register(multipart, { limits: { fileSize: 20 * 1024 * 1024 * 1024 } });
   await app.register(fastifyStatic, {
     root: config.storageDir,
     prefix: "/files/",
     decorateReply: false,
+    // Never expose the SQLite files, scratch dirs or partial uploads.
+    allowedPath: (pathName) =>
+      !/^\/?(studio\.db|tmp\/)/.test(pathName) && !pathName.endsWith(".part"),
   });
   await registerRoutes(app);
 

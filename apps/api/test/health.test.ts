@@ -41,9 +41,9 @@ describe("api skeleton", () => {
     expect(templates.json().length).toBeGreaterThanOrEqual(4);
   });
 
-  it("stubbed endpoints answer 501 with ApiError shape", async () => {
-    const res = await app.inject({ method: "GET", url: API_ROUTES.projects });
-    expect(res.statusCode).toBe(501);
-    expect(res.json()).toMatchObject({ error: { code: "NOT_IMPLEMENTED" } });
+  it("errors use the ApiError shape", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/projects/does-not-exist" });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ error: { code: "NOT_FOUND" } });
   });
 });

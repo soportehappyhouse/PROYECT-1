@@ -1,44 +1,245 @@
 import {
+  buildRoute,
+  ModelDownloadResultSchema,
+  RvcModelSchema,
+  TranscriptWithFilesSchema,
+  TtsProviderInfoSchema,
+  TtsVoiceInfoSchema,
   WORKER_ROUTES,
+  WORKER_ROUTES_EXT,
   WorkerHealthSchema,
+  WorkerJobProgressSchema,
+  type ModelDownloadRequest,
+  type ModelDownloadResult,
   type RvcModel,
-  type Transcript,
-  type TtsVoice,
+  type TranscriptWithFiles,
+  type TtsProvider,
+  type TtsProviderInfo,
+  type TtsVoiceInfo,
   type WorkerHealth,
+  type WorkerJobProgress,
 } from "@studio/shared";
+import http from "node:http";
+import { z } from "zod";
+
+/** Options for long synchronous worker calls. */
+export interface WorkerCallOptions {
+  signal?: AbortSignal;
+  /**
+   * Called with worker-side progress (0..1) while the call runs. Requires `jobId` in the request:
+   * the client polls GET /jobs/:jobId on the workers every `pollMs`.
+   */
+  onProgress?: (progress: number, message?: string) => void;
+  pollMs?: number;
+}
+
+export interface TranscribeCall {
+  inputPath: string;
+  language: string;
+  model?: string;
+  wordTimestamps: boolean;
+  /** Additive: enables progress polling and names the worker-side job. */
+  jobId?: string;
+  /** Additive: "renders/<jobId>" -> writes .json/.srt/.ass next to each other. */
+  outputBase?: string;
+}
+
+export interface TtsCall {
+  text: string;
+  voice: string;
+  speed: number;
+  outputPath: string;
+  provider?: TtsProvider;
+  format?: "wav" | "mp3";
+  jobId?: string;
+}
+
+export interface RvcCall {
+  inputPath: string;
+  modelId: string;
+  pitchShift: number;
+  indexRate: number;
+  f0Method: string;
+  device?: string;
+  outputPath: string;
+  jobId?: string;
+}
+
+const TtsResultSchema = z.object({
+  path: z.string(),
+  durationSec: z.number().nonnegative(),
+  wavPath: z.string().nullish(),
+  sampleRate: z.number().int().nullish(),
+});
+const RvcResultSchema = z.object({
+  path: z.string(),
+  durationSec: z.number().nonnegative().nullish(),
+  sampleRate: z.number().int().nullish(),
+  device: z.string().nullish(),
+});
 
 /** HTTP client for apps/workers (FastAPI). All paths are relative to STORAGE_DIR. */
 export interface WorkersClient {
   health(): Promise<WorkerHealth | undefined>;
-  transcribe(req: {
-    inputPath: string;
-    language: string;
-    model?: string;
-    wordTimestamps: boolean;
-  }): Promise<Transcript>;
-  ttsVoices(): Promise<TtsVoice[]>;
-  tts(req: { text: string; voice: string; speed: number; outputPath: string }): Promise<{
-    path: string;
-    durationSec: number;
-  }>;
+  transcribe(req: TranscribeCall, opts?: WorkerCallOptions): Promise<TranscriptWithFiles>;
+  ttsVoices(): Promise<TtsVoiceInfo[]>;
+  ttsProviders(): Promise<TtsProviderInfo[]>;
+  tts(req: TtsCall, opts?: WorkerCallOptions): Promise<z.infer<typeof TtsResultSchema>>;
   rvcModels(): Promise<RvcModel[]>;
-  rvcConvert(req: {
-    inputPath: string;
-    modelId: string;
-    pitchShift: number;
-    indexRate: number;
-    f0Method: string;
-    device?: string;
-    outputPath: string;
-  }): Promise<{ path: string }>;
+  rvcConvert(req: RvcCall, opts?: WorkerCallOptions): Promise<z.infer<typeof RvcResultSchema>>;
+  downloadModel(req: ModelDownloadRequest, opts?: WorkerCallOptions): Promise<ModelDownloadResult>;
+  jobProgress(jobId: string): Promise<WorkerJobProgress | undefined>;
+}
+
+/** Non-2xx answer (or network failure) from the workers service. */
+export class WorkersError extends Error {
+  constructor(
+    message: string,
+    readonly statusCode: number,
+    readonly code: string,
+  ) {
+    super(message);
+    this.name = "WorkersError";
+  }
+}
+
+const SHORT_TIMEOUT_MS = 10_000;
+
+/** Python serializes `None` as null; the shared zod schemas use optional (undefined) fields. */
+function stripNulls(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripNulls);
+  if (value && typeof value === "object")
+    return Object.fromEntries(
+      Object.entries(value).flatMap(([k, v]) => (v === null ? [] : [[k, stripNulls(v)]])),
+    );
+  return value;
+}
+
+async function fetchText(
+  target: string,
+  method: string,
+  body: unknown,
+  signal: AbortSignal,
+): Promise<{ status: number; text: string }> {
+  const res = await fetch(target, {
+    method,
+    signal,
+    ...(body === undefined
+      ? {}
+      : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+  });
+  return { status: res.status, text: await res.text() };
+}
+
+/**
+ * Long synchronous calls (transcription, RVC on CPU, model downloads) can take far longer than
+ * undici's 300 s headers timeout used by global fetch, so they go through node:http, which has no
+ * default timeout. Cancellation is driven only by `signal`.
+ */
+function rawRequest(
+  target: string,
+  method: string,
+  body: unknown,
+  signal?: AbortSignal,
+): Promise<{ status: number; text: string }> {
+  return new Promise((resolve, reject) => {
+    const payload = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
+    const req = http.request(
+      target,
+      {
+        method,
+        signal,
+        headers: payload
+          ? { "content-type": "application/json", "content-length": payload.length }
+          : {},
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c: Buffer) => chunks.push(c));
+        res.on("end", () =>
+          resolve({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString("utf8") }),
+        );
+        res.on("error", reject);
+      },
+    );
+    req.on("error", reject);
+    if (payload) req.write(payload);
+    req.end();
+  });
 }
 
 export function createWorkersClient(baseUrl: string): WorkersClient {
   const url = (route: string) => new URL(route, baseUrl).toString();
-  const notYet = (what: string) => () =>
-    Promise.reject(new Error(`TODO(module-d): workers client ${what} not implemented`));
 
-  return {
+  async function call<T>(
+    method: "GET" | "POST",
+    route: string,
+    schema: z.ZodType<T>,
+    body?: unknown,
+    signal?: AbortSignal,
+    long = false,
+  ): Promise<T> {
+    let res: { status: number; text: string };
+    try {
+      res = long
+        ? await rawRequest(url(route), method, body, signal)
+        : await fetchText(
+            url(route),
+            method,
+            body,
+            signal ?? AbortSignal.timeout(SHORT_TIMEOUT_MS),
+          );
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      throw new WorkersError(
+        `Workers Python no disponibles en ${baseUrl} (¿está corriendo start.ps1?): ${String(err)}`,
+        503,
+        "WORKERS_UNAVAILABLE",
+      );
+    }
+    let json: unknown = undefined;
+    try {
+      json = res.text ? JSON.parse(res.text) : undefined;
+    } catch {
+      json = undefined;
+    }
+    if (res.status < 200 || res.status >= 300) {
+      const detail = (json as { detail?: unknown; code?: string } | undefined) ?? {};
+      const message =
+        typeof detail.detail === "string"
+          ? detail.detail
+          : detail.detail !== undefined
+            ? JSON.stringify(detail.detail)
+            : res.text.slice(0, 300) || `HTTP ${res.status}`;
+      throw new WorkersError(message, res.status, detail.code ?? `WORKERS_HTTP_${res.status}`);
+    }
+    return schema.parse(stripNulls(json));
+  }
+
+  async function withProgress<T>(
+    jobId: string | undefined,
+    opts: WorkerCallOptions | undefined,
+    run: () => Promise<T>,
+  ): Promise<T> {
+    if (!jobId || !opts?.onProgress) return run();
+    const onProgress = opts.onProgress;
+    let last = -1;
+    const timer = setInterval(() => {
+      void client.jobProgress(jobId).then((p) => {
+        if (p && p.status === "running" && p.progress !== last) {
+          last = p.progress;
+          onProgress(p.progress, p.message ?? undefined);
+        }
+      });
+    }, opts.pollMs ?? 1000);
+    try {
+      return await run();
+    } finally {
+      clearInterval(timer);
+    }
+  }
+
+  const client: WorkersClient = {
     async health() {
       try {
         const res = await fetch(url(WORKER_ROUTES.health), { signal: AbortSignal.timeout(2000) });
@@ -47,11 +248,48 @@ export function createWorkersClient(baseUrl: string): WorkersClient {
         return undefined;
       }
     },
-    // TODO(module-d): POST JSON, parse responses with shared zod schemas, propagate AbortSignal.
-    transcribe: notYet("transcribe"),
-    ttsVoices: notYet("ttsVoices"),
-    tts: notYet("tts"),
-    rvcModels: notYet("rvcModels"),
-    rvcConvert: notYet("rvcConvert"),
+    transcribe: (req, opts) =>
+      withProgress(req.jobId, opts, () =>
+        call("POST", WORKER_ROUTES.transcribe, TranscriptWithFilesSchema, req, opts?.signal, true),
+      ),
+    ttsVoices: () => call("GET", WORKER_ROUTES.ttsVoices, z.array(TtsVoiceInfoSchema)),
+    ttsProviders: () => call("GET", WORKER_ROUTES_EXT.ttsProviders, z.array(TtsProviderInfoSchema)),
+    tts: (req, opts) =>
+      withProgress(req.jobId, opts, () =>
+        call("POST", WORKER_ROUTES.tts, TtsResultSchema, req, opts?.signal, true),
+      ),
+    rvcModels: () =>
+      call(
+        "GET",
+        WORKER_ROUTES.rvcModels,
+        z.array(RvcModelSchema.extend({ indexPath: z.string().nullish() })),
+      ).then((models) =>
+        models.map(({ indexPath, ...m }) => (indexPath ? { ...m, indexPath } : m)),
+      ),
+    rvcConvert: (req, opts) =>
+      withProgress(req.jobId, opts, () =>
+        call("POST", WORKER_ROUTES.rvcConvert, RvcResultSchema, req, opts?.signal, true),
+      ),
+    downloadModel: (req, opts) =>
+      call(
+        "POST",
+        WORKER_ROUTES_EXT.modelsDownload,
+        ModelDownloadResultSchema,
+        req,
+        opts?.signal,
+        true,
+      ),
+    async jobProgress(jobId) {
+      try {
+        return await call(
+          "GET",
+          buildRoute(WORKER_ROUTES_EXT.jobProgress, { id: jobId }),
+          WorkerJobProgressSchema,
+        );
+      } catch {
+        return undefined;
+      }
+    },
   };
+  return client;
 }

@@ -1,6 +1,7 @@
 import { nanoid } from "nanoid";
 import type { Job } from "@studio/shared";
 import type { SqlDatabase, SqlParam } from "../db/adapter.js";
+import type { JobType } from "@studio/shared";
 import type { CreateJobInput, JobListFilter, JobPatch, JobStore } from "./types.js";
 
 interface JobRow {
@@ -16,6 +17,9 @@ interface JobRow {
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
+  attempts: number;
+  priority: number;
+  log_tail: string | null;
 }
 
 function rowToJob(r: JobRow): Job {
@@ -43,14 +47,15 @@ export class SqliteJobStore implements JobStore {
     const id = nanoid();
     this.db
       .prepare(
-        `INSERT INTO jobs (id, type, status, progress, project_id, payload, created_at)
-         VALUES (?, ?, 'queued', 0, ?, ?, ?)`,
+        `INSERT INTO jobs (id, type, status, progress, project_id, payload, priority, created_at)
+         VALUES (?, ?, 'queued', 0, ?, ?, ?, ?)`,
       )
       .run(
         id,
         input.type,
         input.projectId ?? null,
         JSON.stringify(input.payload ?? null),
+        input.priority ?? 0,
         new Date().toISOString(),
       );
     return this.get(id)!;
@@ -73,7 +78,7 @@ export class SqliteJobStore implements JobStore {
       params.push(filter.type);
     }
     const sql = `SELECT * FROM jobs ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-                 ORDER BY created_at DESC LIMIT ?`;
+                 ORDER BY created_at DESC, rowid DESC LIMIT ?`;
     params.push(filter.limit ?? 100);
     return (this.db.prepare(sql).all(...params) as JobRow[]).map(rowToJob);
   }
@@ -87,6 +92,7 @@ export class SqliteJobStore implements JobStore {
       error: "error",
       startedAt: "started_at",
       finishedAt: "finished_at",
+      logTail: "log_tail",
     };
     const sets: string[] = [];
     const params: SqlParam[] = [];
@@ -104,17 +110,56 @@ export class SqliteJobStore implements JobStore {
 
   nextQueued(): Job | undefined {
     const row = this.db
-      .prepare(`SELECT * FROM jobs WHERE status = 'queued' ORDER BY created_at ASC LIMIT 1`)
+      .prepare(
+        `SELECT * FROM jobs WHERE status = 'queued' ORDER BY priority DESC, created_at ASC, rowid ASC LIMIT 1`,
+      )
       .get() as JobRow | undefined;
     return row ? rowToJob(row) : undefined;
   }
 
-  recoverInterrupted(): number {
-    return this.db
+  claimNext(types: readonly JobType[]): Job | undefined {
+    if (types.length === 0) return undefined;
+    const placeholders = types.map(() => "?").join(", ");
+    const row = this.db
       .prepare(
-        `UPDATE jobs SET status = 'failed', error = 'Interrumpido por reinicio del servidor', finished_at = ?
-         WHERE status = 'running'`,
+        `UPDATE jobs SET status = 'running', started_at = ?, progress = 0, attempts = attempts + 1,
+           finished_at = NULL, error = NULL
+         WHERE id = (SELECT id FROM jobs WHERE status = 'queued' AND type IN (${placeholders})
+                     ORDER BY priority DESC, created_at ASC, rowid ASC LIMIT 1)
+         RETURNING *`,
       )
-      .run(new Date().toISOString()).changes;
+      .get(new Date().toISOString(), ...types) as JobRow | undefined;
+    return row ? rowToJob(row) : undefined;
+  }
+
+  attempts(id: string): number {
+    const row = this.db.prepare(`SELECT attempts FROM jobs WHERE id = ?`).get(id) as
+      { attempts: number } | undefined;
+    return row?.attempts ?? 0;
+  }
+
+  logTail(id: string): string[] {
+    const row = this.db.prepare(`SELECT log_tail FROM jobs WHERE id = ?`).get(id) as
+      { log_tail: string | null } | undefined;
+    return row?.log_tail ? row.log_tail.split("\n") : [];
+  }
+
+  recoverInterrupted(maxAttempts = 2): number {
+    return this.db.transaction(() => {
+      this.db
+        .prepare(
+          `UPDATE jobs SET status = 'failed', finished_at = ?,
+             error = 'Interrumpido por reinicio del servidor (sin más reintentos)'
+           WHERE status = 'running' AND attempts >= ?`,
+        )
+        .run(new Date().toISOString(), maxAttempts);
+      return this.db
+        .prepare(
+          `UPDATE jobs SET status = 'queued', progress = 0, started_at = NULL,
+             message = 'Reintentando tras reinicio del servidor'
+           WHERE status = 'running'`,
+        )
+        .run().changes;
+    });
   }
 }

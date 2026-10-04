@@ -3,6 +3,7 @@ import type { ApiConfig } from "./config.js";
 import type { Db } from "./db/database.js";
 import type { JobQueue } from "./jobs/queue.js";
 import type { JobStore } from "./jobs/types.js";
+import type { Repos } from "./repos/index.js";
 import type { FfmpegService } from "./services/ffmpeg.js";
 import type { WorkersClient } from "./services/workers-client.js";
 
@@ -15,6 +16,8 @@ export interface AppContext {
   ffmpeg: FfmpegService;
   workers: WorkersClient;
   motion: MotionEngineRegistry;
+  /** SQLite repositories (media, projects, presets, settings). */
+  repos: Repos;
 }
 
 declare module "fastify" {

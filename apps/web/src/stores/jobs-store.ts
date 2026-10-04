@@ -8,6 +8,7 @@ import {
 } from "@studio/shared";
 import { create } from "zustand";
 import { api, errorMessage, isNotImplemented } from "@/lib/api";
+import { addBreadcrumb } from "./breadcrumbs-store";
 
 export const JOB_TYPE_LABELS: Record<JobType, string> = {
   "media.probe": "Analizar medio",
@@ -94,6 +95,14 @@ export const useJobsStore = create<JobsState>()((set, get) => ({
     const e = parsed.data;
     const existing = get().jobs[e.jobId];
     if (!existing) return;
+    if (e.status !== existing.status && (e.status === "failed" || e.status === "canceled"))
+      addBreadcrumb(
+        "job",
+        `${JOB_TYPE_LABELS[existing.type]} ${e.status === "failed" ? "falló" : "cancelado"}${
+          e.message ? `: ${e.message}` : ""
+        }`,
+        { jobId: e.jobId, type: existing.type, status: e.status },
+      );
     set((s) => ({
       jobs: {
         ...s.jobs,
@@ -108,6 +117,12 @@ export const useJobsStore = create<JobsState>()((set, get) => ({
   },
   track: (jobId, type, intent) => {
     const now = new Date().toISOString();
+    if (!get().jobs[jobId])
+      addBreadcrumb("job", `Inició: ${JOB_TYPE_LABELS[type]}`, {
+        jobId,
+        type,
+        ...(intent && { intent: intent.kind }),
+      });
     set((s) => ({
       jobs: s.jobs[jobId]
         ? s.jobs

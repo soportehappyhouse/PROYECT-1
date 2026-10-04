@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { currentDiagnostics, formatCommand } from "../../jobs/diagnostics.js";
 import type { MediaKind } from "@studio/shared";
 
 /** Subset of `ffprobe -print_format json -show_format -show_streams` we rely on. */
@@ -131,10 +132,13 @@ export function runFfprobe(
   absPath: string,
   signal?: AbortSignal,
 ): Promise<FfprobeOutput> {
+  const args = ["-v", "error", "-print_format", "json", "-show_format", "-show_streams", absPath];
+  const diag = currentDiagnostics();
+  const record = diag?.command("process", formatCommand(bin, args));
   return new Promise((resolve, reject) => {
     execFile(
       bin,
-      ["-v", "error", "-print_format", "json", "-show_format", "-show_streams", absPath],
+      args,
       {
         maxBuffer: 32 * 1024 * 1024,
         timeout: 60_000,
@@ -142,6 +146,9 @@ export function runFfprobe(
         ...(signal && { signal }),
       },
       (err, stdout, stderr) => {
+        const code = err ? (typeof err.code === "number" ? err.code : null) : 0;
+        record?.end(code, err && typeof err.code !== "number" ? err.message : undefined);
+        if (String(stderr).trim()) diag?.stderrLine(String(stderr));
         if (err) {
           reject(new Error(`ffprobe falló: ${String(stderr).trim() || err.message}`));
           return;

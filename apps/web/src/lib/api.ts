@@ -4,6 +4,10 @@ import {
   buildRoute,
   type ApiError,
   type AppConfig,
+  type CreateReportRequestInput,
+  type CreateReportResponse,
+  type JobDiagnostics,
+  type ReportSummary,
   type VoiceEffectRequest,
   type CreateProject,
   type DashboardSettings,
@@ -33,6 +37,7 @@ import {
   type TtsRequestInput,
   type TtsVoice,
 } from "@studio/shared";
+import { addBreadcrumb } from "@/stores/breadcrumbs-store";
 
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:3001").replace(
   /\/$/,
@@ -112,9 +117,21 @@ export function assetPreviewUrl(asset: Pick<MediaAsset, "id" | "proxyPath">): st
   return asset.proxyPath ? fileUrl(asset.proxyPath) : mediaFileUrl(asset.id);
 }
 
+/** Breadcrumb for error reports: method + route template + status (never bodies). */
+function recordApiError(method: string, route: string, err: ApiRequestError): ApiRequestError {
+  addBreadcrumb(
+    "api",
+    `${method} ${route} → ${err.status === 0 ? "sin conexión" : err.status}: ${err.message}`,
+    { method, route, status: err.status, ...(err.code && { code: err.code }) },
+    `api:${method}:${route}:${err.status}`,
+  );
+  return err;
+}
+
 /** Typed fetch wrapper for the local API. */
 export async function apiFetch<T>(route: string, options: RequestOptions = {}): Promise<T> {
   const { params, query, json, body, headers, ...rest } = options;
+  const method = (rest.method ?? "GET").toUpperCase();
   let res: Response;
   try {
     res = await fetch(apiUrl(route, params, query), {
@@ -123,12 +140,20 @@ export async function apiFetch<T>(route: string, options: RequestOptions = {}): 
       headers: json !== undefined ? { "content-type": "application/json", ...headers } : headers,
     });
   } catch (err) {
-    throw new ApiRequestError(0, undefined, err instanceof Error ? undefined : String(err));
+    throw recordApiError(
+      method,
+      route,
+      new ApiRequestError(0, undefined, err instanceof Error ? undefined : String(err)),
+    );
   }
   if (!res.ok) {
     const raw: unknown = await res.json().catch(() => undefined);
     const parsed = ApiErrorSchema.safeParse(raw);
-    throw new ApiRequestError(res.status, parsed.success ? parsed.data : undefined);
+    throw recordApiError(
+      method,
+      route,
+      new ApiRequestError(res.status, parsed.success ? parsed.data : undefined),
+    );
   }
   if (res.status === 204) return undefined as T;
   const text = await res.text();
@@ -148,7 +173,7 @@ export function uploadFile<T>(
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress?.(e.loaded / e.total);
     };
-    xhr.onerror = () => reject(new ApiRequestError(0, undefined));
+    xhr.onerror = () => reject(recordApiError("POST", route, new ApiRequestError(0, undefined)));
     xhr.onload = () => {
       let data: unknown;
       try {
@@ -159,7 +184,13 @@ export function uploadFile<T>(
       if (xhr.status >= 200 && xhr.status < 300) resolve(data as T);
       else {
         const parsed = ApiErrorSchema.safeParse(data);
-        reject(new ApiRequestError(xhr.status, parsed.success ? parsed.data : undefined));
+        reject(
+          recordApiError(
+            "POST",
+            route,
+            new ApiRequestError(xhr.status, parsed.success ? parsed.data : undefined),
+          ),
+        );
       }
     };
     const form = new FormData();
@@ -273,6 +304,14 @@ export const api = {
   /** Re-index storage/library (new/changed/removed files). */
   scanLibrary: () => apiFetch<LibraryScanResult>(API_ROUTES.libraryScan, { method: "POST" }),
   libraryProviders: () => apiFetch<LibraryProviderStatus[]>(API_ROUTES.libraryProviders),
+
+  jobDiagnostics: (id: string) =>
+    apiFetch<JobDiagnostics>(API_ROUTES.jobDiagnostics, { params: { id } }),
+  /** Build storage/reports/<id>/ + .zip (docs/REPORTAR-ERRORES.md). */
+  createReport: (body: CreateReportRequestInput) =>
+    apiFetch<CreateReportResponse>(API_ROUTES.reports, { method: "POST", json: body }),
+  listReports: () => apiFetch<ReportSummary[]>(API_ROUTES.reports),
+  reportDownloadUrl: (id: string) => apiUrl(API_ROUTES.reportDownload, { id }),
 };
 
 export type { JobEvent };

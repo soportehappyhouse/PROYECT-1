@@ -22,6 +22,7 @@ import {
 } from "@studio/shared";
 import http from "node:http";
 import { z } from "zod";
+import { currentDiagnostics } from "../jobs/diagnostics.js";
 
 /** Options for long synchronous worker calls. */
 export interface WorkerCallOptions {
@@ -154,6 +155,12 @@ export function createWorkersClient(baseUrl: string): WorkersClient {
     long = false,
   ): Promise<T> {
     let res: { status: number; text: string };
+    // Only POST calls are recorded: GET progress polling would flood the job diagnostics.
+    const diag = method === "POST" ? currentDiagnostics() : undefined;
+    const record = diag?.command(
+      "http",
+      `${method} ${url(route)}${body === undefined ? "" : ` ${JSON.stringify(body).slice(0, 2000)}`}`,
+    );
     try {
       res = long
         ? await rawRequest(url(route), method, body, signal)
@@ -164,7 +171,9 @@ export function createWorkersClient(baseUrl: string): WorkersClient {
             signal ?? AbortSignal.timeout(SHORT_TIMEOUT_MS),
           );
     } catch (err) {
+      record?.end(null, String(err));
       if (signal?.aborted) throw err;
+      diag?.stderrLine(`[workers] ${method} ${route}: sin conexión (${String(err)})`);
       throw new WorkersError(
         `Workers Python no disponibles en ${baseUrl} (¿está corriendo start.ps1?): ${String(err)}`,
         503,
@@ -177,7 +186,12 @@ export function createWorkersClient(baseUrl: string): WorkersClient {
     } catch {
       json = undefined;
     }
+    record?.end(res.status);
     if (res.status < 200 || res.status >= 300) {
+      // FastAPI error bodies (detail + traceback when available) are the worker-side "stderr".
+      diag?.stderrLine(
+        `[workers] HTTP ${res.status} ${method} ${route}: ${res.text.slice(0, 4000)}`,
+      );
       const detail = (json as { detail?: unknown; code?: string } | undefined) ?? {};
       const message =
         typeof detail.detail === "string"

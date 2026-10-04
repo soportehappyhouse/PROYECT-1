@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { currentDiagnostics, formatCommand } from "../../jobs/diagnostics.js";
 import { ProgressParser, progressRatio, type ProgressBlock } from "./progress.js";
 
 export interface RunFfmpegOptions {
@@ -79,7 +80,10 @@ export function runFfmpeg(
       reject(Object.assign(new Error("Cancelado"), { name: "AbortError" }));
       return;
     }
-    const child = spawn(bin, [...globalArgs(opts), ...args], {
+    const fullArgs = [...globalArgs(opts), ...args];
+    const diag = currentDiagnostics();
+    const record = diag?.command("process", formatCommand(bin, fullArgs), opts.cwd);
+    const child = spawn(bin, fullArgs, {
       cwd: opts.cwd,
       shell: false,
       windowsHide: true,
@@ -117,16 +121,21 @@ export function runFfmpeg(
       const text = chunk.toString("utf8");
       stderr += text;
       if (stderr.length > STDERR_LIMIT) stderr = stderr.slice(-STDERR_LIMIT);
-      if (opts.onStderrLine) {
+      if (opts.onStderrLine || diag) {
         const lines = (stderrPartial + text).split(/\r?\n/);
         stderrPartial = lines.pop() ?? "";
-        for (const l of lines) if (l.trim()) opts.onStderrLine(l);
+        for (const l of lines) {
+          if (!l.trim()) continue;
+          opts.onStderrLine?.(l);
+          diag?.stderrLine(l);
+        }
       }
     });
 
     child.on("error", (err) => {
       opts.signal?.removeEventListener("abort", onAbort);
       clearTimeout(killTimer);
+      record?.end(null, err.message);
       reject(
         new FfmpegError(
           `No se pudo ejecutar ${bin}: ${(err as NodeJS.ErrnoException).code ?? err.message}`,
@@ -138,7 +147,11 @@ export function runFfmpeg(
     child.on("close", (code) => {
       opts.signal?.removeEventListener("abort", onAbort);
       clearTimeout(killTimer);
-      if (stderrPartial.trim()) opts.onStderrLine?.(stderrPartial);
+      if (stderrPartial.trim()) {
+        opts.onStderrLine?.(stderrPartial);
+        diag?.stderrLine(stderrPartial);
+      }
+      record?.end(code, aborted ? "Cancelado" : undefined);
       if (aborted) {
         reject(Object.assign(new Error("Cancelado"), { name: "AbortError" }));
         return;

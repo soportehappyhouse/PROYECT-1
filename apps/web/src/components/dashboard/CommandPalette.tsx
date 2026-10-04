@@ -6,6 +6,7 @@ import { PANELS } from "@/lib/layout";
 import { displayKeys, SHORTCUT_ACTIONS } from "@/lib/shortcuts";
 import { TRACK_KIND_LABELS } from "@/lib/timeline";
 import { useProjectStore } from "@/stores/project-store";
+import { openReport } from "@/stores/report-store";
 import { THEME_LABELS, useSettingsStore } from "@/stores/settings-store";
 import { runAction } from "./actions";
 import { showPanel, togglePanel } from "./dock-controller";
@@ -83,6 +84,12 @@ export function CommandPalette() {
       group: "Proyecto",
       label: "Añadir clip de texto en el cursor",
       run: () => useProjectStore.getState().addTextClip(),
+    });
+    list.push({
+      id: "report-error",
+      group: "Ayuda",
+      label: "Reportar error (diagnóstico para Claude)",
+      run: () => openReport({ source: "paleta" }),
     });
     list.push({
       id: "new-project",

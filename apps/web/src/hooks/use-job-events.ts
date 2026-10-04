@@ -20,6 +20,7 @@ import {
 } from "@/stores/jobs-store";
 import { useMediaStore } from "@/stores/media-store";
 import { useProjectStore } from "@/stores/project-store";
+import { openReport } from "@/stores/report-store";
 
 const SSE_RETRY_MS = 20_000;
 const POLL_MS = 5_000;
@@ -48,7 +49,13 @@ async function handleFinished(job: Job): Promise<void> {
   const label = JOB_TYPE_LABELS[job.type];
 
   if (job.status === "failed") {
-    toast.error(`${label}: falló`, { description: job.error ?? job.message });
+    toast.error(`${label}: falló`, {
+      description: job.error ?? job.message,
+      action: {
+        label: "Reportar",
+        onClick: () => openReport({ title: `Falló: ${label}`, jobIds: [job.id], source: "aviso" }),
+      },
+    });
     return;
   }
   if (job.status !== "succeeded") return;

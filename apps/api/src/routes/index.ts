@@ -6,6 +6,7 @@ import { libraryRoutes } from "./library.js";
 import { mediaRoutes } from "./media.js";
 import { motionRoutes } from "./motion.js";
 import { projectRoutes } from "./projects.js";
+import { reportRoutes } from "./reports.js";
 import { settingsRoutes } from "./settings.js";
 import { subtitleRoutes } from "./subtitles.js";
 import { systemRoutes } from "./system.js";
@@ -23,4 +24,5 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   await app.register(subtitleRoutes);
   await app.register(libraryRoutes);
   await app.register(systemRoutes);
+  await app.register(reportRoutes);
 }

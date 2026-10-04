@@ -1,5 +1,5 @@
 import { nanoid } from "nanoid";
-import type { Job } from "@studio/shared";
+import { JobDiagnosticsSchema, type Job, type JobDiagnostics } from "@studio/shared";
 import type { SqlDatabase, SqlParam } from "../db/adapter.js";
 import type { JobType } from "@studio/shared";
 import type { CreateJobInput, JobListFilter, JobPatch, JobStore } from "./types.js";
@@ -20,6 +20,7 @@ interface JobRow {
   attempts: number;
   priority: number;
   log_tail: string | null;
+  diagnostics?: string | null;
 }
 
 function rowToJob(r: JobRow): Job {
@@ -93,13 +94,16 @@ export class SqliteJobStore implements JobStore {
       startedAt: "started_at",
       finishedAt: "finished_at",
       logTail: "log_tail",
+      diagnostics: "diagnostics",
     };
     const sets: string[] = [];
     const params: SqlParam[] = [];
     for (const [key, value] of Object.entries(patch) as [keyof JobPatch, unknown][]) {
       if (value === undefined) continue;
       sets.push(`${map[key]} = ?`);
-      params.push(key === "result" ? JSON.stringify(value) : (value as SqlParam));
+      params.push(
+        key === "result" || key === "diagnostics" ? JSON.stringify(value) : (value as SqlParam),
+      );
     }
     if (sets.length)
       this.db.prepare(`UPDATE jobs SET ${sets.join(", ")} WHERE id = ?`).run(...params, id);
@@ -142,6 +146,18 @@ export class SqliteJobStore implements JobStore {
     const row = this.db.prepare(`SELECT log_tail FROM jobs WHERE id = ?`).get(id) as
       { log_tail: string | null } | undefined;
     return row?.log_tail ? row.log_tail.split("\n") : [];
+  }
+
+  diagnostics(id: string): JobDiagnostics | undefined {
+    const row = this.db.prepare(`SELECT diagnostics FROM jobs WHERE id = ?`).get(id) as
+      { diagnostics: string | null } | undefined;
+    if (!row?.diagnostics) return undefined;
+    try {
+      const parsed = JobDiagnosticsSchema.safeParse(JSON.parse(row.diagnostics));
+      return parsed.success ? parsed.data : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   recoverInterrupted(maxAttempts = 2): number {

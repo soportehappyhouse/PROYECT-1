@@ -1,4 +1,4 @@
-import type { Job, JobStatus, JobType } from "@studio/shared";
+import type { Job, JobDiagnostics, JobStatus, JobType } from "@studio/shared";
 
 export interface CreateJobInput {
   type: JobType;
@@ -17,6 +17,8 @@ export interface JobPatch {
   startedAt?: string;
   finishedAt?: string;
   logTail?: string;
+  /** Command lines, stderr tail and timings (stored as JSON in jobs.diagnostics). */
+  diagnostics?: JobDiagnostics;
 }
 
 export interface JobListFilter {
@@ -47,6 +49,8 @@ export interface JobStore {
   attempts(id: string): number;
   /** Last log lines stored for a job. */
   logTail(id: string): string[];
+  /** Commands, stderr tail and timings recorded while the job ran (undefined if none). */
+  diagnostics(id: string): JobDiagnostics | undefined;
   /**
    * On startup: jobs left `running` by a crash/restart are re-queued while attempts < maxAttempts,
    * otherwise marked failed. Returns how many were re-queued.

@@ -77,6 +77,9 @@ const MIGRATIONS: readonly string[] = [
   );
   CREATE INDEX IF NOT EXISTS library_items_kind_idx ON library_items(kind, name);
   `,
+  /* v3 (error reports): per-job command lines, stderr tail (200 lines) and timings */ `
+  ALTER TABLE jobs ADD COLUMN diagnostics TEXT;
+  `,
 ];
 
 function migrate(db: Database.Database): void {

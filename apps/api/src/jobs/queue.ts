@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import PQueue from "p-queue";
 import type { Job, JobEvent, JobStatus, JobType } from "@studio/shared";
+import { JobDiagnosticsRecorder, runWithDiagnostics } from "./diagnostics.js";
 import { assertTransition, DEFAULT_JOB_LANES, isAbortError, isTerminal } from "./state.js";
 import type { CreateJobInput, JobContext, JobHandler, JobLane, JobStore } from "./types.js";
 
@@ -189,6 +190,15 @@ export class JobQueue extends EventEmitter<{ job: [JobEvent] }> {
     let pending: { progress: number; message?: string } | undefined;
     let timer: NodeJS.Timeout | undefined;
     let current = job;
+    const diagnostics = new JobDiagnosticsRecorder();
+    const endPatch = () => ({
+      ...this.#logPatch(job.id),
+      diagnostics: diagnostics.snapshot({
+        createdAt: job.createdAt,
+        ...(job.startedAt && { startedAt: job.startedAt }),
+        finishedAt: new Date().toISOString(),
+      }),
+    });
 
     const flush = () => {
       timer = undefined;
@@ -219,7 +229,7 @@ export class JobQueue extends EventEmitter<{ job: [JobEvent] }> {
 
     try {
       const payload = handler.parse(job.payload);
-      const result = await handler.run(payload, ctx, job);
+      const result = await runWithDiagnostics(diagnostics, () => handler.run(payload, ctx, job));
       clearTimeout(timer);
       if (controller.signal.aborted)
         throw Object.assign(new Error("Cancelado"), { name: "AbortError" });
@@ -227,7 +237,7 @@ export class JobQueue extends EventEmitter<{ job: [JobEvent] }> {
         progress: 1,
         message: "Completado",
         result: result ?? null,
-        ...this.#logPatch(job.id),
+        ...endPatch(),
       });
     } catch (err) {
       clearTimeout(timer);
@@ -237,17 +247,23 @@ export class JobQueue extends EventEmitter<{ job: [JobEvent] }> {
           this.#transition(latest, "queued", {
             progress: 0,
             message: "En cola (servidor reiniciado)",
-            ...this.#logPatch(job.id),
+            ...endPatch(),
           });
         } else if (controller.signal.aborted || isAbortError(err)) {
-          this.#transition(latest, "canceled", { message: "Cancelado", ...this.#logPatch(job.id) });
+          this.#transition(latest, "canceled", { message: "Cancelado", ...endPatch() });
         } else {
           const message = err instanceof Error ? err.message : String(err);
           this.#log(job.id, `ERROR: ${message}`);
+          if (err instanceof Error) {
+            // Message first line + stack frames (the full message may repeat the stderr tail).
+            const frames = (err.stack ?? "").split("\n").filter((l) => /^\s+at /.test(l));
+            diagnostics.stderrLine(`[api] ${err.name}: ${message.split(/\r?\n/)[0] ?? ""}`);
+            for (const f of frames.slice(0, 15)) diagnostics.stderrLine(`[api] ${f}`);
+          }
           this.#transition(latest, "failed", {
             error: message,
             message: "Error",
-            ...this.#logPatch(job.id),
+            ...endPatch(),
           });
         }
       }

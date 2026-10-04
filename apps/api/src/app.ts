@@ -3,6 +3,8 @@ import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import { createDefaultRegistry } from "@studio/motion-engines";
 import { configureRemotionRenderer, REMOTION_ENGINE_OPTIONS } from "@studio/remotion";
+import path from "node:path";
+import { LOGS_SUBDIR } from "@studio/shared";
 import Fastify, { type FastifyInstance } from "fastify";
 import { ZodError } from "zod";
 import type { ApiConfig } from "./config.js";
@@ -13,6 +15,7 @@ import { createMotionRenderHandler } from "./jobs/handlers/motion-render.js";
 import { JobQueue } from "./jobs/queue.js";
 import { SqliteJobStore } from "./jobs/store.js";
 import { allowedOrigins } from "./lib/cors.js";
+import { DailyLogStream } from "./lib/log-file.js";
 import { errorBody, HttpError } from "./lib/errors.js";
 import { createRepos } from "./repos/index.js";
 import { registerRoutes } from "./routes/index.js";
@@ -57,8 +60,16 @@ export async function buildApp({
   registerVoiceAiHandlers(ctx); // module d: voice.tts, voice.rvc, subtitles.transcribe
   queue.register(createMotionRenderHandler(ctx)); // module c: motion.render
 
+  // stdout + storage/logs/api-YYYY-MM-DD.log (7 days, secrets redacted). Tests use logger: false.
+  const logStream =
+    logger && !inMemoryDb
+      ? new DailyLogStream({
+          dir: path.join(config.storageDir, LOGS_SUBDIR),
+          redact: { secrets: Object.values(config.keys) },
+        })
+      : undefined;
   const app = Fastify({
-    logger: logger ? { level: config.logLevel } : false,
+    logger: logger ? { level: config.logLevel, ...(logStream && { stream: logStream }) } : false,
     bodyLimit: 10 * 1024 * 1024,
   });
   app.decorate("ctx", ctx);
@@ -84,9 +95,9 @@ export async function buildApp({
     root: config.storageDir,
     prefix: "/files/",
     decorateReply: false,
-    // Never expose the SQLite files, scratch dirs or partial uploads.
+    // Never expose the SQLite files, scratch dirs, logs, error reports or partial uploads.
     allowedPath: (pathName) =>
-      !/^\/?(studio\.db|tmp\/)/.test(pathName) && !pathName.endsWith(".part"),
+      !/^\/?(studio\.db|tmp\/|logs\/|reports\/)/.test(pathName) && !pathName.endsWith(".part"),
   });
   await registerRoutes(app);
 
@@ -94,6 +105,7 @@ export async function buildApp({
   app.addHook("onClose", async () => {
     await queue.stop();
     db.close();
+    await logStream?.end();
   });
   return app;
 }

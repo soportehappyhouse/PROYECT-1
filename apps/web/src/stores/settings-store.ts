@@ -21,6 +21,7 @@ import {
   type ShortcutMap,
 } from "@/lib/shortcuts";
 import { readJson, STORAGE_KEYS, writeJson } from "@/lib/storage";
+import { addBreadcrumb } from "./breadcrumbs-store";
 
 export const ACCENT_PRESETS: readonly { name: string; value: string }[] = [
   { name: "Rojo", value: "#e5484d" },
@@ -184,19 +185,35 @@ export const useSettingsStore = create<SettingsState>()((set, get) => {
     commandPaletteOpen: false,
     settingsOpen: false,
 
-    setTheme: (theme) => set({ theme, ...touch() }),
-    setAccent: (accent) => set({ accent, ...touch() }),
-    setDensity: (density) => set({ density, ...touch() }),
-    setShortcut: (action, keys) =>
-      set({ shortcuts: { ...get().shortcuts, [action]: normalizeKeys(keys) }, ...touch() }),
-    resetShortcuts: () => set({ shortcuts: defaultShortcutMap(), ...touch() }),
+    setTheme: (theme) => {
+      addBreadcrumb("settings", `Cambió el tema a ${theme}`, { theme });
+      set({ theme, ...touch() });
+    },
+    setAccent: (accent) => {
+      addBreadcrumb("settings", `Cambió el color de acento a ${accent}`, { accent }, "accent");
+      set({ accent, ...touch() });
+    },
+    setDensity: (density) => {
+      addBreadcrumb("settings", `Cambió la densidad a ${density}`, { density });
+      set({ density, ...touch() });
+    },
+    setShortcut: (action, keys) => {
+      addBreadcrumb("settings", `Cambió el atajo de ${action} a ${keys}`, { action, keys });
+      set({ shortcuts: { ...get().shortcuts, [action]: normalizeKeys(keys) }, ...touch() });
+    },
+    resetShortcuts: () => {
+      addBreadcrumb("settings", "Restableció los atajos");
+      set({ shortcuts: defaultShortcutMap(), ...touch() });
+    },
     setLayout: (layout, userChange = true) => {
       const changed = JSON.stringify(layout) !== JSON.stringify(get().layout);
       set({ layout, ...(userChange && changed ? touch() : {}) });
     },
     setOpenPanels: (openPanels) => set({ openPanels }),
-    restoreDefaultLayout: () =>
-      set({ layout: undefined, layoutRevision: get().layoutRevision + 1, ...touch() }),
+    restoreDefaultLayout: () => {
+      addBreadcrumb("settings", "Restauró el layout por defecto");
+      set({ layout: undefined, layoutRevision: get().layoutRevision + 1, ...touch() });
+    },
     saveLayoutPreset: (name) => {
       const layout = get().layout;
       const trimmed = name.trim();
@@ -219,6 +236,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => {
     applyLayoutPreset: (id) => {
       const preset = get().layoutPresets.find((p) => p.id === id);
       if (!preset || !isValidSerializedLayout(preset.layout)) return false;
+      addBreadcrumb("settings", `Aplicó el layout «${preset.name}»`);
       set({ layout: preset.layout, layoutRevision: get().layoutRevision + 1, ...touch() });
       return true;
     },

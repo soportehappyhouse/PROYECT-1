@@ -23,3 +23,9 @@ export const DB_FILENAME = "studio.db";
 
 /** Scratch folder for temp files (inside STORAGE_DIR). */
 export const TMP_SUBDIR = "tmp";
+
+/** Service logs (api-YYYY-MM-DD.log, kept 7 days; start.ps1 -SingleConsole also writes here). */
+export const LOGS_SUBDIR = "logs";
+
+/** Error reports: reports/<yyyyMMdd-HHmmss>-<slug>/ + reports/<same>.zip. Never served by /files. */
+export const REPORTS_SUBDIR = "reports";

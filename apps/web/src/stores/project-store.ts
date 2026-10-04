@@ -29,6 +29,7 @@ import {
   trimClipEnd,
   trimClipStart,
 } from "@/lib/timeline";
+import { addBreadcrumb } from "./breadcrumbs-store";
 
 /** The undoable part of a project. */
 interface Snapshot {
@@ -184,7 +185,8 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
     future: [],
     saveState: "idle",
 
-    loadProject: (project) =>
+    loadProject: (project) => {
+      addBreadcrumb("project", `Abrió el proyecto «${project.name}»`, { projectId: project.id });
       set({
         project,
         past: [],
@@ -193,11 +195,14 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
         playhead: 0,
         playing: false,
         saveState: "saved",
-      }),
+      });
+    },
     newProject: (name) => get().loadProject(createEmptyProject(name)),
     renameProject: (name) => commit(() => ({ name: name.trim() || "Proyecto sin título" }), false),
-    updateProjectSettings: (patch) =>
-      commit((p) => ({ settings: { ...p.settings, ...patch } }), false),
+    updateProjectSettings: (patch) => {
+      addBreadcrumb("project", "Cambió los ajustes del proyecto", { ...patch }, "project:settings");
+      commit((p) => ({ settings: { ...p.settings, ...patch } }), false);
+    },
     setSaveState: (saveState) => set({ saveState }),
 
     checkpoint: () => {
@@ -208,6 +213,7 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
       const { past, future, project } = get();
       const prev = past[past.length - 1];
       if (!prev) return;
+      addBreadcrumb("project", "Deshacer");
       set({
         project: { ...project, ...prev, updatedAt: new Date().toISOString() },
         past: past.slice(0, -1),
@@ -219,6 +225,7 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
       const { past, future, project } = get();
       const next = future[0];
       if (!next) return;
+      addBreadcrumb("project", "Rehacer");
       set({
         project: { ...project, ...next, updatedAt: new Date().toISOString() },
         past: [...past, snapshot(project)].slice(-HISTORY_LIMIT),
@@ -229,6 +236,7 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
 
     addTrack: (kind) => {
       const track = createTrack(kind, get().project.tracks);
+      addBreadcrumb("track", `Añadió una pista de ${kind}`, { trackId: track.id });
       commit((p) => ({ tracks: [...p.tracks, track] }));
       return track.id;
     },
@@ -236,7 +244,10 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
       commit((p) => ({
         tracks: p.tracks.map((t) => (t.id === trackId ? { ...t, ...patch } : t)),
       })),
-    removeTrack: (trackId) => commit((p) => ({ tracks: p.tracks.filter((t) => t.id !== trackId) })),
+    removeTrack: (trackId) => {
+      addBreadcrumb("track", "Eliminó una pista", { trackId });
+      commit((p) => ({ tracks: p.tracks.filter((t) => t.id !== trackId) }));
+    },
 
     addAssetClip: (asset, opts = {}) => {
       get().checkpoint();
@@ -249,6 +260,15 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
           ? base.start
           : firstFreeStart(track, base.start, clipEnd(base) - base.start);
       const clip = { ...base, start };
+      addBreadcrumb(
+        "clip",
+        `Añadió el clip «${asset.name}» (${asset.kind}) en ${start.toFixed(2)} s`,
+        {
+          clipId: clip.id,
+          assetId: asset.id,
+          trackId,
+        },
+      );
       commit((p) => ({ tracks: insertClip(p.tracks, clip) }), false);
       set({ selectedClipId: clip.id });
       return clip;
@@ -257,6 +277,10 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
       get().checkpoint();
       const trackId = ensureTrack("text", opts.trackId);
       const clip = createTextClip(trackId, opts.start ?? get().playhead, opts.text);
+      addBreadcrumb("clip", `Añadió un clip de texto en ${clip.start.toFixed(2)} s`, {
+        clipId: clip.id,
+        trackId,
+      });
       commit((p) => ({ tracks: insertClip(p.tracks, clip) }), false);
       set({ selectedClipId: clip.id });
       return clip;
@@ -265,12 +289,23 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
       get().checkpoint();
       const id = ensureTrack(kind, trackId);
       const clip: Clip = { ...partial, trackId: id };
+      addBreadcrumb("clip", `Añadió un clip de ${kind} en ${clip.start.toFixed(2)} s`, {
+        clipId: clip.id,
+        trackId: id,
+      });
       commit((p) => ({ tracks: insertClip(p.tracks, clip) }), false);
       set({ selectedClipId: clip.id });
       return clip;
     },
-    moveClip: (clipId, start, trackId, record = true) =>
-      commit((p) => ({ tracks: moveClip(p.tracks, clipId, start, trackId) }), record),
+    moveClip: (clipId, start, trackId, record = true) => {
+      addBreadcrumb(
+        "clip",
+        `Movió un clip a ${start.toFixed(2)} s`,
+        { clipId, start, ...(trackId && { trackId }) },
+        `move:${clipId}`,
+      );
+      commit((p) => ({ tracks: moveClip(p.tracks, clipId, start, trackId) }), record);
+    },
     trimClip: (clipId, edge, time, maxSourceDuration, record = true) => {
       const found = findClip(get().project, clipId);
       if (!found || found.track.locked) return;
@@ -278,6 +313,12 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
         edge === "start"
           ? trimClipStart(found.clip, time)
           : trimClipEnd(found.clip, time, maxSourceDuration);
+      addBreadcrumb(
+        "clip",
+        `Recortó el ${edge === "start" ? "inicio" : "final"} de un clip a ${time.toFixed(2)} s`,
+        { clipId, edge, time },
+        `trim:${clipId}:${edge}`,
+      );
       commit((p) => ({ tracks: replaceClip(p.tracks, next) }), record);
     },
     splitAt: (time, clipId) => {
@@ -300,7 +341,13 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
         tracks = insertClip(replaceClip(tracks, parts[0]), parts[1]);
         changed = true;
       }
-      if (changed) commit(() => ({ tracks }));
+      if (changed) {
+        addBreadcrumb("clip", `Dividió ${targets.length} clip(s) en ${at.toFixed(2)} s`, {
+          clipIds: targets.map((c) => c.id),
+          at,
+        });
+        commit(() => ({ tracks }));
+      }
       return changed;
     },
     deleteClip: (clipId) => {
@@ -308,17 +355,27 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
       if (!id) return;
       const found = findClip(get().project, id);
       if (!found || found.track.locked) return;
+      addBreadcrumb("clip", "Eliminó un clip", { clipId: id });
       commit((p) => ({ tracks: removeClip(p.tracks, id) }));
       if (get().selectedClipId === id) set({ selectedClipId: undefined });
     },
     updateClip: (clipId, patch, record = true) => {
       const found = findClip(get().project, clipId);
       if (!found) return;
+      const fields = Object.keys(patch);
+      addBreadcrumb(
+        "clip",
+        `Editó un clip (${fields.join(", ")})`,
+        { clipId, fields },
+        `update:${clipId}:${fields.join(",")}`,
+      );
       commit((p) => ({ tracks: replaceClip(p.tracks, { ...found.clip, ...patch }) }), record);
     },
 
-    setSubtitles: (segments) =>
-      commit(() => ({ subtitles: [...segments].sort((a, b) => a.start - b.start) })),
+    setSubtitles: (segments) => {
+      addBreadcrumb("project", `Reemplazó los subtítulos (${segments.length} segmentos)`);
+      commit(() => ({ subtitles: [...segments].sort((a, b) => a.start - b.start) }));
+    },
     setCaptionStyle: (captionStyle) => commit(() => ({ captionStyle }), false),
     updateSubtitle: (index, patch) =>
       commit((p) => ({

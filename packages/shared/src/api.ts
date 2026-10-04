@@ -46,6 +46,9 @@ export const API_ROUTES = {
   voiceEffectPresets: "/api/voice/effects/presets", // GET named voice effect presets
   ttsProviders: "/api/voice/tts/providers", // GET TtsProviderInfo[]
   voiceModelDownload: "/api/voice/models/download", // POST ModelDownloadRequest -> ModelDownloadResult
+  jobDiagnostics: "/api/jobs/:id/diagnostics", // GET JobDiagnostics (commands, stderr tail, timings)
+  reports: "/api/reports", // GET ReportSummary[] | POST CreateReportRequest -> CreateReportResponse
+  reportDownload: "/api/reports/:id/download", // GET the report .zip
   files: "/files/*", // GET static files from STORAGE_DIR (renders/exports/proxies)
 } as const;
 export type ApiRouteKey = keyof typeof API_ROUTES;

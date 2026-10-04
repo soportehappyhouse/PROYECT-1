@@ -1,0 +1,89 @@
+name: Reportar un error
+description: Algo no funciona en Studio. Adjuntá el .zip del reporte para que Claude pueda reproducirlo.
+title: "[Error] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Gracias por reportar. La forma más rápida de que esto se arregle es **adjuntar el .zip del reporte**:
+
+        - En la app: botón 🐞 **Reportar error** (arriba a la derecha), `Ctrl+K` → «Reportar error», o el botón **Reportar** de un trabajo que falló.
+        - Si la app no abre: doble clic en `scripts\windows\reportar-error.cmd`.
+
+        El reporte queda en `storage\reports\<fecha>-<titulo>.zip`. Las claves se ocultan solas, pero **revisalo antes de subirlo** (ver [docs/REPORTAR-ERRORES.md](https://github.com/soportehappyhouse/PROYECT-1/blob/HEAD/docs/REPORTAR-ERRORES.md)).
+  - type: input
+    id: titulo
+    attributes:
+      label: Título corto
+      description: Qué falla, en una línea.
+      placeholder: "La exportación 9:16 se queda en 40 %"
+    validations:
+      required: true
+  - type: textarea
+    id: pasos
+    attributes:
+      label: Pasos para reproducirlo
+      description: Qué hiciste, uno por línea.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: esperado
+    attributes:
+      label: Qué esperabas que pasara
+    validations:
+      required: true
+  - type: textarea
+    id: paso
+    attributes:
+      label: Qué pasó en cambio
+      description: Mensaje de error exacto si lo hubo (podés pegar una captura).
+    validations:
+      required: true
+  - type: dropdown
+    id: severidad
+    attributes:
+      label: Severidad
+      options:
+        - Baja (molestia menor)
+        - Media (hay un rodeo)
+        - Alta (no puedo terminar lo que hacía)
+        - Bloqueante (la app no sirve)
+      default: 1
+    validations:
+      required: true
+  - type: textarea
+    id: prompt
+    attributes:
+      label: Prompt para Claude
+      description: Pegá acá el bloque «Prompt para Claude» que mostró la app o el script (ya viene sin claves).
+      render: markdown
+    validations:
+      required: false
+  - type: textarea
+    id: zip
+    attributes:
+      label: Adjuntar el .zip del reporte
+      description: Arrastrá aquí `storage\reports\<fecha>-<titulo>.zip`. Si pesa más de 25 MB, generalo sin «incluir medios pequeños».
+      placeholder: Arrastrá el archivo .zip a este cuadro.
+    validations:
+      required: false
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Salida de doctor.ps1
+      description: "Si la app no arranca: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\windows\\doctor.ps1` y pegá el resumen final (o adjuntá doctor.txt del reporte)."
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: privacidad
+    attributes:
+      label: Privacidad
+      options:
+        - label: Revisé el reporte y no contiene claves, rutas privadas ni medios que no quiera compartir.
+          required: true

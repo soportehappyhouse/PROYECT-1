@@ -14,8 +14,10 @@ import {
   isValidSerializedLayout,
   isWebPanelId,
   PANEL_IDS,
+  panelTitle,
   type WebPanelId,
 } from "@/lib/layout";
+import { addBreadcrumb } from "@/stores/breadcrumbs-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { getDockApi, setDockApi } from "./dock-controller";
 
@@ -80,6 +82,16 @@ export function DockLayout({ resolvedTheme }: { resolvedTheme: "light" | "dark" 
     applyLayout(useSettingsStore.getState().layout);
     syncFromDock(false);
     event.api.onDidLayoutChange(() => syncFromDock(true));
+    // Breadcrumb for error reports (tab clicks; programmatic layout loads are skipped).
+    event.api.onDidActivePanelChange(({ panel }) => {
+      if (!panel || applying || !isWebPanelId(panel.id)) return;
+      addBreadcrumb(
+        "panel",
+        `Abrió el panel ${panelTitle(panel.id)}`,
+        { panel: panel.id },
+        `panel:${panel.id}`,
+      );
+    });
   }, []);
 
   // Restore default / apply preset / remote settings: rebuild from the store's layout.

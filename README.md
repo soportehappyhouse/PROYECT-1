@@ -12,6 +12,10 @@ sonidos. Corre 100 % en tu PC Windows (sin nube, sin cuentas). Las API externas 
 (también en [HTML](docs/manual/index.html) y [PDF](docs/manual/MANUAL-USUARIO.pdf)): paneles, flujos paso
 a paso, formatos, límites, atajos, solución de problemas y pruebas para hacer hoy.
 
+**¿Algo falló?** Botón 🐞 **Reportar error** en la app (o `scripts\windows\reportar-error.cmd` si no
+abre): genera un `.zip` y un «Prompt para Claude» listo para pegar. Ver
+[`docs/REPORTAR-ERRORES.md`](docs/REPORTAR-ERRORES.md).
+
 ## Inicio rápido (Windows 10/11)
 
 Abrí **PowerShell** en la carpeta del proyecto:

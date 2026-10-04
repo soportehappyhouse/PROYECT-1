@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { currentDiagnostics, formatCommand } from "../jobs/diagnostics.js";
 
 export interface RunResult {
   stdout: Buffer;
@@ -12,6 +13,8 @@ export function runProcess(
   opts: { signal?: AbortSignal; cwd?: string } = {},
 ): Promise<RunResult> {
   return new Promise((resolve, reject) => {
+    const diag = currentDiagnostics();
+    const record = diag?.command("process", formatCommand(command, args), opts.cwd);
     const child = spawn(command, args, {
       cwd: opts.cwd,
       windowsHide: true,
@@ -27,10 +30,13 @@ export function runProcess(
     });
     child.on("error", (e) => {
       opts.signal?.removeEventListener("abort", onAbort);
+      record?.end(null, e.message);
       reject(e);
     });
     child.on("close", (code) => {
       opts.signal?.removeEventListener("abort", onAbort);
+      record?.end(code);
+      if (code !== 0 && err.trim()) diag?.stderrLine(err);
       if (opts.signal?.aborted) return reject(new Error("Cancelado"));
       if (code === 0) resolve({ stdout: Buffer.concat(out), stderr: err });
       else reject(new Error(`${command} terminó con código ${code}: ${err.trim().slice(-500)}`));

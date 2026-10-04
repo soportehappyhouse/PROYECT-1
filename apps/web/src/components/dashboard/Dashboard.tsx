@@ -10,6 +10,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import {
+  Bug,
   Clapperboard,
   Command as CommandIcon,
   LayoutGrid,
@@ -35,6 +36,7 @@ import { PANELS } from "@/lib/layout";
 import { displayKeys } from "@/lib/shortcuts";
 import { trackKindForAsset } from "@/lib/timeline";
 import { useProjectStore, type SaveState } from "@/stores/project-store";
+import { openReport } from "@/stores/report-store";
 import { THEME_LABELS, useSettingsStore } from "@/stores/settings-store";
 import { CommandPalette } from "./CommandPalette";
 import { togglePanel } from "./dock-controller";
@@ -199,6 +201,15 @@ function Header() {
             ))
           }
         </Menu>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Reportar error"
+          title="Reportar error (genera un diagnóstico para Claude)"
+          onClick={() => openReport({ source: "cabecera" })}
+        >
+          <Bug />
+        </Button>
         <Button
           variant="ghost"
           size="icon"

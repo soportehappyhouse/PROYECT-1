@@ -1,7 +1,7 @@
 "use client";
 
 import type { Job } from "@studio/shared";
-import { ExternalLink, Eraser, RefreshCw, X } from "lucide-react";
+import { Bug, ExternalLink, Eraser, RefreshCw, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import {
   useJobsStore,
   type JobsConnection,
 } from "@/stores/jobs-store";
+import { openReport } from "@/stores/report-store";
 import { Panel } from "./Panel";
 
 const CONNECTION_LABELS: Record<
@@ -57,6 +58,23 @@ function JobRow({ job }: { job: Job }) {
         {!isTerminal(job) ? (
           <Button size="icon-sm" variant="ghost" aria-label="Cancelar trabajo" onClick={cancel}>
             <X />
+          </Button>
+        ) : null}
+        {job.status === "failed" ? (
+          <Button
+            size="xs"
+            variant="outline"
+            aria-label="Reportar error de este trabajo"
+            title="Generar un reporte con el comando y la salida de error de este trabajo"
+            onClick={() =>
+              openReport({
+                title: `Falló: ${JOB_TYPE_LABELS[job.type]}`,
+                jobIds: [job.id],
+                source: "trabajos",
+              })
+            }
+          >
+            <Bug /> Reportar
           </Button>
         ) : null}
         {path ? (

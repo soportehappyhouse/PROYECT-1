@@ -101,6 +101,12 @@ export const jobRoutes: FastifyPluginAsync = async (app) => {
     return { lines: app.ctx.jobs.logTail(job.id) };
   });
 
+  app.get<{ Params: { id: string } }>(API_ROUTES.jobDiagnostics, async (req, reply) => {
+    const job = app.ctx.jobs.get(req.params.id);
+    if (!job) return reply.code(404).send(errorBody("NOT_FOUND", "Job no encontrado"));
+    return app.ctx.jobs.diagnostics(job.id) ?? { commands: [], stderrTail: [], timings: {} };
+  });
+
   app.post<{ Params: { id: string } }>(API_ROUTES.jobCancel, async (req, reply) => {
     const job = app.ctx.queue.cancel(req.params.id);
     return job ?? reply.code(404).send(errorBody("NOT_FOUND", "Job no encontrado"));

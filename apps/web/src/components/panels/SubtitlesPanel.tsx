@@ -16,7 +16,7 @@ import { EmptyState, Section, Spinner } from "@/components/ui/misc";
 import { api, errorMessage, isNotImplemented } from "@/lib/api";
 import { formatTime } from "@/lib/format";
 import { createId } from "@/lib/ids";
-import { subtitlesSpan, toSrt } from "@/lib/subtitles";
+import { animatedCaptionsProps, toSrt } from "@/lib/subtitles";
 import {
   CAPTION_STYLES,
   useCaptionStyleStore,
@@ -158,26 +158,20 @@ export function SubtitlesPanel() {
   };
 
   const renderAsMotion = async () => {
-    const span = subtitlesSpan(subtitles);
-    if (!span) return;
-    const style = useCaptionStyleStore.getState().style;
+    // A valid MotionSpec for `animated-captions`: word-level `transcript` (not `segments`) and the
+    // caption style mapped to template props (not the CaptionStyle object).
+    const built = animatedCaptionsProps(
+      subtitles,
+      useCaptionStyleStore.getState().style,
+      language === "auto" ? undefined : language,
+    );
+    if (!built) return;
+    const span = { start: built.start, end: built.start + built.durationSec };
     const spec: MotionSpecInput = {
       engine: "remotion",
       template: "animated-captions",
-      props: {
-        segments: subtitles.map((s) => ({
-          ...s,
-          start: s.start - span.start,
-          end: s.end - span.start,
-          words: s.words?.map((w) => ({
-            ...w,
-            start: w.start - span.start,
-            end: w.end - span.start,
-          })),
-        })),
-        style,
-      },
-      durationSec: span.end - span.start,
+      props: built.props,
+      durationSec: built.durationSec,
       fps: Math.round(settings.fps),
       width: settings.width,
       height: settings.height,

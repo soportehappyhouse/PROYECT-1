@@ -107,6 +107,24 @@ export const ProjectSchema = z.object({
 });
 export type Project = z.infer<typeof ProjectSchema>;
 
+/** True when a visible motion track has an `animated-captions` clip (subtitles already on screen). */
+export function hasAnimatedCaptions(project: Pick<Project, "tracks">): boolean {
+  return project.tracks.some(
+    (t) =>
+      t.kind === "motion" &&
+      !t.hidden &&
+      t.clips.some((c) => c.motion?.template === "animated-captions"),
+  );
+}
+
+/**
+ * Default of ExportRequest.burnSubtitles: burn `project.subtitles` unless an animated-captions
+ * clip already shows them (otherwise they appear twice).
+ */
+export function defaultBurnSubtitles(project: Pick<Project, "tracks">): boolean {
+  return !hasAnimatedCaptions(project);
+}
+
 export const CreateProjectSchema = z.object({
   name: z.string().min(1),
   settings: ProjectSettingsSchema.partial().optional(),

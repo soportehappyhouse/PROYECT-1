@@ -101,3 +101,18 @@ export const MotionRenderRequestSchema = MotionSpecSchema.extend({
 });
 export type MotionRenderRequest = z.infer<typeof MotionRenderRequestSchema>;
 export type MotionRenderRequestInput = z.input<typeof MotionRenderRequestSchema>;
+
+/**
+ * One item of GET /api/motion/engines. `ok` is the engine's availability (false for stubs or a
+ * missing Chrome/ffmpeg) and `reason` explains it in Spanish. The dashboard must disable templates of
+ * engines with `ok: false`.
+ */
+export const MotionEngineInfoSchema = z.object({
+  id: MotionEngineIdSchema,
+  displayName: z.string(),
+  ok: z.boolean(),
+  reason: z.string().optional(),
+  /** Capability flags (formats, maxFps, maxDurationSec…), see @studio/motion-engines. */
+  capabilities: z.record(z.string(), z.unknown()).optional(),
+});
+export type MotionEngineInfo = z.infer<typeof MotionEngineInfoSchema>;

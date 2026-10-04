@@ -96,6 +96,19 @@ export const mediaRoutes: FastifyPluginAsync = async (app) => {
   app.delete<{ Params: { id: string } }>(API_ROUTES.mediaItem, async (req, reply) => {
     const asset = repos.media.get(req.params.id);
     if (!asset) return reply.code(404).send(errorBody("NOT_FOUND", "Media no encontrado"));
+    // B4: a medium still on a timeline would leave a black gap in the export; ?force=1 overrides.
+    const force = /^(1|true)$/.test(String((req.query as { force?: unknown }).force ?? ""));
+    const users = repos.projects.usingAsset(asset.id);
+    if (users.length && !force)
+      return reply
+        .code(409)
+        .send(
+          errorBody(
+            "MEDIA_IN_USE",
+            `«${asset.name}» se usa en ${users.length === 1 ? "el proyecto" : "los proyectos"} ${users.map((p) => `«${p.name}»`).join(", ")}. Quita sus clips del timeline antes de borrarlo.`,
+            { projects: users },
+          ),
+        );
     for (const job of app.ctx.jobs.list({ limit: 500 })) {
       const payload = job.payload as { assetId?: string } | null;
       if (payload?.assetId === asset.id && (job.status === "queued" || job.status === "running"))

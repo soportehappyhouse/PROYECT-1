@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { API_ROUTES, CreateProjectSchema, ExportRequestSchema } from "@studio/shared";
 import { errorBody } from "../lib/errors.js";
+import { exportBlockersMessage, findExportBlockers } from "../services/ffmpeg/timeline.js";
 
 /** Projects CRUD (Project JSON documents), autosave snapshots and export jobs. */
 export const projectRoutes: FastifyPluginAsync = async (app) => {
@@ -48,9 +49,14 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
 
   app.post<{ Params: { id: string } }>(API_ROUTES.projectExport, async (req, reply) => {
     const body = ExportRequestSchema.parse(req.body);
-    if (!repos.projects.get(req.params.id)) return reply.code(404).send(notFound());
+    const project = repos.projects.get(req.params.id);
+    if (!project) return reply.code(404).send(notFound());
     if (!repos.presets.get(body.presetId))
       return reply.code(404).send(errorBody("NOT_FOUND", "Preset de exportación no encontrado"));
+    // B3/B4: never drop unrendered motion clips or deleted media silently.
+    const problems = findExportBlockers(project, (id) => !!repos.media.get(id), body.range);
+    const blocked = exportBlockersMessage(problems);
+    if (blocked) return reply.code(409).send(errorBody("EXPORT_BLOCKED", blocked, { problems }));
     const job = queue.enqueue({
       type: "project.export",
       payload: { ...body, projectId: req.params.id },

@@ -28,6 +28,11 @@ export const ExportRequestSchema = z.object({
   /** Optional range in seconds; default = whole timeline. */
   range: z.object({ start: z.number().min(0), end: z.number().positive() }).optional(),
   fileName: z.string().optional(),
+  /**
+   * Burn `project.subtitles` into the video. Absent = defaultBurnSubtitles(project): true unless the
+   * timeline has an `animated-captions` motion clip.
+   */
+  burnSubtitles: z.boolean().optional(),
 });
 export type ExportRequest = z.infer<typeof ExportRequestSchema>;
 

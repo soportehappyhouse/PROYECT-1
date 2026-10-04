@@ -25,7 +25,7 @@ export const API_ROUTES = {
   jobEvents: "/api/jobs/events", // GET SSE stream of JobEvent (all jobs)
   exportPresets: "/api/export-presets", // GET | POST
   exportPreset: "/api/export-presets/:id", // PUT | DELETE
-  motionEngines: "/api/motion/engines", // GET [{id, available}]
+  motionEngines: "/api/motion/engines", // GET MotionEngineInfo[] ({id, displayName, ok, reason})
   motionTemplates: "/api/motion/templates", // GET MotionTemplateInfo[]
   motionRender: "/api/motion/render", // POST MotionSpec -> JobAccepted
   ttsVoices: "/api/voice/tts/voices", // GET TtsVoice[]

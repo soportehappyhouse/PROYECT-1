@@ -24,7 +24,7 @@ import {
   type LibraryScanResult,
   type LibrarySearchQuery,
   type MediaAsset,
-  type MotionEngineId,
+  type MotionEngineInfo,
   type MotionRenderRequestInput,
   type MotionRenderTarget,
   type MotionSpecInput,
@@ -199,12 +199,8 @@ export function uploadFile<T>(
   });
 }
 
-export interface MotionEngineStatus {
-  id: MotionEngineId;
-  displayName: string;
-  available: boolean;
-  reason?: string;
-}
+/** GET /api/motion/engines item; the contract (with `ok`, not `available`) lives in @studio/shared. */
+export type MotionEngineStatus = MotionEngineInfo;
 
 export interface LibraryProviderStatus {
   id: string;

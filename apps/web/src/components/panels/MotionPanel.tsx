@@ -207,7 +207,10 @@ export function MotionPanel() {
     () => (template ? fieldsFromSchema(template.propsSchema, template.defaultProps) : []),
     [template],
   );
-  const engineAvailable = (id: string) => engines.data?.find((e) => e.id === id)?.available ?? true;
+  // Until the engine list loads every template is selectable; afterwards only engines with ok=true
+  // (B2: the stub motion-canvas engine reports ok=false and must not be chosen).
+  const engineAvailable = (id: string) =>
+    engines.data ? (engines.data.find((e) => e.id === id)?.ok ?? false) : true;
 
   const choose = (key: string) => {
     setTemplateKey(key);
@@ -235,6 +238,11 @@ export function MotionPanel() {
 
   const buildSpec = (): MotionSpec | undefined => {
     if (!template) return undefined;
+    if (!engineAvailable(template.engine)) {
+      const reason = engines.data?.find((e) => e.id === template.engine)?.reason;
+      toast.error("Motor no disponible", { description: reason });
+      return undefined;
+    }
     const parsed = MotionSpecSchema.safeParse({
       engine: template.engine,
       template: template.id,
@@ -290,7 +298,7 @@ export function MotionPanel() {
         <>
           <span className="text-xs text-muted-foreground">Motores:</span>
           {engines.data?.map((e) => (
-            <Badge key={e.id} tone={e.available ? "success" : "muted"} title={e.reason}>
+            <Badge key={e.id} tone={e.ok ? "success" : "muted"} title={e.reason}>
               {e.displayName}
             </Badge>
           ))}

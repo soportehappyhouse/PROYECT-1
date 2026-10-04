@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { transcriptToTimeline } from "@/hooks/use-job-events";
+import { shouldToastSuccess, transcriptToTimeline } from "@/hooks/use-job-events";
 import { api, ApiRequestError, apiUrl, errorMessage, fileUrl, isNotImplemented } from "@/lib/api";
 import { coerceFieldValue, fieldsFromSchema } from "@/lib/motion-form";
 import { computePeaks, slicePeaks } from "@/lib/peaks";
@@ -11,7 +11,11 @@ import {
   normalizeKeys,
   toHotkeyString,
 } from "@/lib/shortcuts";
-import { toSrt } from "@/lib/subtitles";
+import { animatedCaptionsProps, segmentWords, toSrt } from "@/lib/subtitles";
+import { MotionSpecSchema } from "@studio/shared";
+import { CAPTION_STYLES } from "@/stores/caption-style-store";
+// The real template schema (zod only, browser-safe) so the test fails if the props drift.
+import { animatedCaptionsSchema } from "../../../packages/remotion/src/schemas/animated-captions";
 import { defaultEffect } from "@/lib/voice-effects";
 
 describe("api client", () => {
@@ -192,10 +196,63 @@ describe("subtitles", () => {
     expect(mapped[0]!.words?.[0]).toMatchObject({ start: 10.5, end: 11.5 });
   });
 
+  it("only toasts successes of jobs the user started (U3)", () => {
+    expect(shouldToastSuccess("media.probe", false)).toBe(false);
+    expect(shouldToastSuccess("media.proxy", false)).toBe(false);
+    expect(shouldToastSuccess("media.proxy", true)).toBe(true);
+    expect(shouldToastSuccess("project.export", false)).toBe(true);
+  });
+
   it("exports SRT", () => {
     expect(toSrt([{ start: 1.5, end: 3.25, text: " Hola " }])).toBe(
       "1\n00:00:01,500 --> 00:00:03,250\nHola\n",
     );
+  });
+
+  it("builds a valid animated-captions MotionSpec from subtitles (word-level transcript)", () => {
+    const subs = [
+      { start: 10, end: 12, text: "Hola mundo feliz" },
+      {
+        start: 12.5,
+        end: 14,
+        text: "con palabras",
+        words: [
+          { start: 12.5, end: 13, word: " con" },
+          { start: 13.1, end: 14, word: " palabras" },
+        ],
+      },
+    ];
+    expect(segmentWords(subs[0]!)).toEqual([
+      { start: 10, end: 10 + 2 / 3, word: " Hola" },
+      { start: 10 + 2 / 3, end: 10 + 4 / 3, word: " mundo" },
+      { start: 10 + 4 / 3, end: 12, word: " feliz" },
+    ]);
+    const style = CAPTION_STYLES.find((s) => s.id === "clasico")!;
+    const built = animatedCaptionsProps(subs, style, "es")!;
+    expect(built).toMatchObject({ start: 10, durationSec: 4 });
+    expect(built.props).not.toHaveProperty("segments");
+    expect(typeof built.props.style).toBe("string");
+    const parsed = animatedCaptionsSchema.safeParse(built.props);
+    expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true);
+    const t = parsed.data!.transcript;
+    expect(t.segments[0]!.words?.map((w) => w.word)).toEqual([" Hola", " mundo", " feliz"]);
+    expect(t.segments[1]).toMatchObject({ start: 2.5, end: 4 });
+    expect(t.segments[1]!.words![0]).toMatchObject({ start: 2.5, end: 3, word: " con" });
+    expect(parsed.data).toMatchObject({ style: "highlight", boxColor: "rgba(0,0,0,0.6)" });
+    // A style with an unbundled font still yields valid props (font falls back to the default).
+    const minimal = animatedCaptionsProps(
+      subs,
+      CAPTION_STYLES.find((s) => s.id === "minimal")!,
+    );
+    expect(animatedCaptionsSchema.safeParse(minimal!.props).success).toBe(true);
+    expect(
+      MotionSpecSchema.safeParse({
+        engine: "remotion",
+        template: "animated-captions",
+        props: built.props,
+        durationSec: built.durationSec,
+      }).success,
+    ).toBe(true);
   });
 
   it("builds default voice effects that satisfy the shared schema", () => {

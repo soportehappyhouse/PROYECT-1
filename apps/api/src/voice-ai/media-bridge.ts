@@ -26,7 +26,7 @@ export interface NewAudioAsset {
   id?: string;
 }
 
-/** Insert a generated/imported audio file as a MediaAsset and kick off its proxy job if any. */
+/** Insert a generated/imported audio file as a MediaAsset and kick off its probe (waveform peaks). */
 export async function registerAudioAsset(
   ctx: Pick<AppContext, "repos" | "config" | "queue">,
   input: NewAudioAsset,
@@ -46,10 +46,9 @@ export async function registerAudioAsset(
     createdAt: now,
   });
   ctx.repos.media.insert(asset);
-  // Waveform/probe for the timeline (module b) when its handlers are registered.
-  for (const type of ["media.proxy"] as const) {
-    if (ctx.queue.hasHandler(type)) ctx.queue.enqueue({ type, payload: { assetId: asset.id } });
-  }
+  // Waveform/probe for the timeline (module b). Audio never gets a proxy (`media.proxy` is video-only).
+  if (ctx.queue.hasHandler("media.probe"))
+    ctx.queue.enqueue({ type: "media.probe", payload: { assetId: asset.id }, priority: 1 });
   return asset;
 }
 

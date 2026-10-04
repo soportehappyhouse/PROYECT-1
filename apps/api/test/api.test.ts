@@ -137,6 +137,9 @@ describe("api routes (no ffmpeg)", () => {
         "webm-alpha",
       ]),
     );
+    // B5: built-ins in catalog order, so the Export panel does not open on "GIF 480p".
+    expect(ids[0]).toBe("youtube-1080p");
+    expect(ids.indexOf("gif-480")).toBeGreaterThan(ids.indexOf("reels-tiktok"));
     const created = await app.inject({
       method: "POST",
       url: API_ROUTES.exportPresets,
@@ -243,6 +246,74 @@ describe("api routes (no ffmpeg)", () => {
     expect((await app.inject({ method: "DELETE", url: item })).statusCode).toBe(204);
     expect(existsSync(path.join(storage, asset.path))).toBe(false);
     expect((await app.inject({ method: "GET", url: item })).statusCode).toBe(404);
+  });
+
+  it("B3/B4: media in use is not deleted and exports refuse orphan or unrendered clips", async () => {
+    const { payload, headers } = await multipart("toma.mp3", "0123", "audio/mpeg");
+    const asset = (
+      await app.inject({ method: "POST", url: API_ROUTES.media, payload, headers })
+    ).json<MediaAsset>();
+    const p = (
+      await app.inject({ method: "POST", url: API_ROUTES.projects, payload: { name: "Ñandú" } })
+    ).json<Project>();
+    const audio = p.tracks.find((t) => t.kind === "audio")!;
+    const body = {
+      ...p,
+      tracks: [
+        ...p.tracks.filter((t) => t !== audio),
+        { ...audio, clips: [{ id: "a1", trackId: audio.id, assetId: asset.id, start: 0, out: 2 }] },
+        {
+          id: "tm",
+          kind: "motion",
+          name: "Motion 1",
+          clips: [
+            {
+              id: "m1",
+              trackId: "tm",
+              start: 1,
+              out: 2,
+              motion: { template: "title-card", durationSec: 2 },
+            },
+          ],
+        },
+      ],
+    };
+    const projectUrl = buildRoute(API_ROUTES.project, { id: p.id });
+    expect((await app.inject({ method: "PUT", url: projectUrl, payload: body })).statusCode).toBe(
+      200,
+    );
+
+    const item = buildRoute(API_ROUTES.mediaItem, { id: asset.id });
+    const del = await app.inject({ method: "DELETE", url: item });
+    expect(del.statusCode).toBe(409);
+    expect(del.json()).toMatchObject({
+      error: { code: "MEDIA_IN_USE", details: { projects: [{ id: p.id, name: "Ñandú" }] } },
+    });
+    expect(del.json().error.message).toContain("«Ñandú»");
+
+    const exportUrl = buildRoute(API_ROUTES.projectExport, { id: p.id });
+    const unrendered = await app.inject({
+      method: "POST",
+      url: exportUrl,
+      payload: { presetId: "youtube-1080p" },
+    });
+    expect(unrendered.statusCode).toBe(409);
+    expect(unrendered.json().error.code).toBe("EXPORT_BLOCKED");
+    expect(unrendered.json().error.details.problems).toEqual([
+      "Motion «title-card» sin renderizar («Motion 1» en 1,0 s)",
+    ]);
+
+    expect((await app.inject({ method: "DELETE", url: `${item}?force=1` })).statusCode).toBe(204);
+    const orphan = await app.inject({
+      method: "POST",
+      url: exportUrl,
+      payload: { presetId: "youtube-1080p", range: { start: 0, end: 0.5 } },
+    });
+    expect(orphan.statusCode).toBe(409);
+    expect(orphan.json().error.details.problems).toEqual([
+      `El medio ${asset.id} fue borrado («${audio.name}» en 0,0 s)`,
+    ]);
+    expect(orphan.json().error.message).toMatch(/^No se puede exportar: 1 clip con problemas/);
   });
 
   it("voice effects endpoint validates the extended effect list", async () => {

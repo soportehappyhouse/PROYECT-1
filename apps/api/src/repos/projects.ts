@@ -57,6 +57,20 @@ export class ProjectRepo {
     ).map((r) => ({ id: r.id, name: r.name, createdAt: r.created_at, updatedAt: r.updated_at }));
   }
 
+  /** Projects with a clip whose assetId/renderedAssetId is `assetId` (B4: guard media deletes). */
+  usingAsset(assetId: string): { id: string; name: string }[] {
+    const rows = this.db
+      .prepare(`SELECT id, name, data FROM projects WHERE instr(data, ?) > 0 ORDER BY name`)
+      .all(assetId) as { id: string; name: string; data: string }[];
+    return rows
+      .filter((r) =>
+        (JSON.parse(r.data) as Project).tracks.some((t) =>
+          t.clips.some((c) => c.assetId === assetId || c.renderedAssetId === assetId),
+        ),
+      )
+      .map(({ id, name }) => ({ id, name }));
+  }
+
   /** Replace the whole document (id and createdAt are kept; updatedAt is set by the server). */
   save(id: string, body: unknown): Project | undefined {
     const current = this.get(id);

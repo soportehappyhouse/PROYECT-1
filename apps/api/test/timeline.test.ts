@@ -8,7 +8,9 @@ import {
 } from "@studio/shared";
 import {
   compileExport,
+  exportBlockersMessage,
   ffmpegColor,
+  findExportBlockers,
   timelineDuration,
   type TimelineAsset,
 } from "../src/services/ffmpeg/timeline.js";
@@ -316,5 +318,34 @@ describe("timeline compiler", () => {
     expect(out.graph).toContain("Alignment=8");
     expect(out.graph).toContain("PrimaryColour=&H000AD6FF");
     expect(out.files.find((f) => f.name === "subs.srt")?.content).toContain("HOLA");
+  });
+  it("does not burn subtitles twice when an animated-captions clip shows them", () => {
+    const p = project();
+    const motion = p.tracks.find((t) => t.kind === "motion")!;
+    const base = { project: p, preset: youtube, assets, output: "o.mp4" };
+    expect(compileExport(base).graph).toContain("subtitles=subs.srt");
+    motion.clips[0]!.motion = { ...motion.clips[0]!.motion!, template: "animated-captions" };
+    const auto = compileExport(base);
+    expect(auto.graph).not.toContain("subtitles=");
+    expect(auto.files.some((f) => f.name === "subs.srt")).toBe(false);
+    expect(compileExport({ ...base, burnSubtitles: true }).graph).toContain("subtitles=subs.srt");
+    motion.clips[0]!.motion!.template = "title-card";
+    expect(compileExport({ ...base, burnSubtitles: false }).graph).not.toContain("subtitles=");
+  });
+
+  it("lists unrendered motion clips and deleted media as export blockers (B3/B4)", () => {
+    const p = project();
+    const has = (id: string) => id !== "v2";
+    expect(findExportBlockers(p, has)).toEqual(["El medio v2 fue borrado («V1» en 4,0 s)"]);
+    expect(findExportBlockers(p, () => true)).toEqual([]);
+    expect(findExportBlockers(p, has, { start: 0, end: 1 })).toEqual([]);
+    const motion = p.tracks.find((t) => t.kind === "motion")!;
+    delete motion.clips[0]!.renderedAssetId;
+    delete motion.clips[0]!.assetId;
+    expect(findExportBlockers(p, () => true)).toEqual([
+      expect.stringMatching(/^Motion «title-card» sin renderizar/),
+    ]);
+    expect(exportBlockersMessage([])).toBeUndefined();
+    expect(exportBlockersMessage(["a", "b"])).toMatch(/^No se puede exportar: 2 clips/);
   });
 });

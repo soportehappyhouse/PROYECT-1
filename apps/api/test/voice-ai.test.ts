@@ -73,7 +73,10 @@ describe("voice.tts handler", () => {
     expect(result).toMatchObject({ path: "renders/job1.wav", durationSec: 1.5 });
     const asset = repos.media.get(result.assetId!);
     expect(asset).toMatchObject({ kind: "audio", path: "renders/job1.wav", sampleRate: 22050 });
-    expect(enqueued).toEqual([{ type: "media.proxy", payload: { assetId: result.assetId } }]);
+    // B1: audio gets a probe (waveform peaks), never a video-only proxy.
+    expect(enqueued).toEqual([
+      { type: "media.probe", payload: { assetId: result.assetId }, priority: 1 },
+    ]);
   });
 });
 

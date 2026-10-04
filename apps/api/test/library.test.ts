@@ -234,6 +234,12 @@ describe("library + voice routes", () => {
     expect(imp.statusCode).toBe(201);
     expect(imp.json()).toMatchObject({ kind: "audio", name: "boom" });
     expect(imp.json().path).toMatch(/^media\/.+\.wav$/);
+    // B1: an imported audio asset is probed (peaks), never sent to the video-only proxy job.
+    const assetId = imp.json().id as string;
+    const jobs = app.ctx.jobs
+      .list({})
+      .filter((j) => (j.payload as { assetId?: string }).assetId === assetId);
+    expect(jobs.map((j) => j.type)).toEqual(["media.probe"]);
   });
 
   it.skipIf(!hasFfmpeg)("uploads a file to the library via multipart", async () => {

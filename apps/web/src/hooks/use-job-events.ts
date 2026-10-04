@@ -42,6 +42,14 @@ export function transcriptToTimeline(
     }));
 }
 
+/**
+ * U3: automatic analysis jobs (probe/proxy enqueued by an upload or import) finish silently; they
+ * stay in the Jobs panel. Jobs started from the UI (tracked with an intent) and every failure toast.
+ */
+export function shouldToastSuccess(type: Job["type"], hasIntent: boolean): boolean {
+  return hasIntent || (type !== "media.probe" && type !== "media.proxy");
+}
+
 async function handleFinished(job: Job): Promise<void> {
   const jobs = useJobsStore.getState();
   if (jobs.handled[job.id]) return;
@@ -132,6 +140,7 @@ async function handleFinished(job: Job): Promise<void> {
       break;
   }
 
+  if (!shouldToastSuccess(job.type, !!intent)) return;
   const path = jobOutputPath(full);
   toast.success(`${label}: completado`, {
     ...(path

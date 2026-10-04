@@ -10,6 +10,17 @@ describe("template props validation", () => {
     expect(v).toMatchObject({ ok: true, props: { title: "Hola", style: "pop", align: "center" } });
   });
 
+  it("title-card overlays the video by default but keeps the opaque card selectable (B6)", () => {
+    expect(validateRemotionProps("title-card", {})).toMatchObject({
+      ok: true,
+      props: { background: "transparent" },
+    });
+    expect(validateRemotionProps("title-card", { background: "#111111" })).toMatchObject({
+      ok: true,
+      props: { background: "#111111" },
+    });
+  });
+
   it.each([
     ["title-card", { style: "explode" }, "style"],
     ["title-card", { titleColor: "not a color!" }, "titleColor"],

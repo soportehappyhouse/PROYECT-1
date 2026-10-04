@@ -1,10 +1,14 @@
-import type { Job } from "@studio/shared";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { DEFAULT_EXPORT_PRESETS, EXTRA_EXPORT_PRESETS, type Job } from "@studio/shared";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ExportPanel } from "@/components/panels/ExportPanel";
 import { InspectorPanel } from "@/components/panels/InspectorPanel";
 import { JobsPanel } from "@/components/panels/JobsPanel";
+import { MotionPanel } from "@/components/panels/MotionPanel";
 import { NotImplementedNotice } from "@/components/ui/misc";
+import { api } from "@/lib/api";
 import { useJobsStore } from "@/stores/jobs-store";
+import { useExportPresetsStore } from "@/stores/export-presets-store";
 import { createEmptyProject, useProjectStore } from "@/stores/project-store";
 
 function job(partial: Partial<Job> & Pick<Job, "id" | "type" | "status">): Job {
@@ -12,6 +16,7 @@ function job(partial: Partial<Job> & Pick<Job, "id" | "type" | "status">): Job {
 }
 
 beforeEach(() => {
+  vi.restoreAllMocks();
   useProjectStore.getState().loadProject(createEmptyProject("Demo"));
   useJobsStore.setState({ jobs: {}, intents: {}, handled: {}, connection: "live" });
 });
@@ -123,5 +128,108 @@ describe("media drop on the timeline", () => {
     });
     const clip = useProjectStore.getState().project.tracks.find((t) => t.id === track.id)!.clips[0];
     expect(clip).toMatchObject({ assetId: "a1", start: 3.5, out: 2 });
+  });
+});
+
+describe("MotionPanel engines (B2)", () => {
+  it("reads `ok` from /api/motion/engines and disables templates of a stub engine", async () => {
+    vi.spyOn(api, "motionEngines").mockResolvedValue([
+      { id: "remotion", displayName: "Remotion", ok: true },
+      { id: "motion-canvas", displayName: "Motion Canvas", ok: false, reason: "no implementado" },
+    ]);
+    vi.spyOn(api, "motionTemplates").mockResolvedValue([
+      {
+        engine: "remotion",
+        id: "title-card",
+        name: "Título",
+        defaultProps: {},
+        defaultDurationSec: 3,
+        supportsAlpha: true,
+      },
+      {
+        engine: "motion-canvas",
+        id: "hello-circle",
+        name: "Círculo",
+        defaultProps: {},
+        defaultDurationSec: 2,
+        supportsAlpha: false,
+      },
+    ]);
+    render(<MotionPanel />);
+    const stub = await screen.findByRole("option", { name: /Círculo · motion-canvas/ });
+    await waitFor(() => expect((stub as HTMLOptionElement).disabled).toBe(true));
+    expect(stub.textContent).toContain("(no disponible)");
+    const ok = screen.getByRole("option", { name: /Título · remotion/ }) as HTMLOptionElement;
+    expect(ok.disabled).toBe(false);
+    expect(screen.getByText("Remotion").className).not.toBe(
+      screen.getByText("Motion Canvas").className,
+    );
+  });
+});
+
+describe("ExportPanel presets (B5)", () => {
+  it("starts on YouTube 1080p and shows GIF container/codec for the GIF preset", () => {
+    const gifFirst = [...DEFAULT_EXPORT_PRESETS, ...EXTRA_EXPORT_PRESETS].sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+    useExportPresetsStore.setState({ presets: gifFirst, source: "api", error: undefined });
+    render(<ExportPanel />);
+    const preset = screen.getByLabelText("Preset de exportación") as HTMLSelectElement;
+    expect(preset.value).toBe("youtube-1080p");
+    fireEvent.change(preset, { target: { value: "gif-480" } });
+    expect((screen.getByLabelText("Contenedor") as HTMLSelectElement).value).toBe("gif");
+    expect((screen.getByLabelText("Códec de video") as HTMLSelectElement).value).toBe("gif");
+  });
+});
+
+describe("ExportPanel burn subtitles (manual bug 2)", () => {
+  it("defaults to not burning when an animated-captions clip exists and sends the flag", async () => {
+    const p = createEmptyProject("Subs");
+    p.subtitles = [{ start: 0, end: 2, text: "Hola" }];
+    const motion = p.tracks.find((t) => t.kind === "motion")!;
+    motion.clips = [
+      {
+        id: "m1",
+        trackId: motion.id,
+        start: 0,
+        in: 0,
+        out: 2,
+        speed: 1,
+        volume: 1,
+        opacity: 1,
+        voiceEffects: [],
+        motion: {
+          engine: "remotion",
+          template: "animated-captions",
+          props: {},
+          durationSec: 2,
+          fps: 30,
+          width: 1920,
+          height: 1080,
+          format: "webm-vp9-alpha",
+          includeAudio: false,
+        },
+      },
+    ];
+    useProjectStore.getState().loadProject(p);
+    useExportPresetsStore.setState({
+      presets: [...DEFAULT_EXPORT_PRESETS],
+      source: "api",
+      error: undefined,
+    });
+    vi.spyOn(api, "saveProject").mockImplementation(async (x) => x);
+    const exportProject = vi.spyOn(api, "exportProject").mockResolvedValue({ jobId: "j1" });
+    render(<ExportPanel />);
+    const burn = screen.getByLabelText(/Quemar subtítulos/) as HTMLInputElement;
+    expect(burn.checked).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: /Exportar/ }));
+    await waitFor(() => expect(exportProject).toHaveBeenCalled());
+    expect(exportProject.mock.calls[0]![1]).toMatchObject({
+      presetId: "youtube-1080p",
+      burnSubtitles: false,
+    });
+    fireEvent.click(burn);
+    expect(burn.checked).toBe(true);
+    expect(screen.getByText("saldrán dos veces")).toBeTruthy();
   });
 });

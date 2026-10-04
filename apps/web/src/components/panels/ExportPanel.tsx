@@ -1,6 +1,11 @@
 "use client";
 
-import { AspectRatioSchema, type ExportPreset } from "@studio/shared";
+import {
+  AspectRatioSchema,
+  defaultBurnSubtitles,
+  hasAnimatedCaptions,
+  type ExportPreset,
+} from "@studio/shared";
 import { Copy, Download, Rocket, Save, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -22,6 +27,8 @@ import {
 } from "@/stores/jobs-store";
 import { useProjectStore } from "@/stores/project-store";
 import { Panel } from "./Panel";
+
+const DEFAULT_PRESET_ID = "youtube-1080p";
 
 function PresetEditor({
   preset,
@@ -101,6 +108,7 @@ function PresetEditor({
           <option value="mp4">MP4</option>
           <option value="webm">WebM</option>
           <option value="mov">MOV</option>
+          <option value="gif">GIF</option>
         </Select>
       </Label>
       <Label>
@@ -116,6 +124,7 @@ function PresetEditor({
           <option value="h265">H.265</option>
           <option value="vp9">VP9</option>
           <option value="prores">ProRes</option>
+          <option value="gif">GIF</option>
         </Select>
       </Label>
       <Label>
@@ -169,6 +178,14 @@ function PresetEditor({
           }
         />
       </Label>
+      <label className="col-span-2 flex items-center gap-2 text-xs">
+        <Checkbox
+          disabled={disabled}
+          checked={preset.alpha}
+          onChange={(e) => onChange({ ...preset, alpha: e.target.checked })}
+        />
+        Transparencia (canal alfa: WebM VP9 o ProRes 4444)
+      </label>
     </div>
   );
 }
@@ -177,12 +194,15 @@ export function ExportPanel() {
   const { presets, source, error, load, save, remove } = useExportPresetsStore();
   const project = useProjectStore((s) => s.project);
   const jobs = useJobsStore((s) => s.jobs);
-  const [presetId, setPresetId] = useState<string>(presets[0]?.id ?? "");
+  // B5: start on YouTube 1080p (the list order comes from the api and may start elsewhere).
+  const [presetId, setPresetId] = useState<string>(DEFAULT_PRESET_ID);
   const [draft, setDraft] = useState<ExportPreset | undefined>(undefined);
   const [useRange, setUseRange] = useState(false);
   const [range, setRange] = useState({ start: 0, end: 10 });
   const [fileName, setFileName] = useState("");
   const [busy, setBusy] = useState(false);
+  // undefined = automatic: burn subtitles unless an animated-captions clip already shows them.
+  const [burnOverride, setBurnOverride] = useState<boolean | undefined>(undefined);
 
   useEffect(() => {
     if (useExportPresetsStore.getState().source === "loading") void load();
@@ -191,6 +211,9 @@ export function ExportPanel() {
   const selected = presets.find((p) => p.id === presetId) ?? presets[0];
   const editing = draft && draft.id === selected?.id ? draft : selected;
   const duration = projectDuration(project);
+  const hasSubtitles = project.subtitles.length > 0;
+  const animatedCaptions = hasAnimatedCaptions(project);
+  const burnSubtitles = burnOverride ?? defaultBurnSubtitles(project);
   const exportJobs = useMemo(
     () =>
       sortedJobs(jobs)
@@ -236,6 +259,7 @@ export function ExportPanel() {
         presetId: selected.id,
         ...(useRange && range.end > range.start ? { range } : {}),
         ...(fileName.trim() ? { fileName: fileName.trim() } : {}),
+        ...(hasSubtitles ? { burnSubtitles } : {}),
       });
       useJobsStore.getState().track(jobId, "project.export", { kind: "export" });
       toast.info("Exportación iniciada");
@@ -289,7 +313,7 @@ export function ExportPanel() {
                   void remove(selected.id).catch((err: unknown) =>
                     toast.error("No se pudo eliminar", { description: errorMessage(err) }),
                   );
-                  setPresetId(presets[0]?.id ?? "");
+                  setPresetId(DEFAULT_PRESET_ID);
                 }}
               >
                 <Trash2 />
@@ -317,6 +341,20 @@ export function ExportPanel() {
               onChange={(e) => setFileName(e.target.value)}
             />
           </Label>
+          {hasSubtitles ? (
+            <label className="flex items-center gap-2 text-xs">
+              <Checkbox
+                checked={burnSubtitles}
+                onChange={(e) => setBurnOverride(e.target.checked)}
+              />
+              Quemar subtítulos en el video
+              {animatedCaptions && burnSubtitles ? (
+                <Badge tone="warning" title="Ya hay un clip de subtítulos animados en Motion">
+                  saldrán dos veces
+                </Badge>
+              ) : null}
+            </label>
+          ) : null}
           <label className="flex items-center gap-2 text-xs">
             <Checkbox checked={useRange} onChange={(e) => setUseRange(e.target.checked)} />
             Exportar solo un rango (duración total {formatTime(duration)})

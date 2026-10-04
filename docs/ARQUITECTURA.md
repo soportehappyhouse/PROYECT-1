@@ -79,46 +79,49 @@ Fuente de verdad: `API_ROUTES` en `packages/shared/src/api.ts` (las antiguas `AP
 (`JobAccepted`). CORS: `GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS` para `localhost:*`; el SSE
 pone sus cabeceras CORS a mano (`lib/cors.ts`, `reply.hijack()`).
 
-| Método               | Ruta                                    | Request → Response                                                           | Módulo |
-| -------------------- | --------------------------------------- | ---------------------------------------------------------------------------- | ------ |
-| GET                  | `/api/health`                           | → `HealthResponse` (ffmpeg, workers)                                         | b      |
-| GET                  | `/api/config`                           | → `AppConfig` (solo booleanos, nunca keys)                                   | b      |
-| GET / PUT            | `/api/settings`                         | `DashboardSettings` completo (incluye `ui`: layout, acento, presets)         | b      |
-| GET / POST           | `/api/projects`                         | `CreateProject` → `Project`                                                  | b      |
-| GET / PUT / DELETE   | `/api/projects/:id`                     | `Project`                                                                    | b      |
-| GET / PUT            | `/api/projects/:id/autosave`            | snapshot `Project` → `ProjectAutosaveInfo`                                   | b      |
-| POST                 | `/api/projects/:id/export`              | `ExportRequest` → `JobAccepted`                                              | b      |
-| GET / POST           | `/api/media`                            | multipart → `MediaAsset`                                                     | b      |
-| GET / DELETE         | `/api/media/:id`                        | → `MediaAsset`                                                               | b      |
-| GET                  | `/api/media/:id/file`                   | stream con HTTP Range (`?proxy=1`, `?download=1`)                            | b      |
-| POST                 | `/api/media/:id/proxy`                  | → `JobAccepted`                                                              | b      |
-| GET                  | `/api/jobs?status=&type=&limit=`        | → `Job[]`                                                                    | b      |
-| GET                  | `/api/jobs/:id`                         | → `Job`                                                                      | b      |
-| GET                  | `/api/jobs/:id/log`                     | → `{ lines: string[] }`                                                      | b      |
-| POST                 | `/api/jobs/:id/cancel`                  | → `Job`                                                                      | b      |
-| GET                  | `/api/jobs/events?jobId=`               | SSE de `JobEvent`                                                            | b      |
-| GET / POST           | `/api/export-presets`                   | `ExportPreset`                                                               | b      |
-| PUT / DELETE         | `/api/export-presets/:id`               | `ExportPreset` (built-ins no se borran: 409)                                 | b      |
-| GET                  | `/api/system/encoders`                  | → `EncoderInfo`                                                              | b      |
-| GET                  | `/api/motion/engines`                   | → estado + capacidades por motor                                             | c      |
-| GET                  | `/api/motion/templates`                 | → `MotionTemplateInfo[]`                                                     | c      |
-| POST                 | `/api/motion/render`                    | `MotionRenderRequest` (`MotionSpec` + `target?`) → `JobAccepted`             | c      |
-| GET                  | `/api/voice/tts/voices`                 | → `TtsVoiceInfo[]`                                                           | d      |
-| GET                  | `/api/voice/tts/providers`              | → `TtsProviderInfo[]`                                                        | d      |
-| POST                 | `/api/voice/tts`                        | `TtsRequest` → `JobAccepted`                                                 | d      |
-| POST                 | `/api/voice/effects`                    | `VoiceEffectRequest` → `JobAccepted`                                         | b      |
-| GET                  | `/api/voice/effects/presets`            | → `VOICE_EFFECT_PRESETS`                                                     | b      |
-| GET                  | `/api/voice/rvc/models`                 | → `RvcModel[]`                                                               | d      |
-| POST                 | `/api/voice/rvc`                        | `RvcRequest` → `JobAccepted`                                                 | d      |
-| POST                 | `/api/voice/models/download`            | `ModelDownloadRequest` → `ModelDownloadResult`                               | d      |
-| POST                 | `/api/subtitles/transcribe`             | `TranscribeRequest` → `JobAccepted` (result `TranscribeJobResult`)           | d      |
-| GET                  | `/api/library?q=&kind=&provider=&page=` | → `Paginated<LibraryItem>`                                                   | d      |
-| POST                 | `/api/library/import`                   | JSON `{provider, remoteId}` → `MediaAsset`; multipart → `LibraryItemDetails` | d      |
-| POST                 | `/api/library/scan`                     | → `LibraryScanResult`                                                        | d      |
-| GET / PATCH / DELETE | `/api/library/:id`                      | `LibraryItemDetails` / `LibraryItemUpdate`                                   | d      |
-| GET                  | `/api/library/:id/peaks`                | → `WaveformPeaks`                                                            | d      |
-| GET                  | `/api/library/providers`                | → `{id, enabled, status}[]`                                                  | d      |
-| GET                  | `/files/*`                              | estático desde `STORAGE_DIR` (sin `studio.db` ni `tmp/`)                     | b      |
+| Método               | Ruta                                    | Request → Response                                                                                                                                                                | Módulo   |
+| -------------------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| GET                  | `/api/health`                           | → `HealthResponse` (ffmpeg, workers)                                                                                                                                              | b        |
+| GET                  | `/api/config`                           | → `AppConfig` (solo booleanos, nunca keys)                                                                                                                                        | b        |
+| GET / PUT            | `/api/settings`                         | `DashboardSettings` completo (incluye `ui`: layout, acento, presets)                                                                                                              | b        |
+| GET / POST           | `/api/projects`                         | `CreateProject` → `Project`                                                                                                                                                       | b        |
+| GET / PUT / DELETE   | `/api/projects/:id`                     | `Project`                                                                                                                                                                         | b        |
+| GET / PUT            | `/api/projects/:id/autosave`            | snapshot `Project` → `ProjectAutosaveInfo`                                                                                                                                        | b        |
+| POST                 | `/api/projects/:id/export`              | `ExportRequest` (`presetId`, `range?`, `fileName?`, `burnSubtitles?`) → `JobAccepted`; 409 `EXPORT_BLOCKED` con `details.problems` si hay motion sin renderizar o medios borrados | b        |
+| GET / POST           | `/api/media`                            | multipart → `MediaAsset`                                                                                                                                                          | b        |
+| GET / DELETE         | `/api/media/:id`                        | → `MediaAsset`; `DELETE` da 409 `MEDIA_IN_USE` (`details.projects`) si un proyecto lo usa, salvo `?force=1`                                                                       | b        |
+| GET                  | `/api/media/:id/file`                   | stream con HTTP Range (`?proxy=1`, `?download=1`)                                                                                                                                 | b        |
+| POST                 | `/api/media/:id/proxy`                  | → `JobAccepted`                                                                                                                                                                   | b        |
+| GET                  | `/api/jobs?status=&type=&limit=`        | → `Job[]`                                                                                                                                                                         | b        |
+| GET                  | `/api/jobs/:id`                         | → `Job`                                                                                                                                                                           | b        |
+| GET                  | `/api/jobs/:id/log`                     | → `{ lines: string[] }`                                                                                                                                                           | b        |
+| GET                  | `/api/jobs/:id/diagnostics`             | → `JobDiagnostics` (comandos ffmpeg/ffprobe/procesos/workers, código, duración, cola de stderr)                                                                                   | reportes |
+| POST                 | `/api/jobs/:id/cancel`                  | → `Job`                                                                                                                                                                           | b        |
+| GET                  | `/api/jobs/events?jobId=`               | SSE de `JobEvent`                                                                                                                                                                 | b        |
+| GET / POST           | `/api/export-presets`                   | `ExportPreset`                                                                                                                                                                    | b        |
+| PUT / DELETE         | `/api/export-presets/:id`               | `ExportPreset` (built-ins no se borran: 409)                                                                                                                                      | b        |
+| GET                  | `/api/system/encoders`                  | → `EncoderInfo`                                                                                                                                                                   | b        |
+| GET                  | `/api/motion/engines`                   | → `MotionEngineInfo[]` (`id`, `displayName`, `ok`, `reason?`, `capabilities`)                                                                                                     | c        |
+| GET                  | `/api/motion/templates`                 | → `MotionTemplateInfo[]`                                                                                                                                                          | c        |
+| POST                 | `/api/motion/render`                    | `MotionRenderRequest` (`MotionSpec` + `target?`) → `JobAccepted`                                                                                                                  | c        |
+| GET                  | `/api/voice/tts/voices`                 | → `TtsVoiceInfo[]`                                                                                                                                                                | d        |
+| GET                  | `/api/voice/tts/providers`              | → `TtsProviderInfo[]`                                                                                                                                                             | d        |
+| POST                 | `/api/voice/tts`                        | `TtsRequest` → `JobAccepted`                                                                                                                                                      | d        |
+| POST                 | `/api/voice/effects`                    | `VoiceEffectRequest` → `JobAccepted`                                                                                                                                              | b        |
+| GET                  | `/api/voice/effects/presets`            | → `VOICE_EFFECT_PRESETS`                                                                                                                                                          | b        |
+| GET                  | `/api/voice/rvc/models`                 | → `RvcModel[]`                                                                                                                                                                    | d        |
+| POST                 | `/api/voice/rvc`                        | `RvcRequest` → `JobAccepted`                                                                                                                                                      | d        |
+| POST                 | `/api/voice/models/download`            | `ModelDownloadRequest` → `ModelDownloadResult`                                                                                                                                    | d        |
+| POST                 | `/api/subtitles/transcribe`             | `TranscribeRequest` → `JobAccepted` (result `TranscribeJobResult`)                                                                                                                | d        |
+| GET                  | `/api/library?q=&kind=&provider=&page=` | → `Paginated<LibraryItem>`                                                                                                                                                        | d        |
+| POST                 | `/api/library/import`                   | JSON `{provider, remoteId}` → `MediaAsset`; multipart → `LibraryItemDetails`                                                                                                      | d        |
+| POST                 | `/api/library/scan`                     | → `LibraryScanResult`                                                                                                                                                             | d        |
+| GET / PATCH / DELETE | `/api/library/:id`                      | `LibraryItemDetails` / `LibraryItemUpdate`                                                                                                                                        | d        |
+| GET                  | `/api/library/:id/peaks`                | → `WaveformPeaks`                                                                                                                                                                 | d        |
+| GET                  | `/api/library/providers`                | → `{id, enabled, status}[]`                                                                                                                                                       | d        |
+| GET / POST           | `/api/reports`                          | → `ReportSummary[]` / `CreateReportRequest` → `CreateReportResponse` (carpeta + zip en `storage/reports/`)                                                                        | reportes |
+| GET                  | `/api/reports/:id/download`             | → el `.zip` del reporte                                                                                                                                                           | reportes |
+| GET                  | `/files/*`                              | estático desde `STORAGE_DIR` (sin `studio.db`, `tmp/`, `logs/` ni `reports/`)                                                                                                     | b        |
 
 ## 3. Contrato de `apps/workers` (interno, solo lo llama la api)
 

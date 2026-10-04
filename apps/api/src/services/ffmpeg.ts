@@ -55,6 +55,8 @@ export interface ExportInput {
   /** Preferred H.264 encoder (falls back to libx264 once on hardware failure). */
   encoder?: VideoEncoderId;
   fontFile?: string;
+  /** See ExportRequest.burnSubtitles (absent = auto). */
+  burnSubtitles?: boolean;
 }
 
 export interface ExportOutcome {
@@ -314,6 +316,7 @@ export function createFfmpegService(ffmpegPath: string, ffprobePath: string): Ff
           ffmpegMajor: version?.major ?? 6,
           ...(input.range && { range: input.range }),
           ...(input.fontFile && { fontFile: input.fontFile }),
+          ...(input.burnSubtitles !== undefined && { burnSubtitles: input.burnSubtitles }),
         });
         await mkdir(input.workDir, { recursive: true });
         for (const f of compiled.files)

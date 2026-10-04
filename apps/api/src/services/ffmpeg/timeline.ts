@@ -1,11 +1,12 @@
-import type {
-  Clip,
-  ExportPreset,
-  MediaKind,
-  Project,
-  TextStyle,
-  Track,
-  VideoEncoderId,
+import {
+  defaultBurnSubtitles,
+  type Clip,
+  type ExportPreset,
+  type MediaKind,
+  type Project,
+  type TextStyle,
+  type Track,
+  type VideoEncoderId,
 } from "@studio/shared";
 import { atempoChain, buildAudioFxGraph } from "./audio-fx.js";
 import {
@@ -47,6 +48,8 @@ export interface CompileExportOptions {
   rubberband?: boolean;
   /** FFmpeg >= 7 uses `-/filter_complex <file>`; 6.x uses `-filter_complex_script <file>`. */
   ffmpegMajor?: number;
+  /** Burn project.subtitles; default defaultBurnSubtitles(project) (off with animated captions). */
+  burnSubtitles?: boolean;
 }
 
 export interface CompiledExport {
@@ -75,6 +78,46 @@ export function timelineDuration(project: Project): number {
   }
   for (const s of project.subtitles) end = Math.max(end, s.end);
   return end;
+}
+
+/**
+ * Clips the export would otherwise drop silently (B3/B4): motion clips without a render and clips
+ * whose media was deleted. Only exported tracks and clips overlapping `range` count. Spanish lines.
+ */
+export function findExportBlockers(
+  project: Pick<Project, "tracks">,
+  hasAsset: (id: string) => boolean,
+  range?: { start: number; end: number },
+): string[] {
+  const out: string[] = [];
+  const at = (t: number) => `${t.toFixed(1).replace(".", ",")} s`;
+  for (const track of project.tracks) {
+    if (track.kind === "audio" ? track.muted : track.hidden) continue;
+    for (const c of track.clips) {
+      const end = c.start + clipDuration(c);
+      if (range && (end <= range.start + EPS || c.start >= range.end - EPS)) continue;
+      const where = `«${track.name}» en ${at(c.start)}`;
+      if (track.kind === "motion") {
+        const id = c.renderedAssetId ?? c.assetId;
+        if (id && hasAsset(id)) continue;
+        if (c.motion) out.push(`Motion «${c.motion.template}» sin renderizar (${where})`);
+        else if (id) out.push(`El render ${id} ya no existe (${where})`);
+      } else if (c.assetId && !hasAsset(c.assetId)) {
+        out.push(`El medio ${c.assetId} fue borrado (${where})`);
+      }
+    }
+  }
+  return out;
+}
+
+/** Spanish error for findExportBlockers (empty list -> undefined). */
+export function exportBlockersMessage(problems: string[]): string | undefined {
+  if (problems.length === 0) return undefined;
+  const n = problems.length;
+  return (
+    `No se puede exportar: ${n} clip${n === 1 ? "" : "s"} con problemas. ` +
+    `Renderiza los motion pendientes o quita los clips huérfanos: ${problems.join("; ")}`
+  );
 }
 
 /** "#rrggbb" / "#rrggbbaa" / named colour -> ffmpeg colour syntax. */
@@ -459,7 +502,8 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
     }
   }
 
-  if (project.subtitles.length) {
+  const burnSubtitles = o.burnSubtitles ?? defaultBurnSubtitles(project);
+  if (burnSubtitles && project.subtitles.length) {
     const upper = project.captionStyle?.uppercase;
     const subs = upper
       ? project.subtitles.map((x) => ({ ...x, text: x.text.toLocaleUpperCase("es") }))

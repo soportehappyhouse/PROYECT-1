@@ -18,7 +18,8 @@ export const titleCardSchema = z.object({
   titleColor: color("Color del título").default("#ffffff"),
   subtitleColor: color("Color del subtítulo").default("#d4d4d8"),
   accentColor: color("Color de acento").default("#e13238"),
-  background: background("#111111"),
+  /** B6: transparent by default so the title overlays the video; type "#111111" for a solid card. */
+  background: background("transparent"),
   exit: z.boolean().meta({ title: "Animación de salida" }).default(true),
 });
 export type TitleCardProps = z.infer<typeof titleCardSchema>;

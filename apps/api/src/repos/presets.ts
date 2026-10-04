@@ -6,6 +6,13 @@ import {
 } from "@studio/shared";
 import type { SqlDatabase } from "../db/adapter.js";
 
+/** B5: built-ins keep the catalog order (youtube-1080p first, GIF last), not alphabetical. */
+const CATALOG = [...DEFAULT_EXPORT_PRESETS, ...EXTRA_EXPORT_PRESETS].map((p) => p.id);
+const catalogIndex = (id: string) => {
+  const i = CATALOG.indexOf(id);
+  return i < 0 ? CATALOG.length : i;
+};
+
 /** Export presets (ExportPreset JSON) in the `export_presets` table; built-ins are seeded. */
 export class PresetRepo {
   constructor(private readonly db: SqlDatabase) {}
@@ -24,7 +31,12 @@ export class PresetRepo {
   list(): ExportPreset[] {
     return (this.db.prepare(`SELECT data FROM export_presets`).all() as { data: string }[])
       .map((r) => JSON.parse(r.data) as ExportPreset)
-      .sort((a, b) => Number(b.builtIn) - Number(a.builtIn) || a.name.localeCompare(b.name));
+      .sort(
+        (a, b) =>
+          Number(b.builtIn) - Number(a.builtIn) ||
+          catalogIndex(a.id) - catalogIndex(b.id) ||
+          a.name.localeCompare(b.name),
+      );
   }
 
   get(id: string): ExportPreset | undefined {

@@ -8,6 +8,7 @@ import {
 import type { AppContext } from "../../context.js";
 import { disableEncoder, selectEncoder } from "../../services/encoder-select.js";
 import { presetEncoding } from "../../services/ffmpeg/encoders.js";
+import { exportBlockersMessage, findExportBlockers } from "../../services/ffmpeg/timeline.js";
 import type { TimelineAsset } from "../../services/ffmpeg.js";
 import { fileStamp, slugify } from "../../services/media-files.js";
 import { storageRelative } from "../../services/storage.js";
@@ -45,6 +46,11 @@ export function createProjectExportHandler(
       if (!stored) throw new Error(`Preset ${req.presetId} no encontrado`);
       const preset = ExportPresetSchema.parse(stored);
 
+      // B3/B4: the project may have changed since the route checked it (deleted media, new clip).
+      const blocked = exportBlockersMessage(
+        findExportBlockers(project, (id) => !!app.repos.media.get(id), req.range),
+      );
+      if (blocked) throw new Error(blocked);
       ctx.reportProgress(0.01, "Preparando exportación");
       const ids = new Set<string>();
       for (const t of project.tracks)
@@ -103,6 +109,7 @@ export function createProjectExportHandler(
             workDir: tmp.dir,
             encoder,
             ...(req.range && { range: req.range }),
+            ...(req.burnSubtitles !== undefined && { burnSubtitles: req.burnSubtitles }),
           },
           {
             signal: ctx.signal,

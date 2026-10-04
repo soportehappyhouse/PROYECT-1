@@ -1,15 +1,45 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
-from ..schemas import TranscribeRequest, Transcript
+from ..config import get_settings
+from ..errors import NotFoundError, require_module
+from ..progress import registry
+from ..schemas import TranscribeRequest, Transcript, TranscriptFiles
+from ..services import whisper_engine
+from ..stt.formats import write_all
 
 router = APIRouter(tags=["transcribe"])
 
 
-@router.post("/transcribe", response_model=Transcript, response_model_by_alias=True)
+@router.post(
+    "/transcribe",
+    response_model=Transcript,
+    response_model_by_alias=True,
+    response_model_exclude_none=True,
+)
 def transcribe(req: TranscribeRequest) -> Transcript:
-    # TODO(module-d): faster_whisper.WhisperModel(settings.whisper_model or req.model,
-    #   device="cuda" if use_cuda else "cpu", compute_type="float16"/"int8",
-    #   download_root=models_root/"whisper"); cache the model; word_timestamps=req.word_timestamps,
-    #   vad_filter=True (min_silence_duration_ms=500); language=None when req.language == "auto";
-    #   automatic GPU->CPU fallback. Run in a threadpool (sync def is fine).
-    raise HTTPException(status_code=501, detail="TODO(module-d): transcribe not implemented")
+    """Sync call (runs in the threadpool). Progress: GET /jobs/{jobId} when jobId is sent."""
+    settings = get_settings()
+    src = settings.storage_path(req.input_path)
+    if not src.is_file():
+        raise NotFoundError(f"No existe el audio de entrada: {req.input_path}")
+    require_module("faster_whisper", "faster-whisper==1.2.1")
+    with registry.track(req.job_id, "Cargando modelo Whisper"):
+        transcript = whisper_engine().transcribe(
+            src,
+            model=req.model,
+            language=req.language,
+            word_timestamps=req.word_timestamps,
+            vad=req.vad,
+            beam_size=req.beam_size,
+            compute_type=req.compute_type,
+            on_progress=lambda p, m: registry.update(req.job_id, p, m),
+        )
+        if req.output_base:
+            base = settings.storage_path(req.output_base)
+            json_p, srt_p, ass_p = write_all(transcript, base, req.max_words_per_line)
+            transcript.files = TranscriptFiles(
+                json_path=settings.storage_relative(json_p),
+                srt=settings.storage_relative(srt_p),
+                ass=settings.storage_relative(ass_p),
+            )
+    return transcript

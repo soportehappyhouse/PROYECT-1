@@ -1,14 +1,29 @@
-# Full runtime install used by scripts/windows/setup.ps1:
-#   python -m venv .venv ; .venv\Scripts\pip install -r requirements.txt
-# Target interpreter: Python 3.11.9. Source of truth for versions is pyproject.toml
-# (this file = core + whisper + tts extras).
-# CUDA: setup.ps1 -Cuda installs NVIDIA cuBLAS/cuDNN wheels on top (TODO(module-d)).
+# Studio workers - full runtime, CPU profile (Windows 10/11 x64, Python 3.11.9).
+# Installed by scripts/windows/setup.ps1 into apps/workers/.venv:
+#   .venv\Scripts\python.exe -m pip install --upgrade "pip>=24" "setuptools<=80.6.0" wheel
+#   .venv\Scripts\python.exe -m pip install -r requirements.txt
+#   .venv\Scripts\python.exe -m pip install -e . --no-deps
+# GPU (NVIDIA): use requirements-cuda.txt instead (same packages, torch from the cu128 index).
+# Versions mirror pyproject.toml (source of truth) - keep both in sync.
+
+# --- service
 fastapi>=0.142.2,<1
 uvicorn[standard]>=0.54.0,<1
 pydantic>=2.13,<3
 pydantic-settings>=2.15,<3
 python-multipart>=0.0.32
+httpx>=0.28.1,<1
+
+# --- speech-to-text (CTranslate2; CPU int8 by default)
 faster-whisper==1.2.1
+
+# --- local TTS (espeak-ng bundled in the wheel; no separate install)
 piper-tts==1.8.0
-# RVC is installed in a separate step by setup.ps1 (torch CPU/CUDA profile first):
-#   pip install "pip>=24" "setuptools<=80.6.0" ; pip install infer-rvc-python==1.3.1
+
+# --- RVC voice conversion (inference only; no fairseq, no MSVC build tools needed)
+# On Windows the PyPI torch wheels are CPU-only (the CUDA builds live on download.pytorch.org).
+# NOTE: on Linux the same PyPI pins pull the CUDA build; CI uses requirements-dev.txt instead.
+torch==2.7.1
+torchaudio==2.7.1
+torchvision==0.22.1
+infer-rvc-python==1.3.1

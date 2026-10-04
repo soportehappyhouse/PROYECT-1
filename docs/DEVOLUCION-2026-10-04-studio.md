@@ -6,7 +6,7 @@
 ## Criterios de éxito
 | # | Criterio | Estado | Evidencia |
 |---|---|---|---|
-| 1 | Windows limpio: `setup.ps1` + `start.ps1` → dashboard en :3000 | 🟡 | Scripts, `docs/INSTALACION-WINDOWS.md`, job smoke en CI. **Nunca ejecutado en Windows real** (este entorno es Linux). |
+| 1 | Windows limpio: `setup.ps1` + `start.ps1` → dashboard en :3000 | ✅ | Job `windows-smoke` del CI en verde sobre `windows-latest` (setup + start + 3 health OK). Pendiente solo la PC del usuario. |
 | 2 | Flujo completo importar→cortar→Whisper→voz→SFX→Remotion→MP4 | 🟡 | Cada etapa tiene test (api 102, remotion 47, workers 37). Whisper/Piper/RVC solo con mocks (sin modelos en el sandbox). Render Remotion real verificado con Chromium local. |
 | 3 | Layout persistido, tema, presets editables | ✅ | `apps/web` (dockview, settings-store, export-presets-store), 53 tests, round-trip de settings en api. |
 | 4 | lint/typecheck/build/tests verdes, sin secretos | ✅ | Verificado desde instalación limpia; `git grep` sin keys; `.env.example` vacío. CI definido para ubuntu+windows (aún sin correr). |
@@ -49,10 +49,10 @@
 - Agentes: 3 en paralelo (QA, canal de errores, manual) + 1 de arreglos (Opus); 0 de búsqueda. Fable coordinó.
 - Bugs detectados por QA/manual: 16; corregidos: 8 (B1–B6, U3, U8 + 2 del manual); pendientes documentados en MEJORAS.md.
 - Re-trabajos: 1 (el manual se escribió antes de los arreglos y se actualizó al final).
-- Semáforo: 🟡 en el PR (ver bloqueo), 🟢 en el resto.
+- Semáforo: 🟢. PR #1 abierto contra `main`, CI 5/5 en verde (incluido Windows smoke).
 
-## Bloqueo
-- **PR:** el remoto solo tiene la rama `claude/funny-mccarthy-0bbdt6`; no existe `main`. El intento de crear `main` fue bloqueado por el modo de permisos (push a otra rama). Requiere decisión del usuario.
+## Bloqueo (resuelto)
+- **PR:** el remoto no tenía `main`. Con autorización explícita del usuario se creó desde el primer commit y se abrió el PR #1. Dos fallos de CI en Windows (nombres de archivo con `:` en tests; shim `pnpm.cmd` sin ruta en `start.ps1`) se corrigieron en el siguiente commit.
 
 ## Propuesta de cambio a las guías
 - En proyectos nuevos, pedir en la ronda única de preguntas "¿contra qué rama se abre el PR?" cuando el repo está vacío.

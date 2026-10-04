@@ -35,3 +35,10 @@ CI (`.github/workflows/ci.yml`) usa solo scripts existentes (`lint`, `format:che
 - La vista previa web no compone PiP ni varios clips (solo la exportación); el estilo de subtítulos no se recarga desde `project.captionStyle` al abrir un proyecto.
 - Sin probar en Windows real: `setup.ps1`/`start.ps1`, AMF, índice CUDA de PyTorch, descargas de modelos, inferencia Whisper/Piper/RVC.
 - `zod` fijado a 4.5.4 en `packages/remotion` (Remotion Studio) frente a ^4.6.5 en el resto.
+
+## CI Windows
+
+Run 37227806435 (dd02e35); el smoke fallaba igual en 37226534600, así que es estable y no intermitente.
+
+- **Node (windows-latest)**: dos fallos en `apps/api/test/ffmpeg.integration.test.ts`. (1) El test de subtítulos creaba la carpeta `it's: a, [weird] dir`, y `:` no es válido en nombres de archivo de Windows (`ENOENT` en `mkdirSync`). En Windows ahora usa `it's a, [weird] dir`: los dos puntos los sigue aportando la unidad (`C:\`), que es justo el caso de escape que importa ahí. (2) La regex `/exports\/…/` se aplicaba a una ruta de `path.join`, que en Windows usa `\`. Ahora acepta `[\\/]`.
+- **Windows smoke**: workers respondía, pero api y web morían al instante con `The system cannot find the path specified.`. `start.ps1 -SingleConsole` lanza `cmd /d /s /c ""pnpm" …"`. Cuando un shim `.cmd` se invoca entre comillas y sin extensión, cmd resuelve `%~dp0` al directorio actual (raíz del repo) en lugar de la carpeta del shim, y el shim de pnpm 12 no encuentra su binario. Arreglo: `Resolve-NativeExe` en `common.ps1` devuelve la ruta completa del `.exe/.cmd` (por ejemplo `…\pnpm.CMD`), y `start.ps1` la usa como `Exe` de api y web. Esto también corrige el modo de una sola consola en PCs reales, no solo en CI.

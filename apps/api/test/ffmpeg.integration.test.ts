@@ -244,7 +244,10 @@ describe.skipIf(!hasFfmpeg)(
     });
 
     it("burns subtitles from a path with quotes, colons, commas and spaces", async () => {
-      const weird = path.join(dir, "it's: a, [weird] dir");
+      // ":" is not allowed in Windows file names; there the drive letter (C:\) provides the colon.
+      const weirdName =
+        process.platform === "win32" ? "it's a, [weird] dir" : "it's: a, [weird] dir";
+      const weird = path.join(dir, weirdName);
       mkdirSync(weird, { recursive: true });
       const srt = path.join(weird, "subs.srt");
       writeFileSync(srt, "1\n00:00:00,000 --> 00:00:01,000\nHola\n");
@@ -429,7 +432,7 @@ describe.skipIf(!hasFfmpeg)(
       const main = await ff.probe(outputs.small!);
       expect(main).toMatchObject({ width: 320, height: 180, hasAudio: true, videoCodec: "h264" });
       expect(main.durationSec).toBeCloseTo(5.5, 0);
-      expect(outputs.small).toMatch(/exports\/integracion-\d{8}-\d{6}\.mp4$/);
+      expect(outputs.small).toMatch(/exports[\\/]integracion-\d{8}-\d{6}\.mp4$/);
       expect(await ff.probe(outputs["small-v"]!)).toMatchObject({ width: 180, height: 320 });
       expect(await ff.probe(outputs["small-alpha"]!)).toMatchObject({
         videoCodec: "vp9",

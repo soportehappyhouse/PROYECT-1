@@ -73,6 +73,7 @@ if (-not $Dev) {
 }
 
 # ============================================================================ 2. services
+$pnpmExe = Resolve-NativeExe 'pnpm'
 $services = @(
     [pscustomobject]@{
         Name = 'workers'; Port = $ports.Workers; Color = 'Green'; Cwd = $WorkersDir
@@ -84,14 +85,14 @@ $services = @(
     [pscustomobject]@{
         Name = 'api'; Port = $ports.Api; Color = 'Cyan'; Cwd = $RepoRoot
         Health = "http://127.0.0.1:$($ports.Api)/api/health"
-        Exe = 'pnpm'
+        Exe = $pnpmExe
         DevArgs = @('--filter', '@studio/api', 'dev')
         ProdArgs = @('--filter', '@studio/api', 'start')
     },
     [pscustomobject]@{
         Name = 'web'; Port = $ports.Web; Color = 'Magenta'; Cwd = $RepoRoot
         Health = "http://127.0.0.1:$($ports.Web)/"
-        Exe = 'pnpm'
+        Exe = $pnpmExe
         # -H 127.0.0.1: loopback only (no Windows Firewall prompt).
         DevArgs = @('--filter', '@studio/web', 'exec', 'next', 'dev', '-H', '127.0.0.1', '-p', "$($ports.Web)")
         ProdArgs = @('--filter', '@studio/web', 'exec', 'next', 'start', '-H', '127.0.0.1', '-p', "$($ports.Web)")

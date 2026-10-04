@@ -98,6 +98,17 @@ function Test-Cmd([string]$Name) {
     return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
+function Resolve-NativeExe([string]$Name) {
+    # Full path of the .exe/.cmd/.bat that PATH resolves $Name to (skips pnpm.ps1-style scripts).
+    # cmd.exe needs it: a .cmd shim started as "pnpm" (quoted, no extension) gets a wrong %~dp0
+    # (the current directory) and fails with "The system cannot find the path specified".
+    $cmd = Get-Command $Name -CommandType Application -All -ErrorAction SilentlyContinue |
+        Where-Object { @('.exe', '.cmd', '.bat', '.com') -contains [IO.Path]::GetExtension($_.Source).ToLowerInvariant() } |
+        Select-Object -First 1
+    if ($cmd) { return $cmd.Source }
+    return $Name
+}
+
 function Get-CmdOutput {
     # First line of a native command's stdout, or $null. Never throws.
     param([string]$Exe, [string[]]$Arguments = @())

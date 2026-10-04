@@ -7,6 +7,6 @@ export const voiceRoutes: FastifyPluginAsync = async (app) => {
   // module-d: TTS voices/providers, "voice.tts", RVC models, "voice.rvc", model downloads
   // (see ./voice-ai.ts).
   registerVoiceAiRoutes(app);
-  // module-b: AudioEffectRequest -> "voice.effect" job (see ./voice-effects.ts).
+  // module-b: VoiceEffectRequest -> "voice.effect" job (see ./voice-effects.ts).
   app.post(API_ROUTES.voiceEffects, handleVoiceEffects);
 };

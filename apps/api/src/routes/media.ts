@@ -3,7 +3,7 @@ import { rename, rm } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { nanoid } from "nanoid";
-import { API_ROUTES, MediaKindSchema, type MediaAssetDetails } from "@studio/shared";
+import { API_ROUTES, MediaKindSchema, type MediaAsset } from "@studio/shared";
 import { z } from "zod";
 import { errorBody, HttpError } from "../lib/errors.js";
 import { sendFileWithRange } from "../lib/range.js";
@@ -124,7 +124,7 @@ export const mediaRoutes: FastifyPluginAsync = async (app) => {
     req: FastifyRequest<{ Params: { id: string } }>,
     reply: FastifyReply,
   ) => {
-    const asset: MediaAssetDetails | undefined = repos.media.get(req.params.id);
+    const asset: MediaAsset | undefined = repos.media.get(req.params.id);
     if (!asset) return reply.code(404).send(errorBody("NOT_FOUND", "Media no encontrado"));
     const q = FileQuery.parse(req.query);
     const wantProxy = (q.proxy === "1" || q.proxy === "true") && asset.proxyPath;

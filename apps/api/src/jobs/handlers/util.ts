@@ -2,12 +2,12 @@ import { mkdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { TMP_SUBDIR } from "@studio/shared";
 import type { AppContext } from "../../context.js";
-import type { MediaAssetDetails } from "@studio/shared";
+import type { MediaAsset } from "@studio/shared";
 import { resolveStoragePath } from "../../services/storage.js";
 import { isAbortError } from "../state.js";
 import type { JobContext } from "../types.js";
 
-export function requireAsset(app: AppContext, id: string): MediaAssetDetails {
+export function requireAsset(app: AppContext, id: string): MediaAsset {
   const asset = app.repos.media.get(id);
   if (!asset) throw new Error(`Asset ${id} no encontrado`);
   return asset;

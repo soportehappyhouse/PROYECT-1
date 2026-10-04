@@ -3,8 +3,10 @@
 Dashboard web **local** para editar video, generar motion graphics, modificar/generar voz y agregar
 sonidos. Corre 100 % en tu PC Windows (sin nube, sin cuentas). Las API externas son opcionales.
 
-> Estado: **esqueleto del monorepo** (Hito 2). Los módulos se completan en el Hito 3; buscá los
-> marcadores `TODO(module-a|b|c|d)`. Arquitectura y contratos: [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md).
+> Estado: los 4 módulos (dashboard, API + FFmpeg + cola, motion graphics, workers de voz/subtítulos)
+> están implementados e integrados (Hito 4, ver [`docs/trabajo/integracion.md`](docs/trabajo/integracion.md)).
+> Arquitectura y contratos: [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md); guía Windows:
+> [`docs/INSTALACION-WINDOWS.md`](docs/INSTALACION-WINDOWS.md).
 
 ## Inicio rápido (Windows 10/11)
 
@@ -21,8 +23,9 @@ powershell -ExecutionPolicy Bypass -File scripts\windows\start.ps1
 
 Luego entrá a <http://localhost:3000>.
 
-> ⚠️ `setup.ps1` y `start.ps1` todavía son **esqueletos** con los pasos documentados (los completa
-> el módulo d). Mientras tanto, usá los comandos de desarrollo de abajo.
+`setup.ps1` termina con una tabla ✅/❌ por paso (es idempotente: se puede volver a ejecutar).
+`scripts\windows\doctor.ps1` diagnostica FFmpeg, GPU, modelos y el navegador de Remotion;
+`stop.ps1` detiene todo.
 
 ## Requisitos (instalación manual)
 
@@ -55,7 +58,7 @@ cd ..\..
 | `pnpm typecheck`                                      | TypeScript estricto en todos los paquetes                             |
 | `pnpm lint` / `pnpm lint:fix`                         | ESLint 9 (flat config)                                                |
 | `pnpm format` / `pnpm format:check`                   | Prettier                                                              |
-| `pnpm test`                                           | Vitest en todos los paquetes                                          |
+| `pnpm test`                                           | Vitest en todos los paquetes (uno por vez)                            |
 | `pnpm --filter @studio/remotion studio`               | Remotion Studio para diseñar plantillas                               |
 | `cd apps\workers; .venv\Scripts\python -m pytest`     | Tests de workers (también `ruff check .`)                             |
 
@@ -70,7 +73,8 @@ packages/
   shared/           Esquemas zod + tipos TS (contrato entre módulos)
   motion-engines/   Interfaz MotionEngine + registro + adaptadores
   remotion/         Composiciones Remotion 4 + render programático
-scripts/windows/    setup.ps1, start.ps1
+scripts/windows/    setup.ps1, start.ps1, stop.ps1, doctor.ps1
+scripts/library/    import-cc0.ps1 (packs de sonidos CC0 a storage/library)
 docs/               PLAN-BASE, ARQUITECTURA, investigación (trabajo/)
 storage/            (generado, ignorado por git) media, proxies, renders, exports, library
 models/             (generado, ignorado por git) whisper, piper, rvc

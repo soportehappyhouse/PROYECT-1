@@ -2,17 +2,25 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
-import { API_ROUTES } from "@studio/shared";
+import { mkdir, writeFile } from "node:fs/promises";
+import { API_ROUTES, DEFAULT_EXPORT_PRESETS, type Project } from "@studio/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
-import { motionMediaBaseUrl } from "../src/jobs/handlers/motion-render.js";
+import type { AppContext } from "../src/context.js";
+import {
+  createMotionRenderHandler,
+  motionMediaBaseUrl,
+} from "../src/jobs/handlers/motion-render.js";
+import type { JobContext } from "../src/jobs/types.js";
+import { compileExport, type TimelineAsset } from "../src/services/ffmpeg/timeline.js";
 
 describe("motion routes (module c)", () => {
   let app: FastifyInstance;
+  let storage: string;
 
   beforeAll(async () => {
-    const storage = mkdtempSync(path.join(tmpdir(), "studio-motion-"));
+    storage = mkdtempSync(path.join(tmpdir(), "studio-motion-"));
     const config = loadConfig({
       STORAGE_DIR: storage,
       WORKERS_URL: "http://127.0.0.1:1",
@@ -89,5 +97,107 @@ describe("motion routes (module c)", () => {
     expect(motionMediaBaseUrl({ host: "127.0.0.1", port: 4000 })).toBe(
       "http://127.0.0.1:4000/files/",
     );
+  });
+
+  it("POST render keeps the target clip in the job payload", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: API_ROUTES.motionRender,
+      payload: {
+        template: "ffmpeg-title",
+        durationSec: 1,
+        props: { text: "Hola" },
+        target: { projectId: "p1", clipId: "c1" },
+      },
+    });
+    expect(res.statusCode).toBe(202);
+    const job = app.ctx.jobs.get((res.json() as { jobId: string }).jobId)!;
+    expect(job.payload).toMatchObject({ target: { projectId: "p1", clipId: "c1" } });
+    expect(job.projectId).toBe("p1");
+  });
+
+  it("motion.render registers a MediaAsset, links clip.renderedAssetId and export uses it", async () => {
+    const { repos } = app.ctx;
+    const created = repos.projects.create({ name: "Motion" });
+    const motionTrack = { id: "tm", kind: "motion", name: "Motion 1", clips: [] as unknown[] };
+    const clip = {
+      id: "clip-m",
+      trackId: "tm",
+      start: 0,
+      in: 0,
+      out: 2,
+      motion: { template: "ffmpeg-title", durationSec: 2, format: "webm-vp9-alpha" },
+    };
+    motionTrack.clips.push(clip);
+    repos.projects.save(created.id, { ...created, tracks: [...created.tracks, motionTrack] });
+
+    // Fake engine: writes the output file the real registry would produce.
+    const fakeMotion = {
+      render: async (_spec: unknown, rctx: { storageDir: string; outputPath: string }) => {
+        const abs = path.join(rctx.storageDir, rctx.outputPath);
+        await mkdir(path.dirname(abs), { recursive: true });
+        await writeFile(abs, "webm");
+        return {
+          path: rctx.outputPath,
+          format: "webm-vp9-alpha" as const,
+          hasAlpha: true,
+          durationSec: 2,
+          width: 1920,
+          height: 1080,
+          engine: "ffmpeg-lottie" as const,
+          renderTimeMs: 1,
+        };
+      },
+    };
+    const handler = createMotionRenderHandler({
+      ...app.ctx,
+      motion: fakeMotion,
+    } as unknown as AppContext);
+    const payload = handler.parse({
+      template: "ffmpeg-title",
+      durationSec: 2,
+      format: "webm-vp9-alpha",
+      target: { projectId: created.id, clipId: "clip-m" },
+    });
+    const jobCtx = {
+      jobId: "job-m",
+      signal: new AbortController().signal,
+      reportProgress: () => undefined,
+      log: () => undefined,
+      storageDir: storage,
+    } as unknown as JobContext;
+    const result = await handler.run(payload, jobCtx, { id: "job-m" } as never);
+
+    expect(result.assetId).toBeDefined();
+    expect(result.linkedClip).toEqual({ projectId: created.id, clipId: "clip-m" });
+    const asset = repos.media.get(result.assetId!)!;
+    expect(asset).toMatchObject({ kind: "video", hasAlpha: true, path: "renders/job-m.webm" });
+    const project = repos.projects.get(created.id) as Project;
+    const linked = project.tracks.flatMap((t) => t.clips).find((c) => c.id === "clip-m");
+    expect(linked?.renderedAssetId).toBe(asset.id);
+
+    // The export compiler picks the motion clip up through renderedAssetId.
+    const assets = new Map<string, TimelineAsset>([
+      [
+        asset.id,
+        {
+          id: asset.id,
+          absPath: path.join(storage, asset.path),
+          kind: "video",
+          hasVideo: true,
+          hasAudio: false,
+          hasAlpha: true,
+          videoCodec: "vp9",
+        },
+      ],
+    ]);
+    const compiled = compileExport({
+      project,
+      preset: DEFAULT_EXPORT_PRESETS[0]!,
+      assets,
+      output: "out.mp4",
+    });
+    expect(compiled.args).toContain(path.join(storage, asset.path));
+    expect(compiled.warnings.join(" ")).not.toContain("sin renderizar");
   });
 });

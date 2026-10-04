@@ -5,7 +5,7 @@ import { REMOTION_COLOR_BRAND, REMOTION_TEXTAREA_BRAND } from "./schemas/common.
 
 export { TEMPLATE_DEFS, type RemotionTemplateId } from "./catalog.js";
 
-/** MotionTemplateInfo + Remotion-specific extras (ignored by MotionTemplateInfoSchema). */
+/** MotionTemplateInfo with the optional catalog fields made required for Remotion templates. */
 export interface RemotionTemplateInfo extends MotionTemplateInfo {
   engine: "remotion";
   category: TemplateDef["category"];

@@ -3,7 +3,7 @@ import {
   DEFAULT_EXPORT_PRESETS,
   EXTRA_EXPORT_PRESETS,
   ProjectSchema,
-  toExportPresetExt,
+  ExportPresetSchema,
   type Project,
 } from "@studio/shared";
 import {
@@ -14,8 +14,12 @@ import {
 } from "../src/services/ffmpeg/timeline.js";
 
 const now = "2026-10-04T00:00:00.000Z";
-const youtube = toExportPresetExt(DEFAULT_EXPORT_PRESETS.find((p) => p.id === "youtube-1080p")!);
-const reels = toExportPresetExt(DEFAULT_EXPORT_PRESETS.find((p) => p.id === "reels-tiktok")!);
+const youtube = ExportPresetSchema.parse(
+  DEFAULT_EXPORT_PRESETS.find((p) => p.id === "youtube-1080p")!,
+);
+const reels = ExportPresetSchema.parse(
+  DEFAULT_EXPORT_PRESETS.find((p) => p.id === "reels-tiktok")!,
+);
 const gif = EXTRA_EXPORT_PRESETS.find((p) => p.id === "gif-480")!;
 const webmAlpha = EXTRA_EXPORT_PRESETS.find((p) => p.id === "webm-alpha")!;
 
@@ -280,5 +284,37 @@ describe("timeline compiler", () => {
     expect(ffmpegColor("#fff")).toBe("0xFFFFFF");
     expect(ffmpegColor("red")).toBe("red");
     expect(ffmpegColor("rgba(1,2,3)")).toBe("white");
+  });
+
+  it("places picture-in-picture clips (Clip.scale/position) inside the canvas", () => {
+    const p = project();
+    const motion = p.tracks.find((t) => t.kind === "motion")!;
+    motion.clips[0] = { ...motion.clips[0]!, scale: 0.25, position: { x: 1, y: 0 } };
+    const { graph } = compileExport({ project: p, preset: youtube, assets, output: "o.mp4" });
+    expect(graph).toContain("scale=480:270:force_original_aspect_ratio=decrease");
+    expect(graph).toContain("pad=1920:1080:(ow-iw)*1:(oh-ih)*0:color=black@0");
+    // Clips without PiP keep the full-frame fit.
+    expect(graph).toContain("pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black@0");
+  });
+
+  it("burns subtitles with the project caption style", () => {
+    const p = project();
+    p.captionStyle = {
+      id: "reels",
+      name: "Reels",
+      fontFamily: "Inter",
+      fontSize: 72,
+      color: "#ffd60a",
+      background: "",
+      highlightColor: "#ffffff",
+      position: "top",
+      uppercase: true,
+      animation: "pop",
+    };
+    const out = compileExport({ project: p, preset: youtube, assets, output: "o.mp4" });
+    expect(out.graph).toContain("FontSize=19");
+    expect(out.graph).toContain("Alignment=8");
+    expect(out.graph).toContain("PrimaryColour=&H000AD6FF");
+    expect(out.files.find((f) => f.name === "subs.srt")?.content).toContain("HOLA");
   });
 });

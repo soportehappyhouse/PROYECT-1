@@ -81,7 +81,7 @@ export interface PeaksSource {
   id: string;
   proxyPath?: string;
   sizeBytes?: number;
-  /** `MediaAssetDetails.waveformPath` from the api (module b), when present. */
+  /** `MediaAsset.waveformPath` from the api (module b), when present. */
   waveformPath?: string;
 }
 

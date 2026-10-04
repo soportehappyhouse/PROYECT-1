@@ -1,7 +1,7 @@
 "use client";
 
 import type { LibraryItem, LibraryItemKind, LibraryProvider, Paginated } from "@studio/shared";
-import { Pause, Play, Plus, Search } from "lucide-react";
+import { Pause, Play, Plus, RefreshCw, Search, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,8 @@ export function LibraryPanel() {
   const [page, setPage] = useState(1);
   const [playingId, setPlayingId] = useState<string | undefined>(undefined);
   const [busyId, setBusyId] = useState<string | undefined>(undefined);
+  const [scanning, setScanning] = useState(false);
+  const fileRef = useRef<HTMLInputElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const providers = useApiResource(() => api.libraryProviders());
@@ -88,6 +90,36 @@ export function LibraryPanel() {
     }
   };
 
+  const rescan = async () => {
+    setScanning(true);
+    try {
+      const r = await api.scanLibrary();
+      toast.success("Biblioteca re-escaneada", {
+        description: `${r.added} nuevos, ${r.updated} actualizados, ${r.removed} quitados${
+          r.errors.length ? `, ${r.errors.length} con error` : ""
+        }`,
+      });
+      results.reload();
+    } catch (err) {
+      toast.error("No se pudo re-escanear", { description: errorMessage(err) });
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const upload = async (files: FileList | null) => {
+    for (const file of Array.from(files ?? [])) {
+      try {
+        const item = await api.uploadLibraryFile(file);
+        toast.success(`En la biblioteca: ${item.name}`);
+      } catch (err) {
+        toast.error(`No se pudo subir ${file.name}`, { description: errorMessage(err) });
+      }
+    }
+    if (fileRef.current) fileRef.current.value = "";
+    results.reload();
+  };
+
   const data = results.data;
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
@@ -132,6 +164,33 @@ export function LibraryPanel() {
             </option>
           ))}
       </Select>
+      <Button
+        size="xs"
+        variant="outline"
+        disabled={scanning}
+        onClick={() => void rescan()}
+        title="Volver a indexar storage/library"
+      >
+        {scanning ? <Spinner className="size-3" /> : <RefreshCw />}
+        Re-escanear
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Subir sonidos a la biblioteca"
+        title="Subir sonidos a la biblioteca"
+        onClick={() => fileRef.current?.click()}
+      >
+        <Upload />
+      </Button>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="audio/*"
+        multiple
+        hidden
+        onChange={(e) => void upload(e.target.files)}
+      />
     </div>
   );
 

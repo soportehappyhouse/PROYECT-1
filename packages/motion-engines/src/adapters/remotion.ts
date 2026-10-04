@@ -21,7 +21,7 @@ export interface RemotionEngineOptions {
   templates: readonly MotionTemplateInfo[];
   /** Template zod validation (@studio/remotion `validateRemotionProps`). */
   validateProps?: (templateId: string, props: unknown) => MotionValidation;
-  /** e.g. check Chrome Headless Shell (`npx remotion browser ensure`). */
+  /** e.g. check Chrome Headless Shell (`pnpm --filter @studio/remotion browser:ensure`). */
   checkAvailable?: () => Promise<MotionAvailability>;
   dispose?: () => Promise<void>;
 }

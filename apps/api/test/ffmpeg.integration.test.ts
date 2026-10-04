@@ -7,11 +7,11 @@ import {
   API_ROUTES,
   buildRoute,
   WaveformPeaksSchema,
-  type AudioEffect,
-  type ExportPresetExt,
+  type VoiceEffect,
+  type ExportPreset,
   type FileJobResult,
   type Job,
-  type MediaAssetDetails,
+  type MediaAsset,
   type Project,
 } from "@studio/shared";
 import { createFfmpegService } from "../src/services/ffmpeg.js";
@@ -28,7 +28,8 @@ const gen = (args: string[]) =>
 
 describe.skipIf(!hasFfmpeg)(
   "ffmpeg integration (generated lavfi media)",
-  { timeout: 120_000 },
+  // Generous limits: under full-suite load (all packages in parallel) ffmpeg runs much slower.
+  { timeout: 300_000 },
   () => {
     const dir = tempStorage("studio-ff-");
     const f = (n: string) => path.join(dir, n);
@@ -100,19 +101,19 @@ describe.skipIf(!hasFfmpeg)(
         f("title.webm"),
       ]);
       ({ app } = await makeApp({ FFMPEG_PATH: "ffmpeg", FFPROBE_PATH: "ffprobe" }));
-    });
+    }, 120_000);
     afterAll(() => app?.close());
 
     const upload = async (file: string, type: string) => {
       const { payload, headers } = await multipart(path.basename(file), readFileSync(file), type);
       const res = await app.inject({ method: "POST", url: API_ROUTES.media, payload, headers });
       expect(res.statusCode).toBe(201);
-      return res.json<MediaAssetDetails>();
+      return res.json<MediaAsset>();
     };
     const jobDone = async (id: string): Promise<Job> => {
       await waitFor(
         () => ["succeeded", "failed", "canceled"].includes(app.ctx.jobs.get(id)!.status),
-        90_000,
+        240_000,
       );
       const job = app.ctx.jobs.get(id)!;
       if (job.status === "failed")
@@ -125,7 +126,7 @@ describe.skipIf(!hasFfmpeg)(
           app.ctx.jobs.list({ status: "running" }).length +
             app.ctx.jobs.list({ status: "queued" }).length ===
           0,
-        90_000,
+        240_000,
       );
     };
     const duration = async (abs: string) => (await ff.probe(abs)).durationSec ?? 0;
@@ -181,7 +182,7 @@ describe.skipIf(!hasFfmpeg)(
     });
 
     it("voice effects keep duration (pitch/chipmunk/deep...) and run two-pass loudnorm + ducking", async () => {
-      const cases: AudioEffect[][] = [
+      const cases: VoiceEffect[][] = [
         [{ type: "pitch", semitones: 4 }],
         [{ type: "pitch", semitones: -4 }],
         [{ type: "chipmunk" }],
@@ -402,7 +403,7 @@ describe.skipIf(!hasFfmpeg)(
           crf: 40,
         },
       });
-      const presetIds = [small, vertical, alpha].map((r) => r.json<ExportPresetExt>().id);
+      const presetIds = [small, vertical, alpha].map((r) => r.json<ExportPreset>().id);
 
       const outputs: Record<string, string> = {};
       for (const presetId of [...presetIds, "gif-480"]) {

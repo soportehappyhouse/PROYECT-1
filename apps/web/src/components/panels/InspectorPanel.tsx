@@ -278,6 +278,42 @@ export function InspectorPanel() {
                 onChange={(e) => update({ opacity: Number(e.target.value) })}
               />
             </Label>
+            {track.kind !== "text" ? (
+              <div className="grid grid-cols-3 gap-2">
+                <NumberField
+                  label="Escala (PiP)"
+                  value={clip.scale ?? 1}
+                  min={0.05}
+                  max={1}
+                  step={0.05}
+                  onChange={(v) => update({ scale: Math.min(1, Math.max(0.05, v)) })}
+                />
+                <NumberField
+                  label="Posición X (0–1)"
+                  value={clip.position?.x ?? 0.5}
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  onChange={(v) =>
+                    update({
+                      position: { x: Math.min(1, Math.max(0, v)), y: clip.position?.y ?? 0.5 },
+                    })
+                  }
+                />
+                <NumberField
+                  label="Posición Y (0–1)"
+                  value={clip.position?.y ?? 0.5}
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  onChange={(v) =>
+                    update({
+                      position: { x: clip.position?.x ?? 0.5, y: Math.min(1, Math.max(0, v)) },
+                    })
+                  }
+                />
+              </div>
+            ) : null}
             <TransitionField
               label="Transición de entrada"
               value={clip.transitionIn}

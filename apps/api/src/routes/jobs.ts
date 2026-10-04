@@ -1,11 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import {
-  API_ROUTES,
-  API_ROUTES_EXT,
-  JobStatusSchema,
-  JobTypeSchema,
-  type JobEvent,
-} from "@studio/shared";
+import { API_ROUTES, JobStatusSchema, JobTypeSchema, type JobEvent } from "@studio/shared";
 import { z } from "zod";
 import { rawCorsHeaders } from "../lib/cors.js";
 import { errorBody } from "../lib/errors.js";
@@ -101,7 +95,7 @@ export const jobRoutes: FastifyPluginAsync = async (app) => {
     return job ?? reply.code(404).send(errorBody("NOT_FOUND", "Job no encontrado"));
   });
 
-  app.get<{ Params: { id: string } }>(API_ROUTES_EXT.jobLog, async (req, reply) => {
+  app.get<{ Params: { id: string } }>(API_ROUTES.jobLog, async (req, reply) => {
     const job = app.ctx.jobs.get(req.params.id);
     if (!job) return reply.code(404).send(errorBody("NOT_FOUND", "Job no encontrado"));
     return { lines: app.ctx.jobs.logTail(job.id) };

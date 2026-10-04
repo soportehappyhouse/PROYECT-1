@@ -6,18 +6,19 @@ import {
   TtsProviderInfoSchema,
   TtsVoiceInfoSchema,
   WORKER_ROUTES,
-  WORKER_ROUTES_EXT,
   WorkerHealthSchema,
   WorkerJobProgressSchema,
   type ModelDownloadRequest,
   type ModelDownloadResult,
   type RvcModel,
   type TranscriptWithFiles,
-  type TtsProvider,
   type TtsProviderInfo,
   type TtsVoiceInfo,
   type WorkerHealth,
   type WorkerJobProgress,
+  type WorkerRvcRequest,
+  type WorkerTranscribeRequest,
+  type WorkerTtsRequest,
 } from "@studio/shared";
 import http from "node:http";
 import { z } from "zod";
@@ -33,37 +34,10 @@ export interface WorkerCallOptions {
   pollMs?: number;
 }
 
-export interface TranscribeCall {
-  inputPath: string;
-  language: string;
-  model?: string;
-  wordTimestamps: boolean;
-  /** Additive: enables progress polling and names the worker-side job. */
-  jobId?: string;
-  /** Additive: "renders/<jobId>" -> writes .json/.srt/.ass next to each other. */
-  outputBase?: string;
-}
-
-export interface TtsCall {
-  text: string;
-  voice: string;
-  speed: number;
-  outputPath: string;
-  provider?: TtsProvider;
-  format?: "wav" | "mp3";
-  jobId?: string;
-}
-
-export interface RvcCall {
-  inputPath: string;
-  modelId: string;
-  pitchShift: number;
-  indexRate: number;
-  f0Method: string;
-  device?: string;
-  outputPath: string;
-  jobId?: string;
-}
+/** Worker request bodies (shared contract, incl. the optional jobId/outputBase/provider/format). */
+export type TranscribeCall = WorkerTranscribeRequest;
+export type TtsCall = WorkerTtsRequest;
+export type RvcCall = WorkerRvcRequest;
 
 const TtsResultSchema = z.object({
   path: z.string(),
@@ -253,7 +227,7 @@ export function createWorkersClient(baseUrl: string): WorkersClient {
         call("POST", WORKER_ROUTES.transcribe, TranscriptWithFilesSchema, req, opts?.signal, true),
       ),
     ttsVoices: () => call("GET", WORKER_ROUTES.ttsVoices, z.array(TtsVoiceInfoSchema)),
-    ttsProviders: () => call("GET", WORKER_ROUTES_EXT.ttsProviders, z.array(TtsProviderInfoSchema)),
+    ttsProviders: () => call("GET", WORKER_ROUTES.ttsProviders, z.array(TtsProviderInfoSchema)),
     tts: (req, opts) =>
       withProgress(req.jobId, opts, () =>
         call("POST", WORKER_ROUTES.tts, TtsResultSchema, req, opts?.signal, true),
@@ -273,7 +247,7 @@ export function createWorkersClient(baseUrl: string): WorkersClient {
     downloadModel: (req, opts) =>
       call(
         "POST",
-        WORKER_ROUTES_EXT.modelsDownload,
+        WORKER_ROUTES.modelsDownload,
         ModelDownloadResultSchema,
         req,
         opts?.signal,
@@ -283,7 +257,7 @@ export function createWorkersClient(baseUrl: string): WorkersClient {
       try {
         return await call(
           "GET",
-          buildRoute(WORKER_ROUTES_EXT.jobProgress, { id: jobId }),
+          buildRoute(WORKER_ROUTES.jobProgress, { id: jobId }),
           WorkerJobProgressSchema,
         );
       } catch {

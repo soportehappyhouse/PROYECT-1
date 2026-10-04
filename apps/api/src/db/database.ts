@@ -56,10 +56,7 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 `;
 
-/**
- * Incremental migrations; index + 1 = resulting user_version. Append only, never edit.
- * Library FTS5 tables belong to module (d) and should be added here as a new entry.
- */
+/** Incremental migrations; index + 1 = resulting user_version. Append only, never edit. */
 const MIGRATIONS: readonly string[] = [
   /* v1 (module b): job retry/priority/log, ffprobe JSON, project autosaves */ `
   ALTER TABLE jobs ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
@@ -72,6 +69,13 @@ const MIGRATIONS: readonly string[] = [
     data TEXT NOT NULL,          -- Project JSON snapshot
     saved_at TEXT NOT NULL
   );
+  `,
+  /* v2 (module d): local sound library full-text index (storage/library) */ `
+  CREATE VIRTUAL TABLE IF NOT EXISTS library_fts USING fts5(
+    item_id UNINDEXED, name, tags, author,
+    tokenize = 'unicode61 remove_diacritics 2'
+  );
+  CREATE INDEX IF NOT EXISTS library_items_kind_idx ON library_items(kind, name);
   `,
 ];
 

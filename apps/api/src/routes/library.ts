@@ -3,7 +3,6 @@ import path from "node:path";
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import {
   API_ROUTES,
-  API_ROUTES_VOICE_AI,
   LibraryImportRequestSchema,
   LibraryItemKindSchema,
   LibraryItemUpdateSchema,
@@ -52,24 +51,24 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     return provider.search(query);
   });
 
-  app.post(API_ROUTES_VOICE_AI.libraryScan, async (req) => {
+  app.post(API_ROUTES.libraryScan, async (req) => {
     const force = (req.query as { force?: string } | undefined)?.force === "true";
     return index.scan({ force });
   });
 
-  app.get(API_ROUTES_VOICE_AI.libraryItem, async (req) => {
+  app.get(API_ROUTES.libraryItem, async (req) => {
     const { id } = IdParams.parse(req.params);
     const item = index.details(id);
     if (!item) throw new HttpError(404, "NOT_FOUND", `Item de biblioteca ${id} no encontrado`);
     return item;
   });
 
-  app.patch(API_ROUTES_VOICE_AI.libraryItem, async (req) => {
+  app.patch(API_ROUTES.libraryItem, async (req) => {
     const { id } = IdParams.parse(req.params);
     return index.update(id, LibraryItemUpdateSchema.parse(req.body));
   });
 
-  app.delete(API_ROUTES_VOICE_AI.libraryItem, async (req, reply) => {
+  app.delete(API_ROUTES.libraryItem, async (req, reply) => {
     const { id } = IdParams.parse(req.params);
     const deleteFile = (req.query as { deleteFile?: string } | undefined)?.deleteFile === "true";
     if (!(await index.remove(id, deleteFile)))
@@ -77,7 +76,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(204).send();
   });
 
-  app.get(API_ROUTES_VOICE_AI.libraryPeaks, async (req) => {
+  app.get(API_ROUTES.libraryPeaks, async (req) => {
     const { id } = IdParams.parse(req.params);
     return index.peaks(id);
   });

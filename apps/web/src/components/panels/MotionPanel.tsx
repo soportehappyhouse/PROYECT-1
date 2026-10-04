@@ -267,7 +267,8 @@ export function MotionPanel() {
 
   const render = async (clipId: string | undefined, spec: MotionSpec) => {
     try {
-      const { jobId } = await api.renderMotion(spec);
+      const projectId = useProjectStore.getState().project.id;
+      const { jobId } = await api.renderMotion(spec, clipId ? { projectId, clipId } : undefined);
       useJobsStore
         .getState()
         .track(jobId, "motion.render", clipId ? { kind: "setMotionRender", clipId } : undefined);

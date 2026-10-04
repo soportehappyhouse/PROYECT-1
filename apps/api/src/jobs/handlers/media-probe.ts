@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import {
   MediaJobPayloadSchema,
   type FileJobResult,
-  type MediaAssetDetails,
+  type MediaAsset,
   type MediaJobPayload,
 } from "@studio/shared";
 import type { AppContext } from "../../context.js";
@@ -31,7 +31,7 @@ export function createMediaProbeHandler(
       const info = await app.ffmpeg.probe(input, signal);
       const { raw, ...meta } = info;
       const ext = asset.path.split(".").pop()?.toLowerCase() ?? "";
-      const patch: Partial<MediaAssetDetails> = {
+      const patch: Partial<MediaAsset> = {
         kind: meta.kind,
         hasVideo: meta.hasVideo,
         hasAudio: meta.hasAudio,

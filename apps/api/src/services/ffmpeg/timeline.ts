@@ -1,6 +1,6 @@
 import type {
   Clip,
-  ExportPresetExt,
+  ExportPreset,
   MediaKind,
   Project,
   TextStyle,
@@ -12,7 +12,10 @@ import {
   blurredBackgroundFilter,
   enableBetween,
   forceStyle,
+  hexToAssColour,
+  pipPlacementFilters,
   xfadeTransitionName,
+  type SubtitleStyle,
 } from "./builders.js";
 import { escapeFilterPath, escapeOptionValue, quoteFilterArg, sec } from "./escape.js";
 import { presetEncoding } from "./encoders.js";
@@ -32,7 +35,7 @@ export interface TimelineAsset {
 
 export interface CompileExportOptions {
   project: Project;
-  preset: ExportPresetExt;
+  preset: ExportPreset;
   assets: ReadonlyMap<string, TimelineAsset>;
   /** Output path (absolute, or relative to the job cwd). */
   output: string;
@@ -88,6 +91,23 @@ export function ffmpegColor(input: string | undefined, fallback = "white"): stri
     return `0x${r}${r}${g}${g}${b}${b}`.toUpperCase().replace("0X", "0x");
   }
   return /^[a-z]+$/i.test(v) ? v.toLowerCase() : fallback;
+}
+
+/**
+ * project.captionStyle -> libass force_style. SRT renders at PlayResY 288, so sizes given in 1080p
+ * pixels are scaled by 288/1080. Without a style: Inter 18, bottom.
+ */
+export function captionForceStyle(project: Pick<Project, "captionStyle">): SubtitleStyle {
+  const c = project.captionStyle;
+  if (!c) return { fontName: "Inter", fontSize: 18, marginV: 30 };
+  const hex = /^#[0-9a-f]{6}$/i.test(c.color) ? c.color : undefined;
+  return {
+    fontName: c.fontFamily,
+    fontSize: Math.max(8, Math.round((c.fontSize * 288) / 1080)),
+    ...(hex && { primaryColour: hexToAssColour(hex) }),
+    alignment: c.position === "top" ? 8 : c.position === "center" ? 5 : 2,
+    marginV: 30,
+  };
 }
 
 const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
@@ -301,13 +321,21 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
       }
       chain.push("setpts=PTS-STARTPTS");
       if (Math.abs(speed - 1) > EPS) chain.push(`setpts=PTS/${+speed.toFixed(6)}`);
-      chain.push(
-        "format=yuva420p",
-        `scale=${W}:${H}:force_original_aspect_ratio=decrease`,
-        `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black@0`,
-        "setsar=1",
-        `fps=${FPS}`,
-      );
+      chain.push("format=yuva420p");
+      if (clip.scale !== undefined || clip.position)
+        chain.push(
+          ...pipPlacementFilters({
+            canvas: { width: W, height: H },
+            ...(clip.scale !== undefined && { scale: clip.scale }),
+            ...(clip.position && { position: clip.position }),
+          }),
+        );
+      else
+        chain.push(
+          `scale=${W}:${H}:force_original_aspect_ratio=decrease`,
+          `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black@0`,
+        );
+      chain.push("setsar=1", `fps=${FPS}`);
       if (clip.opacity < 1) chain.push(`colorchannelmixer=aa=${+clip.opacity.toFixed(3)}`);
       if (a.kind !== "image") chain.push(`tpad=stop_mode=clone:stop_duration=${sec(segDur)}`);
       chain.push(`trim=duration=${sec(segDur)}`, "setpts=PTS-STARTPTS");
@@ -432,9 +460,13 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
   }
 
   if (project.subtitles.length) {
-    g.files.push({ name: "subs.srt", content: toSrt(project.subtitles) });
+    const upper = project.captionStyle?.uppercase;
+    const subs = upper
+      ? project.subtitles.map((x) => ({ ...x, text: x.text.toLocaleUpperCase("es") }))
+      : project.subtitles;
+    g.files.push({ name: "subs.srt", content: toSrt(subs) });
     const next = g.label("c");
-    const style = forceStyle({ fontName: "Inter", fontSize: 18, marginV: 30 });
+    const style = forceStyle(captionForceStyle(project));
     g.add(`[${cur}]subtitles=subs.srt:force_style=${quoteFilterArg(style)}[${next}]`);
     cur = next;
   }

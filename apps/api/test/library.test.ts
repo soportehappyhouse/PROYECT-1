@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
-import { API_ROUTES, API_ROUTES_VOICE_AI, buildRoute } from "@studio/shared";
+import { API_ROUTES, buildRoute } from "@studio/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
@@ -216,14 +216,14 @@ describe("library + voice routes", () => {
   });
 
   it.skipIf(!hasFfmpeg)("scans, searches and imports a local item as MediaAsset", async () => {
-    const scan = await app.inject({ method: "POST", url: API_ROUTES_VOICE_AI.libraryScan });
+    const scan = await app.inject({ method: "POST", url: API_ROUTES.libraryScan });
     expect(scan.json()).toMatchObject({ added: 1 });
     const search = await app.inject({ method: "GET", url: `${API_ROUTES.library}?q=boo` });
     const item = search.json().items[0];
     expect(item).toMatchObject({ name: "boom", provider: "local", path: "library/sfx/boom.wav" });
     const peaks = await app.inject({
       method: "GET",
-      url: buildRoute(API_ROUTES_VOICE_AI.libraryPeaks, { id: item.id }),
+      url: buildRoute(API_ROUTES.libraryPeaks, { id: item.id }),
     });
     expect(peaks.json().version).toBe(1);
     const imp = await app.inject({
@@ -286,7 +286,7 @@ describe("library + voice routes", () => {
       payload: { assetId: "missing" },
     });
     expect(sub.statusCode).toBe(404);
-    const providers = await app.inject({ method: "GET", url: API_ROUTES_VOICE_AI.ttsProviders });
+    const providers = await app.inject({ method: "GET", url: API_ROUTES.ttsProviders });
     expect(providers.json()[2]).toEqual({
       id: "openai",
       name: "OpenAI TTS",

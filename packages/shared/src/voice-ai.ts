@@ -4,31 +4,7 @@ import { LibraryItemKindSchema, LibraryItemSchema } from "./library.js";
 import { TranscriptSchema } from "./subtitles.js";
 import { TtsProviderSchema, TtsVoiceSchema } from "./voice.js";
 
-/**
- * Additive contract owned by module (d): workers-backed voice/subtitle jobs and the local sound
- * library. Pending contract merge into API_ROUTES / WORKER_ROUTES.
- */
-export const API_ROUTES_VOICE_AI = {
-  /** GET -> TtsProviderInfo[] ("local" | "configurado" | "no configurado"). */
-  ttsProviders: "/api/voice/tts/providers",
-  /** POST ModelDownloadRequest -> ModelDownloadResult (sync; can take minutes). */
-  voiceModelDownload: "/api/voice/models/download",
-  /** POST -> LibraryScanResult (re-index storage/library). */
-  libraryScan: "/api/library/scan",
-  /** GET | PATCH (LibraryItemUpdate) | DELETE one local library item. */
-  libraryItem: "/api/library/:id",
-  /** GET -> WaveformPeaks of a local library item. */
-  libraryPeaks: "/api/library/:id/peaks",
-} as const;
-
-/** Internal workers routes added on top of WORKER_ROUTES. */
-export const WORKER_ROUTES_EXT = {
-  /** GET WorkerJobProgress for calls sent with the same `jobId`. */
-  jobProgress: "/jobs/:id",
-  ttsProviders: "/tts/providers",
-  modelsDownload: "/models/download",
-} as const;
-
+/** Workers-backed voice/subtitle job results and the local sound library (module d). */
 export const TtsVoiceInfoSchema = TtsVoiceSchema.extend({
   quality: z.string().nullish(),
   sizeBytes: z.number().int().nonnegative().nullish(),

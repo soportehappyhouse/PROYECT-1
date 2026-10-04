@@ -1,6 +1,5 @@
 import {
   API_ROUTES,
-  API_ROUTES_VOICE_AI,
   ModelDownloadRequestSchema,
   RvcRequestSchema,
   TtsRequestSchema,
@@ -42,7 +41,7 @@ export function registerVoiceAiRoutes(app: FastifyInstance): void {
   ];
 
   app.get(API_ROUTES.ttsVoices, async () => viaWorkers(() => workers.ttsVoices()));
-  app.get(API_ROUTES_VOICE_AI.ttsProviders, async () => providers());
+  app.get(API_ROUTES.ttsProviders, async () => providers());
 
   app.post(API_ROUTES.tts, async (req, reply) => {
     const body = TtsRequestSchema.parse(req.body);
@@ -66,7 +65,7 @@ export function registerVoiceAiRoutes(app: FastifyInstance): void {
     return reply.code(202).send({ jobId: job.id });
   });
 
-  app.post(API_ROUTES_VOICE_AI.voiceModelDownload, async (req) => {
+  app.post(API_ROUTES.voiceModelDownload, async (req) => {
     const body = ModelDownloadRequestSchema.parse(req.body);
     return viaWorkers(() => workers.downloadModel(body));
   });

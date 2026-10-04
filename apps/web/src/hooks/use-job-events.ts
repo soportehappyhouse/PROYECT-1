@@ -1,6 +1,12 @@
 "use client";
 
-import { TranscriptSchema, type Job, type JobEvent, type SubtitleSegment } from "@studio/shared";
+import {
+  TranscribeJobResultSchema,
+  TranscriptSchema,
+  type Job,
+  type JobEvent,
+  type SubtitleSegment,
+} from "@studio/shared";
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { api, fileUrl } from "@/lib/api";
@@ -92,9 +98,11 @@ async function handleFinished(job: Job): Promise<void> {
     }
     case "transcript": {
       const found = findClip(project.project, intent.clipId);
-      const parsed = TranscriptSchema.safeParse(
-        (full.result as { transcript?: unknown } | undefined)?.transcript ?? full.result,
-      );
+      // subtitles.transcribe result = TranscribeJobResult { transcript, path, srtPath, ... }.
+      const result = TranscribeJobResultSchema.safeParse(full.result);
+      const parsed = result.success
+        ? { success: true as const, data: result.data.transcript }
+        : TranscriptSchema.safeParse(full.result);
       if (parsed.success && found) {
         const mapped = transcriptToTimeline(parsed.data.segments, found.clip);
         const end = clipEnd(found.clip);

@@ -2,11 +2,8 @@ import type { PanelId, PanelLayout } from "@studio/shared";
 import { DEFAULT_DASHBOARD_SETTINGS } from "@studio/shared";
 import { z } from "zod";
 
-/**
- * Dashboard panels. `export` is web-only for now: the shared `PanelIdSchema` does not list it yet
- * (contract change requested), so it is excluded from the `panels` array sent to the api.
- */
-export type WebPanelId = PanelId | "export";
+/** Dashboard panels (= shared `PanelIdSchema`, including `export`). */
+export type WebPanelId = PanelId;
 
 export interface PanelInfo {
   id: WebPanelId;

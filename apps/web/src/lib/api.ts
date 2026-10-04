@@ -4,9 +4,9 @@ import {
   buildRoute,
   type ApiError,
   type AppConfig,
-  type AudioEffectRequest,
+  type VoiceEffectRequest,
   type CreateProject,
-  type DashboardSettingsWithUi,
+  type DashboardSettings,
   type ExportPreset,
   type ExportRequest,
   type HealthResponse,
@@ -16,9 +16,13 @@ import {
   type JobStatus,
   type JobType,
   type LibraryItem,
+  type LibraryItemDetails,
+  type LibraryScanResult,
   type LibrarySearchQuery,
   type MediaAsset,
   type MotionEngineId,
+  type MotionRenderRequestInput,
+  type MotionRenderTarget,
   type MotionSpecInput,
   type MotionTemplateInfo,
   type Paginated,
@@ -28,7 +32,6 @@ import {
   type TranscribeRequest,
   type TtsRequestInput,
   type TtsVoice,
-  type VoiceEffectRequest,
 } from "@studio/shared";
 
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:3001").replace(
@@ -188,9 +191,9 @@ export const api = {
   health: () => apiFetch<HealthResponse>(API_ROUTES.health),
   config: () => apiFetch<AppConfig>(API_ROUTES.config),
 
-  getSettings: () => apiFetch<DashboardSettingsWithUi>(API_ROUTES.settings),
-  putSettings: (settings: DashboardSettingsWithUi) =>
-    apiFetch<DashboardSettingsWithUi>(API_ROUTES.settings, { method: "PUT", json: settings }),
+  getSettings: () => apiFetch<DashboardSettings>(API_ROUTES.settings),
+  putSettings: (settings: DashboardSettings) =>
+    apiFetch<DashboardSettings>(API_ROUTES.settings, { method: "PUT", json: settings }),
 
   listProjects: () => apiFetch<Project[]>(API_ROUTES.projects),
   createProject: (body: CreateProject) =>
@@ -236,14 +239,18 @@ export const api = {
 
   motionEngines: () => apiFetch<MotionEngineStatus[]>(API_ROUTES.motionEngines),
   motionTemplates: () => apiFetch<MotionTemplateInfo[]>(API_ROUTES.motionTemplates),
-  renderMotion: (spec: MotionSpecInput) =>
-    apiFetch<JobAccepted>(API_ROUTES.motionRender, { method: "POST", json: spec }),
+  /** With `target`, the api links the render to that clip (`renderedAssetId`) in the saved project. */
+  renderMotion: (spec: MotionSpecInput, target?: MotionRenderTarget) =>
+    apiFetch<JobAccepted>(API_ROUTES.motionRender, {
+      method: "POST",
+      json: { ...spec, ...(target && { target }) } satisfies MotionRenderRequestInput,
+    }),
 
   ttsVoices: () => apiFetch<TtsVoice[]>(API_ROUTES.ttsVoices),
   tts: (body: TtsRequestInput) =>
     apiFetch<JobAccepted>(API_ROUTES.tts, { method: "POST", json: body }),
-  /** Accepts the base `VoiceEffectRequest` and the api's `AudioEffectRequest` superset. */
-  voiceEffects: (body: VoiceEffectRequest | Omit<AudioEffectRequest, "format">) =>
+  /** `format` is optional (api default: wav). */
+  voiceEffects: (body: VoiceEffectRequest | Omit<VoiceEffectRequest, "format">) =>
     apiFetch<JobAccepted>(API_ROUTES.voiceEffects, { method: "POST", json: body }),
   rvcModels: () => apiFetch<RvcModel[]>(API_ROUTES.rvcModels),
   rvc: (body: Partial<RvcRequest> & Pick<RvcRequest, "assetId" | "modelId">) =>
@@ -254,11 +261,17 @@ export const api = {
 
   searchLibrary: (query: Partial<LibrarySearchQuery>) =>
     apiFetch<Paginated<LibraryItem>>(API_ROUTES.library, { query: { ...query } }),
+  /** JSON import of an indexed/remote item -> MediaAsset ready for the timeline. */
   importLibraryItem: (provider: string, remoteId: string) =>
     apiFetch<MediaAsset>(API_ROUTES.libraryImport, {
       method: "POST",
       json: { provider, remoteId },
     }),
+  /** Multipart upload of a file into storage/library -> indexed library item (not a MediaAsset). */
+  uploadLibraryFile: (file: File, onProgress?: (ratio: number) => void) =>
+    uploadFile<LibraryItemDetails>(API_ROUTES.libraryImport, file, onProgress),
+  /** Re-index storage/library (new/changed/removed files). */
+  scanLibrary: () => apiFetch<LibraryScanResult>(API_ROUTES.libraryScan, { method: "POST" }),
   libraryProviders: () => apiFetch<LibraryProviderStatus[]>(API_ROUTES.libraryProviders),
 };
 

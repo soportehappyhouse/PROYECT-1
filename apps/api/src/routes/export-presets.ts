@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { nanoid } from "nanoid";
-import { API_ROUTES, ExportPresetExtSchema } from "@studio/shared";
+import { API_ROUTES, ExportPresetSchema } from "@studio/shared";
 import { errorBody } from "../lib/errors.js";
 
 /** Editable export presets (built-ins seeded on startup; editable but not deletable). */
@@ -12,14 +12,14 @@ export const exportPresetRoutes: FastifyPluginAsync = async (app) => {
   app.post(API_ROUTES.exportPresets, async (req, reply) => {
     const raw = (req.body ?? {}) as Record<string, unknown>;
     const id = typeof raw.id === "string" && raw.id && !presets.get(raw.id) ? raw.id : nanoid();
-    const preset = ExportPresetExtSchema.parse({ ...raw, id, builtIn: false });
+    const preset = ExportPresetSchema.parse({ ...raw, id, builtIn: false });
     return reply.code(201).send(presets.upsert(preset));
   });
 
   app.put<{ Params: { id: string } }>(API_ROUTES.exportPreset, async (req, reply) => {
     const current = presets.get(req.params.id);
     if (!current) return reply.code(404).send(errorBody("NOT_FOUND", "Preset no encontrado"));
-    const preset = ExportPresetExtSchema.parse({
+    const preset = ExportPresetSchema.parse({
       ...(req.body as object),
       id: current.id,
       builtIn: current.builtIn,

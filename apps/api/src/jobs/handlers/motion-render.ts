@@ -3,8 +3,9 @@ import {
   type FileJobResult,
   type MotionEngineId,
   type MotionOutputFormat,
-  MotionSpecSchema,
-  type MotionSpec,
+  MotionRenderRequestSchema,
+  type MotionRenderRequest,
+  type MotionRenderTarget,
 } from "@studio/shared";
 import { outputExtension, overallProgress } from "@studio/motion-engines";
 import type { ApiConfig } from "../../config.js";
@@ -22,6 +23,8 @@ export interface MotionRenderJobResult extends FileJobResult {
   width: number;
   height: number;
   renderTimeMs: number;
+  /** Clip whose `renderedAssetId` was set to `assetId` (when the request had a target). */
+  linkedClip?: MotionRenderTarget;
 }
 
 const MIME: Record<Exclude<MotionOutputFormat, "png-sequence">, string> = {
@@ -39,15 +42,16 @@ export function motionMediaBaseUrl(config: Pick<ApiConfig, "host" | "port">): st
 /**
  * motion.render (module c): validate MotionSpec -> registry (remotion / ffmpeg-lottie / ...) ->
  * storage/renders/<jobId>.<ext> (folder for png-sequence) -> new video MediaAsset (hasAlpha for
- * overlays) so the timeline can use it right away.
+ * overlays) so the timeline can use it right away. With `target {projectId, clipId}` the stored
+ * project's clip gets `renderedAssetId`, which is what project.export composites.
  */
 export function createMotionRenderHandler(
   app: AppContext,
-): JobHandler<MotionSpec, MotionRenderJobResult> {
+): JobHandler<MotionRenderRequest, MotionRenderJobResult> {
   return {
     type: "motion.render",
-    parse: (payload) => MotionSpecSchema.parse(payload),
-    async run(spec, ctx, job) {
+    parse: (payload) => MotionRenderRequestSchema.parse(payload),
+    async run({ target, ...spec }, ctx, job) {
       const outputPath = storageRelative("renders", `${job.id}${outputExtension(spec.format)}`);
       const tmp = await jobTmpDir(app, job.id);
       ctx.reportProgress(0, "En cola de render");
@@ -92,6 +96,16 @@ export function createMotionRenderHandler(
         if (app.queue.hasHandler("media.probe"))
           app.queue.enqueue({ type: "media.probe", payload: { assetId }, priority: 1 });
       }
+      let linkedClip: MotionRenderTarget | undefined;
+      if (assetId && target) {
+        if (
+          app.repos.projects.patchClip(target.projectId, target.clipId, {
+            renderedAssetId: assetId,
+          })
+        )
+          linkedClip = target;
+        else ctx.log(`Clip ${target.clipId} no encontrado en el proyecto ${target.projectId}`);
+      }
       return {
         ...(assetId && { assetId }),
         path: result.path,
@@ -102,6 +116,7 @@ export function createMotionRenderHandler(
         width: result.width,
         height: result.height,
         renderTimeMs: result.renderTimeMs,
+        ...(linkedClip && { linkedClip }),
       };
     },
   };

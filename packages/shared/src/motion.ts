@@ -10,6 +10,11 @@ export const REMOTION_TEMPLATE_IDS = [
   "lower-third",
   "animated-captions",
   "transition",
+  "audio-visualizer",
+  "lottie-overlay",
+  "end-screen",
+  "progress-bar",
+  "kinetic-typography",
 ] as const;
 
 export const MotionOutputFormatSchema = z.enum([
@@ -67,5 +72,32 @@ export const MotionTemplateInfoSchema = z.object({
   defaultProps: z.record(z.string(), z.unknown()),
   defaultDurationSec: z.number().positive(),
   supportsAlpha: z.boolean(),
+  /** Grouping in the Motion panel (e.g. "Títulos", "Subtítulos"). */
+  category: z.string().optional(),
+  /** Natural canvas size of the template. */
+  defaultSize: z
+    .object({ width: z.number().int().positive(), height: z.number().int().positive() })
+    .optional(),
+  /** Still composition for previews (Remotion: `<id>-thumb`, rendered at `frame`). */
+  thumbnail: z
+    .object({ compositionId: z.string(), frame: z.number().int().nonnegative() })
+    .optional(),
 });
 export type MotionTemplateInfo = z.infer<typeof MotionTemplateInfoSchema>;
+
+/** Project/clip that a motion render belongs to; the api links the result to the clip. */
+export const MotionRenderTargetSchema = z.object({
+  projectId: z.string().min(1),
+  clipId: z.string().min(1),
+});
+export type MotionRenderTarget = z.infer<typeof MotionRenderTargetSchema>;
+
+/**
+ * Body of POST /api/motion/render: a MotionSpec plus an optional `target`. With a target the
+ * `motion.render` job sets `clip.renderedAssetId` in the stored project when it finishes.
+ */
+export const MotionRenderRequestSchema = MotionSpecSchema.extend({
+  target: MotionRenderTargetSchema.optional(),
+});
+export type MotionRenderRequest = z.infer<typeof MotionRenderRequestSchema>;
+export type MotionRenderRequestInput = z.input<typeof MotionRenderRequestSchema>;

@@ -1,7 +1,7 @@
 import { nanoid } from "nanoid";
 import {
-  AudioEffectRequestSchema,
-  type AudioEffectRequest,
+  VoiceEffectRequestSchema,
+  type VoiceEffectRequest,
   type FileJobResult,
 } from "@studio/shared";
 import type { AppContext } from "../../context.js";
@@ -9,7 +9,7 @@ import { storageRelative } from "../../services/storage.js";
 import type { JobHandler } from "../types.js";
 import { absPath, fileSize, requireAsset } from "./util.js";
 
-const CODEC: Record<AudioEffectRequest["format"], { ext: string; mime: string; args: string[] }> = {
+const CODEC: Record<VoiceEffectRequest["format"], { ext: string; mime: string; args: string[] }> = {
   wav: { ext: "wav", mime: "audio/wav", args: ["-c:a", "pcm_s16le"] },
   mp3: { ext: "mp3", mime: "audio/mpeg", args: ["-c:a", "libmp3lame", "-q:a", "2"] },
   m4a: { ext: "m4a", mime: "audio/mp4", args: ["-c:a", "aac", "-b:a", "192k"] },
@@ -21,10 +21,10 @@ const CODEC: Record<AudioEffectRequest["format"], { ext: string; mime: string; a
  */
 export function createVoiceEffectHandler(
   app: AppContext,
-): JobHandler<AudioEffectRequest, FileJobResult> {
+): JobHandler<VoiceEffectRequest, FileJobResult> {
   return {
     type: "voice.effect",
-    parse: (p) => AudioEffectRequestSchema.parse(p),
+    parse: (p) => VoiceEffectRequestSchema.parse(p),
     async run(req, ctx, job) {
       const source = requireAsset(app, req.assetId);
       if (source.hasAudio === false) throw new Error("El asset no tiene audio");

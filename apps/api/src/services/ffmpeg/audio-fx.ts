@@ -1,4 +1,4 @@
-import type { AudioEffect } from "@studio/shared";
+import type { VoiceEffect } from "@studio/shared";
 import { sec } from "./escape.js";
 
 /**
@@ -51,9 +51,9 @@ const ROBOT_FFT =
   "afftfilt=real='hypot(re,im)*sin(0)':imag='hypot(re,im)*cos(0)':win_size=512:overlap=0.75";
 
 /** Effects that need two inputs or two passes and cannot be expressed as a single -af chain. */
-export type SpecialEffect = Extract<AudioEffect, { type: "ducking" | "loudnorm" }>;
+export type SpecialEffect = Extract<VoiceEffect, { type: "ducking" | "loudnorm" }>;
 
-export function isSpecialEffect(e: AudioEffect): e is SpecialEffect {
+export function isSpecialEffect(e: VoiceEffect): e is SpecialEffect {
   return e.type === "ducking" || e.type === "loudnorm";
 }
 
@@ -62,7 +62,7 @@ export function isSpecialEffect(e: AudioEffect): e is SpecialEffect {
  * with intensity < 1 needs a dry/wet split (labels are prefixed to stay unique in big graphs).
  */
 export function effectFragment(
-  effect: Exclude<AudioEffect, SpecialEffect>,
+  effect: Exclude<VoiceEffect, SpecialEffect>,
   inLabel: string,
   outLabel: string,
   prefix: string,
@@ -141,7 +141,7 @@ export interface LoudnormMeasurement {
   normalization_type?: string;
 }
 
-type Loudnorm = Extract<AudioEffect, { type: "loudnorm" }>;
+type Loudnorm = Extract<VoiceEffect, { type: "loudnorm" }>;
 
 /** loudnorm filter: pass 1 (measure), pass 2 (apply measured, linear) or single dynamic pass. */
 export function loudnormFilter(
@@ -172,7 +172,7 @@ export function parseLoudnormJson(stderr: string): LoudnormMeasurement {
   return parsed as LoudnormMeasurement;
 }
 
-type Ducking = Extract<AudioEffect, { type: "ducking" }>;
+type Ducking = Extract<VoiceEffect, { type: "ducking" }>;
 
 /**
  * Ducking (fuentes-audio §4.9): music ducked by the voice via sidechaincompress, then mixed.
@@ -212,7 +212,7 @@ export interface AudioFxGraph {
  * returned separately for the caller (two passes / extra input). loudnorm always runs last.
  */
 export function buildAudioFxGraph(
-  effects: readonly AudioEffect[],
+  effects: readonly VoiceEffect[],
   inLabel: string,
   outLabel: string,
   opts: AudioFxOptions & { prefix?: string; mode?: "timeline" | "standalone" } = {},
@@ -225,7 +225,7 @@ export function buildAudioFxGraph(
   let current = inLabel;
   let n = 0;
   const regular = effects.filter(
-    (e): e is Exclude<AudioEffect, SpecialEffect> => !isSpecialEffect(e),
+    (e): e is Exclude<VoiceEffect, SpecialEffect> => !isSpecialEffect(e),
   );
   for (const e of effects) {
     if (e.type === "loudnorm") loudnorm = e;

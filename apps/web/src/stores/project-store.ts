@@ -3,6 +3,7 @@ import {
   type Clip,
   type MediaAsset,
   type Project,
+  type CaptionStyle,
   type SubtitleSegment,
   type Track,
   type TrackKind,
@@ -94,6 +95,8 @@ export interface ProjectState {
 
   // --- subtitles
   setSubtitles: (segments: SubtitleSegment[]) => void;
+  /** Style used by the api to burn subtitles on export (Project.captionStyle). */
+  setCaptionStyle: (style: CaptionStyle) => void;
   updateSubtitle: (index: number, patch: Partial<SubtitleSegment>) => void;
   removeSubtitle: (index: number) => void;
   addSubtitle: (segment?: SubtitleSegment) => void;
@@ -143,7 +146,9 @@ function snapshot(p: Project): Snapshot {
 export const useProjectStore = create<ProjectState>()((set, get) => {
   /** Apply a change to the project, optionally recording an undo snapshot. */
   const commit = (
-    mutate: (p: Project) => Partial<Pick<Project, "tracks" | "subtitles" | "settings" | "name">>,
+    mutate: (
+      p: Project,
+    ) => Partial<Pick<Project, "tracks" | "subtitles" | "settings" | "name" | "captionStyle">>,
     record = true,
   ) => {
     const { project, past } = get();
@@ -314,6 +319,7 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
 
     setSubtitles: (segments) =>
       commit(() => ({ subtitles: [...segments].sort((a, b) => a.start - b.start) })),
+    setCaptionStyle: (captionStyle) => commit(() => ({ captionStyle }), false),
     updateSubtitle: (index, patch) =>
       commit((p) => ({
         subtitles: p.subtitles.map((s, i) => (i === index ? { ...s, ...patch } : s)),

@@ -35,18 +35,6 @@ const MANIFEST = "_pack.json";
 const PEAKS_DIR = "_peaks";
 const SCAN_CONCURRENCY = 4;
 
-/**
- * Module (d) tables, created idempotently on top of `library_items` (schema v1).
- * TODO(module-b): may be moved into db/database.ts MIGRATIONS as a new entry.
- */
-const LIBRARY_DDL = /* sql */ `
-CREATE VIRTUAL TABLE IF NOT EXISTS library_fts USING fts5(
-  item_id UNINDEXED, name, tags, author,
-  tokenize = 'unicode61 remove_diacritics 2'
-);
-CREATE INDEX IF NOT EXISTS library_items_kind_idx ON library_items(kind, name);
-`;
-
 interface StoredItem extends LibraryItemDetails {
   mtimeMs?: number;
 }
@@ -100,7 +88,10 @@ async function sha256File(abs: string): Promise<string> {
     .digest("hex");
 }
 
-/** Local sound library: storage/library indexed in SQLite (FTS5) with waveform peaks. */
+/**
+ * Local sound library: storage/library indexed in SQLite (FTS5) with waveform peaks.
+ * Tables: `library_items` (schema v1) + `library_fts` (db/database.ts MIGRATIONS v2).
+ */
 export class LibraryIndex implements LibraryProviderAdapter {
   readonly id = "local" as const;
 
@@ -108,9 +99,7 @@ export class LibraryIndex implements LibraryProviderAdapter {
     private readonly db: SqlDatabase,
     private readonly storageDir: string,
     private readonly ffmpegPath: string,
-  ) {
-    db.exec(LIBRARY_DDL);
-  }
+  ) {}
 
   enabled(): boolean {
     return true;

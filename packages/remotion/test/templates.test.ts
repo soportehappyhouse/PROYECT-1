@@ -4,9 +4,9 @@ import { TEMPLATE_DEFS } from "../src/catalog.js";
 import { REMOTION_TEMPLATES, validateRemotionProps } from "../src/templates.js";
 
 describe("remotion template catalog", () => {
-  it("starts with the shared REMOTION_TEMPLATE_IDS contract and adds the rest", () => {
+  it("matches the shared REMOTION_TEMPLATE_IDS contract exactly", () => {
     const ids = REMOTION_TEMPLATES.map((t) => t.id);
-    expect(ids.slice(0, REMOTION_TEMPLATE_IDS.length)).toEqual([...REMOTION_TEMPLATE_IDS]);
+    expect(ids).toEqual([...REMOTION_TEMPLATE_IDS]);
     expect(ids).toEqual(
       expect.arrayContaining([
         "audio-visualizer",

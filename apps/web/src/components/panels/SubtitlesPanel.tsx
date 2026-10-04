@@ -195,7 +195,10 @@ export function SubtitlesPanel() {
       motion: MotionSpecSchema.parse(spec),
     });
     try {
-      const { jobId } = await api.renderMotion(spec);
+      const { jobId } = await api.renderMotion(spec, {
+        projectId: store().project.id,
+        clipId: clip.id,
+      });
       useJobsStore
         .getState()
         .track(jobId, "motion.render", { kind: "setMotionRender", clipId: clip.id });

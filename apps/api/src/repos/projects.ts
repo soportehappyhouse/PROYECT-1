@@ -2,6 +2,7 @@ import { nanoid } from "nanoid";
 import {
   ProjectSchema,
   ProjectSettingsSchema,
+  type Clip,
   type CreateProject,
   type Project,
 } from "@studio/shared";
@@ -104,5 +105,36 @@ export class ProjectRepo {
       .prepare(`SELECT data, saved_at FROM project_autosaves WHERE project_id = ?`)
       .get(id) as { data: string; saved_at: string } | undefined;
     return row ? { project: JSON.parse(row.data) as Project, savedAt: row.saved_at } : undefined;
+  }
+
+  /**
+   * Patch one clip in the saved project and in its autosave snapshot (if any) without touching
+   * anything else; used by jobs that link their output to a clip (motion.render). Returns whether
+   * the clip was found in the saved project.
+   */
+  patchClip(projectId: string, clipId: string, patch: Partial<Clip>): boolean {
+    const apply = (project: Project): boolean => {
+      for (const track of project.tracks) {
+        const clip = track.clips.find((c) => c.id === clipId);
+        if (clip) {
+          Object.assign(clip, patch);
+          return true;
+        }
+      }
+      return false;
+    };
+    return this.db.transaction(() => {
+      const current = this.get(projectId);
+      if (!current || !apply(current)) return false;
+      this.db
+        .prepare(`UPDATE projects SET data = ? WHERE id = ?`)
+        .run(JSON.stringify(current), projectId);
+      const snap = this.getAutosave(projectId);
+      if (snap && apply(snap.project))
+        this.db
+          .prepare(`UPDATE project_autosaves SET data = ? WHERE project_id = ?`)
+          .run(JSON.stringify(snap.project), projectId);
+      return true;
+    });
   }
 }

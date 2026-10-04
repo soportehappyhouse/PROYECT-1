@@ -73,56 +73,71 @@ flowchart LR
 
 ## 2. Contrato REST de `apps/api` (prefijo `/api`)
 
-Fuente de verdad: `API_ROUTES` en `packages/shared/src/api.ts`. Todos los errores usan
-`ApiError = { error: { code, message, details? } }`. Endpoints aún sin implementar responden
-**501 `NOT_IMPLEMENTED`**. Todo trabajo largo responde **202-like `{ jobId }`** (`JobAccepted`).
+Fuente de verdad: `API_ROUTES` en `packages/shared/src/api.ts` (las antiguas `API_ROUTES_EXT` /
+`API_ROUTES_VOICE_AI` se fusionaron ahí en la integración). Todos los errores usan
+`ApiError = { error: { code, message, details? } }`. Todo trabajo largo responde **202 `{ jobId }`**
+(`JobAccepted`). CORS: `GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS` para `localhost:*`; el SSE
+pone sus cabeceras CORS a mano (`lib/cors.ts`, `reply.hijack()`).
 
-| Método             | Ruta                                    | Request → Response                         | Estado skeleton         | Módulo        |
-| ------------------ | --------------------------------------- | ------------------------------------------ | ----------------------- | ------------- |
-| GET                | `/api/health`                           | → `HealthResponse` (ffmpeg, workers)       | ✅                      | b             |
-| GET                | `/api/config`                           | → `AppConfig` (solo booleanos, nunca keys) | ✅                      | b             |
-| GET / PUT          | `/api/settings`                         | `DashboardSettings`                        | GET defaults / PUT 501  | b (a consume) |
-| GET / POST         | `/api/projects`                         | `CreateProject` → `Project`                | 501                     | b             |
-| GET / PUT / DELETE | `/api/projects/:id`                     | `Project`                                  | 501                     | b             |
-| POST               | `/api/projects/:id/export`              | `ExportRequest` → `JobAccepted`            | 501                     | b             |
-| GET / POST         | `/api/media`                            | multipart → `MediaAsset`                   | 501                     | b             |
-| GET / DELETE       | `/api/media/:id`                        | → `MediaAsset`                             | 501                     | b             |
-| GET                | `/api/media/:id/file`                   | stream con HTTP Range                      | 501                     | b             |
-| POST               | `/api/media/:id/proxy`                  | → `JobAccepted`                            | 501                     | b             |
-| GET                | `/api/jobs?status=&type=&limit=`        | → `Job[]`                                  | ✅                      | b             |
-| GET                | `/api/jobs/:id`                         | → `Job`                                    | ✅                      | b             |
-| POST               | `/api/jobs/:id/cancel`                  | → `Job`                                    | parcial (TODO abort)    | b             |
-| GET                | `/api/jobs/events`                      | SSE de `JobEvent`                          | 501                     | b             |
-| GET / POST         | `/api/export-presets`                   | `ExportPreset`                             | GET defaults / POST 501 | b             |
-| PUT / DELETE       | `/api/export-presets/:id`               | `ExportPreset`                             | 501                     | b             |
-| GET                | `/api/motion/engines`                   | → `{id, displayName, available}[]`         | ✅                      | c             |
-| GET                | `/api/motion/templates`                 | → `MotionTemplateInfo[]`                   | ✅                      | c             |
-| POST               | `/api/motion/render`                    | `MotionSpec` → `JobAccepted`               | 501                     | c             |
-| GET                | `/api/voice/tts/voices`                 | → `TtsVoice[]`                             | 501                     | d             |
-| POST               | `/api/voice/tts`                        | `TtsRequest` → `JobAccepted`               | 501                     | d             |
-| POST               | `/api/voice/effects`                    | `VoiceEffectRequest` → `JobAccepted`       | 501                     | b             |
-| GET                | `/api/voice/rvc/models`                 | → `RvcModel[]`                             | 501                     | d             |
-| POST               | `/api/voice/rvc`                        | `RvcRequest` → `JobAccepted`               | 501                     | d             |
-| POST               | `/api/subtitles/transcribe`             | `TranscribeRequest` → `JobAccepted`        | 501                     | d             |
-| GET                | `/api/library?q=&kind=&provider=&page=` | → `Paginated<LibraryItem>`                 | 501                     | d             |
-| POST               | `/api/library/import`                   | multipart o `{provider, remoteId}`         | 501                     | d             |
-| GET                | `/api/library/providers`                | → `{id, enabled}[]`                        | ✅                      | d             |
-| GET                | `/files/*`                              | estático desde `STORAGE_DIR`               | ✅                      | b             |
+| Método               | Ruta                                    | Request → Response                                                           | Módulo |
+| -------------------- | --------------------------------------- | ---------------------------------------------------------------------------- | ------ |
+| GET                  | `/api/health`                           | → `HealthResponse` (ffmpeg, workers)                                         | b      |
+| GET                  | `/api/config`                           | → `AppConfig` (solo booleanos, nunca keys)                                   | b      |
+| GET / PUT            | `/api/settings`                         | `DashboardSettings` completo (incluye `ui`: layout, acento, presets)         | b      |
+| GET / POST           | `/api/projects`                         | `CreateProject` → `Project`                                                  | b      |
+| GET / PUT / DELETE   | `/api/projects/:id`                     | `Project`                                                                    | b      |
+| GET / PUT            | `/api/projects/:id/autosave`            | snapshot `Project` → `ProjectAutosaveInfo`                                   | b      |
+| POST                 | `/api/projects/:id/export`              | `ExportRequest` → `JobAccepted`                                              | b      |
+| GET / POST           | `/api/media`                            | multipart → `MediaAsset`                                                     | b      |
+| GET / DELETE         | `/api/media/:id`                        | → `MediaAsset`                                                               | b      |
+| GET                  | `/api/media/:id/file`                   | stream con HTTP Range (`?proxy=1`, `?download=1`)                            | b      |
+| POST                 | `/api/media/:id/proxy`                  | → `JobAccepted`                                                              | b      |
+| GET                  | `/api/jobs?status=&type=&limit=`        | → `Job[]`                                                                    | b      |
+| GET                  | `/api/jobs/:id`                         | → `Job`                                                                      | b      |
+| GET                  | `/api/jobs/:id/log`                     | → `{ lines: string[] }`                                                      | b      |
+| POST                 | `/api/jobs/:id/cancel`                  | → `Job`                                                                      | b      |
+| GET                  | `/api/jobs/events?jobId=`               | SSE de `JobEvent`                                                            | b      |
+| GET / POST           | `/api/export-presets`                   | `ExportPreset`                                                               | b      |
+| PUT / DELETE         | `/api/export-presets/:id`               | `ExportPreset` (built-ins no se borran: 409)                                 | b      |
+| GET                  | `/api/system/encoders`                  | → `EncoderInfo`                                                              | b      |
+| GET                  | `/api/motion/engines`                   | → estado + capacidades por motor                                             | c      |
+| GET                  | `/api/motion/templates`                 | → `MotionTemplateInfo[]`                                                     | c      |
+| POST                 | `/api/motion/render`                    | `MotionRenderRequest` (`MotionSpec` + `target?`) → `JobAccepted`             | c      |
+| GET                  | `/api/voice/tts/voices`                 | → `TtsVoiceInfo[]`                                                           | d      |
+| GET                  | `/api/voice/tts/providers`              | → `TtsProviderInfo[]`                                                        | d      |
+| POST                 | `/api/voice/tts`                        | `TtsRequest` → `JobAccepted`                                                 | d      |
+| POST                 | `/api/voice/effects`                    | `VoiceEffectRequest` → `JobAccepted`                                         | b      |
+| GET                  | `/api/voice/effects/presets`            | → `VOICE_EFFECT_PRESETS`                                                     | b      |
+| GET                  | `/api/voice/rvc/models`                 | → `RvcModel[]`                                                               | d      |
+| POST                 | `/api/voice/rvc`                        | `RvcRequest` → `JobAccepted`                                                 | d      |
+| POST                 | `/api/voice/models/download`            | `ModelDownloadRequest` → `ModelDownloadResult`                               | d      |
+| POST                 | `/api/subtitles/transcribe`             | `TranscribeRequest` → `JobAccepted` (result `TranscribeJobResult`)           | d      |
+| GET                  | `/api/library?q=&kind=&provider=&page=` | → `Paginated<LibraryItem>`                                                   | d      |
+| POST                 | `/api/library/import`                   | JSON `{provider, remoteId}` → `MediaAsset`; multipart → `LibraryItemDetails` | d      |
+| POST                 | `/api/library/scan`                     | → `LibraryScanResult`                                                        | d      |
+| GET / PATCH / DELETE | `/api/library/:id`                      | `LibraryItemDetails` / `LibraryItemUpdate`                                   | d      |
+| GET                  | `/api/library/:id/peaks`                | → `WaveformPeaks`                                                            | d      |
+| GET                  | `/api/library/providers`                | → `{id, enabled, status}[]`                                                  | d      |
+| GET                  | `/files/*`                              | estático desde `STORAGE_DIR` (sin `studio.db` ni `tmp/`)                     | b      |
 
 ## 3. Contrato de `apps/workers` (interno, solo lo llama la api)
 
-Fuente de verdad: `WORKER_ROUTES` (TS) y `apps/workers/studio_workers/schemas.py` (Pydantic, JSON en
-camelCase). **Todas las rutas de archivo son relativas a `STORAGE_DIR`**; cada servicio las resuelve
-contra su propio `STORAGE_DIR` y rechaza `..`. Las llamadas son síncronas (la cola vive en la api).
+Fuente de verdad: `WORKER_ROUTES` + `Worker*Request` (TS) y `apps/workers/studio_workers/schemas.py`
+(Pydantic, JSON en camelCase). **Todas las rutas de archivo son relativas a `STORAGE_DIR`**; cada
+servicio las resuelve contra su propio `STORAGE_DIR` y rechaza `..`. Las llamadas son síncronas (la
+cola vive en la api); con `jobId` la api consulta el progreso en `GET /jobs/:id`.
 
-| Método | Ruta           | Request → Response                                                                      | Estado |
-| ------ | -------------- | --------------------------------------------------------------------------------------- | ------ |
-| GET    | `/health`      | → `{status, cuda, capabilities:{whisper,piper,rvc}}`                                    | ✅     |
-| POST   | `/transcribe`  | `{inputPath, language, model?, wordTimestamps}` → `Transcript`                          | 501    |
-| GET    | `/tts/voices`  | → `TtsVoice[]` (voces Piper instaladas en `models/piper`)                               | `[]`   |
-| POST   | `/tts`         | `{text, voice, speed, outputPath}` → `{path, durationSec}`                              | 501    |
-| GET    | `/rvc/models`  | → `RvcModel[]` (`models/rvc/<nombre>/*.pth + *.index`)                                  | `[]`   |
-| POST   | `/rvc/convert` | `{inputPath, modelId, pitchShift, indexRate, f0Method, device?, outputPath}` → `{path}` | 501    |
+| Método | Ruta               | Request → Response                                                                              |
+| ------ | ------------------ | ----------------------------------------------------------------------------------------------- |
+| GET    | `/health`          | → `{status, cuda, capabilities:{whisper,piper,rvc}, ...}`                                       |
+| POST   | `/transcribe`      | `{inputPath, language, model?, wordTimestamps, jobId?, outputBase?}` → `TranscriptWithFiles`    |
+| GET    | `/tts/voices`      | → `TtsVoiceInfo[]` (voces Piper instaladas en `models/piper`)                                   |
+| GET    | `/tts/providers`   | → `TtsProviderInfo[]`                                                                           |
+| POST   | `/tts`             | `{text, voice, speed, outputPath, provider?, format?, jobId?}` → `{path, durationSec}`          |
+| GET    | `/rvc/models`      | → `RvcModel[]` (`models/rvc/<nombre>/*.pth + *.index`)                                          |
+| POST   | `/rvc/convert`     | `{inputPath, modelId, pitchShift, indexRate, f0Method, device?, outputPath, jobId?}` → `{path}` |
+| POST   | `/models/download` | `ModelDownloadRequest` → `ModelDownloadResult`                                                  |
+| GET    | `/jobs/:id`        | → `WorkerJobProgress`                                                                           |
 
 ## 4. Ciclo de vida de un job
 
@@ -184,14 +199,15 @@ rutas relativas a `STORAGE_DIR`, como el resto del contrato):
   (`http://127.0.0.1:3001/files/`), `signal`, `onProgress({phase, ratio, message})`.
 
 La api crea el registro con
-`createDefaultRegistry({ remotion: { templates: REMOTION_TEMPLATES, render: renderMotion }, ffmpegPath })`.
+`createDefaultRegistry({ remotion: REMOTION_ENGINE_OPTIONS, ffmpegPath })` en `apps/api/src/app.ts`, donde
+también registra el handler `motion.render` (con `target` enlaza `clip.renderedAssetId`).
 Overlays con alpha: `webm-vp9-alpha` para el editor, `prores-4444` para editores externos.
 
-| Motor           | Estado                                                                                                         | Plantillas                                                     |
-| --------------- | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `remotion`      | Principal. Render real vía `@studio/remotion` (`renderMotion`, inyectado)                                      | `title-card`, `lower-third`, `animated-captions`, `transition` |
-| `motion-canvas` | Esqueleto (`checkAvailable → ok:false`, render → `MotionEngineNotImplementedError`); implementar sobre Revideo | `hello-circle` (ejemplo)                                       |
-| `ffmpeg-lottie` | Esqueleto (idem); frames PNG (puppeteer + lottie-web) → FFmpeg alpha                                           | `lottie-overlay` (ejemplo)                                     |
+| Motor           | Estado                                                                                                         | Plantillas                                                                                                                                                                            |
+| --------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `remotion`      | Principal. Render real vía `@studio/remotion` (`REMOTION_ENGINE_OPTIONS`)                                      | `REMOTION_TEMPLATE_IDS` (9): `title-card`, `lower-third`, `animated-captions`, `transition`, `audio-visualizer`, `lottie-overlay`, `end-screen`, `progress-bar`, `kinetic-typography` |
+| `motion-canvas` | Esqueleto (`checkAvailable → ok:false`, render → `MotionEngineNotImplementedError`); implementar sobre Revideo | `hello-circle` (ejemplo)                                                                                                                                                              |
+| `ffmpeg-lottie` | Real con FFmpeg de sistema (drawtext + overlay alpha); rasterizador Lottie pendiente                           | `ffmpeg-title`                                                                                                                                                                        |
 
 Añadir un motor = implementar `MotionEngine` + `register()`; el id debe estar en `MotionEngineIdSchema`.
 

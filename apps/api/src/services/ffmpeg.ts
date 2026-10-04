@@ -3,8 +3,8 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import type {
-  AudioEffect,
-  ExportPresetExt,
+  VoiceEffect,
+  ExportPreset,
   Project,
   SpriteSheet,
   VideoEncoderId,
@@ -45,7 +45,7 @@ export interface ProgressOptions {
 
 export interface ExportInput {
   project: Project;
-  preset: ExportPresetExt;
+  preset: ExportPreset;
   assets: ReadonlyMap<string, TimelineAsset>;
   /** Absolute output path (extension decided by the caller from the preset). */
   output: string;
@@ -112,7 +112,7 @@ export interface FfmpegService {
   applyVoiceEffects(
     input: string,
     output: string,
-    effects: readonly AudioEffect[],
+    effects: readonly VoiceEffect[],
     opts?: ProgressOptions & {
       durationSec?: number;
       musicPath?: string;

@@ -1,10 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import {
-  API_ROUTES,
-  API_ROUTES_EXT,
-  CreateProjectSchema,
-  ExportRequestSchema,
-} from "@studio/shared";
+import { API_ROUTES, CreateProjectSchema, ExportRequestSchema } from "@studio/shared";
 import { errorBody } from "../lib/errors.js";
 
 /** Projects CRUD (Project JSON documents), autosave snapshots and export jobs. */
@@ -40,11 +35,11 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
   });
 
   /** Crash-recovery snapshot (does not modify the saved project; cleared on PUT). */
-  app.put<{ Params: { id: string } }>(API_ROUTES_EXT.projectAutosave, async (req, reply) => {
+  app.put<{ Params: { id: string } }>(API_ROUTES.projectAutosave, async (req, reply) => {
     return repos.projects.autosave(req.params.id, req.body) ?? reply.code(404).send(notFound());
   });
 
-  app.get<{ Params: { id: string } }>(API_ROUTES_EXT.projectAutosave, async (req, reply) => {
+  app.get<{ Params: { id: string } }>(API_ROUTES.projectAutosave, async (req, reply) => {
     const snap = repos.projects.getAutosave(req.params.id);
     return snap
       ? { projectId: req.params.id, savedAt: snap.savedAt, project: snap.project }

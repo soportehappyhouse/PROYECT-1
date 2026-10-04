@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_EXPORT_PRESETS, EXTRA_EXPORT_PRESETS, toExportPresetExt } from "@studio/shared";
+import { DEFAULT_EXPORT_PRESETS, EXTRA_EXPORT_PRESETS, ExportPresetSchema } from "@studio/shared";
 import {
   atempoChain,
   buildAudioFxGraph,
@@ -288,7 +288,7 @@ describe("encoders", () => {
   });
 
   it("maps presets (YouTube, Reels, GIF, WebM alpha)", () => {
-    const yt = presetEncoding(toExportPresetExt(DEFAULT_EXPORT_PRESETS[0]!));
+    const yt = presetEncoding(ExportPresetSchema.parse(DEFAULT_EXPORT_PRESETS[0]!));
     expect(yt.extension).toBe("mp4");
     expect(yt.video).toEqual(
       expect.arrayContaining(["libx264", "-crf", "20", "-pix_fmt", "yuv420p"]),

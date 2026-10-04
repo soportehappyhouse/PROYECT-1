@@ -42,3 +42,22 @@ export const TranscriptSchema = z.object({
   segments: z.array(SubtitleSegmentSchema),
 });
 export type Transcript = z.infer<typeof TranscriptSchema>;
+
+/** Look of burned / animated subtitles (Subtitles panel); stored per project. */
+export const CaptionStyleSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  fontFamily: z.string(),
+  /** In project pixels (relative to a 1080p frame height). */
+  fontSize: z.number().positive(),
+  color: z.string(),
+  /** Box behind the text; empty = none. */
+  background: z.string(),
+  /** Color of the active word for word-by-word animation. */
+  highlightColor: z.string(),
+  position: z.enum(["top", "center", "bottom"]),
+  uppercase: z.boolean(),
+  /** Animation hint for the `animated-captions` template. */
+  animation: z.enum(["none", "pop", "karaoke", "fade"]),
+});
+export type CaptionStyle = z.infer<typeof CaptionStyleSchema>;

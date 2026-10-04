@@ -1,9 +1,9 @@
 import {
-  DashboardSettingsWithUiSchema,
+  DashboardSettingsSchema,
   LayoutPresetSchema,
   ThemeSchema,
   UiDensitySchema,
-  type DashboardSettingsWithUi,
+  type DashboardSettings,
   type LayoutPreset,
   type Theme,
   type UiDensity,
@@ -48,7 +48,7 @@ export const THEME_LABELS: Record<Theme, string> = {
   system: "Sistema",
 };
 
-/** Shape persisted in localStorage (and mirrored to the api as `DashboardSettingsWithUi`). */
+/** Shape persisted in localStorage (and mirrored to the api as `DashboardSettings`). */
 const PersistedSettingsSchema = z.object({
   version: z.literal(1),
   theme: ThemeSchema,
@@ -98,7 +98,7 @@ export interface SettingsState {
   deleteLayoutPreset: (id: string) => void;
   renameLayoutPreset: (id: string, name: string) => void;
   /** Merge settings coming from the api when they are newer than the local copy. */
-  mergeRemote: (remote: DashboardSettingsWithUi) => boolean;
+  mergeRemote: (remote: DashboardSettings) => boolean;
   setSyncState: (s: SyncState) => void;
   setCommandPaletteOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
@@ -147,7 +147,7 @@ export function pickPersisted(s: SettingsState): PersistedSettings {
 }
 
 /** Api payload: the contract `DashboardSettings` plus the additive `ui` block. */
-export function toApiSettings(s: SettingsState): DashboardSettingsWithUi {
+export function toApiSettings(s: SettingsState): DashboardSettings {
   return {
     theme: s.theme,
     language: "es",
@@ -230,7 +230,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => {
         ...touch(),
       }),
     mergeRemote: (remote) => {
-      const parsed = DashboardSettingsWithUiSchema.safeParse(remote);
+      const parsed = DashboardSettingsSchema.safeParse(remote);
       if (!parsed.success) return false;
       const ui = parsed.data.ui;
       // Remote without `ui.updatedAt` is just the server defaults: keep the local copy.

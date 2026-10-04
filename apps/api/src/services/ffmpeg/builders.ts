@@ -276,6 +276,29 @@ export function pipArgs(o: {
   });
 }
 
+/**
+ * Picture-in-picture placement on the export timeline (Clip.scale / Clip.position): fit the clip
+ * into `scale` × canvas, then pad it to the full transparent canvas with its free space split by
+ * `position` (0 = left/top, 0.5 = centered, 1 = right/bottom). Keeps each segment canvas-sized so
+ * concat/xfade/overlay=0:0 work unchanged.
+ */
+export function pipPlacementFilters(o: {
+  canvas: Size;
+  scale?: number;
+  position?: { x: number; y: number };
+}): string[] {
+  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+  const s = clamp(o.scale ?? 1, 0.05, 1);
+  const w = Math.max(2, Math.round((o.canvas.width * s) / 2) * 2);
+  const h = Math.max(2, Math.round((o.canvas.height * s) / 2) * 2);
+  const px = +clamp(o.position?.x ?? 0.5, 0, 1).toFixed(4);
+  const py = +clamp(o.position?.y ?? 0.5, 0, 1).toFixed(4);
+  return [
+    `scale=${w}:${h}:force_original_aspect_ratio=decrease:force_divisible_by=2`,
+    `pad=${o.canvas.width}:${o.canvas.height}:(ow-iw)*${px}:(oh-ih)*${py}:color=black@0`,
+  ];
+}
+
 /** 4.7 Fade in/out for video and audio given the clip duration (st of fade-out = dur - d). */
 export function fadeFilters(o: {
   duration: number;

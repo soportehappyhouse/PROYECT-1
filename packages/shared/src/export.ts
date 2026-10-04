@@ -5,8 +5,8 @@ export const ExportPresetSchema = z.object({
   id: IdSchema,
   name: z.string().min(1),
   aspect: AspectRatioSchema,
-  container: z.enum(["mp4", "webm", "mov"]).default("mp4"),
-  videoCodec: z.enum(["h264", "h265", "vp9", "prores"]).default("h264"),
+  container: z.enum(["mp4", "webm", "mov", "gif"]).default("mp4"),
+  videoCodec: z.enum(["h264", "h265", "vp9", "prores", "gif"]).default("h264"),
   audioCodec: z.enum(["aac", "opus", "pcm"]).default("aac"),
   width: z.number().int().positive(),
   height: z.number().int().positive(),
@@ -17,6 +17,8 @@ export const ExportPresetSchema = z.object({
   audioBitrateKbps: z.number().int().positive().default(192),
   /** Built-in presets can be duplicated but not deleted. */
   builtIn: z.boolean().default(false),
+  /** Keep transparency (WebM VP9 yuva420p / ProRes 4444); empty timeline areas stay transparent. */
+  alpha: z.boolean().default(false),
 });
 export type ExportPreset = z.infer<typeof ExportPresetSchema>;
 export type ExportPresetInput = z.input<typeof ExportPresetSchema>;
@@ -43,6 +45,7 @@ export const DEFAULT_EXPORT_PRESETS: readonly ExportPreset[] = [
     crf: 20,
     audioBitrateKbps: 192,
     builtIn: true,
+    alpha: false,
   },
   {
     id: "youtube-4k",
@@ -57,6 +60,7 @@ export const DEFAULT_EXPORT_PRESETS: readonly ExportPreset[] = [
     crf: 18,
     audioBitrateKbps: 192,
     builtIn: true,
+    alpha: false,
   },
   {
     id: "reels-tiktok",
@@ -71,6 +75,7 @@ export const DEFAULT_EXPORT_PRESETS: readonly ExportPreset[] = [
     crf: 21,
     audioBitrateKbps: 160,
     builtIn: true,
+    alpha: false,
   },
   {
     id: "youtube-shorts",
@@ -85,5 +90,39 @@ export const DEFAULT_EXPORT_PRESETS: readonly ExportPreset[] = [
     crf: 20,
     audioBitrateKbps: 192,
     builtIn: true,
+    alpha: false,
+  },
+];
+
+/** Built-in presets beyond DEFAULT_EXPORT_PRESETS (GIF + alpha; seeded by the api). */
+export const EXTRA_EXPORT_PRESETS: readonly ExportPreset[] = [
+  {
+    id: "gif-480",
+    name: "GIF 480p",
+    aspect: "16:9",
+    container: "gif",
+    videoCodec: "gif",
+    audioCodec: "aac",
+    width: 480,
+    height: 270,
+    fps: 12,
+    audioBitrateKbps: 128,
+    builtIn: true,
+    alpha: false,
+  },
+  {
+    id: "webm-alpha",
+    name: "WebM con transparencia (VP9)",
+    aspect: "16:9",
+    container: "webm",
+    videoCodec: "vp9",
+    audioCodec: "opus",
+    width: 1920,
+    height: 1080,
+    fps: 30,
+    crf: 30,
+    audioBitrateKbps: 160,
+    builtIn: true,
+    alpha: true,
   },
 ];

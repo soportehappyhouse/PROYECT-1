@@ -1,9 +1,9 @@
 import type { FastifyPluginAsync } from "fastify";
 import {
   API_ROUTES,
-  DashboardSettingsWithUiSchema,
+  DashboardSettingsSchema,
   DEFAULT_DASHBOARD_SETTINGS,
-  type DashboardSettingsWithUi,
+  type DashboardSettings,
 } from "@studio/shared";
 
 const KEY = "dashboard";
@@ -16,14 +16,14 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
   const { settings } = app.ctx.repos;
 
   app.get(API_ROUTES.settings, async () => {
-    const stored = settings.get<DashboardSettingsWithUi>(KEY);
+    const stored = settings.get<DashboardSettings>(KEY);
     if (!stored) return DEFAULT_DASHBOARD_SETTINGS;
-    const parsed = DashboardSettingsWithUiSchema.safeParse(stored);
+    const parsed = DashboardSettingsSchema.safeParse(stored);
     return parsed.success ? parsed.data : DEFAULT_DASHBOARD_SETTINGS;
   });
 
   app.put(API_ROUTES.settings, async (req) => {
-    const next = DashboardSettingsWithUiSchema.parse(req.body);
+    const next = DashboardSettingsSchema.parse(req.body);
     settings.set(KEY, next);
     return next;
   });

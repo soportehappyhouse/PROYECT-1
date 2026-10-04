@@ -47,7 +47,7 @@ Qué hace (se puede repetir sin romper nada; lo ya instalado se saltea):
    **Control de cuentas (UAC)**: aceptalo.
 2. Crea `.env` copiando `.env.example` (nunca pisa uno existente) y las carpetas `storage\` y `models\`.
 3. Instala **pnpm 12** (`npm i -g pnpm@12`), las dependencias JS (`pnpm install`) y el navegador de
-   Remotion (`npx remotion browser ensure`).
+   Remotion (`pnpm --filter @studio/remotion browser:ensure`, desde la raíz del repo).
 4. Crea el entorno Python `apps\workers\.venv` con faster-whisper, Piper y RVC (torch CPU).
 5. Descarga los modelos: voz **es_AR-daniela-high**, Whisper **base**, activos de RVC
    (`rmvpe.pt` + `hubert_base`). Los archivos se verifican por tamaño/checksum.
@@ -150,7 +150,7 @@ puertos y estado de los servicios. No modifica nada.
 | Subtítulos con `-WithCuda` dicen "CUDA no disponible, usando CPU"    | Actualizá el driver NVIDIA (570+). faster-whisper necesita cuBLAS 12 + cuDNN 9: los toma de `torch\lib`; si aun falla, `apps\workers\.venv\Scripts\python.exe -m pip install nvidia-cublas-cu12 nvidia-cudnn-cu12`.                                        |
 | RVC tarda mucho                                                      | Normal en CPU. Usá clips cortos, `f0Method: "pm"` (más rápido) o `-WithCuda`.                                                                                                                                                                              |
 | `doctor.ps1` dice que falta `rubberband`                             | Los efectos de tono usan `asetrate+atempo` como respaldo. Para mejor calidad, instalá el build "full": `winget install -e --id Gyan.FFmpeg`.                                                                                                               |
-| Remotion no renderiza (Chrome Headless Shell)                        | `cd packages\remotion; npx remotion browser ensure`.                                                                                                                                                                                                       |
+| Remotion no renderiza (Chrome Headless Shell)                        | `pnpm --filter @studio/remotion browser:ensure` (desde la raíz).                                                                                                                                                                                           |
 | `pnpm install` muy lento                                             | El antivirus escanea `node_modules`. Opcional (admin): `Add-MpPreference -ExclusionPath 'C:\dev\studio'`.                                                                                                                                                  |
 | El navegador no abre / pantalla en blanco                            | Abrí http://localhost:3000 a mano; mirá la ventana "Studio web" (o `storage\logs\web.log` con `-SingleConsole`).                                                                                                                                           |
 

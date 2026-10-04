@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import type { ExportPresetExt, VideoEncoderId } from "@studio/shared";
+import type { ExportPreset, VideoEncoderId } from "@studio/shared";
 
 /** Hardware H.264 encoders probed in preference order (fuentes-editor §4.12). */
 export const HW_ENCODERS: readonly VideoEncoderId[] = ["h264_nvenc", "h264_qsv", "h264_amf"];
@@ -196,7 +196,7 @@ export interface OutputEncoding {
 
 /** Map an ExportPreset(Ext) to encoder/container args (fuentes-editor §4.11). */
 export function presetEncoding(
-  preset: ExportPresetExt,
+  preset: ExportPreset,
   h264: VideoEncoderId = "libx264",
 ): OutputEncoding {
   const gif = preset.container === "gif" || preset.videoCodec === "gif";

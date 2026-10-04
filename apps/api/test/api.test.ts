@@ -4,11 +4,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import {
   API_ROUTES,
-  API_ROUTES_EXT,
   buildRoute,
   DEFAULT_DASHBOARD_SETTINGS,
-  type ExportPresetExt,
-  type MediaAssetDetails,
+  type ExportPreset,
+  type MediaAsset,
   type Project,
 } from "@studio/shared";
 import { makeApp, multipart, waitFor } from "./helpers.js";
@@ -59,7 +58,7 @@ describe("api routes (no ffmpeg)", () => {
     expect(bad.statusCode).toBe(400);
     expect(bad.json()).toMatchObject({ error: { code: "VALIDATION_ERROR" } });
 
-    const autoUrl = buildRoute(API_ROUTES_EXT.projectAutosave, { id: p.id });
+    const autoUrl = buildRoute(API_ROUTES.projectAutosave, { id: p.id });
     expect((await app.inject({ method: "GET", url: autoUrl })).statusCode).toBe(404);
     const auto = await app.inject({
       method: "PUT",
@@ -95,6 +94,27 @@ describe("api routes (no ffmpeg)", () => {
       theme: "dark",
       ui: { density: "compact", layout: { grid: { root: 1 } } },
     });
+    // Whole document round-trip: accent, nested opaque layout, named presets, updatedAt.
+    const full = {
+      ...DEFAULT_DASHBOARD_SETTINGS,
+      ui: {
+        accent: "#12a594",
+        density: "spacious",
+        layout: { grid: { root: { type: "branch", data: [1, 2] } }, panels: { media: {} } },
+        layoutPresets: [
+          {
+            id: "lp1",
+            name: "Edición",
+            layout: { grid: { root: 2 } },
+            createdAt: "2026-10-04T10:00:00.000Z",
+          },
+        ],
+        updatedAt: "2026-10-04T10:00:01.000Z",
+      },
+    };
+    await app.inject({ method: "PUT", url: API_ROUTES.settings, payload: full });
+    const roundTrip = await app.inject({ method: "GET", url: API_ROUTES.settings });
+    expect(roundTrip.json()).toEqual(full);
     const bad = await app.inject({
       method: "PUT",
       url: API_ROUTES.settings,
@@ -105,7 +125,7 @@ describe("api routes (no ffmpeg)", () => {
 
   it("export presets: seeded built-ins, CRUD, built-ins not deletable", async () => {
     const list = (await app.inject({ method: "GET", url: API_ROUTES.exportPresets })).json<
-      ExportPresetExt[]
+      ExportPreset[]
     >();
     const ids = list.map((p) => p.id);
     expect(ids).toEqual(
@@ -123,7 +143,7 @@ describe("api routes (no ffmpeg)", () => {
       payload: { name: "Mío", aspect: "1:1", width: 1080, height: 1080, fps: 30, crf: 22 },
     });
     expect(created.statusCode).toBe(201);
-    const mine = created.json<ExportPresetExt>();
+    const mine = created.json<ExportPreset>();
     expect(mine.builtIn).toBe(false);
     const url = buildRoute(API_ROUTES.exportPreset, { id: mine.id });
     const put = await app.inject({
@@ -162,7 +182,7 @@ describe("api routes (no ffmpeg)", () => {
     expect(app.ctx.jobs.get(jobId)).toMatchObject({ type: "project.export", projectId: p.id });
     const log = await app.inject({
       method: "GET",
-      url: buildRoute(API_ROUTES_EXT.jobLog, { id: jobId }),
+      url: buildRoute(API_ROUTES.jobLog, { id: jobId }),
     });
     expect(log.json<{ lines: string[] }>().lines.join("\n")).toContain("ERROR");
   });
@@ -172,7 +192,7 @@ describe("api routes (no ffmpeg)", () => {
     const { payload, headers } = await multipart("../../evil name?.mp3", content, "audio/mpeg");
     const res = await app.inject({ method: "POST", url: API_ROUTES.media, payload, headers });
     expect(res.statusCode).toBe(201);
-    const asset = res.json<MediaAssetDetails>();
+    const asset = res.json<MediaAsset>();
     expect(asset).toMatchObject({
       kind: "audio",
       name: "evil name.mp3",
@@ -238,8 +258,24 @@ describe("api routes (no ffmpeg)", () => {
       payload: { assetId: "x", effects: [{ type: "chipmunk" }] },
     });
     expect(missing.statusCode).toBe(404);
-    const presets = await app.inject({ method: "GET", url: API_ROUTES_EXT.voiceEffectPresets });
+    const presets = await app.inject({ method: "GET", url: API_ROUTES.voiceEffectPresets });
     expect(presets.json<unknown[]>().length).toBeGreaterThan(5);
+  });
+
+  it("CORS preflight allows PUT, PATCH and DELETE from the dashboard", async () => {
+    for (const method of ["PUT", "PATCH", "DELETE"]) {
+      const res = await app.inject({
+        method: "OPTIONS",
+        url: buildRoute(API_ROUTES.project, { id: "x" }),
+        headers: {
+          origin: "http://localhost:3000",
+          "access-control-request-method": method,
+        },
+      });
+      expect(res.statusCode).toBe(204);
+      expect(res.headers["access-control-allow-origin"]).toBe("http://localhost:3000");
+      expect(String(res.headers["access-control-allow-methods"])).toContain(method);
+    }
   });
 
   it("SSE streams job events with manual CORS headers", async () => {

@@ -9,7 +9,7 @@ export const PACKAGE_DIR = fileURLToPath(new URL("..", import.meta.url));
 const REPO_ROOT = path.resolve(PACKAGE_DIR, "../..");
 
 export const BROWSER_HINT =
-  "Falta Chrome Headless Shell para Remotion. Ejecuta `pnpm --filter @studio/remotion exec remotion browser ensure` " +
+  "Falta Chrome Headless Shell para Remotion. Ejecuta `pnpm --filter @studio/remotion browser:ensure` " +
   "(scripts/windows/setup.ps1 lo hace) o define REMOTION_BROWSER_EXECUTABLE con la ruta a chrome-headless-shell.exe.";
 
 export class RemotionBrowserMissingError extends MotionEngineError {

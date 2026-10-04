@@ -27,6 +27,13 @@ const EnvSchema = z.object({
   QUEUE_FFMPEG_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(2),
   QUEUE_MOTION_CONCURRENCY: z.coerce.number().int().min(1).max(4).default(1),
   QUEUE_WORKERS_CONCURRENCY: z.coerce.number().int().min(1).max(4).default(1),
+  /** Remotion renderer (packages/remotion render.ts). Empty = Remotion defaults. */
+  REMOTION_CONCURRENCY: z.string().optional(),
+  REMOTION_BROWSER_EXECUTABLE: z.string().optional(),
+  REMOTION_HW_ACCEL: boolish,
+  REMOTION_FONTS: z.enum(["google", "system"]).optional(),
+  REMOTION_BUNDLE_CACHE: z.string().optional(),
+  REMOTION_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   ELEVENLABS_API_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
@@ -50,6 +57,15 @@ export interface ApiConfig {
   hwEncoder: "auto" | "off";
   /** Max concurrent jobs per queue lane. */
   queue: { ffmpeg: number; motion: number; workers: number };
+  /** Remotion renderer overrides (only keys set in .env; see RemotionRendererSettings). */
+  remotion: {
+    concurrency?: number | string;
+    browserExecutable?: string;
+    hardwareAcceleration?: "disable" | "if-possible";
+    fontMode?: "google" | "system";
+    bundleCacheDir?: string;
+    timeoutInMilliseconds?: number;
+  };
   logLevel: string;
   /** Secrets: never sent to the client; only `Boolean(key)` is exposed via /api/config. */
   keys: {
@@ -84,6 +100,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       ffmpeg: e.QUEUE_FFMPEG_CONCURRENCY,
       motion: e.QUEUE_MOTION_CONCURRENCY,
       workers: e.QUEUE_WORKERS_CONCURRENCY,
+    },
+    remotion: {
+      ...(e.REMOTION_CONCURRENCY && {
+        concurrency: /^\d+$/.test(e.REMOTION_CONCURRENCY)
+          ? Number(e.REMOTION_CONCURRENCY)
+          : e.REMOTION_CONCURRENCY,
+      }),
+      ...(e.REMOTION_BROWSER_EXECUTABLE && {
+        browserExecutable: path.resolve(REPO_ROOT, e.REMOTION_BROWSER_EXECUTABLE),
+      }),
+      ...(e.REMOTION_HW_ACCEL && { hardwareAcceleration: "if-possible" as const }),
+      ...(e.REMOTION_FONTS && { fontMode: e.REMOTION_FONTS }),
+      ...(e.REMOTION_BUNDLE_CACHE && {
+        bundleCacheDir: path.resolve(REPO_ROOT, e.REMOTION_BUNDLE_CACHE),
+      }),
+      ...(e.REMOTION_TIMEOUT_MS && { timeoutInMilliseconds: e.REMOTION_TIMEOUT_MS }),
     },
     logLevel: e.LOG_LEVEL,
     keys: {

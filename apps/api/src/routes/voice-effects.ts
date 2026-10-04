@@ -1,14 +1,14 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { AudioEffectRequestSchema } from "@studio/shared";
+import { VoiceEffectRequestSchema } from "@studio/shared";
 import { errorBody } from "../lib/errors.js";
 
 /**
- * POST /api/voice/effects handler (module b): validates AudioEffectRequest (superset of the
+ * POST /api/voice/effects handler (module b): validates VoiceEffectRequest (superset of the
  * contract's VoiceEffectRequest) and enqueues "voice.effect". Mounted from routes/voice.ts.
  */
 export async function handleVoiceEffects(req: FastifyRequest, reply: FastifyReply) {
   const { repos, queue } = req.server.ctx;
-  const body = AudioEffectRequestSchema.parse(req.body);
+  const body = VoiceEffectRequestSchema.parse(req.body);
   if (!repos.media.get(body.assetId))
     return reply.code(404).send(errorBody("NOT_FOUND", "Media no encontrado"));
   for (const e of body.effects) {

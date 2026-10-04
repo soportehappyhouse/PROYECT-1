@@ -1,4 +1,4 @@
-import { DashboardSettingsWithUiSchema } from "@studio/shared";
+import { DashboardSettingsSchema } from "@studio/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   buildDefaultLayout,
@@ -140,13 +140,13 @@ describe("api settings mapping", () => {
     useSettingsStore.getState().setOpenPanels(["media", "timeline", "export"]);
     useSettingsStore.getState().setShortcut("timeline.split", "ctrl+b");
     const payload = toApiSettings(useSettingsStore.getState());
-    expect(DashboardSettingsWithUiSchema.safeParse(payload).success).toBe(true);
+    expect(DashboardSettingsSchema.safeParse(payload).success).toBe(true);
     expect(payload.panels.find((p) => p.id === "media")?.visible).toBe(true);
     expect(payload.panels.find((p) => p.id === "voice")?.visible).toBe(false);
-    // "export" is web-only and must not leak into the contract array.
-    expect(payload.panels.some((p) => (p.id as string) === "export")).toBe(false);
+    // "export" is part of the shared PanelIdSchema.
+    expect(payload.panels.find((p) => p.id === "export")?.visible).toBe(true);
     expect(payload.shortcuts.find((s) => s.action === "timeline.split")?.keys).toBe("Ctrl+B");
-    expect(toPanelLayouts([])).toHaveLength(9);
+    expect(toPanelLayouts([])).toHaveLength(10);
   });
 
   it("merges remote settings only when they are newer", () => {

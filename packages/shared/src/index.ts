@@ -12,7 +12,4 @@ export * from "./subtitles.js";
 export * from "./timeline.js";
 export * from "./voice.js";
 export * from "./api-ext.js";
-export * from "./audio-fx.js";
-export * from "./export-formats.js";
-export * from "./media-derivatives.js";
 export * from "./voice-ai.js";

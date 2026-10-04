@@ -18,7 +18,7 @@
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "test": "pnpm -r test",
+    "test": "pnpm -r --workspace-concurrency=1 --no-bail test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "clean": "pnpm -r exec node -e \"for (const d of ['dist','.next']) require('node:fs').rmSync(d,{recursive:true,force:true})\""

@@ -2,13 +2,14 @@ import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import { createDefaultRegistry } from "@studio/motion-engines";
-import { REMOTION_TEMPLATES, renderMotion } from "@studio/remotion";
+import { configureRemotionRenderer, REMOTION_ENGINE_OPTIONS } from "@studio/remotion";
 import Fastify, { type FastifyInstance } from "fastify";
 import { ZodError } from "zod";
 import type { ApiConfig } from "./config.js";
 import type { AppContext } from "./context.js";
 import { openDatabase } from "./db/database.js";
 import { registerModuleBHandlers } from "./jobs/handlers/index.js";
+import { createMotionRenderHandler } from "./jobs/handlers/motion-render.js";
 import { JobQueue } from "./jobs/queue.js";
 import { SqliteJobStore } from "./jobs/store.js";
 import { allowedOrigins } from "./lib/cors.js";
@@ -34,6 +35,7 @@ export async function buildApp({
 }: BuildAppOptions): Promise<FastifyInstance> {
   if (!inMemoryDb) await ensureStorageLayout(config.storageDir);
 
+  configureRemotionRenderer(config.remotion);
   const db = openDatabase(inMemoryDb ? ":memory:" : config.storageDir);
   const jobs = new SqliteJobStore(db);
   const queue = new JobQueue({ store: jobs, storageDir: config.storageDir, lanes: config.queue });
@@ -46,14 +48,14 @@ export async function buildApp({
     workers: createWorkersClient(config.workersUrl),
     motion: createDefaultRegistry({
       ffmpegPath: config.ffmpegPath,
-      remotion: { templates: REMOTION_TEMPLATES, render: renderMotion },
+      remotion: REMOTION_ENGINE_OPTIONS,
     }),
     repos: createRepos(db),
   };
   // Job handlers, dispatched by JobType (contract: jobs/types.ts JobHandler; lanes: jobs/state.ts).
   registerModuleBHandlers(ctx); // media.probe, media.proxy, voice.effect, project.export
   registerVoiceAiHandlers(ctx); // module d: voice.tts, voice.rvc, subtitles.transcribe
-  // Module (c): queue.register(createMotionRenderHandler(ctx)) — files under src/jobs/handlers/.
+  queue.register(createMotionRenderHandler(ctx)); // module c: motion.render
 
   const app = Fastify({
     logger: logger ? { level: config.logLevel } : false,
@@ -72,7 +74,11 @@ export async function buildApp({
     return reply.code(status).send(errorBody("INTERNAL_ERROR", message));
   });
 
-  await app.register(cors, { origin: allowedOrigins(config) });
+  // The SSE route (/api/jobs/events) bypasses this plugin via reply.hijack(): lib/cors.ts rawCorsHeaders.
+  await app.register(cors, {
+    origin: allowedOrigins(config),
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  });
   await app.register(multipart, { limits: { fileSize: 20 * 1024 * 1024 * 1024 } });
   await app.register(fastifyStatic, {
     root: config.storageDir,

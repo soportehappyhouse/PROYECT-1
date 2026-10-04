@@ -1,22 +1,10 @@
+import type { CaptionStyle } from "@studio/shared";
 import { create } from "zustand";
 import { readJson, STORAGE_KEYS, writeJson } from "@/lib/storage";
+import { useProjectStore } from "./project-store";
 
-export interface CaptionStyle {
-  id: string;
-  name: string;
-  fontFamily: string;
-  /** In project pixels (relative to a 1080p frame height). */
-  fontSize: number;
-  color: string;
-  /** Box behind the text; empty = none. */
-  background: string;
-  /** Color of the active word for word-by-word animation. */
-  highlightColor: string;
-  position: "top" | "center" | "bottom";
-  uppercase: boolean;
-  /** Animation hint for the `animated-captions` template. */
-  animation: "none" | "pop" | "karaoke" | "fade";
-}
+/** Shared contract (Project.captionStyle): the api uses it to burn subtitles on export. */
+export type { CaptionStyle };
 
 export const CAPTION_STYLES: readonly CaptionStyle[] = [
   {
@@ -99,6 +87,7 @@ export const useCaptionStyleStore = create<CaptionStyleState>()((set, get) => ({
   setStyle: (style) => {
     writeJson(STORAGE_KEYS.captionStyle, style);
     set({ style });
+    useProjectStore.getState().setCaptionStyle(style);
   },
   patch: (patch) =>
     get().setStyle({ ...get().style, ...patch, id: "custom", name: "Personalizado" }),

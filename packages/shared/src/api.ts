@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { TtsProvider } from "./voice.js";
 
 /** Default local ports (overridable via .env). */
 export const DEFAULT_PORTS = { web: 3000, api: 3001, workers: 8001 } as const;
@@ -36,6 +37,15 @@ export const API_ROUTES = {
   library: "/api/library", // GET LibrarySearchQuery -> Paginated<LibraryItem>
   libraryImport: "/api/library/import", // POST multipart or {provider, remoteId}
   libraryProviders: "/api/library/providers", // GET [{id, enabled}]
+  libraryScan: "/api/library/scan", // POST -> LibraryScanResult (re-index storage/library)
+  libraryItem: "/api/library/:id", // GET | PATCH LibraryItemUpdate | DELETE (local item)
+  libraryPeaks: "/api/library/:id/peaks", // GET WaveformPeaks of a local library item
+  projectAutosave: "/api/projects/:id/autosave", // GET latest snapshot | PUT Project -> ProjectAutosaveInfo
+  jobLog: "/api/jobs/:id/log", // GET { lines: string[] } (last stderr/log lines)
+  systemEncoders: "/api/system/encoders", // GET EncoderInfo (detected H.264 encoders)
+  voiceEffectPresets: "/api/voice/effects/presets", // GET named voice effect presets
+  ttsProviders: "/api/voice/tts/providers", // GET TtsProviderInfo[]
+  voiceModelDownload: "/api/voice/models/download", // POST ModelDownloadRequest -> ModelDownloadResult
   files: "/files/*", // GET static files from STORAGE_DIR (renders/exports/proxies)
 } as const;
 export type ApiRouteKey = keyof typeof API_ROUTES;
@@ -51,7 +61,48 @@ export const WORKER_ROUTES = {
   tts: "/tts", // POST {text, voice, speed, outputPath} -> {path, durationSec}
   rvcModels: "/rvc/models", // GET RvcModel[]
   rvcConvert: "/rvc/convert", // POST {inputPath, modelId, pitchShift, indexRate, f0Method, device, outputPath} -> {path}
+  ttsProviders: "/tts/providers", // GET TtsProviderInfo[]
+  modelsDownload: "/models/download", // POST ModelDownloadRequest -> ModelDownloadResult
+  jobProgress: "/jobs/:id", // GET WorkerJobProgress for calls sent with the same `jobId`
 } as const;
+
+/**
+ * Optional fields shared by the long worker calls (transcribe / tts / rvc/convert):
+ * `jobId` enables progress polling (GET /jobs/:id) and names the worker-side job.
+ */
+export interface WorkerCallFields {
+  jobId?: string;
+}
+
+/** POST /transcribe body. `outputBase` ("renders/<jobId>") writes .json/.srt/.ass side by side. */
+export interface WorkerTranscribeRequest extends WorkerCallFields {
+  inputPath: string;
+  language: string;
+  model?: string;
+  wordTimestamps: boolean;
+  outputBase?: string;
+}
+
+/** POST /tts body. `provider` defaults to piper; `format` to wav. */
+export interface WorkerTtsRequest extends WorkerCallFields {
+  text: string;
+  voice: string;
+  speed: number;
+  outputPath: string;
+  provider?: TtsProvider;
+  format?: "wav" | "mp3";
+}
+
+/** POST /rvc/convert body. */
+export interface WorkerRvcRequest extends WorkerCallFields {
+  inputPath: string;
+  modelId: string;
+  pitchShift: number;
+  indexRate: number;
+  f0Method: string;
+  device?: string;
+  outputPath: string;
+}
 
 /** Uniform error body for every non-2xx response. */
 export const ApiErrorSchema = z.object({

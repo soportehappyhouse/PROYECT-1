@@ -157,7 +157,7 @@ $remotionCache = @(
     (Join-Path $RepoRoot 'node_modules\.remotion'),
     (Join-Path $RepoRoot 'packages\remotion\node_modules\.remotion')
 ) | Where-Object { Test-Path $_ }
-Add-Result 'Remotion browser' $(if ($remotionCache) { 'ok' } else { 'warn' }) $(if ($remotionCache) { 'descargado' } else { 'no encontrado (npx remotion browser ensure)' })
+Add-Result 'Remotion browser' $(if ($remotionCache) { 'ok' } else { 'warn' }) $(if ($remotionCache) { 'descargado' } else { 'no encontrado (pnpm --filter @studio/remotion browser:ensure)' })
 
 # ------------------------------------------------------------------ ports / services
 Write-Step 'Puertos y servicios'

@@ -1,10 +1,8 @@
 import {
-  AudioEffectSchema,
-  VOICE_EFFECT_PRESETS,
   VoiceEffectSchema,
-  type AudioEffect,
-  type AudioEffectType,
+  VOICE_EFFECT_PRESETS,
   type VoiceEffect,
+  type VoiceEffectType,
 } from "@studio/shared";
 
 export interface EffectParamDef {
@@ -17,8 +15,8 @@ export interface EffectParamDef {
 }
 
 /** Effects editable in the chain editor (ducking needs a second asset: not exposed here). */
-export type EditableEffectType = Exclude<AudioEffectType, "ducking">;
-export type EditableEffect = Exclude<AudioEffect, { type: "ducking" }>;
+export type EditableEffectType = Exclude<VoiceEffectType, "ducking">;
+export type EditableEffect = Exclude<VoiceEffect, { type: "ducking" }>;
 
 /** Editable numeric parameters of each effect (ranges mirror the shared zod schemas). */
 export const EFFECT_DEFS: Record<EditableEffectType, { label: string; params: EffectParamDef[] }> =
@@ -90,14 +88,14 @@ export const EFFECT_TYPES = Object.keys(EFFECT_DEFS) as EditableEffectType[];
 
 export function defaultEffect(type: EditableEffectType): EditableEffect {
   const params = Object.fromEntries(EFFECT_DEFS[type].params.map((p) => [p.key, p.default]));
-  return AudioEffectSchema.parse({ type, ...params }) as EditableEffect;
+  return VoiceEffectSchema.parse({ type, ...params }) as EditableEffect;
 }
 
-export function effectLabel(type: AudioEffectType): string {
+export function effectLabel(type: VoiceEffectType): string {
   return type === "ducking" ? "Ducking" : EFFECT_DEFS[type].label;
 }
 
-export function effectSummary(effect: AudioEffect): string {
+export function effectSummary(effect: VoiceEffect): string {
   if (effect.type === "ducking") return "Ducking";
   const def = EFFECT_DEFS[effect.type];
   const values = def.params.map(
@@ -107,7 +105,7 @@ export function effectSummary(effect: AudioEffect): string {
 }
 
 /** True when every effect belongs to the base contract (storable in `Clip.voiceEffects`). */
-export function isBaseVoiceChain(chain: readonly AudioEffect[]): chain is VoiceEffect[] {
+export function isBaseVoiceChain(chain: readonly VoiceEffect[]): chain is VoiceEffect[] {
   return chain.every((e) => VoiceEffectSchema.safeParse(e).success);
 }
 

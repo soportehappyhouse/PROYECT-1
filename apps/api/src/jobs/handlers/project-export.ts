@@ -1,6 +1,7 @@
+import { mkdir, open, rm } from "node:fs/promises";
 import {
   ExportJobPayloadSchema,
-  toExportPresetExt,
+  ExportPresetSchema,
   type ExportJobPayload,
   type FileJobResult,
 } from "@studio/shared";
@@ -12,6 +13,23 @@ import { fileStamp, slugify } from "../../services/media-files.js";
 import { storageRelative } from "../../services/storage.js";
 import type { JobHandler } from "../types.js";
 import { absPath, checkAborted, jobTmpDir } from "./util.js";
+
+/**
+ * exports/<base>.<ext>, or <base>-2.<ext>, ... when taken: the name is reserved atomically
+ * (exclusive create) so two exports started in the same second never overwrite each other.
+ */
+async function reserveExportPath(app: AppContext, base: string, ext: string): Promise<string> {
+  await mkdir(absPath(app, "exports"), { recursive: true });
+  for (let n = 1; ; n++) {
+    const rel = storageRelative("exports", `${base}${n > 1 ? `-${n}` : ""}.${ext}`);
+    try {
+      await (await open(absPath(app, rel), "wx")).close();
+      return rel;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST" || n >= 1000) throw err;
+    }
+  }
+}
 
 /** project.export: compile the timeline into one FFmpeg graph and render to storage/exports. */
 export function createProjectExportHandler(
@@ -25,7 +43,7 @@ export function createProjectExportHandler(
       if (!project) throw new Error(`Proyecto ${req.projectId} no encontrado`);
       const stored = app.repos.presets.get(req.presetId);
       if (!stored) throw new Error(`Preset ${req.presetId} no encontrado`);
-      const preset = toExportPresetExt(stored);
+      const preset = ExportPresetSchema.parse(stored);
 
       ctx.reportProgress(0.01, "Preparando exportación");
       const ids = new Set<string>();
@@ -67,9 +85,10 @@ export function createProjectExportHandler(
           ? await selectEncoder(app.config, app.ffmpeg, app.repos.settings)
           : "libx264";
       const ext = presetEncoding(preset, encoder).extension;
-      const rel = storageRelative(
-        "exports",
-        `${slugify(req.fileName ?? project.name)}-${fileStamp()}.${ext}`,
+      const rel = await reserveExportPath(
+        app,
+        `${slugify(req.fileName ?? project.name)}-${fileStamp()}`,
+        ext,
       );
       const tmp = await jobTmpDir(app, job.id);
       try {
@@ -92,6 +111,9 @@ export function createProjectExportHandler(
           },
         );
         if (outcome.fellBack) disableEncoder(app.repos.settings, encoder);
+      } catch (err) {
+        await rm(absPath(app, rel), { force: true }); // drop the reserved (partial) output
+        throw err;
       } finally {
         await tmp.cleanup();
       }

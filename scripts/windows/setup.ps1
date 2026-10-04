@@ -194,8 +194,10 @@ if ($nodeVer) {
     }
     if ($pnpmOk) {
         try {
-            # Chrome Headless Shell for Remotion renders (downloaded once into node_modules).
-            Invoke-Native 'npx' @('remotion', 'browser', 'ensure') (Join-Path $RepoRoot 'packages\remotion')
+            # Chrome Headless Shell for Remotion renders, run from the repo root: pnpm executes the
+            # script inside packages\remotion, so it lands in packages\remotion\node_modules\.remotion
+            # (one of the folders packages/remotion/src/browser.ts searches).
+            Invoke-Native 'pnpm' @('--filter', '@studio/remotion', 'browser:ensure') $RepoRoot
             Add-Result 'Remotion (Chrome Headless Shell)' ok ''
         } catch {
             Add-Result 'Remotion (Chrome Headless Shell)' warn ("{0} - se reintenta al primer render" -f $_.Exception.Message)

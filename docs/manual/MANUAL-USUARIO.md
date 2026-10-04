@@ -128,7 +128,7 @@ Opciones de los scripts (verificadas en `scripts/windows/*.ps1`):
 
 ## 4. Recorrido por el dashboard
 
-<!-- captura: dashboard -->
+![Vista general del dashboard: encabezado, paneles Media, Vista previa, Propiedades y Línea de tiempo.](img/01-dashboard.png)
 
 La pantalla tiene un **encabezado** arriba y debajo los **paneles**, que podés mover, agrupar en
 pestañas, redimensionar y ocultar.
@@ -146,6 +146,7 @@ De izquierda a derecha:
   guardados y _Gestionar layouts…_.
 - **Tema** (sol / luna / monitor): Claro, Oscuro o Sistema.
 - **Ajustes** (engranaje): pestañas _Apariencia_, _Atajos_ y _Layouts_.
+- **🐞 Reportar error**: abre el formulario de reporte (ver [§13](#13-cómo-reportar-un-error)).
 
 ### 4.2 Los 10 paneles
 
@@ -156,11 +157,11 @@ De izquierda a derecha:
 | **Vista previa**    | Reproductor sincronizado con el cursor de la línea de tiempo: ir al inicio, fotograma anterior/siguiente, reproducir/pausar. Muestra el clip bajo el cursor (usa el proxy si existe), el audio, los textos, los subtítulos y los motion ya renderizados.                                                                                             |
 | **Línea de tiempo** | Pistas y clips. Barra: **Pista** (agregar pista de video, audio, texto o motion), **Texto** (clip de texto en el cursor), deshacer/rehacer, tijera (**dividir** en el cursor), tacho, **imán**, tiempo actual / total y zoom.                                                                                                                        |
 | **Propiedades**     | Sin clip seleccionado: nombre y tamaño del proyecto (ancho, alto, FPS y botones _16:9 1080p_, _9:16 vertical_, _1:1_) y datos del medio seleccionado. Con un clip: tiempo (inicio, entrada, salida, velocidad), imagen (opacidad, escala y posición PiP, transiciones), audio (volumen, efectos guardados), texto (fuente, tamaño, color, posición). |
-| **Motion graphics** | Elegir plantilla, editar parámetros, duración y formato; **Renderizar y añadir**, **Añadir sin render** o **Actualizar clip y renderizar**. Arriba se ve qué motores están disponibles.                                                                                                                                                              |
+| **Motion graphics** | Elegir plantilla, editar parámetros, duración y formato; **Renderizar y añadir**, **Añadir sin render** o **Actualizar clip y renderizar**. Arriba se ve qué motores están disponibles (en verde); las plantillas de un motor no disponible no se pueden elegir.                                                                                     |
 | **Voz y audio**     | Tres pestañas: **Texto a voz**, **Efectos** y **RVC**.                                                                                                                                                                                                                                                                                               |
 | **Subtítulos**      | **Transcribir (Whisper)** el clip seleccionado (idioma y modelo), editar segmentos, **Descargar SRT**, elegir **estilo** y **Renderizar subtítulos como motion**.                                                                                                                                                                                    |
-| **Exportar**        | Elegir preset, duplicarlo y editarlo, nombre del archivo, exportar un rango, y la lista de **Exportaciones recientes** con **Descargar**.                                                                                                                                                                                                            |
-| **Trabajos**        | Todo lo que tarda (análisis, proxies, renders, voz, transcripción, exportación) con su progreso. Permite cancelar, abrir el resultado, filtrar _Todos/Activos_ y limpiar terminados. Arriba indica la conexión: _En vivo_, _Consulta periódica_ o _Sin conexión_.                                                                                    |
+| **Exportar**        | Elegir preset (arranca en _YouTube 1080p_), duplicarlo y editarlo (incluida la casilla **Transparencia**), nombre del archivo, exportar un rango, **Quemar subtítulos en el video** y la lista de **Exportaciones recientes** con **Descargar**.                                                                                                     |
+| **Trabajos**        | Todo lo que tarda (análisis, proxies, renders, voz, transcripción, exportación) con su progreso. Permite cancelar, abrir el resultado, filtrar _Todos/Activos_, limpiar terminados y, en los que fallan, **Reportar**. Arriba indica la conexión: _En vivo_, _Consulta periódica_ o _Sin conexión_.                                                  |
 
 Cómo se trabaja en la **línea de tiempo**:
 
@@ -176,7 +177,7 @@ Cómo se trabaja en la **línea de tiempo**:
   reordenar pistas desde la interfaz.)
 - Hasta **100 pasos** de deshacer/rehacer.
 
-<!-- captura: timeline -->
+![Línea de tiempo con un clip motion renderizado sobre el video.](img/02-timeline-motion.png)
 
 ### 4.3 Personalizar
 
@@ -196,12 +197,12 @@ Cómo se trabaja en la **línea de tiempo**:
 - **Paleta de comandos** (`Ctrl+K` o botón **Comandos**): escribí parte del nombre y Enter.
   Incluye todas las acciones con atajo, mostrar/ocultar/ir a cada panel, aplicar layouts, cambiar
   tema, abrir ajustes, agregar pistas, _Añadir clip de texto en el cursor_, _Nuevo proyecto_ y
-  _Reportar error_ (ver [§13](#13-cómo-reportar-un-error)).
+  _Reportar error (diagnóstico para Claude)_ (ver [§13](#13-cómo-reportar-un-error)).
 
 Dónde se guarda: los ajustes y el layout se guardan en el navegador **y** en la API local (gana la
 copia más nueva), así sobreviven a borrar el historial del navegador.
 
-<!-- captura: ajustes -->
+![Paleta de comandos (Ctrl+K).](img/06-command-palette.png)
 
 ### 4.4 Guardado del proyecto
 
@@ -249,26 +250,18 @@ Pasos:
    editar un segmento se pierden los tiempos por palabra de ese segmento) y ajustá _Estilo de
    subtítulos_: los presets _Clásico_, _Reels (palabra a palabra)_, _Karaoke_, _Minimal_ y
    _Titular arriba_, más tamaño, posición, colores, animación y mayúsculas.
-4. **Subtítulos simples (quemados)**: con eso alcanza. Al exportar, los segmentos se queman con
-   FFmpeg usando la fuente, tamaño, color, posición y mayúsculas del estilo (sin animación).
-5. **Subtítulos animados (palabra a palabra)**: el botón _Renderizar subtítulos como motion_ hoy
-   **falla** (ver [§15](#15-limitaciones-conocidas)). Hacelo así:
-   1. En el aviso de _Transcripción: completado_ (o en **Trabajos → Abrir resultado**) se abre un
-      archivo `.json` (`storage\renders\<id>.json`). Copiá todo su contenido.
-   2. En **Motion graphics** elegí **Subtítulos animados · remotion**.
-   3. Pegá el contenido en _Transcripción (palabra a palabra) (JSON)_ y hacé clic fuera del campo.
-   4. Elegí _Estilo_ (`highlight`, `karaoke`, `pop`, `box`), _Posición_, colores, etc. Dejá
-      _Fondo_ en `transparent` y _Formato_ en **WebM VP9 con alfa (overlay)**.
-   5. En _Duración (s)_ poné la duración del clip.
-   6. Llevá el cursor al **inicio del clip de video** y tocá **Renderizar y añadir**. Los tiempos
-      del JSON cuentan desde el comienzo del archivo original: coinciden si el clip tiene
-      _Entrada (s)_ = 0.
-   7. Para no ver los subtítulos dos veces, borrá los segmentos de la lista del panel Subtítulos
-      (tacho de cada uno): esos se queman siempre al exportar.
+4. **Subtítulos simples (quemados)**: con eso alcanza. Al exportar, con la casilla
+   **Quemar subtítulos en el video** marcada, los segmentos se queman con FFmpeg usando la fuente,
+   tamaño, color, posición y mayúsculas del estilo (sin animación).
+5. **Subtítulos animados (palabra a palabra)**: tocá **Renderizar subtítulos como motion**. Se
+   crea un clip en la pista **Motion** con la plantilla _Subtítulos animados_ que empieza donde
+   empieza el primer segmento, y se renderiza con fondo transparente (mirá **Trabajos**). Para
+   cambiar el estilo de la animación (`highlight`, `karaoke`, `pop`, `box`), seleccioná ese clip,
+   tocá _Editar el clip motion seleccionado_ en **Motion graphics** y **Actualizar clip y
+   renderizar**. Cuando hay un clip de subtítulos animados, la casilla **Quemar subtítulos en el
+   video** del panel Exportar arranca **desmarcada**, así no salen dos veces.
 6. Exportá con **Reels / TikTok (9:16)** (1080×1920, 30 fps) o **YouTube Shorts (9:16)**
    (1080×1920, 60 fps).
-
-<!-- captura: subtitulos -->
 
 ### Flujo 3 — Locución con TTS + música con ducking
 
@@ -316,8 +309,6 @@ Pasos:
     `attackMs`/`releaseMs`: qué tan rápido baja y vuelve. `musicVolume` (0–4): volumen base de la
     música. El audio resultante dura lo que el más largo de los dos.
 
-<!-- captura: voz -->
-
 ### Flujo 4 — Cambiar la voz con RVC
 
 1. Conseguí un modelo RVC **ya entrenado** (Studio no entrena modelos) y copialo en
@@ -337,8 +328,9 @@ Usá solo voces propias o con permiso explícito de la persona.
 1. Llevá el cursor a donde va el gráfico.
 2. **Motion graphics → Plantilla**: elegí **Título**, **Rótulo (lower third)** o
    **Pantalla final (CTA)** (todas del motor `remotion`).
-3. Editá los _Parámetros_ (textos, estilo, tipografía, colores). Para que se superponga al video,
-   escribí `transparent` en el campo de texto de _Fondo_ (el selector de color solo elige colores).
+3. Editá los _Parámetros_ (textos, estilo, tipografía, colores). El **Título** ya viene con _Fondo_
+   `transparent`; en otras plantillas, para que se superpongan al video, escribí `transparent` en el
+   campo de texto de _Fondo_ (el selector de color solo elige colores).
 4. _Formato_: **WebM VP9 con alfa (overlay)** para usarlo dentro de Studio. _Duración (s)_: por
    defecto 3 s (título), 5 s (rótulo) y 8 s (pantalla final).
 5. Tocá **Renderizar y añadir**: se crea el clip en la pista **Motion** y se renderiza (mirá
@@ -347,9 +339,10 @@ Usá solo voces propias o con permiso explícito de la persona.
 6. Para cambiarlo: seleccioná el clip, tocá _Editar el clip motion seleccionado_, cambiá los
    parámetros y **Actualizar clip y renderizar**.
 
-Un clip motion que dice _Sin renderizar_ en Propiedades **no sale en la exportación**.
+Si un clip motion dice _Sin renderizar_ en Propiedades, **la exportación se niega a empezar** y
+te dice qué clip falta renderizar.
 
-<!-- captura: motion -->
+![Panel Motion graphics: plantilla, parámetros generados automáticamente y render.](img/03-motion-form.png)
 
 ### Flujo 6 — Agregar efectos de sonido desde la biblioteca
 
@@ -370,11 +363,12 @@ La licencia y la atribución de cada sonido se ven en la lista. Si la licencia p
 
 ### Flujo 7 — Exportar en varios formatos
 
-1. Abrí **Exportar** y elegí un preset de la tabla de [§6.2](#62-salida-presets-de-exportación).
+1. Abrí **Exportar** (arranca en **YouTube 1080p (16:9)**) y elegí un preset de la tabla de [§6.2](#62-salida-presets-de-exportación).
 2. Para un formato propio: elegí uno parecido, tocá **Duplicar preset** y cambiá _Nombre_,
    _Aspecto_, _Ancho_, _Alto_, _FPS_, _Contenedor_, _Códec de video_, _Calidad CRF (0–51)_ o
-   _Bitrate video (kbps)_ (si lo completás, se ignora el CRF), _Códec de audio_ y
-   _Bitrate audio (kbps)_. Tocá **Guardar preset**.
+   _Bitrate video (kbps)_ (si lo completás, se ignora el CRF), _Códec de audio_,
+   _Bitrate audio (kbps)_ y **Transparencia** (canal alfa: WebM VP9 o ProRes 4444). Tocá
+   **Guardar preset**.
    - Los presets incluidos no se editan ni se borran: duplicalos.
    - Combinaciones que funcionan: **MP4 + H.264 o H.265 + AAC**, **WebM + VP9** (el audio pasa
      siempre a Opus), **MOV + ProRes + AAC o PCM**.
@@ -382,12 +376,13 @@ La licencia y la atribución de cada sonido se ven en la lista. Si la licencia p
      más chicos, ProRes para llevar a otro editor.
 3. Exportá una vez por preset. Cada exportación es un trabajo nuevo y un archivo nuevo en
    `storage\exports\`.
-4. **Con transparencia**: el preset **WebM con transparencia (VP9)** deja transparente lo que no
+4. **Con transparencia**: el preset **WebM con transparencia (VP9)** (o uno tuyo con la casilla
+   **Transparencia** y códec VP9 o ProRes) deja transparente lo que no
    tiene imagen (útil para exportar solo gráficos). Si hay un video ocupando todo el cuadro, no
    va a quedar nada transparente.
 5. **GIF 480p**: 480×270 a 12 fps, sin audio, en bucle.
 
-<!-- captura: exportar -->
+![Panel Exportar: preset, Transparencia, Quemar subtítulos y exportaciones recientes.](img/05-export-panel.png)
 
 ## 6. Formatos soportados
 
@@ -429,6 +424,8 @@ Detalles:
   **ProRes** usa `prores_ks` (perfil HQ; 4444 con alfa).
 - Si el aspecto del proyecto y del preset difieren, el cuadro entra completo con **fondo
   desenfocado** (o con bordes transparentes si el preset tiene alfa).
+- Subtítulos: se queman si está marcada **Quemar subtítulos en el video** (por defecto sí, salvo
+  que haya un clip de _Subtítulos animados_).
 - Nombre del archivo: `storage\exports\<nombre-o-proyecto>-<AAAAMMDD-HHMMSS>.<ext>`.
 
 ### 6.3 Salida de motion graphics
@@ -530,7 +527,7 @@ Parámetros (nombre en el panel → valores; **negrita** = por defecto):
 
 1. **Título**: Título (**Mi título**), Subtítulo, Estilo (**fade-up**, pop, slide, typewriter,
    boxed), Alineación (**center**, left), Tipografía (**Montserrat**), Tamaño del título (16–400,
-   **120**), Color del título, Color del subtítulo, Color de acento, Fondo (**#111111**), Animación
+   **120**), Color del título, Color del subtítulo, Color de acento, Fondo (**transparent**), Animación
    de salida (**sí**).
 2. **Rótulo**: Nombre, Cargo / descripción, Estilo (**bar**, box, underline, split), Posición
    (**bottom-left**, bottom-center, bottom-right, top-left, top-right), Animación de entrada
@@ -740,35 +737,35 @@ si cada servicio responde. No cambia nada. También podés abrir
 y los workers responden; `"degraded"` indica cuál no (`ffmpeg.available` o `workers.reachable`
 en `false`).
 
-| Síntoma                                                                                        | Causa probable                                                                          | Qué hacer                                                                                                                                                                  |
-| ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| El encabezado dice **Guardado local** o Trabajos dice **Sin conexión**                         | La API (3001) no está corriendo.                                                        | Mirá la ventana "api". Corré `stop.ps1` y `start.ps1`. Revisá `doctor.ps1`.                                                                                                |
-| Un panel dice **Módulo en desarrollo**                                                         | La API respondió "no implementado" (versión vieja de la API).                           | Actualizá el proyecto y corré `setup.ps1` otra vez.                                                                                                                        |
-| Pantalla en blanco o el navegador no abre                                                      | La web no terminó de arrancar o se compiló con otra URL.                                | Abrí <http://localhost:3000> a mano; mirá la ventana "web" o `storage\logs\web.log` (con `-SingleConsole`).                                                                |
-| **Tipo de archivo no soportado** al importar                                                   | La extensión no está en la lista de [§6.1](#61-entrada-lo-que-podés-importar-en-media). | Convertí el archivo (por ejemplo a MP4) o renombrá la extensión si está mal.                                                                                               |
-| **El archivo supera el límite**                                                                | Más de 20 GB.                                                                           | Cortalo o recomprimilo antes de importarlo.                                                                                                                                |
-| La vista previa dice **El navegador no puede reproducir…**                                     | Códec que el navegador no soporta (por ejemplo HEVC, ProRes).                           | En Media tocá **Generar proxy** (varita). Usá Chrome o Edge.                                                                                                               |
-| El medio dice **Sin proxy** por mucho tiempo                                                   | El trabajo _Generar proxy_ falló o sigue en cola.                                       | Mirá **Trabajos**; volvé a tocar **Generar proxy**.                                                                                                                        |
-| **Sin voces instaladas** (los workers no responden) o todas las voces dicen **(no instalada)** | Workers caídos, o no se descargó ninguna voz Piper.                                     | Revisá la ventana "workers" y `doctor.ps1`; para bajar la voz: `apps\workers\.venv\Scripts\python.exe -m studio_workers.models_cli --piper es_AR-daniela-high` y reiniciá. |
-| **Sin modelos en models/rvc**                                                                  | No hay carpetas con `.pth` en `models\rvc\`.                                            | Copiá el modelo como en [§9.3](#93-rvc-conversión-de-voz) y recargá la página.                                                                                             |
-| **Usar GPU (CUDA) — no disponible**                                                            | `USE_CUDA=false`.                                                                       | Reinstalá con `setup.ps1 -WithCuda` (pone `USE_CUDA=true`).                                                                                                                |
-| ElevenLabs/OpenAI dicen **(sin API key)**                                                      | Falta la clave en `.env`.                                                               | Poné la clave y reiniciá con `stop.ps1` + `start.ps1`.                                                                                                                     |
-| Motor de motion en gris o plantilla **(no disponible)**                                        | Falta el Chrome Headless Shell de Remotion.                                             | Pasá el mouse sobre el motor para ver el motivo; desde la carpeta del proyecto: `pnpm --filter @studio/remotion browser:ensure`.                                           |
-| **Parámetros inválidos** o error al renderizar motion                                          | Un valor fuera de rango, un color inválido o JSON mal escrito.                          | Leé el mensaje (dice el campo). Para colores usá `#rrggbb`, `rgba(...)` o `transparent`.                                                                                   |
-| Falla **Renderizar subtítulos como motion**                                                    | Error conocido (ver [§15](#15-limitaciones-conocidas)).                                 | Usá el camino alternativo del [flujo 2](#flujo-2--video-vertical-para-reelstiktok-con-subtítulos-animados).                                                                |
-| Los subtítulos salen **dos veces** en la exportación                                           | Los segmentos del panel se queman siempre, además del motion animado.                   | Borrá los segmentos de la lista después de renderizar el motion.                                                                                                           |
-| Un gráfico no aparece en la exportación                                                        | El clip motion está _Sin renderizar_, o la pista está oculta.                           | Renderizalo (**Actualizar clip y renderizar**) y revisá el botón de ocultar de la pista.                                                                                   |
-| Un video tapa a otro                                                                           | Orden de pistas: la de más abajo en la lista queda encima.                              | Mové los clips a la pista correcta o usá Escala/Posición (PiP).                                                                                                            |
-| **El proyecto no tiene contenido para exportar en ese rango**                                  | Línea de tiempo vacía o rango fuera del contenido.                                      | Revisá _Desde_/_Hasta_ o desmarcá _Exportar solo un rango_.                                                                                                                |
-| La exportación falla con la GPU                                                                | El codificador por hardware no funciona en tu PC.                                       | Studio reintenta con `libx264` y lo recuerda. Si sigue, poné `HW_ENCODER=off`.                                                                                             |
-| Transcribir es muy lento                                                                       | Modelo grande en CPU.                                                                   | Elegí `base` o `small` en _Modelo_. Con GPU: `-WithCuda`.                                                                                                                  |
-| Subtítulos con GPU dicen "CUDA no disponible, usando CPU"                                      | Driver o librerías CUDA.                                                                | Actualizá el driver NVIDIA (570+). Ver [Instalación §8](../INSTALACION-WINDOWS.md#8-solución-de-problemas).                                                                |
-| Falla la transcripción con un modelo nuevo sin internet                                        | El modelo se descarga la primera vez que se usa.                                        | Conectate o usá el modelo instalado (_Por defecto_).                                                                                                                       |
-| RVC tarda muchísimo                                                                            | Normal en CPU.                                                                          | Clips cortos, _Método F0_ **pm**, o `-WithCuda`.                                                                                                                           |
-| El cambio de tono suena raro                                                                   | FFmpeg sin `rubberband` (método de respaldo).                                           | `winget install -e --id Gyan.FFmpeg` y reiniciá.                                                                                                                           |
-| **El puerto 3000/3001/8001 está ocupado**                                                      | Otra copia de Studio u otro programa.                                                   | `stop.ps1`; si sigue, cambiá el puerto en `.env`.                                                                                                                          |
-| Un trabajo quedó **Falló** después de cerrar Studio                                            | Se cortó a mitad y ya usó sus 2 intentos.                                               | Volvé a lanzarlo desde el panel correspondiente.                                                                                                                           |
-| Perdí el proyecto anterior al tocar _Nuevo proyecto_                                           | No hay lista de proyectos en la interfaz.                                               | Sigue guardado en la API, pero no se puede reabrir desde el dashboard. Exportá antes de crear otro.                                                                        |
+| Síntoma                                                                                        | Causa probable                                                                                             | Qué hacer                                                                                                                                                                  |
+| ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| El encabezado dice **Guardado local** o Trabajos dice **Sin conexión**                         | La API (3001) no está corriendo.                                                                           | Mirá la ventana "api". Corré `stop.ps1` y `start.ps1`. Revisá `doctor.ps1`.                                                                                                |
+| Un panel dice **Módulo en desarrollo**                                                         | La API respondió "no implementado" (versión vieja de la API).                                              | Actualizá el proyecto y corré `setup.ps1` otra vez.                                                                                                                        |
+| Pantalla en blanco o el navegador no abre                                                      | La web no terminó de arrancar o se compiló con otra URL.                                                   | Abrí <http://localhost:3000> a mano; mirá la ventana "web" o `storage\logs\web.log` (con `-SingleConsole`).                                                                |
+| **Tipo de archivo no soportado** al importar                                                   | La extensión no está en la lista de [§6.1](#61-entrada-lo-que-podés-importar-en-media).                    | Convertí el archivo (por ejemplo a MP4) o renombrá la extensión si está mal.                                                                                               |
+| **El archivo supera el límite**                                                                | Más de 20 GB.                                                                                              | Cortalo o recomprimilo antes de importarlo.                                                                                                                                |
+| La vista previa dice **El navegador no puede reproducir…**                                     | Códec que el navegador no soporta (por ejemplo HEVC, ProRes).                                              | En Media tocá **Generar proxy** (varita). Usá Chrome o Edge.                                                                                                               |
+| El medio dice **Sin proxy** por mucho tiempo                                                   | El trabajo _Generar proxy_ falló o sigue en cola.                                                          | Mirá **Trabajos**; volvé a tocar **Generar proxy**.                                                                                                                        |
+| **Sin voces instaladas** (los workers no responden) o todas las voces dicen **(no instalada)** | Workers caídos, o no se descargó ninguna voz Piper.                                                        | Revisá la ventana "workers" y `doctor.ps1`; para bajar la voz: `apps\workers\.venv\Scripts\python.exe -m studio_workers.models_cli --piper es_AR-daniela-high` y reiniciá. |
+| **Sin modelos en models/rvc**                                                                  | No hay carpetas con `.pth` en `models\rvc\`.                                                               | Copiá el modelo como en [§9.3](#93-rvc-conversión-de-voz) y recargá la página.                                                                                             |
+| **Usar GPU (CUDA) — no disponible**                                                            | `USE_CUDA=false`.                                                                                          | Reinstalá con `setup.ps1 -WithCuda` (pone `USE_CUDA=true`).                                                                                                                |
+| ElevenLabs/OpenAI dicen **(sin API key)**                                                      | Falta la clave en `.env`.                                                                                  | Poné la clave y reiniciá con `stop.ps1` + `start.ps1`.                                                                                                                     |
+| Motor de motion en gris o plantilla **(no disponible)**                                        | Falta el Chrome Headless Shell de Remotion; el motor _motion-canvas_ siempre figura así (es un esqueleto). | Pasá el mouse sobre el motor para ver el motivo; para Remotion, desde la carpeta del proyecto: `pnpm --filter @studio/remotion browser:ensure`.                            |
+| **Parámetros inválidos** o error al renderizar motion                                          | Un valor fuera de rango, un color inválido o JSON mal escrito.                                             | Leé el mensaje (dice el campo). Para colores usá `#rrggbb`, `rgba(...)` o `transparent`.                                                                                   |
+| Los subtítulos salen **dos veces** en la exportación                                           | Quedó marcada **Quemar subtítulos en el video** además del clip de subtítulos animados.                    | Desmarcala en el panel Exportar antes de exportar.                                                                                                                         |
+| La exportación no arranca y dice que hay clips motion sin renderizar o medios borrados         | Un clip motion está _Sin renderizar_, o un clip usa un medio que ya no existe.                             | Leé el mensaje (lista los clips): renderizalos (**Actualizar clip y renderizar**) o quitá esos clips.                                                                      |
+| No puedo borrar un medio: dice que **se usa en el proyecto …**                                 | El medio tiene clips en la línea de tiempo de ese proyecto.                                                | Quitá sus clips del timeline y volvé a borrarlo.                                                                                                                           |
+| Un video tapa a otro                                                                           | Orden de pistas: la de más abajo en la lista queda encima.                                                 | Mové los clips a la pista correcta o usá Escala/Posición (PiP).                                                                                                            |
+| **El proyecto no tiene contenido para exportar en ese rango**                                  | Línea de tiempo vacía o rango fuera del contenido.                                                         | Revisá _Desde_/_Hasta_ o desmarcá _Exportar solo un rango_.                                                                                                                |
+| La exportación falla con la GPU                                                                | El codificador por hardware no funciona en tu PC.                                                          | Studio reintenta con `libx264` y lo recuerda. Si sigue, poné `HW_ENCODER=off`.                                                                                             |
+| Transcribir es muy lento                                                                       | Modelo grande en CPU.                                                                                      | Elegí `base` o `small` en _Modelo_. Con GPU: `-WithCuda`.                                                                                                                  |
+| Subtítulos con GPU dicen "CUDA no disponible, usando CPU"                                      | Driver o librerías CUDA.                                                                                   | Actualizá el driver NVIDIA (570+). Ver [Instalación §8](../INSTALACION-WINDOWS.md#8-solución-de-problemas).                                                                |
+| Falla la transcripción con un modelo nuevo sin internet                                        | El modelo se descarga la primera vez que se usa.                                                           | Conectate o usá el modelo instalado (_Por defecto_).                                                                                                                       |
+| RVC tarda muchísimo                                                                            | Normal en CPU.                                                                                             | Clips cortos, _Método F0_ **pm**, o `-WithCuda`.                                                                                                                           |
+| El cambio de tono suena raro                                                                   | FFmpeg sin `rubberband` (método de respaldo).                                                              | `winget install -e --id Gyan.FFmpeg` y reiniciá.                                                                                                                           |
+| **El puerto 3000/3001/8001 está ocupado**                                                      | Otra copia de Studio u otro programa.                                                                      | `stop.ps1`; si sigue, cambiá el puerto en `.env`.                                                                                                                          |
+| Un trabajo quedó **Falló** después de cerrar Studio                                            | Se cortó a mitad y ya usó sus 2 intentos.                                                                  | Volvé a lanzarlo desde el panel correspondiente.                                                                                                                           |
+| Perdí el proyecto anterior al tocar _Nuevo proyecto_                                           | No hay lista de proyectos en la interfaz.                                                                  | Sigue guardado en la API, pero no se puede reabrir desde el dashboard. Exportá antes de crear otro.                                                                        |
 
 Problemas de instalación (scripts bloqueados, `winget` faltante, rutas largas, Python abre la
 Microsoft Store, `VCRUNTIME140.dll`, etc.): ver
@@ -778,9 +775,12 @@ Microsoft Store, `VCRUNTIME140.dll`, etc.): ver
 
 La guía completa está en **[Reportar errores](../REPORTAR-ERRORES.md)**. Resumen:
 
-1. **Desde el dashboard**: botón **Reportar error** en el panel **Trabajos** (o en la paleta
-   `Ctrl+K` → _Reportar error_).
-2. **Desde PowerShell** (sirve aunque el dashboard o la API no arranquen):
+1. **Desde el dashboard**: botón **🐞 Reportar error** del encabezado, la paleta (`Ctrl+K` →
+   _Reportar error (diagnóstico para Claude)_), el botón **Reportar** de un trabajo que falló en
+   **Trabajos** o el botón **Reportar** del aviso rojo. Completá título, qué intentabas hacer y
+   severidad; al terminar te da el **Prompt para Claude** (botón para copiarlo) y un **.zip**.
+2. **Sin la app** (sirve aunque el dashboard o la API no arranquen): doble clic en
+   `scripts\windows\reportar-error.cmd`, o desde PowerShell:
 
    ```powershell
    powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\reportar-error.ps1
@@ -792,13 +792,13 @@ La guía completa está en **[Reportar errores](../REPORTAR-ERRORES.md)**. Resum
    `entorno.json`, `doctor.txt`, los últimos 20 trabajos, el último proyecto, los logs y tu `.env`
    con las claves reemplazadas por `[REDACTED]`.
 
-3. **En GitHub**: abrí un _issue_ con la plantilla **bug** (`.github/ISSUE_TEMPLATE/bug.yml`) y
-   adjuntá lo que generaron los pasos anteriores.
+3. **En GitHub**: _Issues → New issue → **Reportar un error**_ (formulario
+   `.github/ISSUE_TEMPLATE/bug.yml`) y adjuntá el `.zip` que generaron los pasos anteriores.
 
 Contá siempre: qué hiciste (pasos), qué esperabas, qué pasó, y la receta de [§14](#14-pruebas-que-podés-hacer-hoy)
 si fue una de ellas. **No pegues tu `.env` ni tus claves.**
 
-<!-- captura: trabajos -->
+![Panel Trabajos: progreso de cada tarea, resultado y botón Reportar en los que fallan.](img/04-jobs-progress.png)
 
 ## 14. Pruebas que podés hacer hoy
 
@@ -933,9 +933,9 @@ Reemplazá lo que está entre `<…>`.
 2. **Arreglar un error conocido del manual**
 
    ```text
-   En docs/manual/MANUAL-USUARIO.md §15 figura "<limitación, ej.: Renderizar subtítulos como motion falla>".
+   En docs/manual/MANUAL-USUARIO.md §15 figura "<limitación, ej.: no hay lista para reabrir proyectos anteriores>".
    Corregilo en el código para que funcione desde el dashboard, agregá tests y actualizá el manual
-   (MD, index.html y PDF) quitando el camino alternativo.
+   (MD, index.html y PDF) quitando esa limitación.
    ```
 
 3. **Agregar una función**
@@ -973,10 +973,8 @@ Reemplazá lo que está entre `<…>`.
 
 Comprobadas en el código; están para que no pierdas tiempo:
 
-- **Renderizar subtítulos como motion** (panel Subtítulos) falla: envía los datos con un formato
-  que la plantilla _Subtítulos animados_ no acepta (el campo _Estilo_ va como objeto). Usá el
-  camino alternativo del [flujo 2](#flujo-2--video-vertical-para-reelstiktok-con-subtítulos-animados).
-- Los **segmentos de subtítulos se queman siempre** en la exportación (estilo fijo, sin animación).
+- Los **segmentos de subtítulos** se queman con un estilo fijo (sin animación); para animarlos usá
+  _Renderizar subtítulos como motion_.
 - **Ducking**: solo por API (no hay botón) y no se aplica al exportar desde la línea de tiempo.
 - **Archivos `.srt`/`.vtt`/`.ass` importados** no se cargan como segmentos ni se queman.
 - **Lottie importado** (`.json`) puesto directamente en la línea de tiempo no se exporta: usá la
@@ -991,7 +989,7 @@ Comprobadas en el código; están para que no pierdas tiempo:
 - **No se pueden reordenar pistas** desde la interfaz.
 - El estilo de subtítulos no se recarga desde el proyecto al abrir otro navegador (queda el
   guardado en ese navegador).
-- Motor **Motion Canvas**: solo esqueleto (no disponible).
+- Motor **Motion Canvas**: solo esqueleto (no disponible; sus plantillas no se pueden elegir).
 - Nunca probado en un Windows real por el equipo que lo armó (se desarrolló en Linux): las
   recetas de [§14](#14-pruebas-que-podés-hacer-hoy) sirven justamente para eso.
 

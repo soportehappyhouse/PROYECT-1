@@ -718,8 +718,12 @@
           </table>
         </div>
         <h2 id="4-recorrido-por-el-dashboard">4. Recorrido por el dashboard</h2>
-        <figure class="placeholder">
-          <div class="ph" role="img" aria-label="Captura pendiente">Captura pendiente</div>
+        <figure>
+          <img
+            src="img/01-dashboard.png"
+            alt="Vista general del dashboard: encabezado, paneles Media, Vista previa, Propiedades y Línea de tiempo."
+            loading="lazy"
+          />
           <figcaption>
             Vista general del dashboard: encabezado, paneles Media, Vista previa, Propiedades y
             Línea de tiempo.
@@ -748,6 +752,10 @@
           <li>
             <strong>Ajustes</strong> (engranaje): pestañas <em>Apariencia</em>, <em>Atajos</em> y
             <em>Layouts</em>.
+          </li>
+          <li>
+            <strong>🐞 Reportar error</strong>: abre el formulario de reporte (ver
+            <a href="#13-cómo-reportar-un-error">§13</a>).
           </li>
         </ul>
         <h3 id="42-los-10-paneles">4.2 Los 10 paneles</h3>
@@ -812,7 +820,8 @@
                   Elegir plantilla, editar parámetros, duración y formato;
                   <strong>Renderizar y añadir</strong>, <strong>Añadir sin render</strong> o
                   <strong>Actualizar clip y renderizar</strong>. Arriba se ve qué motores están
-                  disponibles.
+                  disponibles (en verde); las plantillas de un motor no disponible no se pueden
+                  elegir.
                 </td>
               </tr>
               <tr>
@@ -833,8 +842,10 @@
               <tr>
                 <td><strong>Exportar</strong></td>
                 <td>
-                  Elegir preset, duplicarlo y editarlo, nombre del archivo, exportar un rango, y la
-                  lista de <strong>Exportaciones recientes</strong> con <strong>Descargar</strong>.
+                  Elegir preset (arranca en <em>YouTube 1080p</em>), duplicarlo y editarlo (incluida
+                  la casilla <strong>Transparencia</strong>), nombre del archivo, exportar un rango,
+                  <strong>Quemar subtítulos en el video</strong> y la lista de
+                  <strong>Exportaciones recientes</strong> con <strong>Descargar</strong>.
                 </td>
               </tr>
               <tr>
@@ -842,8 +853,9 @@
                 <td>
                   Todo lo que tarda (análisis, proxies, renders, voz, transcripción, exportación)
                   con su progreso. Permite cancelar, abrir el resultado, filtrar
-                  <em>Todos/Activos</em> y limpiar terminados. Arriba indica la conexión:
-                  <em>En vivo</em>, <em>Consulta periódica</em> o <em>Sin conexión</em>.
+                  <em>Todos/Activos</em>, limpiar terminados y, en los que fallan,
+                  <strong>Reportar</strong>. Arriba indica la conexión: <em>En vivo</em>,
+                  <em>Consulta periódica</em> o <em>Sin conexión</em>.
                 </td>
               </tr>
             </tbody>
@@ -876,9 +888,13 @@
           </li>
           <li>Hasta <strong>100 pasos</strong> de deshacer/rehacer.</li>
         </ul>
-        <figure class="placeholder">
-          <div class="ph" role="img" aria-label="Captura pendiente">Captura pendiente</div>
-          <figcaption>Línea de tiempo con pistas de video, audio, texto y motion.</figcaption>
+        <figure>
+          <img
+            src="img/02-timeline-motion.png"
+            alt="Línea de tiempo con un clip motion renderizado sobre el video."
+            loading="lazy"
+          />
+          <figcaption>Línea de tiempo con un clip motion renderizado sobre el video.</figcaption>
         </figure>
         <h3 id="43-personalizar">4.3 Personalizar</h3>
         <ul>
@@ -914,7 +930,7 @@
             <strong>Comandos</strong>): escribí parte del nombre y Enter. Incluye todas las acciones
             con atajo, mostrar/ocultar/ir a cada panel, aplicar layouts, cambiar tema, abrir
             ajustes, agregar pistas, <em>Añadir clip de texto en el cursor</em>,
-            <em>Nuevo proyecto</em> y <em>Reportar error</em> (ver
+            <em>Nuevo proyecto</em> y <em>Reportar error (diagnóstico para Claude)</em> (ver
             <a href="#13-cómo-reportar-un-error">§13</a>).
           </li>
         </ul>
@@ -923,9 +939,9 @@
           la API local (gana la copia más nueva), así sobreviven a borrar el historial del
           navegador.
         </p>
-        <figure class="placeholder">
-          <div class="ph" role="img" aria-label="Captura pendiente">Captura pendiente</div>
-          <figcaption>Ajustes: apariencia, atajos y layouts.</figcaption>
+        <figure>
+          <img src="img/06-command-palette.png" alt="Paleta de comandos (Ctrl+K)." loading="lazy" />
+          <figcaption>Paleta de comandos (Ctrl+K).</figcaption>
         </figure>
         <h3 id="44-guardado-del-proyecto">4.4 Guardado del proyecto</h3>
         <ul>
@@ -1013,56 +1029,29 @@
             <em>Titular arriba</em>, más tamaño, posición, colores, animación y mayúsculas.
           </li>
           <li>
-            <strong>Subtítulos simples (quemados)</strong>: con eso alcanza. Al exportar, los
-            segmentos se queman con FFmpeg usando la fuente, tamaño, color, posición y mayúsculas
-            del estilo (sin animación).
+            <strong>Subtítulos simples (quemados)</strong>: con eso alcanza. Al exportar, con la
+            casilla <strong>Quemar subtítulos en el video</strong> marcada, los segmentos se queman
+            con FFmpeg usando la fuente, tamaño, color, posición y mayúsculas del estilo (sin
+            animación).
           </li>
           <li>
-            <strong>Subtítulos animados (palabra a palabra)</strong>: el botón
-            <em>Renderizar subtítulos como motion</em> hoy <strong>falla</strong> (ver
-            <a href="#15-limitaciones-conocidas">§15</a>). Hacelo así:
-            <ol>
-              <li>
-                En el aviso de <em>Transcripción: completado</em> (o en
-                <strong>Trabajos → Abrir resultado</strong>) se abre un archivo
-                <code>.json</code> (<code>storage\renders\&lt;id&gt;.json</code>). Copiá todo su
-                contenido.
-              </li>
-              <li>
-                En <strong>Motion graphics</strong> elegí
-                <strong>Subtítulos animados · remotion</strong>.
-              </li>
-              <li>
-                Pegá el contenido en <em>Transcripción (palabra a palabra) (JSON)</em> y hacé clic
-                fuera del campo.
-              </li>
-              <li>
-                Elegí <em>Estilo</em> (<code>highlight</code>, <code>karaoke</code>,
-                <code>pop</code>, <code>box</code>), <em>Posición</em>, colores, etc. Dejá
-                <em>Fondo</em> en <code>transparent</code> y <em>Formato</em> en
-                <strong>WebM VP9 con alfa (overlay)</strong>.
-              </li>
-              <li>En <em>Duración (s)</em> poné la duración del clip.</li>
-              <li>
-                Llevá el cursor al <strong>inicio del clip de video</strong> y tocá
-                <strong>Renderizar y añadir</strong>. Los tiempos del JSON cuentan desde el comienzo
-                del archivo original: coinciden si el clip tiene <em>Entrada (s)</em> = 0.
-              </li>
-              <li>
-                Para no ver los subtítulos dos veces, borrá los segmentos de la lista del panel
-                Subtítulos (tacho de cada uno): esos se queman siempre al exportar.
-              </li>
-            </ol>
+            <strong>Subtítulos animados (palabra a palabra)</strong>: tocá
+            <strong>Renderizar subtítulos como motion</strong>. Se crea un clip en la pista
+            <strong>Motion</strong> con la plantilla <em>Subtítulos animados</em> que empieza donde
+            empieza el primer segmento, y se renderiza con fondo transparente (mirá
+            <strong>Trabajos</strong>). Para cambiar el estilo de la animación
+            (<code>highlight</code>, <code>karaoke</code>, <code>pop</code>, <code>box</code>),
+            seleccioná ese clip, tocá <em>Editar el clip motion seleccionado</em> en
+            <strong>Motion graphics</strong> y <strong>Actualizar clip y renderizar</strong>. Cuando
+            hay un clip de subtítulos animados, la casilla
+            <strong>Quemar subtítulos en el video</strong> del panel Exportar arranca
+            <strong>desmarcada</strong>, así no salen dos veces.
           </li>
           <li>
             Exportá con <strong>Reels / TikTok (9:16)</strong> (1080×1920, 30 fps) o
             <strong>YouTube Shorts (9:16)</strong> (1080×1920, 60 fps).
           </li>
         </ol>
-        <figure class="placeholder">
-          <div class="ph" role="img" aria-label="Captura pendiente">Captura pendiente</div>
-          <figcaption>Panel Subtítulos: transcripción con Whisper, segmentos y estilos.</figcaption>
-        </figure>
         <h3 id="flujo-3--locución-con-tts--música-con-ducking">
           Flujo 3 — Locución con TTS + música con ducking
         </h3>
@@ -1143,10 +1132,6 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3001/api/voice/effects `
             </ul>
           </li>
         </ul>
-        <figure class="placeholder">
-          <div class="ph" role="img" aria-label="Captura pendiente">Captura pendiente</div>
-          <figcaption>Panel Voz y audio: texto a voz, efectos y RVC.</figcaption>
-        </figure>
         <h3 id="flujo-4--cambiar-la-voz-con-rvc">Flujo 4 — Cambiar la voz con RVC</h3>
         <ol>
           <li>
@@ -1182,9 +1167,10 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3001/api/voice/effects `
             motor <code>remotion</code>).
           </li>
           <li>
-            Editá los <em>Parámetros</em> (textos, estilo, tipografía, colores). Para que se
-            superponga al video, escribí <code>transparent</code> en el campo de texto de
-            <em>Fondo</em> (el selector de color solo elige colores).
+            Editá los <em>Parámetros</em> (textos, estilo, tipografía, colores). El
+            <strong>Título</strong> ya viene con <em>Fondo</em> <code>transparent</code>; en otras
+            plantillas, para que se superpongan al video, escribí <code>transparent</code> en el
+            campo de texto de <em>Fondo</em> (el selector de color solo elige colores).
           </li>
           <li>
             <em>Formato</em>: <strong>WebM VP9 con alfa (overlay)</strong> para usarlo dentro de
@@ -1202,12 +1188,18 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3001/api/voice/effects `
           </li>
         </ol>
         <p>
-          Un clip motion que dice <em>Sin renderizar</em> en Propiedades
-          <strong>no sale en la exportación</strong>.
+          Si un clip motion dice <em>Sin renderizar</em> en Propiedades,
+          <strong>la exportación se niega a empezar</strong> y te dice qué clip falta renderizar.
         </p>
-        <figure class="placeholder">
-          <div class="ph" role="img" aria-label="Captura pendiente">Captura pendiente</div>
-          <figcaption>Panel Motion graphics: plantilla, parámetros y render.</figcaption>
+        <figure>
+          <img
+            src="img/03-motion-form.png"
+            alt="Panel Motion graphics: plantilla, parámetros generados automáticamente y render."
+            loading="lazy"
+          />
+          <figcaption>
+            Panel Motion graphics: plantilla, parámetros generados automáticamente y render.
+          </figcaption>
         </figure>
         <h3 id="flujo-6--agregar-efectos-de-sonido-desde-la-biblioteca">
           Flujo 6 — Agregar efectos de sonido desde la biblioteca
@@ -1253,15 +1245,16 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3001/api/voice/effects `
         <h3 id="flujo-7--exportar-en-varios-formatos">Flujo 7 — Exportar en varios formatos</h3>
         <ol>
           <li>
-            Abrí <strong>Exportar</strong> y elegí un preset de la tabla de
-            <a href="#62-salida-presets-de-exportación">§6.2</a>.
+            Abrí <strong>Exportar</strong> (arranca en <strong>YouTube 1080p (16:9)</strong>) y
+            elegí un preset de la tabla de <a href="#62-salida-presets-de-exportación">§6.2</a>.
           </li>
           <li>
             Para un formato propio: elegí uno parecido, tocá <strong>Duplicar preset</strong> y
             cambiá <em>Nombre</em>, <em>Aspecto</em>, <em>Ancho</em>, <em>Alto</em>, <em>FPS</em>,
             <em>Contenedor</em>, <em>Códec de video</em>, <em>Calidad CRF (0–51)</em> o
             <em>Bitrate video (kbps)</em> (si lo completás, se ignora el CRF),
-            <em>Códec de audio</em> y <em>Bitrate audio (kbps)</em>. Tocá
+            <em>Códec de audio</em>, <em>Bitrate audio (kbps)</em> y
+            <strong>Transparencia</strong> (canal alfa: WebM VP9 o ProRes 4444). Tocá
             <strong>Guardar preset</strong>.
             <ul>
               <li>Los presets incluidos no se editan ni se borran: duplicalos.</li>
@@ -1282,15 +1275,22 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3001/api/voice/effects `
           </li>
           <li>
             <strong>Con transparencia</strong>: el preset
-            <strong>WebM con transparencia (VP9)</strong> deja transparente lo que no tiene imagen
-            (útil para exportar solo gráficos). Si hay un video ocupando todo el cuadro, no va a
-            quedar nada transparente.
+            <strong>WebM con transparencia (VP9)</strong> (o uno tuyo con la casilla
+            <strong>Transparencia</strong> y códec VP9 o ProRes) deja transparente lo que no tiene
+            imagen (útil para exportar solo gráficos). Si hay un video ocupando todo el cuadro, no
+            va a quedar nada transparente.
           </li>
           <li><strong>GIF 480p</strong>: 480×270 a 12 fps, sin audio, en bucle.</li>
         </ol>
-        <figure class="placeholder">
-          <div class="ph" role="img" aria-label="Captura pendiente">Captura pendiente</div>
-          <figcaption>Panel Exportar: presets, rango y exportaciones recientes.</figcaption>
+        <figure>
+          <img
+            src="img/05-export-panel.png"
+            alt="Panel Exportar: preset, Transparencia, Quemar subtítulos y exportaciones recientes."
+            loading="lazy"
+          />
+          <figcaption>
+            Panel Exportar: preset, Transparencia, Quemar subtítulos y exportaciones recientes.
+          </figcaption>
         </figure>
         <h2 id="6-formatos-soportados">6. Formatos soportados</h2>
         <h3 id="61-entrada-lo-que-podés-importar-en-media">
@@ -1469,6 +1469,11 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3001/api/voice/effects `
           <li>
             Si el aspecto del proyecto y del preset difieren, el cuadro entra completo con
             <strong>fondo desenfocado</strong> (o con bordes transparentes si el preset tiene alfa).
+          </li>
+          <li>
+            Subtítulos: se queman si está marcada
+            <strong>Quemar subtítulos en el video</strong> (por defecto sí, salvo que haya un clip
+            de <em>Subtítulos animados</em>).
           </li>
           <li>
             Nombre del archivo:
@@ -1852,7 +1857,7 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3001/api/voice/effects `
             (<strong>fade-up</strong>, pop, slide, typewriter, boxed), Alineación
             (<strong>center</strong>, left), Tipografía (<strong>Montserrat</strong>), Tamaño del
             título (16–400, <strong>120</strong>), Color del título, Color del subtítulo, Color de
-            acento, Fondo (<strong>#111111</strong>), Animación de salida (<strong>sí</strong>).
+            acento, Fondo (<strong>transparent</strong>), Animación de salida (<strong>sí</strong>).
           </li>
           <li>
             <strong>Rótulo</strong>: Nombre, Cargo / descripción, Estilo (<strong>bar</strong>, box,
@@ -2575,10 +2580,13 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
               </tr>
               <tr>
                 <td>Motor de motion en gris o plantilla <strong>(no disponible)</strong></td>
-                <td>Falta el Chrome Headless Shell de Remotion.</td>
                 <td>
-                  Pasá el mouse sobre el motor para ver el motivo; desde la carpeta del proyecto:
-                  <code>pnpm --filter @studio/remotion browser:ensure</code>.
+                  Falta el Chrome Headless Shell de Remotion; el motor
+                  <em>motion-canvas</em> siempre figura así (es un esqueleto).
+                </td>
+                <td>
+                  Pasá el mouse sobre el motor para ver el motivo; para Remotion, desde la carpeta
+                  del proyecto: <code>pnpm --filter @studio/remotion browser:ensure</code>.
                 </td>
               </tr>
               <tr>
@@ -2590,27 +2598,32 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
                 </td>
               </tr>
               <tr>
-                <td>Falla <strong>Renderizar subtítulos como motion</strong></td>
-                <td>Error conocido (ver <a href="#15-limitaciones-conocidas">§15</a>).</td>
-                <td>
-                  Usá el camino alternativo del
-                  <a href="#flujo-2--video-vertical-para-reelstiktok-con-subtítulos-animados"
-                    >flujo 2</a
-                  >.
-                </td>
-              </tr>
-              <tr>
                 <td>Los subtítulos salen <strong>dos veces</strong> en la exportación</td>
-                <td>Los segmentos del panel se queman siempre, además del motion animado.</td>
-                <td>Borrá los segmentos de la lista después de renderizar el motion.</td>
+                <td>
+                  Quedó marcada <strong>Quemar subtítulos en el video</strong> además del clip de
+                  subtítulos animados.
+                </td>
+                <td>Desmarcala en el panel Exportar antes de exportar.</td>
               </tr>
               <tr>
-                <td>Un gráfico no aparece en la exportación</td>
-                <td>El clip motion está <em>Sin renderizar</em>, o la pista está oculta.</td>
                 <td>
-                  Renderizalo (<strong>Actualizar clip y renderizar</strong>) y revisá el botón de
-                  ocultar de la pista.
+                  La exportación no arranca y dice que hay clips motion sin renderizar o medios
+                  borrados
                 </td>
+                <td>
+                  Un clip motion está <em>Sin renderizar</em>, o un clip usa un medio que ya no
+                  existe.
+                </td>
+                <td>
+                  Leé el mensaje (lista los clips): renderizalos (<strong
+                    >Actualizar clip y renderizar</strong
+                  >) o quitá esos clips.
+                </td>
+              </tr>
+              <tr>
+                <td>No puedo borrar un medio: dice que <strong>se usa en el proyecto …</strong></td>
+                <td>El medio tiene clips en la línea de tiempo de ese proyecto.</td>
+                <td>Quitá sus clips del timeline y volvé a borrarlo.</td>
               </tr>
               <tr>
                 <td>Un video tapa a otro</td>
@@ -2700,14 +2713,19 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
         <ol>
           <li>
             <p>
-              <strong>Desde el dashboard</strong>: botón <strong>Reportar error</strong> en el panel
-              <strong>Trabajos</strong> (o en la paleta <code>Ctrl+K</code> →
-              <em>Reportar error</em>).
+              <strong>Desde el dashboard</strong>: botón <strong>🐞 Reportar error</strong> del
+              encabezado, la paleta (<code>Ctrl+K</code> →
+              <em>Reportar error (diagnóstico para Claude)</em>), el botón
+              <strong>Reportar</strong> de un trabajo que falló en <strong>Trabajos</strong> o el
+              botón <strong>Reportar</strong> del aviso rojo. Completá título, qué intentabas hacer
+              y severidad; al terminar te da el <strong>Prompt para Claude</strong> (botón para
+              copiarlo) y un <strong>.zip</strong>.
             </p>
           </li>
           <li>
             <p>
-              <strong>Desde PowerShell</strong> (sirve aunque el dashboard o la API no arranquen):
+              <strong>Sin la app</strong> (sirve aunque el dashboard o la API no arranquen): doble
+              clic en <code>scripts\windows\reportar-error.cmd</code>, o desde PowerShell:
             </p>
             <pre><code class="language-powershell">powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\reportar-error.ps1
 </code></pre>
@@ -2724,8 +2742,9 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
           </li>
           <li>
             <p>
-              <strong>En GitHub</strong>: abrí un <em>issue</em> con la plantilla
-              <strong>bug</strong> (<code>.github/ISSUE_TEMPLATE/bug.yml</code>) y adjuntá lo que
+              <strong>En GitHub</strong>:
+              <em>Issues → New issue → <strong>Reportar un error</strong></em> (formulario
+              <code>.github/ISSUE_TEMPLATE/bug.yml</code>) y adjuntá el <code>.zip</code> que
               generaron los pasos anteriores.
             </p>
           </li>
@@ -2735,9 +2754,15 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
           <a href="#14-pruebas-que-podés-hacer-hoy">§14</a> si fue una de ellas.
           <strong>No pegues tu <code>.env</code> ni tus claves.</strong>
         </p>
-        <figure class="placeholder">
-          <div class="ph" role="img" aria-label="Captura pendiente">Captura pendiente</div>
-          <figcaption>Panel Trabajos: progreso, resultado y errores de cada tarea.</figcaption>
+        <figure>
+          <img
+            src="img/04-jobs-progress.png"
+            alt="Panel Trabajos: progreso de cada tarea, resultado y botón Reportar en los que fallan."
+            loading="lazy"
+          />
+          <figcaption>
+            Panel Trabajos: progreso de cada tarea, resultado y botón Reportar en los que fallan.
+          </figcaption>
         </figure>
         <h2 id="14-pruebas-que-podés-hacer-hoy">14. Pruebas que podés hacer hoy</h2>
         <p>
@@ -2997,9 +3022,9 @@ Encontrá la causa en el código, corregila con un test que lo cubra y decime c�
           </li>
           <li>
             <p><strong>Arreglar un error conocido del manual</strong></p>
-            <pre><code class="language-text">En docs/manual/MANUAL-USUARIO.md §15 figura &quot;&lt;limitación, ej.: Renderizar subtítulos como motion falla&gt;&quot;.
+            <pre><code class="language-text">En docs/manual/MANUAL-USUARIO.md §15 figura &quot;&lt;limitación, ej.: no hay lista para reabrir proyectos anteriores&gt;&quot;.
 Corregilo en el código para que funcione desde el dashboard, agregá tests y actualizá el manual
-(MD, index.html y PDF) quitando el camino alternativo.
+(MD, index.html y PDF) quitando esa limitación.
 </code></pre>
           </li>
           <li>
@@ -3034,14 +3059,8 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
         <p>Comprobadas en el código; están para que no pierdas tiempo:</p>
         <ul>
           <li>
-            <strong>Renderizar subtítulos como motion</strong> (panel Subtítulos) falla: envía los
-            datos con un formato que la plantilla <em>Subtítulos animados</em> no acepta (el campo
-            <em>Estilo</em> va como objeto). Usá el camino alternativo del
-            <a href="#flujo-2--video-vertical-para-reelstiktok-con-subtítulos-animados">flujo 2</a>.
-          </li>
-          <li>
-            Los <strong>segmentos de subtítulos se queman siempre</strong> en la exportación (estilo
-            fijo, sin animación).
+            Los <strong>segmentos de subtítulos</strong> se queman con un estilo fijo (sin
+            animación); para animarlos usá <em>Renderizar subtítulos como motion</em>.
           </li>
           <li>
             <strong>Ducking</strong>: solo por API (no hay botón) y no se aplica al exportar desde
@@ -3076,7 +3095,10 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
             El estilo de subtítulos no se recarga desde el proyecto al abrir otro navegador (queda
             el guardado en ese navegador).
           </li>
-          <li>Motor <strong>Motion Canvas</strong>: solo esqueleto (no disponible).</li>
+          <li>
+            Motor <strong>Motion Canvas</strong>: solo esqueleto (no disponible; sus plantillas no
+            se pueden elegir).
+          </li>
           <li>
             Nunca probado en un Windows real por el equipo que lo armó (se desarrolló en Linux): las
             recetas de <a href="#14-pruebas-que-podés-hacer-hoy">§14</a> sirven justamente para eso.

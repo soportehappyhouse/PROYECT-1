@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import Settings
+from ..gpu import GPU_FALLBACK_CPU, GpuBudget, whisper_vram_mb
 from ..schemas import SubtitleSegment, SubtitleWord, Transcript
 
 log = logging.getLogger("studio_workers")
@@ -37,6 +38,7 @@ WHISPER_MODELS = (
     "distil-small.en",
 )
 MAX_CACHED_MODELS = 2
+TURBO_MODEL = "large-v3-turbo"
 
 ProgressFn = Callable[[float, str], None]
 ModelFactory = Callable[[str, str, str, str], Any]
@@ -75,12 +77,35 @@ def download_model(models_root: Path, name: str) -> Path:
     return Path(fw_download(name, cache_dir=str(root)))
 
 
+def turbo_installed(models_root: Path) -> bool:
+    """Pack whisper-turbo: the large-v3-turbo CTranslate2 snapshot is on disk."""
+    return TURBO_MODEL in installed_models(models_root)
+
+
 class WhisperEngine:
-    def __init__(self, settings: Settings, factory: ModelFactory | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        factory: ModelFactory | None = None,
+        budget: GpuBudget | None = None,
+    ) -> None:
         self.settings = settings
         self._factory = factory or _default_factory
         self._models: OrderedDict[tuple[str, str, str], Any] = OrderedDict()
         self._lock = threading.Lock()
+        self.budget = budget
+
+    def default_model(self) -> str:
+        """large-v3-turbo (float16) on CUDA when the whisper-turbo pack is installed."""
+        if self.settings.use_cuda and turbo_installed(self.settings.models_root):
+            return TURBO_MODEL
+        return self.settings.whisper_model
+
+    def unload_device(self, device: str) -> None:
+        """GPU budget callback: drop every model loaded on `device`."""
+        with self._lock:
+            for key in [k for k in self._models if k[1] == device]:
+                del self._models[key]
 
     def _compute_type(self, device: str, requested: str | None) -> str:
         wanted = (requested or self.settings.whisper_compute_type or "auto").lower()
@@ -114,22 +139,47 @@ class WhisperEngine:
         beam_size: int = 5,
         compute_type: str | None = None,
         on_progress: ProgressFn | None = None,
+        force_device: str | None = None,
     ) -> Transcript:
-        name = model or self.settings.whisper_model
+        auto = not model
+        name = model or self.default_model()
         if name not in WHISPER_MODELS:
             raise ValueError(f"Modelo Whisper desconocido: {name}")
         devices = ["cuda", "cpu"] if self.settings.use_cuda else ["cpu"]
+        if force_device in ("cpu", "cuda"):
+            devices = [force_device]
+        warnings: list[str] = []
         last_error: Exception | None = None
         for device in devices:
             ctype = self._compute_type(device, compute_type)
             if device == "cpu" and ctype in ("float16", "int8_float16"):
                 ctype = "int8"  # fp16 is not supported on CPU
+            run_name = name
+            if (
+                device == "cpu"
+                and auto
+                and name == TURBO_MODEL
+                and name != (self.settings.whisper_model)
+            ):
+                run_name = self.settings.whisper_model  # turbo on CPU is slow: use WHISPER_MODEL
+            budget_key = f"whisper:{run_name}:{ctype}"
+            if device == "cuda" and self.budget is not None:
+                decision = self.budget.acquire(
+                    budget_key,
+                    whisper_vram_mb(run_name, ctype),
+                    lambda: self.unload_device("cuda"),
+                )
+                if decision.device == "cpu":
+                    warnings.extend(w for w in decision.warnings if w not in warnings)
+                    if on_progress:
+                        on_progress(0.0, "VRAM insuficiente, usando CPU")
+                    continue
             try:
-                instance = self._get(name, device, ctype)
-                return self._run(
+                instance = self._get(run_name, device, ctype)
+                transcript = self._run(
                     instance,
                     audio,
-                    name,
+                    run_name,
                     device,
                     language,
                     word_timestamps,
@@ -137,9 +187,18 @@ class WhisperEngine:
                     beam_size,
                     on_progress,
                 )
+                transcript.model_used = run_name
+                transcript.compute_type = ctype
+                transcript.warnings = warnings or None
+                return transcript
             except Exception as exc:  # CUDA/cuDNN DLL problems surface here on Windows
                 if device == "cuda":
                     log.warning("whisper on CUDA failed (%s); falling back to CPU int8", exc)
+                    self.unload_device("cuda")
+                    if self.budget is not None:
+                        self.budget.failed(budget_key)
+                    if GPU_FALLBACK_CPU not in warnings:
+                        warnings.append(GPU_FALLBACK_CPU)
                     if on_progress:
                         on_progress(0.0, "CUDA no disponible, usando CPU")
                     last_error = exc

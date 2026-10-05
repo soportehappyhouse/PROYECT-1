@@ -206,6 +206,41 @@ if (Test-Path $VenvPython) {
     } finally { Pop-Location }
     $ErrorActionPreference = 'Stop'
 }
+
+# ------------------------------------------------------------------ AI packs (models\packs.json)
+Write-Step 'Paquetes de IA'
+if (Test-Path $VenvPython) {
+    $ErrorActionPreference = 'Continue'
+    Push-Location $WorkersDir
+    try {
+        $packOut = @(& $VenvPython -m studio_workers.models_cli --packs list --json 2>$null)
+    } finally { Pop-Location }
+    $ErrorActionPreference = 'Stop'
+    $packJson = $packOut | Where-Object { "$_".StartsWith('{') } | Select-Object -Last 1
+    if ($packJson) {
+        try {
+            $packList = ($packJson | ConvertFrom-Json).packs
+            foreach ($p in $packList) {
+                $size = Format-Bytes ([int64]$p.size_bytes)
+                if ($p.installed) { Add-Result ("  pack {0}" -f $p.id) ok ("instalado ({0})" -f $size) }
+                elseif ($p.partial) { Add-Result ("  pack {0}" -f $p.id) warn ("parcial: setup.ps1 -Full o Ajustes > Paquetes de IA lo reanuda ({0})" -f $size) }
+                elseif ($p.id -eq 'core') { Add-Result ("  pack {0}" -f $p.id) fail ("falta ({0}): setup.ps1" -f $size) }
+                else { Add-Result ("  pack {0}" -f $p.id) skip ("no descargado ({0}); se pide al usar la funcion" -f $size) }
+            }
+        } catch {
+            Add-Result 'Paquetes de IA' warn ("salida ilegible: {0}" -f $_.Exception.Message)
+        }
+    } else {
+        Add-Result 'Paquetes de IA' warn 'models_cli --packs list no respondio (setup.ps1)'
+    }
+} else {
+    Add-Result 'Paquetes de IA' skip 'requiere apps\workers\.venv'
+}
+if (Test-Cmd 'nvidia-smi') {
+    Write-Info 'GPU: si la VRAM se llena, el driver NVIDIA usa RAM compartida (5-10x mas lento) en vez de fallar.'
+    Write-Info 'Panel de control NVIDIA > Configuracion 3D > "CUDA - Sysmem Fallback Policy": "Prefer No Sysmem Fallback" falla rapido.'
+}
+
 $storageRoot = Get-StorageDir
 foreach ($pair in @(@('models\', $models), @('storage\', $storageRoot))) {
     $bytes = Get-FolderBytes $pair[1]
@@ -235,6 +270,17 @@ if (Test-HttpOk "http://127.0.0.1:$($ports.Workers)/health" 3) {
     try {
         $h = Invoke-RestMethod -Uri "http://127.0.0.1:$($ports.Workers)/health" -TimeoutSec 5
         Write-Info ("workers: cuda={0} whisper={1} piper={2} rvc={3}" -f $h.cuda, $h.capabilities.whisper, $h.capabilities.piper, $h.capabilities.rvc)
+    } catch { }
+    try {
+        $g = Invoke-RestMethod -Uri "http://127.0.0.1:$($ports.Workers)/gpu/status" -TimeoutSec 5
+        $vram = 'n/d'
+        if ($null -ne $g.vram_total_mb) { $vram = "{0}/{1} MB libres" -f $g.vram_free_mb, $g.vram_total_mb }
+        $resident = '(ninguno)'
+        if ($g.resident_model) { $resident = $g.resident_model }
+        $gState = 'ok'
+        if ($g.sysmem_fallback) { $gState = 'warn' }
+        Add-Result 'GPU (workers)' $gState ("modo={0} {1} VRAM {2}, modelo residente {3}" -f $g.mode, $g.gpu_name, $vram, $resident)
+        if ($g.sysmem_fallback) { Write-Careful 'VRAM casi llena con un modelo cargado: posible uso de RAM compartida (lento). POST /gpu/release o cerra otras apps.' }
     } catch { }
 }
 

@@ -13,7 +13,10 @@
      omite si el sello .venv\.studio-install coincide con el hash de requirements/pyproject.
   5. Modelos: models_cli --check muestra la tabla presentes/faltantes y despues se baja solo lo que
      falta (descargas reanudables, verificadas, registradas en models\manifest.json).
-  6. pnpm build (se omite si el build coincide con el hash del codigo y de .env).
+  6. Paquetes de IA (models\packs.json): por defecto solo "core" (Whisper base + voz Daniela);
+     con -Full todos en secuencia (whisper-turbo, voces-es, rvc-base, scenes, voz-limpia). Lo que
+     ya esta se omite; el resto se baja bajo demanda desde Ajustes > Paquetes de IA.
+  7. pnpm build (se omite si el build coincide con el hash del codigo y de .env).
   Al final: tabla con segundos por paso, "N pasos omitidos, M ejecutados" y el tiempo total
   (tambien en storage\run\setup-last.json).
   Corre como usuario normal: winget pide UAC solo para los instaladores de maquina (Node, VC++).
@@ -23,6 +26,10 @@
   models\manifest.json y conserva el perfil anterior (CUDA / sin RVC).
 .PARAMETER Force
   Ignora los sellos: rehace pnpm install, pip install, el build y vuelve a descargar los modelos.
+.PARAMETER Full
+  Descarga TODOS los paquetes de IA en secuencia (~3,5 GB: Whisper large-v3-turbo, 7 voces Piper,
+  RVC base, PySceneDetect, DeepFilterNet). Sin -Full solo se instala "core" y el resto se pide al
+  usar cada funcion. Se puede repetir: lo ya descargado se omite y lo parcial se reanuda.
 .PARAMETER WithCuda
   Instala torch CUDA 12.8 (cu128) y pone USE_CUDA=true en .env. Requiere GPU NVIDIA + driver 570+.
   Una vez instalado se conserva en los re-run; -WithCuda:$false vuelve al perfil CPU.
@@ -47,6 +54,8 @@
   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\setup.ps1 -Update
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\setup.ps1 -WithCuda
+.EXAMPLE
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\setup.ps1 -WithCuda -Full
 #>
 [CmdletBinding()]
 param(
@@ -54,6 +63,7 @@ param(
     [string]$WhisperModel = 'base',
     [string]$PiperVoice = '',
     [switch]$Update,
+    [switch]$Full,
     [switch]$Force,
     [switch]$SkipWinget,
     [switch]$SkipRvc,
@@ -447,7 +457,39 @@ if ($SkipModels) {
     }
 }
 
-# ============================================================================ 6. build
+# ============================================================================ 6. AI packs
+Write-Step 'Paquetes de IA (core por defecto; -Full: todos en secuencia)'
+if ($SkipModels) {
+    Add-Result 'Paquetes de IA' skip '-SkipModels'
+} elseif (-not $venvOk) {
+    Add-Result 'Paquetes de IA' skip 'requiere el .venv de workers'
+} else {
+    Start-StepClock
+    $packReport = Join-Path (Get-RunDir) 'packs-update.json'
+    $packArgs = @('-m', 'studio_workers.models_cli', '--packs', 'download', 'core')
+    if ($Full) { $packArgs = @('-m', 'studio_workers.models_cli', '--packs', 'all') }
+    if ($Force) { $packArgs += '--force' }
+    try {
+        Invoke-Native $VenvPython ($packArgs + @('--report', $packReport)) $WorkersDir
+        $pk = Get-Content -Raw -Encoding UTF8 $packReport | ConvertFrom-Json
+        $packAction = 'ejecutado'
+        if ($pk.installed -eq 0 -and $pk.failed -eq 0) { $packAction = 'omitido' }
+        Add-Result 'Paquetes de IA' ok ("{0} instalados, {1} ya estaban" -f $pk.installed, $pk.skipped) -Action $packAction -Seconds (Stop-StepClock)
+    } catch {
+        $detail = $_.Exception.Message
+        if (Test-Path $packReport) {
+            try {
+                $pk = Get-Content -Raw -Encoding UTF8 $packReport | ConvertFrom-Json
+                $bad = @($pk.items | Where-Object { $_.action -eq 'failed' } | ForEach-Object { $_.id })
+                if ($bad.Count) { $detail = "con error: $($bad -join ', ')" }
+            } catch { }
+        }
+        Add-Result 'Paquetes de IA' fail ("{0} - reintenta setup.ps1 (se reanuda) o descargalos desde Ajustes" -f $detail) -Seconds (Stop-StepClock)
+    }
+    if (-not $Full) { Write-Info 'Los demas paquetes se descargan al usar cada funcion (o con setup.ps1 -Full).' }
+}
+
+# ============================================================================ 7. build
 Write-Step 'Build (pnpm build)'
 if ($SkipBuild) {
     Add-Result 'Build' skip '-SkipBuild (usa start.ps1 -Dev)'
@@ -473,7 +515,7 @@ if ($SkipBuild) {
     }
 }
 
-# ============================================================================ 7. final check
+# ============================================================================ 8. final check
 # Required assets must exist after the run (not only "the step did not throw").
 Write-Step 'Verificacion final (voz Piper, Whisper, navegador de Remotion)'
 $missingAssets = @()

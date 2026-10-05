@@ -91,6 +91,9 @@ def hash_file(path: Path) -> tuple[str, str]:
 class Manifest:
     root: Path
     files: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # Packs fully installed (studio_workers/packs.py): {id: {"date", "files", "pip"}}. Additive key:
+    # older readers ignore it.
+    packs: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     @property
     def path(self) -> Path:
@@ -105,7 +108,12 @@ class Manifest:
             log.warning("models manifest unreadable; starting a new one")
             data = {}
         files = data.get("files") if isinstance(data, dict) else None
-        return cls(root=root, files=dict(files) if isinstance(files, dict) else {})
+        packs = data.get("packs") if isinstance(data, dict) else None
+        return cls(
+            root=root,
+            files=dict(files) if isinstance(files, dict) else {},
+            packs=dict(packs) if isinstance(packs, dict) else {},
+        )
 
     def save(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
@@ -114,6 +122,8 @@ class Manifest:
             "updated": now_iso(),
             "files": dict(sorted(self.files.items())),
         }
+        if self.packs:
+            data["packs"] = dict(sorted(self.packs.items()))
         tmp = self.path.with_name(MANIFEST_NAME + ".tmp")
         tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", "utf-8")
         tmp.replace(self.path)

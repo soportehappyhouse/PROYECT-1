@@ -2,8 +2,10 @@ from fastapi import APIRouter
 
 from ..config import get_settings
 from ..media import ffmpeg_version, find_ffmpeg
+from ..packs import summary as packs_summary
 from ..rvc_engine import base_status, discover_models
 from ..schemas import Capabilities, FfmpegInfo, ModelsInfo, WorkerHealth
+from ..services import gpu_budget
 from ..stt.engine import installed_models
 from ..system_probe import ctranslate2_cuda_devices, module_installed, package_versions, torch_info
 from ..tts.piper_catalog import installed_voice_ids
@@ -46,4 +48,6 @@ def health() -> WorkerHealth:
             rvc_base=base_status(root),
         ),
         packages=package_versions(),
+        gpu=gpu_budget().status(),
+        packs=packs_summary(root),
     )

@@ -11,7 +11,8 @@ from fastapi import FastAPI
 from . import __version__
 from .config import get_settings
 from .errors import register_error_handlers
-from .routers import health, jobs, models, rvc, transcribe, tts
+from .packs import write_registry
+from .routers import analyze, audio, gpu, health, jobs, models, packs, perf, rvc, transcribe, tts
 from .system_probe import register_cuda_dll_dirs, start_background_probe
 
 log = logging.getLogger("studio_workers")
@@ -30,6 +31,10 @@ def prepare_environment() -> None:
             log.info("CUDA DLL directories: %s", added)
     for sub in ("whisper", "piper", "rvc"):
         (settings.models_root / sub).mkdir(parents=True, exist_ok=True)
+    try:
+        write_registry(settings.models_root)  # models/packs.json (static registry)
+    except OSError as exc:
+        log.warning("could not write models/packs.json: %s", exc)
 
 
 @asynccontextmanager
@@ -48,6 +53,11 @@ def create_app() -> FastAPI:
     app.include_router(tts.router)
     app.include_router(rvc.router)
     app.include_router(models.router)
+    app.include_router(gpu.router)
+    app.include_router(packs.router)
+    app.include_router(analyze.router)
+    app.include_router(audio.router)
+    app.include_router(perf.router)
     return app
 
 

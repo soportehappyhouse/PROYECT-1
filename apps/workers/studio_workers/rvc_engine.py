@@ -22,6 +22,7 @@ from typing import Any
 
 from .config import Settings
 from .downloads import Expected, ProgressFn, download, file_matches
+from .gpu import RVC_VRAM_MB, GpuBudget
 from .media import to_wav
 from .schemas import RvcModel
 
@@ -159,17 +160,40 @@ class ConvertParams:
     protect: float = 0.33
 
 
+BUDGET_KEY = "rvc"
+
+
 class RvcEngine:
-    def __init__(self, settings: Settings, loader_factory: LoaderFactory | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        loader_factory: LoaderFactory | None = None,
+        budget: GpuBudget | None = None,
+    ) -> None:
         self.settings = settings
         self._factory = loader_factory or _default_loader
         self._loaders: dict[str, Any] = {}
         self._lock = threading.Lock()
+        self.budget = budget
 
     def resolve_device(self, requested: str | None) -> str:
         if requested:
             return requested
         return "cuda" if self.settings.use_cuda else "cpu"
+
+    def acquire_device(self, requested: str | None) -> tuple[str, list[str]]:
+        """Device after the GPU budget (unload-before-load, CPU fallback when VRAM is short)."""
+        device = self.resolve_device(requested)
+        if device == "cuda" and self.budget is not None:
+            decision = self.budget.acquire(
+                BUDGET_KEY, RVC_VRAM_MB, lambda: self.unload_device("cuda")
+            )
+            return decision.device, decision.warnings
+        return device, []
+
+    def unload_device(self, device: str) -> None:
+        with self._lock:
+            self._loaders.pop(device, None)
 
     def _loader(self, device: str) -> Any:
         with self._lock:

@@ -3,6 +3,10 @@
 python -m studio_workers.models_cli --check  --piper es_AR-daniela-high --whisper base --rvc-base
 python -m studio_workers.models_cli --update --piper es_AR-daniela-high --whisper base --rvc-base
 
+python -m studio_workers.models_cli --packs list
+python -m studio_workers.models_cli --packs download core whisper-turbo
+python -m studio_workers.models_cli --packs all          (setup.ps1 -Full: every pack, in sequence)
+
 --check   lists what is present/missing (offline; nothing is downloaded) and exits 0.
 --update  downloads only what is missing, also re-checking every group already recorded in
           models/manifest.json. Without --check/--update the listed models are downloaded the same
@@ -13,6 +17,7 @@ Every file ends up in models/manifest.json (name, path, size, sha256/md5, source
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
 import time
@@ -147,6 +152,79 @@ def run_download(
     return results
 
 
+def run_packs(actions: list[str], root: Path, args: argparse.Namespace) -> int:
+    """--packs list | download <id>... | all (sequential; a failed pack does not stop the rest)."""
+    from . import packs as packs_mod  # noqa: PLC0415
+
+    verb, ids = actions[0], actions[1:]
+    with contextlib.suppress(OSError):  # models/packs.json, also without the service running
+        packs_mod.write_registry(root)
+    if verb == "list":
+        rows = packs_mod.list_packs(root)
+        _out(f"  {'Paquete':<16} {'Estado':<12} {'Tamano':>10}  Nombre")
+        _out("  " + "-" * 84)
+        for r in rows:
+            state = "instalado" if r["installed"] else "parcial" if r["partial"] else "falta"
+            mark = CHECK if r["installed"] else "x"
+            _out(
+                f"  {mark} {r['id']:<14} {state:<12} {human_size(r['size_bytes']):>10}"
+                f"  {r['name_es']}"
+            )
+        summary: dict[str, Any] = {"mode": "packs-list", "packs": rows}
+        code = 0
+    else:
+        if verb == "all":
+            ids = list(packs_mod.PACKS)
+        elif verb != "download" or not ids:
+            print("ERROR: uso --packs list | download <id>... | all", file=sys.stderr)
+            return 2
+        unknown = [i for i in ids if i not in packs_mod.PACKS]
+        if unknown:
+            print(f"ERROR: paquete(s) desconocido(s): {', '.join(unknown)}", file=sys.stderr)
+            print(f"  disponibles: {', '.join(packs_mod.PACKS)}", file=sys.stderr)
+            return 2
+        results: list[dict[str, Any]] = []
+        with _make_client() as client:
+            catalog = _catalog(root, offline=False, client=client)
+            for pid in ids:
+                pack = packs_mod.PACKS[pid]
+                _out(f"[{pid}] {pack.name_es}")
+                report_progress = _print_progress(pid)
+                started = time.monotonic()
+                try:
+                    rep = packs_mod.install_pack(
+                        pid,
+                        root,
+                        on_progress=lambda d, t, _f, rp=report_progress: rp(d, t),
+                        on_line=lambda line: _out(f"  {line.rstrip()}"),
+                        client=client,
+                        catalog=catalog,
+                        force=args.force,
+                    )
+                    secs = round(time.monotonic() - started, 1)
+                    action = "skipped" if not (rep.downloaded or rep.pip) else "installed"
+                    _out(f"  {CHECK} {pid}: listo ({secs} s)")
+                    results.append({"id": pid, "action": action, **asdict(rep), "seconds": secs})
+                except Exception as exc:  # next pack continues; setup shows the failure
+                    print(f"  ERROR [{pid}]: {exc}", file=sys.stderr, flush=True)
+                    results.append({"id": pid, "action": "failed", "error": str(exc)})
+        counts = {
+            k: sum(r["action"] == k for r in results) for k in ("skipped", "installed", "failed")
+        }
+        _out(
+            f"  Paquetes: {counts['skipped']} ya estaban, {counts['installed']} instalados, "
+            f"{counts['failed']} con error"
+        )
+        summary = {"mode": "packs-download", **counts, "items": results}
+        code = 1 if counts["failed"] else 0
+    if args.report:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        args.report.write_text(json.dumps(summary, ensure_ascii=False, indent=2), "utf-8")
+    if args.json:
+        print(json.dumps(summary, ensure_ascii=False))
+    return code
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Download Studio models into MODELS_DIR")
     parser.add_argument("--piper", nargs="*", default=[], help="Piper voice ids")
@@ -164,7 +242,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--force", action="store_true", help="re-download even if present")
     parser.add_argument("--json", action="store_true", help="print a JSON summary at the end")
     parser.add_argument("--report", type=Path, help="write the JSON summary to this file")
+    parser.add_argument(
+        "--packs",
+        nargs="+",
+        metavar="ACCION",
+        help="paquetes de IA: list | download <id>... | all (ver studio_workers/packs.py)",
+    )
     args = parser.parse_args(argv)
+    if args.packs:
+        root = get_settings().models_root
+        root.mkdir(parents=True, exist_ok=True)
+        return run_packs(args.packs, root, args)
     if args.force and args.update:
         parser.error("--force y --update son incompatibles")
 

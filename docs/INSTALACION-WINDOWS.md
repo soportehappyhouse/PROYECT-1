@@ -99,6 +99,26 @@ Re-ejecutarlo con todo instalado: alrededor de un minuto (verificaciones, sin de
 | `-SkipRvc` / `-SkipRvc:$false`                | Instalación liviana sin torch/RVC (se recuerda) / volver a instalar RVC                     |
 | `-SkipModels` / `-SkipBuild` / `-SkipBrowser` | Saltear pasos                                                                               |
 | `-SkipWinget`                                 | No usa winget: Git, Node 22, Python 3.11 y FFmpeg ya deben estar en el PATH                 |
+| `-Full`                                       | Descarga todos los paquetes de IA en secuencia (ver abajo)                                  |
+
+### Paquetes de IA (`-Full`)
+
+Por defecto `setup.ps1` instala solo el paquete **core** (Whisper base + voz Daniela). Los demás se
+descargan al usar cada función (Ajustes → Paquetes de IA, con barra de progreso). Con `-Full` se
+bajan todos ahora, uno por uno (~3,5 GB; repetirlo omite lo que ya está y reanuda lo parcial):
+
+| Paquete         | Contenido                               | Tamaño aprox. | Lo usa                                   |
+| --------------- | --------------------------------------- | ------------- | ---------------------------------------- |
+| `core`          | Whisper base + Piper es_AR-daniela-high | 0,3 GB        | subtítulos, locución                     |
+| `whisper-turbo` | Whisper large-v3-turbo (float16 en GPU) | 1,6 GB        | subtítulos (por defecto con `-WithCuda`) |
+| `voces-es`      | 7 voces Piper más (México, España)      | 0,5 GB        | locución                                 |
+| `rvc-base`      | hubert + rmvpe                          | 0,4 GB        | conversión de voz (RVC)                  |
+| `scenes`        | PySceneDetect + OpenCV (pip)            | 0,04 GB       | detectar escenas                         |
+| `voz-limpia`    | DeepFilterNet 3 (pip + pesos)           | 0,01–0,25 GB  | limpiar voz                              |
+
+Estado: `scripts\windows\doctor.ps1` (sección "Paquetes de IA") o, a mano,
+`apps\workers\.venv\Scripts\python.exe -m studio_workers.models_cli --packs list`.
+Uno solo: `... models_cli --packs download whisper-turbo`.
 
 ## 4. Abrir Studio
 

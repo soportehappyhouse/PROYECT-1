@@ -460,6 +460,78 @@ await step("Exportar → Revisión para redes is saved in project.publish", asyn
   return saved.publish;
 });
 
+// Sprint 2 (web): multilayer canvas preview, keyframe via K, «Reencuadrar» panel.
+const previewCanvas = () => page.getByTestId("preview-canvas");
+const trackRow = (kind) => page.locator(`[data-track-kind='${kind}']`).first().locator("xpath=..");
+async function canvasShot() {
+  await sleep(500); // paused redraws are on demand (seeked/loadeddata + rAF)
+  return previewCanvas().screenshot();
+}
+
+await step("Sprint 2: canvas preview composites 2 layers (video + text, pixel check)", async () => {
+  await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).click();
+  await seek(page, 1);
+  await page.getByRole("button", { name: "Texto", exact: true }).click(); // text clip at 1 s
+  await page.locator(".dv-tab", { hasText: "Vista previa" }).click();
+  await previewCanvas().waitFor({ timeout: 10_000 });
+  const all = await canvasShot();
+  await trackRow("motion").getByRole("button", { name: "Ocultar pista" }).click();
+  const videoText = await canvasShot();
+  await trackRow("text").getByRole("button", { name: "Ocultar pista" }).click();
+  const videoOnly = await canvasShot();
+  await trackRow("video").getByRole("button", { name: "Ocultar pista" }).click();
+  const empty = await canvasShot();
+  for (const k of ["text", "video", "motion"])
+    await trackRow(k).getByRole("button", { name: "Mostrar pista" }).click();
+  const textLayer = !videoText.equals(videoOnly);
+  const videoLayer = !videoOnly.equals(empty);
+  if (!textLayer || !videoLayer)
+    throw new Error(`text layer ${textLayer}, video layer ${videoLayer}`);
+  // getImageData works when the media came with CORS (crossOrigin=anonymous): mean brightness
+  const stats = await page.evaluate(() => {
+    const c = document.querySelector("[data-testid='preview-canvas']");
+    try {
+      const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+      let sum = 0;
+      for (let i = 0; i < d.length; i += 4) sum += d[i] + d[i + 1] + d[i + 2];
+      return { mean: Math.round(sum / (d.length / 4) / 3), size: [c.width, c.height] };
+    } catch (e) {
+      return { tainted: String(e).slice(0, 80) };
+    }
+  });
+  await shot(page, "08-preview-multicapa.png");
+  return { textLayer, videoLayer, motionVisible: !all.equals(videoText), ...stats };
+});
+
+await step(
+  "Sprint 2: K adds a keyframe on the selected clip (diamond on the timeline)",
+  async () => {
+    await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).click();
+    const textClip = page.locator("[data-track-kind='text'] [data-clip-id]").first();
+    await textClip.click();
+    await seek(page, 1.5);
+    await textClip.click(); // ruler click keeps the selection; make sure it is the text clip
+    await page.keyboard.press("k");
+    const diamond = textClip.locator("[data-keyframe]");
+    await diamond.first().waitFor({ timeout: 5_000 });
+    const n = await diamond.count();
+    await page.keyboard.press("Control+z");
+    return { diamonds: n };
+  },
+);
+
+await step("Sprint 2: «Reencuadrar» panel opens from the preview", async () => {
+  await page.locator(".dv-tab", { hasText: "Vista previa" }).click();
+  const preview = page.locator("section[aria-label='Vista previa']");
+  await preview.getByRole("button", { name: "Reencuadrar" }).click();
+  const panel = page.getByRole("region", { name: "Reencuadrar" });
+  await panel.waitFor({ timeout: 5_000 });
+  const analyze = await panel.getByRole("button", { name: /Analizar para 9:16/ }).isEnabled();
+  await shot(page, "09-reencuadrar.png");
+  await panel.getByRole("button", { name: "Cerrar reencuadre" }).click();
+  return { analyze };
+});
+
 await browser.close();
 console.log(
   `\nconsole errors (${consoleErrors.length}):`,

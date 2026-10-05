@@ -15,6 +15,7 @@ import { useMediaStore } from "@/stores/media-store";
 import { useProjectStore } from "@/stores/project-store";
 import { assetMeta } from "./MediaPanel";
 import { Panel } from "./Panel";
+import { KeyframesSection, MatteSection, ReframeSection, TrackingSection } from "./VisionSections";
 
 const TRANSITIONS: Transition["type"][] = ["fade", "crossfade", "wipe", "slide", "zoom"];
 const TRANSITION_LABELS: Record<Transition["type"], string> = {
@@ -285,6 +286,7 @@ function ProjectSettings() {
           </Button>
         </div>
       </Section>
+      <ReframeSection />
       {asset ? (
         <Section title="Medio seleccionado">
           <p className="text-xs font-medium">{asset.name}</p>
@@ -413,6 +415,12 @@ export function InspectorPanel() {
             />
           </Section>
         ) : null}
+
+        {track.kind === "video" || track.kind === "motion" || track.kind === "text" ? (
+          <KeyframesSection clip={clip} track={track} />
+        ) : null}
+        <TrackingSection clip={clip} track={track} />
+        <MatteSection clip={clip} track={track} asset={asset} />
 
         {track.kind === "audio" || track.kind === "video" ? (
           <Section title="Audio">

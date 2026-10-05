@@ -39,12 +39,14 @@ import { keepRanges } from "@/lib/cuts";
 import { nextPublish, projectPublish, type ProjectWithPublish } from "@/lib/publish";
 import { splitClipAtTimes } from "@/lib/scenes";
 import { cutClip, speechRanges } from "@/lib/silences";
+import { projectReframe, type ReframeSettings } from "@/lib/vision-types";
 import { addBreadcrumb } from "./breadcrumbs-store";
 
-/** The undoable part of a project. */
+/** The undoable part of a project (Sprint 2: + project.reframe). */
 interface Snapshot {
   tracks: Track[];
   subtitles: SubtitleSegment[];
+  reframe: ReframeSettings | undefined;
 }
 
 const HISTORY_LIMIT = 100;
@@ -107,6 +109,8 @@ export interface ProjectState {
    * remap (fallback when the api has no timeline.apply-cuts). Returns the seconds removed.
    */
   applyCutsLocally: (clipId: string, cuts: readonly { start: number; end: number }[]) => number;
+  /** Sprint 2 «Reencuadrar»: project.reframe (undefined = off); one undo step unless record=false. */
+  setReframe: (reframe: ReframeSettings | undefined, record?: boolean) => void;
   /** Adopt tracks + subtitles edited by the api (timeline.apply-cuts) as one undo step. */
   applyServerEdit: (remote: Pick<Project, "tracks" | "subtitles">, label: string) => void;
   /** «Cortar en escenas»: split one clip at several times (one undo step); returns new pieces. */
@@ -167,16 +171,17 @@ export function createEmptyProject(name = "Proyecto sin título"): Project {
 /** Restore the last project from localStorage (validated), or a fresh one. */
 export function loadLocalProject(): Project {
   const raw = readJson(STORAGE_KEYS.project);
-  const parsed = ProjectSchema.safeParse(raw);
-  if (!parsed.success) return createEmptyProject();
+  const result = ProjectSchema.safeParse(raw);
+  if (!result.success) return createEmptyProject();
+  const parsed = result.data;
   // Keep `publish` even while the shared schema does not list it (zod strips unknown keys).
   const publish = (raw as { publish?: unknown }).publish;
-  return publish && !("publish" in parsed.data)
+  return publish && !("publish" in parsed)
     ? ({
-        ...parsed.data,
-        publish: projectPublish({ ...parsed.data, publish } as Project),
+        ...parsed,
+        publish: projectPublish({ ...parsed, publish } as Project),
       } as Project)
-    : parsed.data;
+    : parsed;
 }
 
 export function persistLocalProject(project: Project): void {
@@ -184,7 +189,7 @@ export function persistLocalProject(project: Project): void {
 }
 
 function snapshot(p: Project): Snapshot {
-  return { tracks: p.tracks, subtitles: p.subtitles };
+  return { tracks: p.tracks, subtitles: p.subtitles, reframe: projectReframe(p) };
 }
 
 export const useProjectStore = create<ProjectState>()((set, get) => {
@@ -498,6 +503,23 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
       const found = findClip(get().project, clipId);
       if (!found || found.track.locked || cuts.length === 0) return 0;
       return rippleKeep(clipId, keepRanges(found.clip, cuts), "Aplicó cortes revisados");
+    },
+    setReframe: (reframe, record = true) => {
+      addBreadcrumb(
+        "project",
+        reframe
+          ? `Reencuadre ${reframe.target} (${reframe.keyframes.length} keyframes)`
+          : "Quitó el reencuadre",
+        reframe ? { target: reframe.target } : {},
+        "project:reframe",
+      );
+      const { project, past } = get();
+      const next: Project = { ...project, reframe, updatedAt: new Date().toISOString() };
+      set({
+        project: next,
+        saveState: "dirty",
+        ...(record ? { past: [...past, snapshot(project)].slice(-HISTORY_LIMIT), future: [] } : {}),
+      });
     },
     applyServerEdit: (remote, label) => {
       addBreadcrumb("clip", label);

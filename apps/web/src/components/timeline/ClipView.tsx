@@ -7,6 +7,8 @@ import { fileUrl } from "@/lib/api";
 import { clipDuration, clipEnd, snapClipStart, snapPoints, snapTime } from "@/lib/timeline";
 import { cn } from "@/lib/utils";
 import { useProjectStore } from "@/stores/project-store";
+import { useKeyframeStore } from "@/stores/keyframe-store";
+import { KeyframeDiamonds } from "./KeyframeDiamonds";
 import { Waveform } from "./Waveform";
 
 export const TRACK_COLORS: Record<Track["kind"], string> = {
@@ -57,6 +59,8 @@ export function ClipView({
     e.stopPropagation();
     const store = useProjectStore.getState();
     store.selectClip(clip.id);
+    // A click on the clip body drops the keyframe selection (Supr deletes the clip again).
+    if (useKeyframeStore.getState().selected) useKeyframeStore.getState().select(undefined);
     if (track.locked) return;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     gesture.current = {
@@ -156,7 +160,10 @@ export function ClipView({
         {clipLabel(clip, asset)}
         {clip.speed !== 1 ? <span className="ml-1 opacity-80">{clip.speed}×</span> : null}
         {clip.voiceEffects.length > 0 ? <span className="ml-1 opacity-80">FX</span> : null}
+        {clip.matte ? <span className="ml-1 opacity-80">Recorte</span> : null}
+        {clip.trackRef ? <span className="ml-1 opacity-80">Sigue</span> : null}
       </div>
+      <KeyframeDiamonds clip={clip} track={track} zoom={zoom} />
       {!track.locked ? (
         <>
           <div

@@ -11,6 +11,15 @@ export const FEATURE_LABELS: Record<string, string> = {
   denoise: "Limpiar voz",
   silencios: "Quitar silencios",
   silences: "Quitar silencios",
+  matting: "Quitar fondo",
+  "matting-image": "Quitar fondo (imágenes)",
+  "quitar-fondo": "Quitar fondo",
+  sam2: "Máscara y seguir objeto",
+  mascara: "Máscara",
+  tracking: "Seguir objeto",
+  seguir: "Seguir objeto",
+  reframe: "Reencuadrar",
+  reencuadre: "Reencuadrar",
 };
 
 export function featureLabel(id: string): string {

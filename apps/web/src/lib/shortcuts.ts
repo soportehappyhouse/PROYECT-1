@@ -48,7 +48,12 @@ export const SHORTCUT_ACTIONS: readonly ShortcutActionInfo[] = [
     group: "Reproducción",
     defaultKeys: "J",
   },
-  { id: "playback.pause", label: "Pausa", group: "Reproducción", defaultKeys: "K" },
+  {
+    id: "playback.pause",
+    label: "Pausa (detenido, con un clip elegido: agregar keyframe)",
+    group: "Reproducción",
+    defaultKeys: "K",
+  },
   {
     id: "playback.shuttleForward",
     label: "Reproducir (otra vez: más rápido)",

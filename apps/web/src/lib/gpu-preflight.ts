@@ -9,6 +9,8 @@ const FEATURE_TEXT: Record<GpuFeature, string> = {
   transcribe: "Transcribir",
   rvc: "Conversión RVC",
   denoise: "Limpiar voz",
+  matting: "Quitar fondo",
+  sam2: "Máscara / seguir objeto (SAM 2)",
 };
 
 /**

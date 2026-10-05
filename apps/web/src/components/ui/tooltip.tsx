@@ -86,7 +86,10 @@ export function Tooltip({
             <div
               id={id}
               role="tooltip"
-              className="pointer-events-none fixed z-[1000] max-w-64 rounded bg-neutral-900 px-2 py-1 text-[11px] whitespace-nowrap text-white shadow-lg dark:bg-neutral-100 dark:text-neutral-900"
+              className={`pointer-events-none fixed z-[1000] max-w-72 rounded bg-neutral-900 px-2 py-1 text-[11px] text-white shadow-lg dark:bg-neutral-100 dark:text-neutral-900 ${
+                // Multi-line details (GPU indicator) wrap; one-liners never do.
+                content.includes("\n") ? "whitespace-pre-line text-left" : "whitespace-nowrap"
+              }`}
               style={{
                 left: Math.max(8, Math.min(pos.x, window.innerWidth - 8)),
                 top: pos.y,

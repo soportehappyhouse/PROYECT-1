@@ -41,6 +41,18 @@ import {
   type TtsVoiceInfo,
 } from "@studio/shared";
 import { addBreadcrumb } from "@/stores/breadcrumbs-store";
+import type { ApplyCutsResult } from "@studio/shared";
+import {
+  AI_ROUTES,
+  type CutRange,
+  type GpuStatus,
+  type PackInfo,
+  type PackRequiredInfo,
+  type PerfResult,
+  type SceneRange,
+  type SilenceCut,
+  type SilenceOptions,
+} from "./ai-types";
 
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:3001").replace(
   /\/$/,
@@ -53,23 +65,80 @@ export class ApiRequestError extends Error {
     readonly status: number,
     readonly body: ApiError | undefined,
     message?: string,
+    /** Unparsed JSON body (extra fields such as the PACK_REQUIRED info). */
+    readonly raw?: unknown,
   ) {
     super(
       message ??
         body?.error.message ??
+        rawMessage(raw) ??
         (status === 0 ? "Sin conexión con la API" : `HTTP ${status}`),
     );
     this.name = "ApiRequestError";
   }
 
   get code(): string | undefined {
-    return this.body?.error.code;
+    return this.body?.error.code ?? rawCode(this.raw);
   }
 }
 
 /** True when the endpoint exists in the contract but its module is not implemented yet (501). */
 export function isNotImplemented(err: unknown): boolean {
   return err instanceof ApiRequestError && (err.status === 501 || err.code === "NOT_IMPLEMENTED");
+}
+
+function rawMessage(raw: unknown): string | undefined {
+  const m = (raw as { message?: unknown } | null | undefined)?.message;
+  return typeof m === "string" ? m : undefined;
+}
+
+/** Code of a raw error body: `{error: {code}}` (ApiError) or `{error: "CODE"}` (PACK_REQUIRED). */
+function rawCode(raw: unknown): string | undefined {
+  const r = raw as { error?: unknown; code?: unknown } | null | undefined;
+  if (typeof r?.error === "string") return r.error;
+  if (typeof r?.code === "string") return r.code;
+  return undefined;
+}
+
+/**
+ * Pack info inside a PACK_REQUIRED body. The api answers `{error: "PACK_REQUIRED", packId,
+ * name_es, size_bytes, message}` (route 409 and failed job `result`); `error.details` also works.
+ */
+export function packInfoFromBody(raw: unknown): PackRequiredInfo | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const r = raw as Record<string, unknown>;
+  const candidates = [(r.error as { details?: unknown } | undefined)?.details, r.error, r];
+  for (const c of candidates) {
+    if (!c || typeof c !== "object") continue;
+    const o = c as Record<string, unknown>;
+    const packId = o.packId ?? o.pack_id;
+    if (typeof packId !== "string") continue;
+    return {
+      packId,
+      ...(typeof o.name_es === "string" && { name_es: o.name_es }),
+      ...(typeof o.size_bytes === "number" && { size_bytes: o.size_bytes }),
+    };
+  }
+  return undefined;
+}
+
+/** True for `409 PACK_REQUIRED` (a model pack must be downloaded first). */
+export function isPackRequired(err: unknown): err is ApiRequestError {
+  return err instanceof ApiRequestError && err.status === 409 && err.code === "PACK_REQUIRED";
+}
+
+/** Pack info of a PACK_REQUIRED error. */
+export function packRequiredInfo(err: unknown): PackRequiredInfo | undefined {
+  return isPackRequired(err) ? packInfoFromBody(err.raw) : undefined;
+}
+
+type PackRequiredListener = (info: PackRequiredInfo) => void;
+const packRequiredListeners = new Set<PackRequiredListener>();
+
+/** Every `409 PACK_REQUIRED` answer is announced here (the «Paquete requerido» dialog listens). */
+export function onPackRequired(listener: PackRequiredListener): () => void {
+  packRequiredListeners.add(listener);
+  return () => packRequiredListeners.delete(listener);
 }
 
 /** True when the API could not be reached at all. */
@@ -152,11 +221,15 @@ export async function apiFetch<T>(route: string, options: RequestOptions = {}): 
   if (!res.ok) {
     const raw: unknown = await res.json().catch(() => undefined);
     const parsed = ApiErrorSchema.safeParse(raw);
-    throw recordApiError(
-      method,
-      route,
-      new ApiRequestError(res.status, parsed.success ? parsed.data : undefined),
+    const err = new ApiRequestError(
+      res.status,
+      parsed.success ? parsed.data : undefined,
+      undefined,
+      raw,
     );
+    const pack = packRequiredInfo(err);
+    if (pack) for (const listener of packRequiredListeners) listener(pack);
+    throw recordApiError(method, route, err);
   }
   if (res.status === 204) return undefined as T;
   const text = await res.text();
@@ -323,6 +396,36 @@ export const api = {
     apiFetch<CreateReportResponse>(API_ROUTES.reports, { method: "POST", json: body }),
   listReports: () => apiFetch<ReportSummary[]>(API_ROUTES.reports),
   reportDownloadUrl: (id: string) => apiUrl(API_ROUTES.reportDownload, { id }),
+};
+
+/** Some api routes answer a job id, others the result directly: both are accepted. */
+export type Accepted<T> = JobAccepted | T;
+
+/** Sprint 1 local-AI routes (docs/trabajo/sprint1-contratos.md). */
+export const aiApi = {
+  gpu: () => apiFetch<GpuStatus>(AI_ROUTES.gpu),
+  releaseGpu: () => apiFetch<GpuStatus>(AI_ROUTES.gpuRelease, { method: "POST" }),
+  packs: () => apiFetch<PackInfo[]>(AI_ROUTES.packs),
+  /** Sequential in the workers; downloading an installed pack re-verifies its files. */
+  downloadPack: (id: string) =>
+    apiFetch<JobAccepted>(AI_ROUTES.packDownload, { method: "POST", params: { id } }),
+  analyzeScenes: (assetId: string, opts: { threshold?: number; minSceneLenSec?: number } = {}) =>
+    apiFetch<Accepted<{ scenes: SceneRange[] }>>(AI_ROUTES.analyzeScenes, {
+      method: "POST",
+      json: { assetId, ...opts },
+    }),
+  analyzeSilences: (body: { projectId: string; clipId: string; options: SilenceOptions }) =>
+    apiFetch<Accepted<{ cuts: SilenceCut[] }>>(AI_ROUTES.analyzeSilences, {
+      method: "POST",
+      json: body,
+    }),
+  /** Cuts in source seconds (as analyze.silences returned them); result {project, removedSec}. */
+  applyCuts: (body: { projectId: string; clipId: string; cuts: CutRange[] }) =>
+    apiFetch<Accepted<ApplyCutsResult>>(AI_ROUTES.applyCuts, { method: "POST", json: body }),
+  denoise: (assetId: string) =>
+    apiFetch<JobAccepted>(AI_ROUTES.denoise, { method: "POST", json: { assetId } }),
+  runPerf: () => apiFetch<Accepted<PerfResult>>(AI_ROUTES.perfRun, { method: "POST", json: {} }),
+  lastPerf: () => apiFetch<PerfResult>(AI_ROUTES.perf),
 };
 
 export type { JobEvent };

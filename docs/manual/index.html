@@ -433,6 +433,21 @@
           </li>
           <li class="d2"><a href="#15-limitaciones-conocidas">15. Limitaciones conocidas</a></li>
           <li class="d2"><a href="#16-glosario">16. Glosario</a></li>
+          <li class="d2">
+            <a href="#17-ia-local-paquetes-gpu-silencios-escenas-y-redes"
+              >17. IA local: paquetes, GPU, silencios, escenas y redes</a
+            >
+          </li>
+          <li class="d3"><a href="#171-paquetes-de-ia">17.1 Paquetes de IA</a></li>
+          <li class="d3"><a href="#172-indicador-de-gpu">17.2 Indicador de GPU</a></li>
+          <li class="d3"><a href="#173-test-de-rendimiento-ia">17.3 Test de rendimiento IA</a></li>
+          <li class="d3">
+            <a href="#174-quitar-silencios-y-muletillas">17.4 Quitar silencios y muletillas</a>
+          </li>
+          <li class="d3"><a href="#175-escenas">17.5 Escenas</a></li>
+          <li class="d3"><a href="#176-limpiar-voz-ia">17.6 Limpiar voz (IA)</a></li>
+          <li class="d3"><a href="#177-revisión-para-redes">17.7 Revisión para redes</a></li>
+          <li class="d3"><a href="#178-problemas-frecuentes">17.8 Problemas frecuentes</a></li>
         </ol>
       </nav>
       <main>
@@ -742,6 +757,13 @@
             <em>Guardado local</em> (la API no responde: se guardó solo en este navegador) o
             <em>Error al guardar</em>.
           </li>
+          <li>
+            <strong>Indicador de IA</strong> (chip con ícono de placa o de procesador): dice si la
+            IA local corre en <strong>GPU</strong> o en <strong>CPU</strong>, cuánta memoria de
+            video (VRAM) queda libre y qué modelo está cargado. Se actualiza cada 10 s; al pasar el
+            mouse muestra el detalle y al hacer clic ofrece <strong>Liberar GPU</strong> (ver
+            <a href="#172-indicador-de-gpu">§17.2</a>).
+          </li>
           <li><strong>Comandos</strong> (<code>Ctrl+K</code>): abre la paleta de comandos.</li>
           <li><strong>Paneles</strong> (ícono de paneles): mostrar u ocultar cada panel.</li>
           <li>
@@ -750,8 +772,8 @@
           </li>
           <li><strong>Tema</strong> (sol / luna / monitor): Claro, Oscuro o Sistema.</li>
           <li>
-            <strong>Ajustes</strong> (engranaje): pestañas <em>Apariencia</em>, <em>Atajos</em> y
-            <em>Layouts</em>.
+            <strong>Ajustes</strong> (engranaje): pestañas <em>Apariencia</em>, <em>Atajos</em>,
+            <em>Layouts</em> y <em>Paquetes de IA</em>.
           </li>
           <li>
             <strong>🐞 Reportar error</strong>: abre el formulario de reporte (ver
@@ -774,7 +796,9 @@
                   Importar archivos (botón <strong>Importar</strong> o arrastrar y soltar), ver
                   miniatura y datos (duración, resolución, fps, tamaño), <strong>+</strong> para
                   agregar a la línea de tiempo, varita para <strong>Generar proxy</strong>, tacho
-                  para borrar, filtro por nombre.
+                  para borrar (si el medio está en uso ofrece
+                  <strong>Quitar del timeline y borrar</strong>), filtro por nombre. Los renders de
+                  motion llevan la etiqueta <strong>Render</strong> (no necesitan proxy).
                 </td>
               </tr>
               <tr>
@@ -791,8 +815,9 @@
                 <td>
                   Reproductor sincronizado con el cursor de la línea de tiempo: ir al inicio,
                   fotograma anterior/siguiente, reproducir/pausar. Muestra el clip bajo el cursor
-                  (usa el proxy si existe), el audio, los textos, los subtítulos y los motion ya
-                  renderizados.
+                  (usa el proxy si existe), el audio, los textos, los subtítulos (dentro del video,
+                  como en la exportación) y <strong>todos</strong> los motion renderizados bajo el
+                  cursor, en su posición y escala.
                 </td>
               </tr>
               <tr>
@@ -800,8 +825,11 @@
                 <td>
                   Pistas y clips. Barra: <strong>Pista</strong> (agregar pista de video, audio,
                   texto o motion), <strong>Texto</strong> (clip de texto en el cursor),
-                  deshacer/rehacer, tijera (<strong>dividir</strong> en el cursor), tacho,
-                  <strong>imán</strong>, tiempo actual / total y zoom.
+                  deshacer/rehacer, tijera (<strong>dividir</strong> en el cursor), tacho, onda
+                  (<strong>Quitar silencios y muletillas</strong>), menú
+                  <strong>Escenas</strong> (<em>Detectar escenas</em>, <em>Cortar en escenas</em>,
+                  <em>Mostrar marcadores de escena</em>), <strong>imán</strong>, tiempo actual /
+                  total y zoom.
                 </td>
               </tr>
               <tr>
@@ -810,8 +838,10 @@
                   Sin clip seleccionado: nombre y tamaño del proyecto (ancho, alto, FPS y botones
                   <em>16:9 1080p</em>, <em>9:16 vertical</em>, <em>1:1</em>) y datos del medio
                   seleccionado. Con un clip: tiempo (inicio, entrada, salida, velocidad), imagen
-                  (opacidad, escala y posición PiP, transiciones), audio (volumen, efectos
-                  guardados), texto (fuente, tamaño, color, posición).
+                  (opacidad, <strong>escala y posición X/Y en %</strong> con
+                  <strong>anclas</strong> arriba/centro/abajo y esquinas —también para motion
+                  graphics—, transiciones), audio (volumen, efectos guardados), texto (fuente,
+                  tamaño, color, posición).
                 </td>
               </tr>
               <tr>
@@ -827,23 +857,26 @@
               <tr>
                 <td><strong>Voz y audio</strong></td>
                 <td>
-                  Tres pestañas: <strong>Texto a voz</strong>, <strong>Efectos</strong> y
-                  <strong>RVC</strong>.
+                  Tres pestañas: <strong>Texto a voz</strong>, <strong>Efectos</strong> (arriba,
+                  <strong>Limpiar voz (IA)</strong>) y <strong>RVC</strong>.
                 </td>
               </tr>
               <tr>
                 <td><strong>Subtítulos</strong></td>
                 <td>
                   <strong>Transcribir (Whisper)</strong> el clip seleccionado (idioma y modelo),
-                  editar segmentos, <strong>Descargar SRT</strong>, elegir <strong>estilo</strong> y
-                  <strong>Renderizar subtítulos como motion</strong>.
+                  <strong>Quitar silencios y muletillas…</strong> (con revisión) o
+                  <em>Corte rápido</em>, editar segmentos, <strong>Descargar SRT</strong>, elegir
+                  <strong>estilo</strong> y <strong>Renderizar subtítulos como motion</strong>.
                 </td>
               </tr>
               <tr>
                 <td><strong>Exportar</strong></td>
                 <td>
                   Elegir preset (arranca en <em>YouTube 1080p</em>), duplicarlo y editarlo (incluida
-                  la casilla <strong>Transparencia</strong>), nombre del archivo, exportar un rango,
+                  la casilla <strong>Transparencia</strong>),
+                  <strong>Revisión para redes</strong> (casilla <em>Voy a subirlo a redes</em>,
+                  avisos y etiqueta de IA), nombre del archivo, exportar un rango,
                   <strong>Quemar subtítulos en el video</strong> y la lista de
                   <strong>Exportaciones recientes</strong> con <strong>Descargar</strong>.
                 </td>
@@ -864,17 +897,29 @@
         <p>Cómo se trabaja en la <strong>línea de tiempo</strong>:</p>
         <ul>
           <li>
-            <strong>Mover</strong> un clip: arrastralo (puede pasar a otra pista del mismo tipo).
+            <strong>Mover</strong> un clip: arrastralo (puede pasar a otra pista del mismo tipo). En
+            pistas de video, audio y motion <strong>los clips no se superponen</strong>: si lo
+            soltás encima de otro, se pega al final (o al principio) del vecino. Si agregás un clip
+            (o un motion renderizado) en un tramo ocupado, va a otra pista libre o se crea una nueva
+            (<em>Motion 2</em>, <em>Video 2</em>…), encima de la anterior.
           </li>
-          <li><strong>Recortar</strong>: arrastrá los bordes del clip.</li>
+          <li>
+            <strong>Recortar</strong>: arrastrá los bordes del clip (se frenan en el clip vecino).
+          </li>
           <li><strong>Dividir</strong>: poné el cursor y tocá <code>S</code> (o la tijera).</li>
           <li>
             <strong>Zoom</strong>: <code>Ctrl</code> + rueda del mouse, el control deslizante o las
             teclas <code>=</code> y <code>-</code>.
           </li>
           <li>
-            <strong>Imán</strong> (<code>N</code>): pega los clips al 0, al cursor y a los bordes de
-            otros clips.
+            <strong>Imán</strong> (<code>N</code>): pega los clips al 0, al cursor, a los bordes de
+            otros clips y a los <strong>marcadores de escena</strong> (si están visibles).
+          </li>
+          <li>
+            <strong>Escenas</strong>: con un clip de video seleccionado,
+            <strong>Escenas → Detectar escenas</strong> marca cada cambio de plano en la regla
+            (rombos naranjas y una línea punteada); <strong>Cortar en escenas</strong> lo divide en
+            esos puntos (ver <a href="#175-escenas">§17.5</a>).
           </li>
           <li>
             Cada pista tiene botones para <strong>silenciar</strong>, <strong>ocultar</strong>,
@@ -1001,8 +1046,11 @@
         <p><strong>Decidí primero el lienzo</strong> (Propiedades, sin clip seleccionado):</p>
         <ul>
           <li>
-            <strong>Video grabado vertical</strong>: tocá
-            <strong>9:16 vertical</strong> (1080×1920).
+            <strong>Video grabado vertical</strong>: tocá <strong>9:16 vertical</strong> (1080×1920)
+            o <strong>Ajustar lienzo al video</strong>, que copia la forma del primer video del
+            timeline (un video de WhatsApp de 478×850 da un lienzo de 1080×1920). Si soltás un video
+            vertical en un proyecto 16:9, Studio te lo ofrece con un aviso
+            <strong>Ajustar lienzo</strong>.
           </li>
           <li>
             <strong>Video horizontal</strong>: dejá el proyecto en 16:9. Al exportar con el preset
@@ -1031,8 +1079,11 @@
           <li>
             <strong>Subtítulos simples (quemados)</strong>: con eso alcanza. Al exportar, con la
             casilla <strong>Quemar subtítulos en el video</strong> marcada, los segmentos se queman
-            con FFmpeg usando la fuente, tamaño, color, posición y mayúsculas del estilo (sin
-            animación).
+            con FFmpeg usando la fuente, tamaño, color, posición (<em>Arriba</em>, <em>Centro</em>,
+            <em>Abajo</em>) y mayúsculas del estilo (sin animación). Los subtítulos
+            <strong>se ajustan al rectángulo del video</strong>: con un video vertical dentro de un
+            lienzo 16:9 el texto se corta en líneas dentro del video y no se sale por los costados.
+            La vista previa los muestra igual que la exportación.
           </li>
           <li>
             <strong>Subtítulos animados (palabra a palabra)</strong>: tocá
@@ -1042,10 +1093,21 @@
             <strong>Trabajos</strong>). Para cambiar el estilo de la animación
             (<code>highlight</code>, <code>karaoke</code>, <code>pop</code>, <code>box</code>),
             seleccioná ese clip, tocá <em>Editar el clip motion seleccionado</em> en
-            <strong>Motion graphics</strong> y <strong>Actualizar clip y renderizar</strong>. Cuando
-            hay un clip de subtítulos animados, la casilla
+            <strong>Motion graphics</strong> y <strong>Actualizar clip y renderizar</strong>. Los
+            subtítulos animados también se acomodan dentro del video (tamaño y ancho según el video,
+            no según el lienzo). Cuando hay un clip de subtítulos animados, la casilla
             <strong>Quemar subtítulos en el video</strong> del panel Exportar arranca
-            <strong>desmarcada</strong>, así no salen dos veces.
+            <strong>desmarcada</strong>; y aunque la marques, los tramos que ya muestran los
+            animados <strong>no se queman de nuevo</strong> (ni en la vista previa ni en la
+            exportación), así no salen dos veces. <strong>Quitar silencios y muletillas</strong>:
+            con el clip seleccionado, en
+            <strong>Subtítulos → Quitar silencios y muletillas…</strong> analizá el clip, revisá la
+            lista de cortes (podés escuchar cada uno) y tocá <strong>Aplicar</strong> (detalle en
+            <a href="#174-quitar-silencios-y-muletillas">§17.4</a>). El resto del clip y los
+            subtítulos se corren para cerrar los huecos. Si ya habías renderizado los subtítulos
+            animados, volvé a renderizarlos. Sin la IA, <strong>Corte rápido</strong> quita las
+            pausas entre palabras de la transcripción (pausa mínima de 600 ms por defecto) sin
+            revisión.
           </li>
           <li>
             Exportá con <strong>Reels / TikTok (9:16)</strong> (1080×1920, 30 fps) o
@@ -2030,8 +2092,17 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3001/api/voice/effects `
           </table>
         </div>
         <p>
-          Las voces no instaladas aparecen como <em>(no instalada)</em>. Para bajar otra (necesita
-          internet):
+          En <strong>Voz y audio → Texto a voz</strong> (proveedor Piper) la lista
+          <strong>Voces Piper</strong> muestra todas las voces del catálogo (Argentina, España y
+          México) con su tamaño. Las que no están instaladas tienen el botón
+          <strong>Descargar</strong>: baja la voz desde Hugging Face
+          (<code>rhasspy/piper-voices</code>), muestra el porcentaje y, al terminar, la deja elegida
+          en <em>Voz</em>. Se verifica el tamaño y el md5 contra el catálogo oficial. Si falla, el
+          aviso dice por qué: <strong>sin conexión</strong> (o un proxy bloquea huggingface.co),
+          <strong>HTTP 403</strong> (la red o Hugging Face rechazó la descarga),
+          <strong>checksum</strong> (el archivo llegó dañado: se descarta, reintentá) o
+          <strong>workers apagados</strong> (iniciá Studio con <code>start.ps1</code>). También se
+          puede bajar por consola:
         </p>
         <pre><code class="language-powershell">apps\workers\.venv\Scripts\python.exe -m studio_workers.models_cli --piper es_MX-claude-high
 </code></pre>
@@ -2183,8 +2254,11 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
         </ul>
         <h2 id="10-atajos-de-teclado">10. Atajos de teclado</h2>
         <p>
-          Todos se cambian en <strong>Ajustes → Atajos</strong>. Mientras escribís en un campo de
-          texto solo funcionan <code>Ctrl+K</code>, <code>Ctrl+S</code> y <code>Ctrl+E</code>.
+          Todos se cambian en <strong>Ajustes → Atajos</strong> (ahí también aparecen todos).
+          Mientras escribís en un campo de texto solo funcionan <code>Ctrl+K</code>,
+          <code>Ctrl+S</code> y <code>Ctrl+E</code>; <code>Espacio</code> reproduce/pausa aunque un
+          botón tenga el foco (no lo &quot;aprieta&quot; dos veces). Al pasar el mouse por cualquier
+          botón de ícono aparece qué hace y su atajo, por ejemplo <em>Cortar en el cursor (S)</em>.
         </p>
         <div class="table-wrap">
           <table>
@@ -2207,6 +2281,26 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
                 <td>Reproducción</td>
               </tr>
               <tr>
+                <td>Ir al final</td>
+                <td><code>Fin</code></td>
+                <td>Reproducción</td>
+              </tr>
+              <tr>
+                <td>Reproducir hacia atrás</td>
+                <td><code>J</code> (otra vez: 2×, 4×)</td>
+                <td>Reproducción</td>
+              </tr>
+              <tr>
+                <td>Pausa</td>
+                <td><code>K</code></td>
+                <td>Reproducción</td>
+              </tr>
+              <tr>
+                <td>Reproducir hacia adelante</td>
+                <td><code>L</code> (otra vez: 2×, 4×)</td>
+                <td>Reproducción</td>
+              </tr>
+              <tr>
                 <td>Fotograma anterior</td>
                 <td><code>←</code></td>
                 <td>Reproducción</td>
@@ -2217,7 +2311,7 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
                 <td>Reproducción</td>
               </tr>
               <tr>
-                <td>Dividir clip en el cursor</td>
+                <td>Cortar (dividir) en el cursor</td>
                 <td><code>S</code></td>
                 <td>Línea de tiempo</td>
               </tr>
@@ -2598,12 +2692,15 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
                 </td>
               </tr>
               <tr>
-                <td>Los subtítulos salen <strong>dos veces</strong> en la exportación</td>
+                <td>Los subtítulos salen <strong>dos veces</strong> (versiones anteriores)</td>
                 <td>
-                  Quedó marcada <strong>Quemar subtítulos en el video</strong> además del clip de
+                  Quedaba marcada <strong>Quemar subtítulos en el video</strong> además del clip de
                   subtítulos animados.
                 </td>
-                <td>Desmarcala en el panel Exportar antes de exportar.</td>
+                <td>
+                  Corregido: los tramos cubiertos por subtítulos animados ya no se queman ni se
+                  dibujan en la vista previa.
+                </td>
               </tr>
               <tr>
                 <td>
@@ -3079,9 +3176,15 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
           </li>
           <li>
             <strong>Vista previa</strong>: muestra un solo clip de video a la vez (el de la primera
-            pista de video de la lista que tenga algo bajo el cursor, al revés que la exportación) y
-            no compone PiP ni varias pistas; la <strong>exportación sí</strong>. La vista previa de
-            motion en su panel es aproximada hasta que renderizás.
+            pista de video de la lista que tenga algo bajo el cursor) en su posición/escala; los
+            motion renderizados sí se apilan todos. La vista previa de motion en su panel es
+            aproximada hasta que renderizás.
+          </li>
+          <li>
+            <strong>Quitar silencios y muletillas</strong>: después de aplicar hay que volver a
+            renderizar los subtítulos animados (no se recalculan solos). <em>Corte rápido</em> usa
+            solo las marcas de tiempo de Whisper y no quita muletillas. <code>J</code> (hacia atrás)
+            mueve el cursor pero el video se ve a saltos (el navegador no reproduce hacia atrás).
           </li>
           <li>
             <strong>Sin recorte (crop) ni zoom</strong> en la interfaz: un video horizontal en un
@@ -3092,8 +3195,8 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
           </li>
           <li><strong>No se pueden reordenar pistas</strong> desde la interfaz.</li>
           <li>
-            El estilo de subtítulos no se recarga desde el proyecto al abrir otro navegador (queda
-            el guardado en ese navegador).
+            El panel Subtítulos muestra el estilo guardado en este navegador; la vista previa y la
+            exportación usan el del proyecto.
           </li>
           <li>
             Motor <strong>Motion Canvas</strong>: solo esqueleto (no disponible; sus plantillas no
@@ -3255,6 +3358,257 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
                 <td>
                   Margen donde no conviene poner texto porque la interfaz de TikTok/Reels/YouTube lo
                   tapa.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <h2 id="17-ia-local-paquetes-gpu-silencios-escenas-y-redes">
+          17. IA local: paquetes, GPU, silencios, escenas y redes
+        </h2>
+        <p>
+          Todo corre en tu PC: no se sube nada a internet. La primera vez que usás una función de IA
+          puede tener que bajar su modelo (un <strong>paquete</strong>).
+        </p>
+        <h3 id="171-paquetes-de-ia">17.1 Paquetes de IA</h3>
+        <p>
+          Los modelos se bajan <strong>a pedido</strong>, uno por función, a la carpeta
+          <code>models\</code>. <code>setup.ps1</code> instala solo el paquete **core**;
+          <code>setup.ps1 -Full</code> baja todos en secuencia.
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Paquete</th>
+                <th>Contenido</th>
+                <th>Tamaño aprox.</th>
+                <th>Lo usa</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>core</strong></td>
+                <td>Whisper base + voz Piper es_AR</td>
+                <td>0,3 GB</td>
+                <td>Transcribir, texto a voz</td>
+              </tr>
+              <tr>
+                <td><strong>whisper-turbo</strong></td>
+                <td>Whisper large-v3-turbo (GPU)</td>
+                <td>1,6 GB</td>
+                <td>Transcribir (más preciso)</td>
+              </tr>
+              <tr>
+                <td><strong>voces-es</strong></td>
+                <td>Las otras 7 voces Piper</td>
+                <td>0,5 GB</td>
+                <td>Texto a voz</td>
+              </tr>
+              <tr>
+                <td><strong>rvc-base</strong></td>
+                <td>hubert_base + rmvpe</td>
+                <td>0,4 GB</td>
+                <td>RVC</td>
+              </tr>
+              <tr>
+                <td><strong>scenes</strong></td>
+                <td>PySceneDetect</td>
+                <td>0,05 GB</td>
+                <td>Detectar escenas</td>
+              </tr>
+              <tr>
+                <td><strong>voz-limpia</strong></td>
+                <td>DeepFilterNet</td>
+                <td>0,2 GB</td>
+                <td>Limpiar voz (IA)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <ul>
+          <li>
+            <strong>Paquete requerido</strong>: si tocás una función cuyo paquete falta, aparece una
+            ventana con el nombre, el tamaño y la licencia. <strong>Descargar</strong> muestra el
+            progreso; al terminar, Studio <strong>repite sola la acción</strong> que habías pedido.
+            Si cerrás con <em>Seguir en segundo plano</em>, la descarga sigue y la acción se repite
+            igual al terminar. Sin conexión o con error aparece <strong>Reintentar</strong> (las
+            descargas se reanudan donde quedaron).
+          </li>
+          <li>
+            <strong>Ajustes → Paquetes de IA</strong>: tabla con cada paquete, su estado
+            (<em>Instalado</em>, <em>Incompleto</em> o <em>Falta</em>), tamaño y qué funciones lo
+            usan. <strong>Descargar</strong> / <strong>Completar</strong> lo baja;
+            <strong>Verificar</strong> revisa los archivos de uno instalado y vuelve a bajar los
+            dañados. Las descargas van <strong>de a una</strong>: arriba se ve la cola (<em
+              >1 en curso, 2 en espera</em
+            >) y cada fila dice <em>En cola</em>.
+          </li>
+        </ul>
+        <h3 id="172-indicador-de-gpu">17.2 Indicador de GPU</h3>
+        <p>El chip del encabezado consulta la API cada 10 s:</p>
+        <ul>
+          <li>
+            <strong>GPU · 3,2 GB libres</strong> (verde): la IA usa la placa NVIDIA. Al lado aparece
+            el modelo cargado (por ejemplo <code>whisper-turbo</code>).
+          </li>
+          <li>
+            <strong>CPU</strong> (ámbar): no hay CUDA o no queda VRAM suficiente; funciona igual,
+            más lento. Si el driver usa memoria del sistema como VRAM también se pone ámbar (es
+            mucho más lento).
+          </li>
+          <li>
+            <strong>IA —</strong> (gris): la API o los workers no responden; el detalle dice por
+            qué.
+          </li>
+          <li>
+            Clic → <strong>Liberar GPU</strong>: descarga el modelo de la VRAM (útil antes de jugar
+            o de usar otro programa pesado). Studio carga <strong>un modelo a la vez</strong> y lo
+            cambia solo cuando hace falta.
+          </li>
+        </ul>
+        <h3 id="173-test-de-rendimiento-ia">17.3 Test de rendimiento IA</h3>
+        <p>
+          En <strong>Ajustes → Paquetes de IA → Test de rendimiento IA</strong> Studio mide en tu PC
+          (un par de minutos) Whisper, Piper, RVC y la detección de escenas, y guarda el resultado.
+          La tabla muestra cada velocidad y al lado los <strong>tiempos estimados</strong>, por
+          ejemplo <em>Transcribir 10 min de audio ≈ 25 s</em> o
+          <em>Detectar escenas en 10 min a 30 fps ≈ 1 min</em>. Volvé a correrlo si cambiás de placa
+          o de driver.
+        </p>
+        <h3 id="174-quitar-silencios-y-muletillas">17.4 Quitar silencios y muletillas</h3>
+        <ol>
+          <li>Seleccioná el clip con voz en la línea de tiempo.</li>
+          <li>
+            <strong>Subtítulos → Quitar silencios y muletillas…</strong> (o el botón de onda de la
+            barra de la línea de tiempo, o la paleta <code>Ctrl+K</code>).
+          </li>
+          <li>
+            Opciones: <strong>Silencio mínimo</strong> (500 ms),
+            <strong>Margen a cada lado</strong> (120 ms, deja respirar el corte) e
+            <strong>Incluir muletillas</strong> («eh», «este», «o sea», «digamos», «viste», «bueno»,
+            «tipo», «nada», «mmm»; usa la transcripción de Whisper). Tocá <strong>Analizar</strong>.
+          </li>
+          <li>
+            <strong>Revisión</strong>: cada corte tiene su casilla, la etiqueta <em>silencio</em> o
+            <em>muletilla</em>, el texto, el momento y la duración. 🎧 <strong>Escuchar</strong> lo
+            reproduce en la Vista previa con medio segundo antes y después. Arriba: cuántos cortes
+            marcaste y cuántos segundos se quitan; los botones <em>Quitar/Marcar silencios</em> y
+            <em>Quitar/Marcar muletillas</em> cambian todos los de un tipo.
+          </li>
+          <li>
+            <strong>Aplicar N cortes</strong>: el clip se divide, se quitan los tramos y lo que
+            sigue se corre. Es <strong>un solo paso de deshacer</strong> (<code>Ctrl+Z</code>). Si
+            hay subtítulos animados renderizados, la ventana avisa que hay que volver a
+            renderizarlos.
+          </li>
+        </ol>
+        <h3 id="175-escenas">17.5 Escenas</h3>
+        <ul>
+          <li>
+            <strong>Escenas → Detectar escenas</strong> (con un clip de video seleccionado) busca
+            los cambios de plano. La lista queda guardada en el medio, así que los marcadores
+            aparecen también en otros clips del mismo video.
+          </li>
+          <li>
+            Los marcadores se ven en la regla y el <strong>imán</strong> pega los clips a ellos.
+            <strong>Mostrar marcadores de escena</strong> los oculta o muestra.
+          </li>
+          <li>
+            <strong>Cortar en escenas</strong> divide el clip seleccionado en cada marcador (un solo
+            paso de deshacer).
+          </li>
+        </ul>
+        <h3 id="176-limpiar-voz-ia">17.6 Limpiar voz (IA)</h3>
+        <p>
+          En <strong>Voz y audio → Efectos → Limpiar voz (IA)</strong> (con un clip de audio o video
+          seleccionado) DeepFilterNet quita ruido de fondo, zumbidos y eco leve. Con
+          <em>Reemplazar el audio del clip</em> marcado el resultado reemplaza al audio del clip; si
+          no, queda como medio nuevo en <strong>Media</strong>. La primera vez pide el paquete
+          <strong>voz-limpia</strong>.
+        </p>
+        <h3 id="177-revisión-para-redes">17.7 Revisión para redes</h3>
+        <p>
+          En <strong>Exportar → Revisión para redes</strong> marcá
+          <strong>Voy a subirlo a redes</strong> y después lo que tiene el video. Cada casilla
+          muestra qué puede pasar en YouTube, TikTok o Instagram:
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Casilla</th>
+                <th>Aviso</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Cara generada o cambiada con IA</td>
+                <td>Requiere etiqueta · puede darse de baja</td>
+              </tr>
+              <tr>
+                <td>Voz generada o clonada con IA</td>
+                <td>Requiere etiqueta · puede darse de baja</td>
+              </tr>
+              <tr>
+                <td>Otro contenido realista hecho con IA</td>
+                <td>Requiere etiqueta</td>
+              </tr>
+              <tr>
+                <td>Música con derechos de autor</td>
+                <td>No monetizable · puede darse de baja</td>
+              </tr>
+              <tr>
+                <td>Contenido de terceros</td>
+                <td>No monetizable · puede darse de baja</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <ul>
+          <li>
+            <strong>Etiqueta «Contenido alterado con IA»</strong>: se prende sola cuando marcás algo
+            de IA; el texto se puede editar y se quema chico en la esquina inferior izquierda
+            durante todo el video. Podés apagarla (aparece un aviso). Igual marcá «contenido
+            alterado o sintético» al subirlo.
+          </li>
+          <li>Todo se guarda en el proyecto.</li>
+        </ul>
+        <h3 id="178-problemas-frecuentes">17.8 Problemas frecuentes</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Síntoma</th>
+                <th>Qué hacer</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>La descarga de un paquete falla</td>
+                <td>
+                  Revisá la conexión y tocá <strong>Reintentar</strong>; sigue desde donde quedó.
+                </td>
+              </tr>
+              <tr>
+                <td>El indicador dice <strong>CPU</strong> teniendo una NVIDIA</td>
+                <td>
+                  Reinstalá con <code>setup.ps1 -WithCuda</code>; si la VRAM está llena,
+                  <strong>Liberar GPU</strong> o cerrá otros programas.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>IA —</strong> en el encabezado</td>
+                <td>
+                  Los workers no corren: mirá la ventana &quot;workers&quot; y
+                  <code>doctor.ps1</code>.
+                </td>
+              </tr>
+              <tr>
+                <td><em>Módulo en desarrollo</em> al analizar</td>
+                <td>
+                  La API es de una versión anterior: actualizá y corré
+                  <code>setup.ps1 -Update</code>.
                 </td>
               </tr>
             </tbody>

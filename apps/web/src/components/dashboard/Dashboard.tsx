@@ -43,6 +43,9 @@ import { CommandPalette } from "./CommandPalette";
 import { togglePanel } from "./dock-controller";
 import { DockLayout } from "./DockLayout";
 import { Hotkeys } from "./Hotkeys";
+import { SilencesDialog } from "@/components/edit/SilencesDialog";
+import { GpuIndicator } from "./GpuIndicator";
+import { PackRequiredDialog } from "./PackRequiredDialog";
 import { SettingsDialog } from "./SettingsDialog";
 
 const SAVE_LABELS: Record<
@@ -93,6 +96,7 @@ function Header() {
         </Badge>
       ) : null}
       <div className="ml-auto flex items-center gap-1">
+        <GpuIndicator />
         <Button
           variant="outline"
           size="sm"
@@ -288,6 +292,8 @@ export function Dashboard() {
       <Hotkeys />
       <CommandPalette />
       <SettingsDialog />
+      <SilencesDialog />
+      <PackRequiredDialog />
       <Toaster theme={resolvedTheme} position="bottom-right" richColors closeButton />
     </DndContext>
   );

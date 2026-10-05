@@ -6,6 +6,8 @@ import { PANELS } from "@/lib/layout";
 import { displayKeys, SHORTCUT_ACTIONS } from "@/lib/shortcuts";
 import { TRACK_KIND_LABELS } from "@/lib/timeline";
 import { useProjectStore } from "@/stores/project-store";
+import { useSilencesStore } from "@/stores/silences-store";
+import { cutAtScenes, detectScenes } from "@/components/timeline/scene-actions";
 import { openReport } from "@/stores/report-store";
 import { THEME_LABELS, useSettingsStore } from "@/stores/settings-store";
 import { runAction } from "./actions";
@@ -85,6 +87,35 @@ export function CommandPalette() {
       label: "Añadir clip de texto en el cursor",
       run: () => useProjectStore.getState().addTextClip(),
     });
+    list.push(
+      {
+        id: "ai:silences",
+        group: "IA local",
+        label: "Quitar silencios y muletillas del clip seleccionado",
+        run: () => {
+          const id = useProjectStore.getState().selectedClipId;
+          if (id) useSilencesStore.getState().open(id);
+        },
+      },
+      {
+        id: "ai:scenes",
+        group: "IA local",
+        label: "Detectar escenas del clip seleccionado",
+        run: () => void detectScenes(),
+      },
+      {
+        id: "ai:cut-scenes",
+        group: "IA local",
+        label: "Cortar en escenas",
+        run: () => cutAtScenes(),
+      },
+      {
+        id: "ai:packs",
+        group: "IA local",
+        label: "Paquetes de IA y test de rendimiento",
+        run: () => s().setSettingsOpen(true, "ai-packs"),
+      },
+    );
     list.push({
       id: "report-error",
       group: "Ayuda",

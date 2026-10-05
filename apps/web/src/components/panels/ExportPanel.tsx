@@ -27,6 +27,7 @@ import {
 } from "@/stores/jobs-store";
 import { useProjectStore } from "@/stores/project-store";
 import { Panel } from "./Panel";
+import { SocialReview } from "./SocialReview";
 
 const DEFAULT_PRESET_ID = "youtube-1080p";
 
@@ -331,6 +332,8 @@ export function ExportPanel() {
             </Button>
           )}
         </Section>
+
+        <SocialReview />
 
         <Section title="Exportación">
           <Label>

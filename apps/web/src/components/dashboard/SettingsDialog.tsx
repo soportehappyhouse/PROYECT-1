@@ -2,7 +2,7 @@
 
 import type { Theme, UiDensity } from "@studio/shared";
 import { Check, RotateCcw, Trash2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -21,9 +21,11 @@ import {
   DENSITY_LABELS,
   THEME_LABELS,
   useSettingsStore,
+  type SettingsTab,
 } from "@/stores/settings-store";
+import { AiPacksTab } from "./AiPacksTab";
 
-type Tab = "appearance" | "shortcuts" | "layouts";
+type Tab = SettingsTab;
 
 function AppearanceTab() {
   const theme = useSettingsStore((s) => s.theme);
@@ -225,7 +227,11 @@ function LayoutsTab() {
 
 export function SettingsDialog() {
   const open = useSettingsStore((s) => s.settingsOpen);
+  const requestedTab = useSettingsStore((s) => s.settingsTab);
   const [tab, setTab] = useState<Tab>("appearance");
+  useEffect(() => {
+    if (open && requestedTab) setTab(requestedTab);
+  }, [open, requestedTab]);
   return (
     <Dialog
       open={open}
@@ -240,14 +246,17 @@ export function SettingsDialog() {
             { value: "appearance", label: "Apariencia" },
             { value: "shortcuts", label: "Atajos" },
             { value: "layouts", label: "Layouts" },
+            { value: "ai-packs", label: "Paquetes de IA" },
           ]}
         />
         {tab === "appearance" ? (
           <AppearanceTab />
         ) : tab === "shortcuts" ? (
           <ShortcutsTab />
-        ) : (
+        ) : tab === "layouts" ? (
           <LayoutsTab />
+        ) : (
+          <AiPacksTab />
         )}
       </div>
     </Dialog>

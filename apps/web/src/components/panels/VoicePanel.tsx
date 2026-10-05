@@ -1,7 +1,7 @@
 "use client";
 
 import type { RvcRequest, TtsProvider, TtsVoiceInfo } from "@studio/shared";
-import { Download, Plus, Trash2 } from "lucide-react";
+import { Download, Eraser, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { hasAudio, SelectedClipHint, useSelectedClip } from "@/components/common/SelectedClipInfo";
@@ -17,7 +17,7 @@ import {
   Tabs,
 } from "@/components/ui/misc";
 import { useApiResource } from "@/hooks/use-api-resource";
-import { api, ApiRequestError, errorMessage, isNotImplemented } from "@/lib/api";
+import { aiApi, api, ApiRequestError, errorMessage, isNotImplemented } from "@/lib/api";
 import {
   defaultEffect,
   EFFECT_DEFS,
@@ -30,6 +30,7 @@ import {
 } from "@/lib/voice-effects";
 import { formatMb, withPiperCatalog } from "@/lib/voices";
 import { useJobsStore } from "@/stores/jobs-store";
+import { runWithPack } from "@/stores/packs-store";
 import { useProjectStore } from "@/stores/project-store";
 import { Panel } from "./Panel";
 
@@ -263,6 +264,54 @@ function TtsForm() {
   );
 }
 
+/** «Limpiar voz (IA)»: DeepFilterNet (job audio.denoise, pack voz-limpia) → new audio asset. */
+function DenoiseSection() {
+  const sel = useSelectedClip();
+  const [replace, setReplace] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const run = async () => {
+    if (!hasAudio(sel)) return;
+    const { clip } = sel;
+    const assetId = clip.assetId;
+    setBusy(true);
+    try {
+      // Wrapped whole: after a «Paquete requerido» download the same request runs again.
+      await runWithPack(async () => {
+        const { jobId } = await aiApi.denoise(assetId);
+        useJobsStore
+          .getState()
+          .track(
+            jobId,
+            "audio.denoise",
+            replace ? { kind: "replaceClipAsset", clipId: clip.id } : { kind: "refreshMedia" },
+          );
+        toast.info("Limpiando la voz…");
+      });
+    } catch (err) {
+      reportError("Limpiar voz", err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Section title="Limpiar voz (IA)">
+      <p className="text-[11px] text-muted-foreground">
+        Quita ruido de fondo, zumbidos y eco leve de la voz con DeepFilterNet (la primera vez baja
+        el paquete «Voz limpia», unos 200 MB).
+      </p>
+      <label className="flex items-center gap-2 text-xs">
+        <Checkbox checked={replace} onChange={(e) => setReplace(e.target.checked)} />
+        Reemplazar el audio del clip (si no, el resultado queda en Media)
+      </label>
+      <Button size="sm" disabled={busy || !hasAudio(sel)} onClick={() => void run()}>
+        {busy ? <Spinner /> : <Eraser />} Limpiar voz (IA)
+      </Button>
+    </Section>
+  );
+}
+
 function EffectsForm() {
   const sel = useSelectedClip();
   const [chain, setChain] = useState<EditableEffect[]>([]);
@@ -302,6 +351,7 @@ function EffectsForm() {
         sel={sel}
         need="Selecciona un clip de audio o video en la línea de tiempo."
       />
+      <DenoiseSection />
       <Section title="Presets">
         <div className="flex flex-wrap gap-1">
           {VOICE_PRESETS.map((p) => (

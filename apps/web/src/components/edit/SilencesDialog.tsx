@@ -117,6 +117,7 @@ export function SilencesDialog() {
       await saveProjectNow();
       const projectId = useProjectStore.getState().project.id;
       let removed = totals.removedSec;
+      let server = true;
       try {
         const result = await runJob(
           () =>
@@ -134,12 +135,17 @@ export function SilencesDialog() {
         store.applyServerEdit(edited, label);
       } catch (err) {
         if (!routeMissing(err)) throw err;
+        server = false;
         removed = store.applyCutsLocally(clipId, chosen);
       }
       toast.success(`Se quitaron ${formatDuration(removed)} (${chosen.length} cortes)`, {
-        description: animated
-          ? "Volvé a renderizar los subtítulos animados: quedaron con los tiempos anteriores."
-          : "Podés deshacerlo con Ctrl+Z.",
+        // The api re-times the animated captions and drops their render («Sin renderizar»); the
+        // local fallback leaves them untouched.
+        description: !animated
+          ? "Podés deshacerlo con Ctrl+Z."
+          : server
+            ? "Los subtítulos animados quedaron «Sin renderizar»: volvé a renderizarlos en Motion graphics."
+            : "Volvé a renderizar los subtítulos animados: quedaron con los tiempos anteriores.",
       });
       close();
     } catch (err) {

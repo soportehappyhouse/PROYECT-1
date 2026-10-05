@@ -259,4 +259,6 @@ class GpuBudget:
             "resident_estimated_mb": resident.estimated_mb if resident else None,
             "last_fallback": self.last_fallback,
             "source": info.source if info else None,
+            # shared GpuStatus.warnings: the web indicator shows "la última tarea pasó a CPU"
+            "warnings": [GPU_FALLBACK_CPU] if self.last_fallback else [],
         }

@@ -76,6 +76,8 @@ export const TranscriptWithFilesSchema = TranscriptSchema.extend({
   model: z.string().nullish(),
   device: z.string().nullish(),
   files: TranscriptFilesSchema.nullish(),
+  /** e.g. ["gpu_fallback_cpu"] when the GPU had no free VRAM (Sprint 1 GPU manager). */
+  warnings: z.array(z.string()).nullish(),
 });
 export type TranscriptWithFiles = z.infer<typeof TranscriptWithFilesSchema>;
 
@@ -86,6 +88,8 @@ export const TranscribeJobResultSchema = z.object({
   srtPath: z.string(),
   assPath: z.string(),
   transcript: TranscriptSchema,
+  /** Workers warnings, e.g. ["gpu_fallback_cpu"] (the web shows a toast). */
+  warnings: z.array(z.string()).optional(),
 });
 export type TranscribeJobResult = z.infer<typeof TranscribeJobResultSchema>;
 
@@ -94,6 +98,8 @@ export const AudioJobResultSchema = z.object({
   assetId: IdSchema.optional(),
   path: z.string(),
   durationSec: SecondsSchema.optional(),
+  /** Workers warnings, e.g. ["gpu_fallback_cpu"] (the web shows a toast). */
+  warnings: z.array(z.string()).optional(),
 });
 export type AudioJobResult = z.infer<typeof AudioJobResultSchema>;
 

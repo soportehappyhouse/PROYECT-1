@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
@@ -29,7 +29,7 @@ describe("AI routes and jobs (mocked workers)", () => {
   let app: FastifyInstance;
   let storage = "";
   const seen: Seen = {};
-  const state = { scenesInstalled: false, scenesWorkerPackError: false, polls: 0 };
+  const state = { scenesInstalled: false, scenesWorkerPackError: false, polls: 0, perfPolls: 0 };
   const PACKS = () => [
     {
       id: "core",
@@ -161,7 +161,7 @@ describe("AI routes and jobs (mocked workers)", () => {
             seen.denoise = json;
             const rel = `${String(json.output_base)}.wav`;
             writeFileSync(path.join(storage, rel), "RIFF");
-            return send(200, { path: rel });
+            return send(200, { path: rel, device: "cpu", warnings: ["gpu_fallback_cpu"] });
           }
           case "POST /perf/run":
             setTimeout(() => {
@@ -179,6 +179,17 @@ describe("AI routes and jobs (mocked workers)", () => {
               );
             }, 150);
             return send(200, { task_id: "p1" });
+          case "GET /perf/tasks/p1": {
+            state.perfPolls++;
+            const done = existsSync(path.join(storage, "run/perf.json"));
+            return send(200, {
+              status: done ? "done" : "running",
+              progress: done ? 1 : 0.4,
+              bytes_done: 0,
+              bytes_total: 0,
+              current_file: done ? "Listo" : "Whisper",
+            });
+          }
           default:
             return send(404, { detail: "Not Found" });
         }
@@ -418,7 +429,7 @@ describe("AI routes and jobs (mocked workers)", () => {
     expect(result.project.subtitles[0]!.words!.map((w) => w.word)).toEqual([" hola", " che"]);
   });
 
-  it("audio.denoise creates a new audio asset (+ probe)", async () => {
+  it("audio.denoise creates a new audio asset (+ probe) and keeps the workers warnings", async () => {
     const asset = addAsset("dn1", "audio");
     const res = await app.inject({
       method: "POST",
@@ -429,7 +440,8 @@ describe("AI routes and jobs (mocked workers)", () => {
     const { jobId } = res.json<{ jobId: string }>();
     const job = await jobEnd(jobId);
     expect(job.status, job.error).toBe("succeeded");
-    const out = job.result as { assetId: string; path: string };
+    const out = job.result as { assetId: string; path: string; warnings?: string[] };
+    expect(out.warnings).toEqual(["gpu_fallback_cpu"]);
     expect(seen.denoise).toEqual({ path: asset.path, output_base: `renders/${jobId}` });
     expect(app.ctx.repos.media.get(out.assetId)).toMatchObject({
       kind: "audio",
@@ -443,13 +455,14 @@ describe("AI routes and jobs (mocked workers)", () => {
     ).toBe(true);
   });
 
-  it("perf.run waits for storage/run/perf.json; GET /api/ai/perf returns it", async () => {
+  it("perf.run polls /perf/tasks/{id}; GET /api/ai/perf returns perf.json", async () => {
     expect((await app.inject({ method: "GET", url: API_ROUTES.aiPerf })).statusCode).toBe(404);
     const res = await app.inject({ method: "POST", url: API_ROUTES.aiPerfRun });
     expect(res.statusCode).toBe(202);
     const job = await jobEnd(res.json<{ jobId: string }>().jobId);
     expect(job.status, job.error).toBe("succeeded");
     expect(job.result).toMatchObject({ gpu: "RTX 4050", whisper_turbo_s_per_min: 4.2 });
+    expect(state.perfPolls).toBeGreaterThan(0);
     const last = await app.inject({ method: "GET", url: API_ROUTES.aiPerf });
     expect(last.json()).toMatchObject({ scenes_fps: 240, ran_at: "2026-10-05T12:00:00Z" });
   });

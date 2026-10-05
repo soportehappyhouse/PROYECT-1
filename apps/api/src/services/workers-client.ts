@@ -81,6 +81,7 @@ const RvcResultSchema = z.object({
   durationSec: z.number().nonnegative().nullish(),
   sampleRate: z.number().int().nullish(),
   device: z.string().nullish(),
+  warnings: z.array(z.string()).nullish(),
 });
 
 /** HTTP client for apps/workers (FastAPI). All paths are relative to STORAGE_DIR. */
@@ -100,6 +101,8 @@ export interface WorkersClient {
   packs(): Promise<Pack[]>;
   packDownload(packId: string): Promise<WorkerTaskAccepted>;
   packTask(taskId: string, signal?: AbortSignal): Promise<PackTask>;
+  /** GET /perf/tasks/{id}: the perf test task (same shape as a pack task). */
+  perfTask(taskId: string, signal?: AbortSignal): Promise<PackTask>;
   analyzeScenes(
     req: { path: string; threshold?: number; min_scene_len_s?: number },
     opts?: WorkerCallOptions,
@@ -363,6 +366,14 @@ export function createWorkersClient(baseUrl: string): WorkersClient {
       call(
         "GET",
         buildRoute(WORKER_AI_ROUTES.packTask, { id: taskId }),
+        PackTaskSchema,
+        undefined,
+        signal ? AbortSignal.any([signal, AbortSignal.timeout(SHORT_TIMEOUT_MS)]) : undefined,
+      ),
+    perfTask: (taskId, signal) =>
+      call(
+        "GET",
+        buildRoute(WORKER_AI_ROUTES.perfTask, { id: taskId }),
         PackTaskSchema,
         undefined,
         signal ? AbortSignal.any([signal, AbortSignal.timeout(SHORT_TIMEOUT_MS)]) : undefined,

@@ -160,8 +160,17 @@ cola vive en la api); con `jobId` la api consulta el progreso en `GET /jobs/:id`
 
 Sprint 1 (`WORKER_AI_ROUTES`, campos snake_case): `GET /gpu/status`, `POST /gpu/release`, `GET /packs`,
 `POST /packs/{id}/download` → `{task_id}`, `GET /packs/tasks/{task_id}` → `PackTask`,
-`POST /analyze/scenes`, `POST /analyze/silences`, `POST /audio/denoise`, `POST /perf/run` → `{task_id}`
-(la api sondea `/packs/tasks/{task_id}`; si da 404 espera a que cambie `storage/run/perf.json`).
+`POST /analyze/scenes`, `POST /analyze/silences`, `POST /audio/denoise`, `POST /perf/run` → `{task_id}`,
+`GET /perf/tasks/{task_id}` → `PackTask` (la api sondea esa ruta; si da 404, workers viejos, espera a
+que cambie `storage/run/perf.json`). `GET /gpu/status` agrega `warnings: ["gpu_fallback_cpu"]` cuando
+la última carga cayó a CPU. Las respuestas de `/transcribe`, `/rvc/convert` y `/audio/denoise` pueden
+traer `warnings` (p. ej. `gpu_fallback_cpu`): la api las copia al `result` del job
+(`TranscribeJobResult.warnings`, `AudioJobResult.warnings`) y la web muestra un aviso.
+
+`PerfResult` (`storage/run/perf.json`): `gpu` = nombre de la GPU o `"cpu"` (texto), `gpu_status`
+(copia de `/gpu/status`), `whisper_turbo_s_per_min`, `whisper_s_per_min` + `whisper_model` +
+`whisper_device`, `piper_s_per_100chars`, `rvc_s_per_min`, `scenes_fps` (null = no medido),
+`cpu_fallback_ok` (booleano), `ran_at`, `skipped` (`{componente: motivo}`), `errors`, `warnings`.
 
 ## 4. Ciclo de vida de un job
 
@@ -189,7 +198,7 @@ stateDiagram-v2
 | `analyze.silences`    | workers | `{projectId, clipId, options}` → `{cuts, total_removed_s, timeBase:"source"}`; manda las palabras de los subtítulos del clip; no aplica nada                                                  |
 | `timeline.apply-cuts` | edit    | `{projectId, clipId, cuts}` → `{project, removedSec, pieceIds}`; parte el clip, ripple de la misma pista, overlays enlazados y subtítulos; guarda el proyecto (deshacer = `PUT` del anterior) |
 | `audio.denoise`       | workers | `{assetId}` → `AudioJobResult` (nuevo asset `renders/<jobId>.wav` + `media.probe`)                                                                                                            |
-| `perf.run`            | workers | `{}` → `PerfResult`                                                                                                                                                                           |
+| `perf.run`            | workers | `{}` → `PerfResult`; sondea `/perf/tasks/{id}`                                                                                                                                                |
 
 Overlays enlazados en `apply-cuts`: los clips de pistas motion/texto que se solapan con el clip cortado
 arrancan en el siguiente instante conservado; los `animated-captions` se re-temporizan palabra por

@@ -64,16 +64,25 @@ export function gpuTooltip(s: GpuStatus): string {
   return lines.join("\n");
 }
 
+/** Workers warning when a model ran on the CPU because the GPU had no free VRAM. */
+export const GPU_FALLBACK_CPU = "gpu_fallback_cpu";
+
+/** True when a job result carries `warnings: ["gpu_fallback_cpu"]`. */
+export function hasGpuFallback(result: unknown): boolean {
+  const w = (result as { warnings?: unknown } | null | undefined)?.warnings;
+  return Array.isArray(w) && w.includes(GPU_FALLBACK_CPU);
+}
+
 export interface PerfEstimate {
   label: string;
   seconds: number;
 }
 
 /** Times derived from the measured speeds ("transcribir 10 min ≈ X s"). */
-export function perfEstimates(r: PerfResult): PerfEstimate[] {
+export function perfEstimates(r: Partial<PerfResult>): PerfEstimate[] {
   const out: PerfEstimate[] = [];
-  if (r.whisper_turbo_s_per_min != null)
-    out.push({ label: "Transcribir 10 min de audio", seconds: r.whisper_turbo_s_per_min * 10 });
+  const whisper = r.whisper_turbo_s_per_min ?? r.whisper_s_per_min;
+  if (whisper != null) out.push({ label: "Transcribir 10 min de audio", seconds: whisper * 10 });
   if (r.piper_s_per_100chars != null)
     out.push({
       label: "Locución de 1000 caracteres (Piper)",

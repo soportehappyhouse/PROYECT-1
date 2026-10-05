@@ -97,14 +97,14 @@ export function packTaskMessage(name: string, t: PackTask): string {
 }
 
 /**
- * Poll GET /packs/tasks/{id} until done/error. Transient failures (workers restarting) are
+ * Poll a workers task (GET /packs/tasks/{id} or /perf/tasks/{id}) until done/error. Transient failures (workers restarting) are
  * tolerated up to `maxFailures` consecutive polls.
  */
 async function pollTask(
   workers: WorkersClient,
   taskId: string,
   ctx: JobContext,
-  opts: { pollMs: number; timeoutMs: number; maxFailures?: number },
+  opts: { pollMs: number; timeoutMs: number; maxFailures?: number; kind?: "pack" | "perf" },
   onTask: (t: PackTask) => void,
 ): Promise<PackTask> {
   const t0 = Date.now();
@@ -112,7 +112,10 @@ async function pollTask(
   for (;;) {
     let task: PackTask | undefined;
     try {
-      task = await workers.packTask(taskId, ctx.signal);
+      task =
+        opts.kind === "perf"
+          ? await workers.perfTask(taskId, ctx.signal)
+          : await workers.packTask(taskId, ctx.signal);
       failures = 0;
     } catch (err) {
       if (ctx.signal.aborted) throw new JobAbortedError();
@@ -319,6 +322,7 @@ export function createDenoiseHandler(deps: AiDeps): JobHandler<DenoiseRequest, A
         assetId: asset.id,
         path: res.path,
         ...(source.durationSec !== undefined && { durationSec: source.durationSec }),
+        ...(res.warnings?.length && { warnings: res.warnings }),
       };
     },
   };
@@ -341,8 +345,8 @@ async function perfMtime(storageDir: string): Promise<number> {
 }
 
 /**
- * perf.run: POST /perf/run, then wait for the task (GET /packs/tasks/{id}, the contract's task
- * endpoint) or, when the workers do not expose it (404), for storage/run/perf.json to change.
+ * perf.run: POST /perf/run, then wait for the task (GET /perf/tasks/{id}) or, when the workers do
+ * not expose it (404, older workers), for storage/run/perf.json to change.
  */
 export function createPerfRunHandler(
   deps: AiDeps,
@@ -359,11 +363,16 @@ export function createPerfRunHandler(
       const pollMs = o.pollMs ?? 1000;
       const timeoutMs = o.timeoutMs ?? 30 * 60_000;
       try {
-        const task = await pollTask(deps.workers, task_id, ctx, { pollMs, timeoutMs }, (t) =>
-          ctx.reportProgress(
-            0.02 + t.progress * 0.96,
-            `Midiendo rendimiento ${Math.round(t.progress * 100)} %${t.current_file ? ` · ${t.current_file}` : ""}`,
-          ),
+        const task = await pollTask(
+          deps.workers,
+          task_id,
+          ctx,
+          { pollMs, timeoutMs, kind: "perf" },
+          (t) =>
+            ctx.reportProgress(
+              0.02 + t.progress * 0.96,
+              `Midiendo rendimiento ${Math.round(t.progress * 100)} %${t.current_file ? ` · ${t.current_file}` : ""}`,
+            ),
         );
         if (task.status === "error")
           throw new Error(`El test de rendimiento falló: ${task.error ?? "error desconocido"}`);

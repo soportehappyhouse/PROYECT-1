@@ -72,6 +72,7 @@ export function createTranscribeHandler(
             durationSec: transcript.durationSec,
             segments: transcript.segments,
           },
+          ...(transcript.warnings?.length && { warnings: transcript.warnings }),
         };
       } finally {
         await rm(resolveStoragePath(storage, wavRel), { force: true });
@@ -145,6 +146,7 @@ export function createRvcHandler(deps: VoiceAiDeps): JobHandler<RvcRequest, Audi
         assetId: asset.id,
         path: res.path,
         ...(res.durationSec != null && { durationSec: res.durationSec }),
+        ...(res.warnings?.length && { warnings: res.warnings }),
       };
     },
   };

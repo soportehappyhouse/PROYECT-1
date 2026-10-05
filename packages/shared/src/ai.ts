@@ -15,10 +15,11 @@ export const WORKER_AI_ROUTES = {
   packs: "/packs", // GET Pack[]
   packDownload: "/packs/:id/download", // POST -> {task_id}
   packTask: "/packs/tasks/:id", // GET PackTask
+  perfTask: "/perf/tasks/:id", // GET PackTask (same shape) of the perf test task
   analyzeScenes: "/analyze/scenes", // POST {path, threshold?, min_scene_len_s?} -> SceneList
   analyzeSilences: "/analyze/silences", // POST WorkerSilencesRequest -> SilenceCuts
   audioDenoise: "/audio/denoise", // POST {path, output_base} -> {path}
-  perfRun: "/perf/run", // POST -> {task_id}; result in storage/run/perf.json
+  perfRun: "/perf/run", // POST -> {task_id} (poll perfTask); result in storage/run/perf.json
 } as const;
 
 /** GET /api/ai/gpu (proxy of workers GET /gpu/status). */
@@ -103,15 +104,26 @@ export const SilenceCutsSchema = z.object({
 });
 export type SilenceCuts = z.infer<typeof SilenceCutsSchema>;
 
-/** storage/run/perf.json written by the workers perf test (GET /api/ai/perf). */
+/**
+ * storage/run/perf.json written by the workers perf test (GET /api/ai/perf). `gpu` is a label: the
+ * GPU name or "cpu"; the full /gpu/status snapshot goes in `gpu_status`. Components that could not
+ * be measured are null and listed in `skipped` (component -> reason) or `errors`.
+ */
 export const PerfResultSchema = z.object({
-  gpu: z.union([z.string(), z.boolean()]).nullish(),
+  gpu: z.string().nullish(),
+  gpu_status: GpuStatusSchema.partial().passthrough().nullish(),
   whisper_turbo_s_per_min: z.number().nullish(),
+  whisper_s_per_min: z.number().nullish(),
+  whisper_model: z.string().nullish(),
+  whisper_device: z.string().nullish(),
   piper_s_per_100chars: z.number().nullish(),
   rvc_s_per_min: z.number().nullish(),
   scenes_fps: z.number().nullish(),
   cpu_fallback_ok: z.boolean().default(false),
   ran_at: z.string(),
+  skipped: z.record(z.string(), z.string()).default({}),
+  errors: z.record(z.string(), z.string()).default({}),
+  warnings: z.array(z.string()).default([]),
 });
 export type PerfResult = z.infer<typeof PerfResultSchema>;
 

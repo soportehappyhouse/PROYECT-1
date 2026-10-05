@@ -8,7 +8,9 @@ import { SilencesDialog } from "@/components/edit/SilencesDialog";
 import { SocialReview } from "@/components/panels/SocialReview";
 import { Ruler } from "@/components/timeline/Ruler";
 import { sceneSnapTimes, scenesLookup } from "@/hooks/use-scene-markers";
-import { perfEstimates } from "@/lib/ai";
+import { toast } from "sonner";
+import { handleFinished } from "@/hooks/use-job-events";
+import { hasGpuFallback, perfEstimates } from "@/lib/ai";
 import type { PackInfo, SilenceCut } from "@/lib/ai-types";
 import { aiApi, packInfoFromBody } from "@/lib/api";
 import { waitForJob } from "@/lib/job-runner";
@@ -275,6 +277,30 @@ describe("Ajustes → Paquetes de IA", () => {
       ["Convertir 1 min de voz con RVC", 12],
       ["Detectar escenas en 10 min a 30 fps", 60],
     ]);
+  });
+});
+
+describe("Aviso gpu_fallback_cpu", () => {
+  it("a finished job whose result has warnings gpu_fallback_cpu shows a warning toast", async () => {
+    expect(hasGpuFallback({ warnings: ["gpu_fallback_cpu"] })).toBe(true);
+    expect(hasGpuFallback({ warnings: [] })).toBe(false);
+    expect(hasGpuFallback(null)).toBe(false);
+    const job: Job = {
+      id: "jw1",
+      type: "audio.denoise",
+      status: "succeeded",
+      progress: 1,
+      payload: { assetId: "a1" },
+      result: { assetId: "a2", path: "renders/jw1.wav", warnings: ["gpu_fallback_cpu"] },
+      createdAt: "2026-10-05T10:00:00Z",
+    };
+    mockFetch((path) => (path === "/api/jobs/jw1" ? { json: job } : { json: [] }));
+    const warn = vi.spyOn(toast, "warning");
+    await handleFinished(job);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("se usó la CPU"),
+      expect.objectContaining({ description: expect.stringContaining("memoria libre") }),
+    );
   });
 });
 

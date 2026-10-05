@@ -424,6 +424,27 @@ await step("GPU indicator and Ajustes → Paquetes de IA", async () => {
   return { label, packs };
 });
 
+// Integration: a real `409 PACK_REQUIRED` (flat body) from the api must open «Paquete requerido».
+await step("Limpiar voz (IA) without the pack: real 409 opens «Paquete requerido»", async () => {
+  const pack = (await apiJson("/api/ai/packs")).find((p) => p.id === "voz-limpia");
+  if (!pack) throw new Error("pack voz-limpia not listed by /api/ai/packs");
+  if (pack.installed) return { skipped: "voz-limpia is installed here: no 409 to trigger" };
+  await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).click();
+  await page.locator("[data-track-kind='video'] [data-clip-id]").first().click();
+  await page.locator(".dv-tab", { hasText: "Voz y audio" }).click();
+  const panel = page.locator("section[aria-label='Voz y audio']");
+  await panel.getByRole("tab", { name: "Efectos" }).click();
+  await panel.getByRole("button", { name: /Limpiar voz \(IA\)/ }).click();
+  const dialog = page.getByTestId("pack-required");
+  await dialog.waitFor({ timeout: 10_000 });
+  const text = (await dialog.innerText()).replace(/\s+/g, " ");
+  if (!text.includes(pack.name_es)) throw new Error(`dialog text: ${text.slice(0, 200)}`);
+  const download = await dialog.getByRole("button", { name: /^Descargar/ }).textContent();
+  await shot(page, "07-pack-required.png");
+  await dialog.getByRole("button", { name: "Cancelar" }).click();
+  return { pack: pack.id, download: download?.trim() };
+});
+
 await step("Exportar → Revisión para redes is saved in project.publish", async () => {
   await page.locator(".dv-tab", { hasText: "Exportar" }).click();
   const panel = page.locator("section[aria-label='Exportar']");

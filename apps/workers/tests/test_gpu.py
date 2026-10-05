@@ -46,6 +46,7 @@ def test_cpu_fallback_when_vram_is_short() -> None:
     decision = budget.acquire("whisper", 1800, lambda: None)
     assert decision.device == "cpu" and decision.warnings == [GPU_FALLBACK_CPU]
     assert budget.resident is None and budget.status()["last_fallback"] == "whisper"
+    assert budget.status()["warnings"] == ["gpu_fallback_cpu"]
 
 
 def test_unknown_vram_still_tries_cuda_and_cpu_without_use_cuda() -> None:

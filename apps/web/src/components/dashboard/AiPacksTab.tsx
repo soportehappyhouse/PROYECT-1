@@ -149,9 +149,7 @@ function PerfSection() {
             <tbody>
               <tr>
                 <td className="pr-2 text-muted-foreground">GPU</td>
-                <td>
-                  {typeof result.gpu === "string" ? result.gpu : result.gpu ? "Sí" : "No (CPU)"}
-                </td>
+                <td>{!result.gpu || result.gpu === "cpu" ? "No (CPU)" : result.gpu}</td>
               </tr>
               <tr>
                 <td className="pr-2 text-muted-foreground">Whisper turbo</td>
@@ -180,6 +178,11 @@ function PerfSection() {
             </tbody>
           </table>
           <ul className="flex flex-col gap-1 text-xs">
+            {Object.entries(result.skipped ?? {}).map(([k, why]) => (
+              <li key={`skip-${k}`} className="text-muted-foreground">
+                {k}: sin medir ({why})
+              </li>
+            ))}
             {perfEstimates(result).map((e) => (
               <li key={e.label} className="rounded-md bg-muted px-2 py-1">
                 {e.label} ≈ <strong>{formatDuration(e.seconds)}</strong>

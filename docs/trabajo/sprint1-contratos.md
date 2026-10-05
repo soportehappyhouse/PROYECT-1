@@ -43,3 +43,12 @@ Los tres módulos se desarrollan en paralelo contra estos contratos. Cambios →
 - Timeline: marcadores de escena (job `analyze.scenes`) y acción "Cortar en escenas".
 - Panel Exportar: sección "Revisión para redes" (checkbox "Voy a subirlo a redes", casillas de contenido, aviso de monetización, toggle etiqueta IA con texto editable).
 - Voz: botón "Limpiar voz (IA)" → `audio.denoise`.
+
+## Cambios en integración
+
+- `POST /perf/run` se sondea en **`GET /perf/tasks/{task_id}`** (mismo formato que `PackTask`), no en `/packs/tasks`; `WORKER_AI_ROUTES.perfTask` y `WorkersClient.perfTask`. Si da 404 (workers viejos) la api sigue esperando a que cambie `perf.json`.
+- `PerfResult` (`perf.json`): `gpu` es texto (nombre de la GPU o `"cpu"`); se agregan `gpu_status`, `whisper_s_per_min`, `whisper_model`, `whisper_device`, `skipped`, `errors` y `warnings`; `cpu_fallback_ok` siempre booleano. La web muestra los componentes omitidos y estima con Whisper turbo o, si falta, con el modelo chico.
+- `warnings: ["gpu_fallback_cpu"]`: la api las copia de `/transcribe`, `/rvc/convert` y `/audio/denoise` al `result` del job (`TranscribeJobResult.warnings`, `AudioJobResult.warnings`); la web muestra un aviso «se usó la CPU» al terminar cualquier job con esa marca. `GET /gpu/status` también trae `warnings` cuando la última carga cayó a CPU.
+- `409 PACK_REQUIRED`: confirmado plano en la raíz (`{error, packId, name_es, size_bytes, message}`); la web lo lee así y abre «Paquete requerido» (probado con la api y los workers reales).
+- `timeline.apply-cuts`: los `animated-captions` afectados vuelven re-temporizados y sin `renderedAssetId` («Sin renderizar»); el aviso de la web lo dice. Deshacer = un paso en la web + `PUT` del proyecto anterior, que la api restaura entero (con el vínculo de render).
+- Rutas: las 52 llamadas del cliente web (`lib/api.ts`) existen en la api con el mismo método; sin cambios.

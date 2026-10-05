@@ -12,7 +12,7 @@ import {
   Section,
   Spinner,
 } from "@/components/ui/misc";
-import { featureLabel, formatDuration, perfEstimates } from "@/lib/ai";
+import { featureLabel, formatDuration, perfEstimates, rvmDetail, rvmFpsLabel } from "@/lib/ai";
 import { packState, type PackInfo, type PackState, type PerfResult } from "@/lib/ai-types";
 import { aiApi, ApiRequestError, errorMessage, isNotImplemented } from "@/lib/api";
 import { formatBytes } from "@/lib/format";
@@ -139,8 +139,8 @@ function PerfSection() {
       }
     >
       <p className="text-[11px] text-muted-foreground">
-        Mide en esta PC cuánto tardan Whisper, Piper, RVC y la detección de escenas (un par de
-        minutos). Los tiempos se guardan y se usan para estimar cada tarea.
+        Mide en esta PC cuánto tardan Whisper, Piper, RVC, la detección de escenas y el recorte de
+        personas (un par de minutos). Los tiempos se guardan y se usan para estimar cada tarea.
       </p>
       {error ? <ErrorNotice message={error} /> : null}
       {result ? (
@@ -167,6 +167,19 @@ function PerfSection() {
                 <td className="pr-2 text-muted-foreground">Escenas</td>
                 <td>{num(result.scenes_fps, "fps")}</td>
               </tr>
+              {result.rvm_fps != null ? (
+                <tr data-testid="perf-rvm">
+                  <td className="pr-2 text-muted-foreground">Recorte de personas</td>
+                  <td>
+                    {rvmFpsLabel(result)}
+                    {rvmDetail(result) ? (
+                      <span className="block text-[10px] text-muted-foreground">
+                        {rvmDetail(result)}
+                      </span>
+                    ) : null}
+                  </td>
+                </tr>
+              ) : null}
               <tr>
                 <td className="pr-2 text-muted-foreground">Respaldo en CPU</td>
                 <td>{result.cpu_fallback_ok ? "Funciona" : "Falló"}</td>

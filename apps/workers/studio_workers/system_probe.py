@@ -25,7 +25,10 @@ PACKAGES = {
     "infer-rvc-python": "infer_rvc_python",
     "torch": "torch",
     "onnxruntime": "onnxruntime",
+    "onnxruntime-gpu": "onnxruntime",
 }
+CUDA_EP = "CUDAExecutionProvider"
+CPU_EP = "CPUExecutionProvider"
 
 _lock = threading.Lock()
 _torch_info: TorchInfo | None = None
@@ -92,6 +95,56 @@ def torch_info() -> TorchInfo:
     if not module_installed("torch"):
         return TorchInfo(installed=False)
     return TorchInfo(installed=True, probing=started)
+
+
+def _dist_version(name: str) -> str | None:
+    try:
+        return metadata.version(name)
+    except metadata.PackageNotFoundError:
+        return None
+
+
+def onnxruntime_info(
+    use_cuda: bool, cuda_seen: bool, session_device: str | None = None
+) -> dict[str, object]:
+    """Which onnxruntime build is installed and which execution provider BiRefNet gets.
+
+    Decided by importlib.metadata (no import: onnxruntime and onnxruntime-gpu share the module
+    name, and piper-tts / faster-whisper pull the CPU build). When onnxruntime is already imported
+    its real ``get_available_providers()`` wins; when a BiRefNet session is loaded, its device.
+    ``cpu_on_cuda``: CUDA machine (USE_CUDA + GPU seen) but BiRefNet will run on the CPU.
+    """
+    gpu = _dist_version("onnxruntime-gpu")
+    cpu = _dist_version("onnxruntime")
+    if not gpu and not cpu:
+        return {"installed": False, "dist": None, "version": None, "provider": None,
+                "available": None, "source": "metadata", "cpu_on_cuda": False}  # fmt: skip
+    if gpu and cpu:
+        dist = "onnxruntime+onnxruntime-gpu"  # files shadowed: re-download the pack
+    else:
+        dist = "onnxruntime-gpu" if gpu else "onnxruntime"
+    cuda_build = bool(gpu) and not cpu
+    available: list[str] | None = None
+    mod = sys.modules.get("onnxruntime")
+    if mod is not None:
+        try:
+            available = [str(p) for p in mod.get_available_providers()]
+            cuda_build = CUDA_EP in available
+        except Exception:  # pragma: no cover - broken install
+            available = None
+    if session_device is not None:
+        provider, source = (CUDA_EP if session_device == "cuda" else CPU_EP), "session"
+    else:
+        provider, source = (CUDA_EP if (use_cuda and cuda_build) else CPU_EP), "metadata"
+    return {
+        "installed": True,
+        "dist": dist,
+        "version": gpu or cpu,
+        "provider": provider,
+        "available": available,
+        "source": source,
+        "cpu_on_cuda": bool(use_cuda and cuda_seen and provider == CPU_EP),
+    }
 
 
 def ctranslate2_cuda_devices() -> int:

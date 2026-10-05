@@ -99,10 +99,35 @@ export function perfEstimates(r: Partial<PerfResult>): PerfEstimate[] {
     });
   if (r.rvc_s_per_min != null)
     out.push({ label: "Convertir 1 min de voz con RVC", seconds: r.rvc_s_per_min });
+  if (r.rvm_fps != null && r.rvm_fps > 0)
+    out.push({
+      label: "Recorte de personas: 1 min de video a 30 fps",
+      seconds: (60 * 30) / r.rvm_fps,
+    });
   if (r.scenes_fps != null && r.scenes_fps > 0)
     out.push({
       label: "Detectar escenas en 10 min a 30 fps",
       seconds: (10 * 60 * 30) / r.scenes_fps,
     });
   return out;
+}
+
+/** «Recorte de personas ≈ 18,2 fps (meta 15)»: RVM on a 1080p 5 s clip (GPL subprocess). */
+export function rvmFpsLabel(r: Pick<PerfResult, "rvm_fps" | "rvm_target_fps">): string {
+  if (r.rvm_fps == null) return "—";
+  const fps = r.rvm_fps.toFixed(1).replace(".", ",");
+  return `≈ ${fps} fps (meta ${r.rvm_target_fps ?? 15})`;
+}
+
+/** "1920×1080 · fp16 · reducción 0,27 · CUDA". */
+export function rvmDetail(r: Partial<PerfResult>): string {
+  const parts = [
+    r.rvm_resolution,
+    r.rvm_precision,
+    r.rvm_downsample != null
+      ? `reducción ${String(r.rvm_downsample).replace(".", ",")}`
+      : undefined,
+    r.rvm_device ? r.rvm_device.toUpperCase() : undefined,
+  ];
+  return parts.filter(Boolean).join(" · ");
 }

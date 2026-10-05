@@ -51,7 +51,7 @@ export const visionApi = {
   track: (body: Omit<VisionTrackRequest, "method"> & { method?: VisionTrackRequest["method"] }) =>
     apiFetch<Accepted<VisionTrackResult>>(API_ROUTES.aiVisionTrack, {
       method: "POST",
-      json: { method: "csrt", ...body },
+      json: { method: "auto", ...body },
     }),
   /** Job vision.reframe: crop keyframes (the api also stores them on the saved project). */
   reframe: (body: Partial<VisionReframeRequest> & Pick<VisionReframeRequest, "projectId">) =>

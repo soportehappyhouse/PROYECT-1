@@ -9,7 +9,10 @@ import {
 } from "@studio/shared";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { toast } from "sonner";
 import { PreviewPanel } from "@/components/panels/PreviewPanel";
+import { TrackBoxBanner } from "@/components/preview/VisionTools";
+import { perfEstimates, rvmDetail, rvmFpsLabel } from "@/lib/ai";
 import {
   canvasToSource,
   composeAt,
@@ -18,6 +21,7 @@ import {
   reframeCropAt,
   sourceToCanvas,
 } from "@/lib/compositor";
+import { warnIfCpu } from "@/lib/gpu-preflight";
 import { interpolate } from "@/lib/interpolate";
 import { addKeyframe, copyKeyframes, pasteKeyframes, staticValue } from "@/lib/keyframes";
 import { MasterClock } from "@/lib/master-clock";
@@ -550,5 +554,97 @@ describe("master clock + sync", () => {
     fireEvent.click(screen.getByRole("menuitemcheckbox", { name: /Vista previa clásica/ }));
     expect(screen.getByTestId("preview-stage").dataset.renderer).toBe("classic");
     usePreviewStore.getState().set({ classic: false });
+  });
+});
+
+describe("Seguir objeto: «Método» (Automático / SAM 2 / Rápido)", () => {
+  const run = async (expectToast: string) => {
+    const bodies: unknown[] = [];
+    mockFetch((path, method, body) => {
+      if (path === "/api/ai/vision/track" && method === "POST") {
+        bodies.push(body);
+        return { status: 202, json: { jobId: "jt" } };
+      }
+      if (path === "/api/jobs/jt")
+        return {
+          json: job("jt", "succeeded", {
+            type: "vision.track",
+            result: { assetId: "trk", path: "tracks/trk.json", frames: 10, smoothed: true,
+              method: expectToast === "SAM 2" ? "sam2" : "template" }, // prettier-ignore
+          }),
+        };
+      return undefined;
+    });
+    const ok = vi.spyOn(toast, "success");
+    await act(async () => {
+      const pending = useVisionStore
+        .getState()
+        .trackObject("v1", { x: 0.1, y: 0.1, w: 0.2, h: 0.2 });
+      await vi.waitFor(() => expect(bodies).toHaveLength(1));
+      await vi.waitFor(() => expect(useVisionStore.getState().busy.track).toBe("jt"));
+      useJobsStore.getState().upsertJob(job("jt", "succeeded", { type: "vision.track" }));
+      await pending;
+    });
+    expect(ok).toHaveBeenCalledWith(`Seguimiento listo (${expectToast})`, expect.anything());
+    return bodies[0] as { method: string };
+  };
+
+  it("sends «auto» by default (the api picks SAM 2 when its pack is installed)", async () => {
+    useVisionStore.setState({ trackMethod: "auto", trackAssign: undefined, busy: {} });
+    expect((await run("SAM 2")).method).toBe("auto");
+  });
+
+  it("the banner selector switches to «Rápido» and keeps the template-matching toast", async () => {
+    useVisionStore.setState({ trackMethod: "auto", trackAssign: undefined, busy: {} });
+    render(<TrackBoxBanner />);
+    const select = screen.getByLabelText("Método") as HTMLSelectElement;
+    expect([...select.options].map((o) => o.text)).toEqual(["Automático", "SAM 2", "Rápido"]);
+    fireEvent.change(select, { target: { value: "csrt" } });
+    expect(useVisionStore.getState().trackMethod).toBe("csrt");
+    expect((await run("template matching")).method).toBe("csrt");
+  });
+});
+
+describe("Quitar fondo de imagen: aviso de CPU con onnxruntime CPU en una PC con CUDA", () => {
+  it("warns for BiRefNet when onnx_provider is cpu even with free VRAM", async () => {
+    let onnx: "cpu" | "cuda" = "cpu";
+    mockFetch((path) =>
+      path === "/api/ai/gpu"
+        ? { json: { cuda: true, mode: "gpu", vram_free_mb: 5000, resident_model: null,
+            sysmem_fallback: false, onnx_provider: onnx } } // prettier-ignore
+        : undefined,
+    );
+    const warn = vi.spyOn(toast, "warning");
+    expect(await warnIfCpu("birefnet")).toBe(true);
+    expect(warn).toHaveBeenLastCalledWith(
+      "Va a correr en CPU (más lento)",
+      expect.objectContaining({ description: expect.stringContaining("onnxruntime") }),
+    );
+    expect(await warnIfCpu("matting")).toBe(false); // RVM (torch) is not affected
+    onnx = "cuda";
+    expect(await warnIfCpu("birefnet")).toBe(false);
+  });
+});
+
+describe("Test de rendimiento: recorte de personas", () => {
+  it("«≈ X fps (meta 15)» with precision and downsample, plus a time estimate", () => {
+    const r = {
+      ran_at: now,
+      rvm_fps: 18.24,
+      rvm_target_fps: 15,
+      rvm_precision: "fp16",
+      rvm_downsample: 0.2667,
+      rvm_resolution: "1920×1080",
+      rvm_device: "cuda",
+      cpu_fallback_ok: true,
+      skipped: {},
+      errors: {},
+      warnings: [],
+    };
+    expect(rvmFpsLabel(r)).toBe("≈ 18,2 fps (meta 15)");
+    expect(rvmDetail(r)).toBe("1920×1080 · fp16 · reducción 0,2667 · CUDA");
+    expect(rvmFpsLabel({ rvm_fps: null })).toBe("—");
+    const est = perfEstimates(r).find((e) => e.label.startsWith("Recorte de personas"));
+    expect(est?.seconds).toBeCloseTo(1800 / 18.24, 3);
   });
 });

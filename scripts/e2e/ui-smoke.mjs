@@ -672,6 +672,8 @@ await step(
     await gotoFrame(0);
     const preview = page.locator("section[aria-label='Vista previa']");
     await preview.getByRole("button", { name: "Seguir objeto" }).click();
+    // «Rápido» (OpenCV): the harness' SAM 2 double is a constant mask that does not move.
+    await page.getByLabel("Método", { exact: true }).selectOption("csrt");
     const box = await previewCanvas().boundingBox();
     const b = S2.box(0);
     const at = (fx, fy) => [box.x + fx * box.width, box.y + fy * box.height];

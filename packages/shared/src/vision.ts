@@ -31,6 +31,12 @@ export type TrackFrame = z.infer<typeof TrackFrameSchema>;
 
 export const TrackMethodSchema = z.enum(["sam2", "csrt"]);
 export type TrackMethod = z.infer<typeof TrackMethodSchema>;
+/**
+ * Method asked by POST /api/ai/vision/track: "auto" = the api picks "sam2" when the workers list
+ * the sam2 pack as installed (GET /packs), else "csrt" (OpenCV; template matching when headless).
+ */
+export const TrackRequestMethodSchema = z.enum(["auto", "sam2", "csrt"]);
+export type TrackRequestMethod = z.infer<typeof TrackRequestMethodSchema>;
 
 /** track.json (asset kind "track"). */
 export const TrackFileSchema = z.object({
@@ -297,7 +303,7 @@ export const VisionTrackRequestSchema = z
     bbox: BBoxSchema.optional(),
     /** Asset kind "mask" (folder) or image: its PNG is sent as `mask_png`. */
     maskAssetId: IdSchema.optional(),
-    method: TrackMethodSchema.default("csrt"),
+    method: TrackRequestMethodSchema.default("csrt"),
     /** Source frame range. */
     frameRange: z
       .tuple([z.number().int().nonnegative(), z.number().int().nonnegative()])

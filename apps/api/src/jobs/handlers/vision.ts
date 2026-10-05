@@ -21,6 +21,8 @@ import {
   type Project,
   type ProjectReframe,
   type TrackFile,
+  type TrackMethod,
+  type TrackRequestMethod,
   type TrackToKeyframesRequest,
   type TrackToKeyframesResult,
   type VisionMaskPayload,
@@ -43,7 +45,7 @@ import {
   registerFileAsset,
   registerTrackAsset,
 } from "../../services/vision-assets.js";
-import { WorkersError } from "../../services/workers-client.js";
+import { WorkersError, type WorkersClient } from "../../services/workers-client.js";
 import { requireMediaAsset } from "../../voice-ai/media-bridge.js";
 import { JobAbortedError } from "../state.js";
 import type { JobContext, JobHandler } from "../types.js";
@@ -292,6 +294,20 @@ export function createVisionMaskHandler(
   };
 }
 
+/**
+ * Tracker for a vision.track request: "auto" -> "sam2" when the workers list the sam2 pack as
+ * installed (GET /packs), else "csrt" (OpenCV CSRT, or template matching on headless builds).
+ * Unreachable workers = "csrt" (the job then reports the real error).
+ */
+export async function resolveTrackMethod(
+  workers: Pick<WorkersClient, "packs">,
+  method: TrackRequestMethod,
+): Promise<TrackMethod> {
+  if (method !== "auto") return method;
+  const packs = await workers.packs().catch(() => undefined);
+  return packs?.some((p) => p.id === "sam2" && p.installed) ? "sam2" : "csrt";
+}
+
 /** vision.track: CSRT / SAM 2 tracking -> asset kind "track" (+ clip.trackRef with a target). */
 export function createVisionTrackHandler(
   deps: AiDeps,
@@ -307,11 +323,15 @@ export function createVisionTrackHandler(
       const mask = req.maskAssetId
         ? await maskPngOf(deps.config.storageDir, requireMediaAsset(deps, req.maskAssetId))
         : undefined;
-      ctx.reportProgress(0.03, "Siguiendo el objeto");
+      const method = await resolveTrackMethod(deps.workers, req.method);
+      ctx.reportProgress(
+        0.03,
+        method === "sam2" ? "Siguiendo el objeto (SAM 2)" : "Siguiendo el objeto",
+      );
       const { task_id } = await viaPacks(() =>
         deps.workers.visionTrack({
           path: src.path,
-          method: req.method,
+          method,
           ...(req.bbox && !mask && { bbox: req.bbox }),
           ...(mask && { mask_png: mask }),
           ...(req.frameRange && { frame_range: req.frameRange }),
@@ -324,7 +344,7 @@ export function createVisionTrackHandler(
       const raw = JSON.parse(
         await readFile(resolveStoragePath(deps.config.storageDir, result.track_path), "utf8"),
       ) as unknown;
-      const track = withSource(raw, src.id, req.method);
+      const track = withSource(raw, src.id, method);
       if (track.frames.length === 0) throw new Error("El seguimiento no encontró el objeto");
       const asset = await registerTrackAsset(deps, track, {
         jobId: job.id,

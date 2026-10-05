@@ -123,6 +123,11 @@ class MatteEngine:
     def gpl_status(self) -> dict[str, Any]:
         return gpl.status(self.gpl_venv(), self.settings.gpl_python)
 
+    def birefnet_device(self) -> str | None:
+        """Device of the loaded BiRefNet session (None when not loaded)."""
+        with self._lock:
+            return self._device if self._model is not None else None
+
     def birefnet_available(self) -> bool:
         if self.alpha_factory is not None:
             return True
@@ -315,5 +320,7 @@ class MatteEngine:
             "device": run.device,
             "frames": run.frames,
             "proc_fps": run.proc_fps,
+            "precision": run.precision,
+            "downsample": run.downsample,
             "warnings": list(dict.fromkeys(warnings)),
         }

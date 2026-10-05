@@ -62,7 +62,7 @@ describe("vision routes and jobs (mocked workers)", () => {
   let server: http.Server;
   let app: FastifyInstance;
   let storage = "";
-  const state = { mattingInstalled: false, samWorkerMissing: false };
+  const state = { mattingInstalled: false, samWorkerMissing: false, samInstalled: true };
   const seen: Record<string, Record<string, unknown>> = {};
 
   beforeAll(async () => {
@@ -89,7 +89,7 @@ describe("vision routes and jobs (mocked workers)", () => {
             return send(200, [
               pack("matting", state.mattingInstalled),
               pack("matting-image", true),
-              pack("sam2", true),
+              pack("sam2", state.samInstalled),
               pack("reframe", true),
             ]);
           case "POST /vision/matte":
@@ -398,6 +398,23 @@ describe("vision routes and jobs (mocked workers)", () => {
 
     const invalid = await post(API_ROUTES.aiVisionTrack, { assetId: "mov" });
     expect(invalid.statusCode).toBe(400);
+  });
+
+  it('vision.track method "auto": SAM 2 when the workers list the sam2 pack, else CSRT', async () => {
+    addAsset("auto");
+    const bbox = { x: 0.1, y: 0.4, w: 0.1, h: 0.2 };
+    for (const [installed, expected] of [
+      [true, "sam2"],
+      [false, "csrt"],
+    ] as const) {
+      state.samInstalled = installed;
+      const res = await post(API_ROUTES.aiVisionTrack, { assetId: "auto", bbox, method: "auto" });
+      expect(res.statusCode).toBe(202);
+      const job = await jobEnd(res.json<{ jobId: string }>().jobId);
+      expect(job.status, job.error).toBe("succeeded");
+      expect(seen["/vision/track"]!.method).toBe(expected); // result.method = TrackFile source
+    }
+    state.samInstalled = true;
   });
 
   it("imports an uploaded track.json as an asset of kind track (a Lottie JSON stays lottie)", async () => {

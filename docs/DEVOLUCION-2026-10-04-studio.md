@@ -94,3 +94,31 @@ Whisper turbo, DeepFilterNet, NVENC por bloques y los tiempos reales. Primera co
 | Respaldo en CPU | Funciona | — |
 | Paquetes | 6/6 instalados (2,5 GB) | `actualizar.cmd` cambió a CUDA correctamente |
 RVC sin medir: no hay modelos de voz en `models/rvc/`. Criterio 2a (silencios < 30 s/min) ✅ con margen amplio.
+
+---
+
+# Sprint 2 — 2026-10-05 — Fase B (visión, keyframes, preview multicapa)
+
+**Plan:** `docs/01-PLAN-BASE-v2.md`. **Preguntas:** 0. **Contratos:** `docs/trabajo/sprint2-contratos.md`.
+
+## Entregado
+- Recorte de personas (RobustVideoMatting, GPL aislado en `.venv-gpl` y subproceso), recorte de imágenes (BiRefNet swin_v1_tiny), máscara por clic en video (SAM 2.1 tiny/small por tramos de 200 fotogramas), seguimiento de objetos (SAM 2 o rápido, suavizado sin retardo) → keyframes, reencuadre automático 9:16 / 1:1 / 4:5 (YuNet por escena).
+- Keyframes de posición, escala, opacidad y recorte: diamantes en el timeline, `K`, inspector con easing, export con expresiones FFmpeg, paridad preview/export por función compartida.
+- Vista previa multicapa con reloj maestro (referencia HyperFrames): 29 fps con 3 capas 1080p en Chromium sin GPU.
+- Fondo reemplazable (color, imagen, video, desenfoque); subtítulos y rótulos de Remotion que siguen un objeto.
+- 4 packs nuevos bajo demanda; onnxruntime-gpu correcto en CUDA; SAM 2 fijado a commit; integridad de descargas con sha256 donde la red lo permitió.
+
+## Criterios (plan v2, sprint 2)
+| Criterio | Estado | Evidencia |
+|---|---|---|
+| Recorte ≥ 15 fps 1080p en la 4050 | 🟡 | Solo mock (14,1 fps en CPU sandbox); se mide con el test de rendimiento en la PC |
+| Reencuadre sin saltos | ✅ (sandbox) | One-Euro + `hold` por escena; e2e export 9:16 |
+| Texto siguiendo objeto exportado | ✅ | e2e píxeles en 3 instantes; deriva 2,6 px |
+| Preview ≥ 24 fps con 3 capas | ✅ (headless) | 29,1 fps; validar en Chrome/Edge de la notebook |
+
+## Números
+- Agentes: 3 módulos + integración + auditoría + fixes. Tests: Node 420, Python 128; e2e 41/41; smoke 25/25.
+- Auditoría: 2 ❌ documentales + 5 riesgos → todos corregidos.
+
+## Pendiente para la PC real
+Primera corrida: `actualizar.cmd` → Ajustes → Paquetes de IA → descargar `matting`, `matting-image`, `sam2` (requiere Git), `reframe` → Test de rendimiento (ver `Recorte de personas ≈ X fps`) → "Quitar fondo" en un clip de 10 s.

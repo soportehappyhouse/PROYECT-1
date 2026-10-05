@@ -100,12 +100,36 @@ describe("Sprint 1 AI contract", () => {
       denoise: 1000,
       matting: 1000,
       sam2: 1500,
+      birefnet: 1800,
     });
     expect(willRunOnCpu({ mode: "cpu", vram_free_mb: null }, "denoise")).toBe(true);
     expect(willRunOnCpu({ mode: "gpu", vram_free_mb: 2200 }, "transcribe")).toBe(true);
     expect(willRunOnCpu({ mode: "gpu", vram_free_mb: 2200 }, "rvc")).toBe(false);
     expect(willRunOnCpu({ mode: "gpu", vram_free_mb: null }, "transcribe")).toBe(false);
     expect(willRunOnCpu(undefined, "rvc")).toBe(false);
+    // BiRefNet: CPU onnxruntime on a CUDA machine -> pre-warning even with plenty of VRAM
+    const gpu = { mode: "gpu" as const, vram_free_mb: 5000, cuda: true };
+    expect(willRunOnCpu({ ...gpu, onnx_provider: "cpu" }, "birefnet")).toBe(true);
+    expect(willRunOnCpu({ ...gpu, onnx_provider: "cuda" }, "birefnet")).toBe(false);
+    expect(willRunOnCpu({ ...gpu, onnx_provider: "cpu" }, "matting")).toBe(false); // RVM: torch
+    expect(willRunOnCpu({ ...gpu, onnx_provider: null }, "birefnet")).toBe(false);
+  });
+
+  it("keeps the vision perf fields (rvm_fps, precision, downsample)", () => {
+    const r = PerfResultSchema.parse({
+      ran_at: "2026-10-05T00:00:00Z",
+      rvm_fps: 18.2,
+      rvm_precision: "fp16",
+      rvm_downsample: 0.2667,
+      rvm_target_fps: 15,
+      sam2_fps: null,
+    });
+    expect([r.rvm_fps, r.rvm_precision, r.rvm_downsample, r.rvm_target_fps]).toEqual([
+      18.2,
+      "fp16",
+      0.2667,
+      15,
+    ]);
   });
 
   it("packs on demand: rvc-base required, whisper-turbo suggested; vad flags (decision 6)", () => {

@@ -59,8 +59,8 @@ def afftdn(src: Path, dst: Path, _device: str) -> None:
 _status = packs.pack_status
 
 
-def pack_status(pack, root, catalog=None):  # type: ignore[no-untyped-def]
-    row = _status(pack, root, catalog)
+def pack_status(pack, root, catalog=None, **kw):  # type: ignore[no-untyped-def]
+    row = _status(pack, root, catalog, **kw)
     if (MOCK_DENOISE and pack.id == "voz-limpia") or (MOCK_VISION and pack.id in VISION_PACKS):
         row.update(installed=True, partial=False)
     return row

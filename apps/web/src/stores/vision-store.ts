@@ -6,6 +6,7 @@ import {
   type MatteBackground,
   type ReframeTarget,
   type TrackAnchor,
+  type TrackRequestMethod,
   type TrackToKeyframesResult,
   type Vec2,
   type VisionMatteResult,
@@ -49,6 +50,12 @@ interface VisionState {
   trackAssign: TrackAssign | undefined;
   /** Running job per action (buttons show a spinner + progress). */
   busy: Partial<Record<"matte" | "track" | "reframe" | "toKeyframes", string | true>>;
+  /**
+   * «Seguir objeto» → «Método»: "auto" (the api uses SAM 2 when its pack is installed, else the
+   * fast OpenCV tracker), "sam2" or "csrt" («Rápido»: CSRT, template matching on headless OpenCV).
+   */
+  trackMethod: TrackRequestMethod;
+  setTrackMethod: (method: TrackRequestMethod) => void;
   openMatte: (dialog: MatteDialog | undefined) => void;
   openTrackAssign: (assign: TrackAssign | undefined) => void;
   removeBackground: (clipId: string, background: MatteBackground | undefined) => Promise<boolean>;
@@ -104,6 +111,8 @@ export const useVisionStore = create<VisionState>()((set, get) => ({
   matteDialog: undefined,
   trackAssign: undefined,
   busy: {},
+  trackMethod: "auto",
+  setTrackMethod: (trackMethod) => set({ trackMethod }),
   openMatte: (matteDialog) => set({ matteDialog }),
   openTrackAssign: (trackAssign) => set({ trackAssign }),
 
@@ -131,7 +140,11 @@ export const useVisionStore = create<VisionState>()((set, get) => ({
             target: { projectId: project.id, clipId },
           }),
         "vision.matte",
-        { gpu: "matting", onJob: (id) => setBusy("matte", id) },
+        // image -> BiRefNet (onnxruntime: also warns when only the CPU build is installed)
+        {
+          gpu: asset.kind === "image" ? "birefnet" : "matting",
+          onJob: (id) => setBusy("matte", id),
+        },
       );
       if (!result?.assetId) return false;
       await useMediaStore.getState().ensure(result.assetId);
@@ -159,12 +172,16 @@ export const useVisionStore = create<VisionState>()((set, get) => ({
     if (!assetId) return;
     usePreviewStore.getState().setTool("none");
     setBusy("track", true);
-    addBreadcrumb("ui", "Seguir objeto", { clipId });
+    const requested = get().trackMethod;
+    addBreadcrumb("ui", "Seguir objeto", { clipId, method: requested });
     try {
       const result = await runVisionJob<VisionTrackResult>(
-        () => visionApi.track({ assetId, bbox, method: "csrt" }),
+        () => visionApi.track({ assetId, bbox, method: requested }),
         "vision.track",
-        { onJob: (id) => setBusy("track", id) },
+        {
+          ...(requested === "sam2" && { gpu: "sam2" as const }),
+          onJob: (id) => setBusy("track", id),
+        },
       );
       if (!result?.assetId) return;
       const asset = await useMediaStore.getState().ensure(result.assetId);

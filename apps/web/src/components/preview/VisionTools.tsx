@@ -3,7 +3,9 @@
 import { Crosshair, Eraser, Loader2, Minus, Plus, Undo2, Wand2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/input";
 import { Progress } from "@/components/ui/misc";
+import { TRACK_METHOD_OPTIONS } from "@/lib/vision-types";
 import { useMaskProgress, useMaskStore } from "@/stores/mask-store";
 import { usePreviewStore } from "@/stores/preview-store";
 import { useProjectStore } from "@/stores/project-store";
@@ -156,9 +158,10 @@ function MaskResultActions() {
   );
 }
 
-/** Banner while drawing the «Seguir objeto» box. */
+/** Banner while drawing the «Seguir objeto» box (with the «Método» selector). */
 export function TrackBoxBanner() {
   const busy = useVisionStore((s) => s.busy.track);
+  const method = useVisionStore((s) => s.trackMethod);
   return (
     <div
       role="status"
@@ -168,12 +171,28 @@ export function TrackBoxBanner() {
       {busy
         ? "Siguiendo el objeto…"
         : "Dibujá un rectángulo alrededor del objeto a seguir (arrastrando sobre el video)."}
-      <Button
-        size="xs"
-        variant="ghost"
-        className="ml-auto"
-        onClick={() => usePreviewStore.getState().setTool("none")}
-      >
+      <label className="ml-auto flex items-center gap-1">
+        Método
+        <Select
+          aria-label="Método"
+          title="Automático: SAM 2 si su paquete está instalado; si no, Rápido (OpenCV)"
+          className="h-6 py-0 text-xs"
+          value={method}
+          disabled={!!busy}
+          onChange={(e) =>
+            useVisionStore
+              .getState()
+              .setTrackMethod(e.target.value as (typeof TRACK_METHOD_OPTIONS)[number]["value"])
+          }
+        >
+          {TRACK_METHOD_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </Select>
+      </label>
+      <Button size="xs" variant="ghost" onClick={() => usePreviewStore.getState().setTool("none")}>
         Cancelar
       </Button>
     </div>

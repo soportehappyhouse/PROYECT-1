@@ -161,6 +161,8 @@ class RvmRun:
     fps: str = ""
     device: str = "cpu"
     proc_fps: float = 0.0
+    precision: str = ""  # fp16 (CUDA) | fp32 (CPU)
+    downsample: float | None = None
     warnings: list[str] = field(default_factory=list)
 
 
@@ -256,5 +258,7 @@ def run_rvm(
         fps=str(result.get("fps") or ""),
         device=str(result.get("device") or "cpu"),
         proc_fps=float(result.get("proc_fps") or 0.0),
+        precision=str(result.get("precision") or ""),
+        downsample=float(result["downsample"]) if result.get("downsample") else None,
         warnings=list(dict.fromkeys([*warnings, *(result.get("warnings") or [])])),
     )

@@ -84,6 +84,13 @@ export const TRACK_METHOD_LABELS: Record<string, string> = {
   sam2: "SAM 2",
 };
 
+/** «Seguir objeto» → «Método» options (TrackRequestMethod). */
+export const TRACK_METHOD_OPTIONS = [
+  { value: "auto", label: "Automático" },
+  { value: "sam2", label: "SAM 2" },
+  { value: "csrt", label: "Rápido" },
+] as const;
+
 export function trackMethodLabel(method: string | undefined): string | undefined {
   return method ? (TRACK_METHOD_LABELS[method] ?? method) : undefined;
 }

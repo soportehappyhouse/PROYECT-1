@@ -35,13 +35,31 @@ def bench_yunet(settings: Settings, work: Path) -> float:
     return round(len(frames) / max(1e-6, time.perf_counter() - t0), 1)
 
 
-def bench_rvm(work: Path) -> tuple[float, list[str]]:
+RVM_BENCH_SIZE = "1920x1080"
+RVM_BENCH_SECONDS = 5.0
+RVM_BENCH_RATE = 25
+RVM_TARGET_FPS = 15  # plan v2 criterion: >= 15 fps at 1080p on the RTX 4050
+
+
+def bench_rvm(work: Path) -> dict[str, Any]:
+    """A real 1080p 5 s lavfi clip through the GPL subprocess (``vision_gpl.rvm`` in .venv-gpl,
+    the same path as «Quitar fondo»). fps = whole pipeline (decode + model + VP9 alpha encode)."""
     engine = services.matte_engine()
-    clip = _clip(work / "rvm.mp4", "1920x1080", 2)
+    clip = _clip(work / "rvm.mp4", RVM_BENCH_SIZE, RVM_BENCH_SECONDS, RVM_BENCH_RATE)
     t0 = time.perf_counter()
     res = engine.matte_video(clip, work / "rvm.webm", model="rvm", chunk=300)
-    fps = (res.get("frames") or 50) / max(1e-6, time.perf_counter() - t0)
-    return round(fps, 1), list(res.get("warnings") or [])
+    frames = res.get("frames") or int(RVM_BENCH_SECONDS * RVM_BENCH_RATE)
+    fps = frames / max(1e-6, time.perf_counter() - t0)
+    return {
+        "rvm_fps": round(fps, 1),
+        "rvm_proc_fps": res.get("proc_fps") or None,
+        "rvm_device": res.get("device"),
+        "rvm_precision": res.get("precision") or None,
+        "rvm_downsample": res.get("downsample"),
+        "rvm_resolution": RVM_BENCH_SIZE.replace("x", "×"),
+        "rvm_target_fps": RVM_TARGET_FPS,
+        "warnings": list(res.get("warnings") or []),
+    }
 
 
 def bench_sam2(work: Path) -> tuple[float, list[str]]:
@@ -87,8 +105,9 @@ def run_vision_bench(settings: Settings, work: Path, result: dict[str, Any]) -> 
         )
     else:
         try:
-            result["rvm_fps"], warns = bench_rvm(work)
-            result["warnings"] += warns
+            measured = bench_rvm(work)
+            result["warnings"] += measured.pop("warnings")
+            result.update(measured)
         except Exception as exc:
             errors["rvm"] = str(exc)
 

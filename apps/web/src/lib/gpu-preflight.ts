@@ -11,6 +11,7 @@ const FEATURE_TEXT: Record<GpuFeature, string> = {
   denoise: "Limpiar voz",
   matting: "Quitar fondo",
   sam2: "Máscara / seguir objeto (SAM 2)",
+  birefnet: "Quitar fondo de la imagen (BiRefNet)",
 };
 
 /**
@@ -32,7 +33,9 @@ export async function warnIfCpu(feature: GpuFeature, timeoutMs = 1500): Promise<
     description: `${FEATURE_TEXT[feature]}: ${
       status?.mode === "cpu"
         ? "no hay GPU disponible para la IA."
-        : "la GPU no tiene memoria libre suficiente."
+        : feature === "birefnet" && status?.onnx_provider === "cpu"
+          ? "onnxruntime es la versión CPU (volvé a descargar «Quitar fondo de imágenes» para usar la GPU)."
+          : "la GPU no tiene memoria libre suficiente."
     }`,
   });
   return true;

@@ -101,6 +101,9 @@ def matte(req: MatteRequest) -> dict[str, Any]:
         }
         if res.get("proc_fps"):
             result["proc_fps"] = res["proc_fps"]
+        for key in ("precision", "downsample"):  # RVM: fp16|fp32 and downsample_ratio used
+            if res.get(key):
+                result[key] = res[key]
         if res.get("warnings"):
             result["warnings"] = res["warnings"]
         return result

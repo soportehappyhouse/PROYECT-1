@@ -1091,7 +1091,7 @@ solo el paquete **core**; `setup.ps1 -Full` baja todos en secuencia.
 | **scenes**        | PySceneDetect                  | 0,05 GB       | Detectar escenas          |
 | **voz-limpia**    | DeepFilterNet                  | 0,2 GB        | Limpiar voz (IA)          |
 | **matting**       | RobustVideoMatting             | 0,01 GB       | Quitar fondo (video)      |
-| **matting-image** | BiRefNet                       | 0,2 GB        | Quitar fondo (imagen)     |
+| **matting-image** | BiRefNet-lite (swin_v1_tiny)   | 0,28 GB       | Quitar fondo (imagen)     |
 | **sam2**          | SAM 2.1 tiny + small           | 0,2 GB        | Máscara, seguir objeto    |
 | **reframe**       | YuNet (caras)                  | < 0,01 GB     | Reencuadrar               |
 
@@ -1120,9 +1120,11 @@ El chip del encabezado consulta la API cada 10 s:
 ### 17.3 Test de rendimiento IA
 
 En **Ajustes → Paquetes de IA → Test de rendimiento IA** Studio mide en tu PC (un par de minutos)
-Whisper, Piper, RVC y la detección de escenas, y guarda el resultado. La tabla muestra cada
-velocidad y al lado los **tiempos estimados**, por ejemplo _Transcribir 10 min de audio ≈ 25 s_ o
-_Detectar escenas en 10 min a 30 fps ≈ 1 min_. Volvé a correrlo si cambiás de placa o de driver.
+Whisper, Piper, RVC, la detección de escenas y, con el paquete **matting**, el recorte de personas,
+y guarda el resultado. La tabla muestra cada velocidad y al lado los **tiempos estimados**, por
+ejemplo _Transcribir 10 min de audio ≈ 25 s_ o _Detectar escenas en 10 min a 30 fps ≈ 1 min_. La
+fila **Recorte de personas ≈ X fps (meta 15)** mide un clip 1080p de 5 s y dice la precisión (fp16
+en GPU, fp32 en CPU) y la reducción interna usada. Volvé a correrlo si cambiás de placa o de driver.
 
 ### 17.4 Quitar silencios y muletillas
 
@@ -1249,16 +1251,20 @@ cambiando solo.
 2. Elegí el **fondo**: _Color_, _Imagen_ o _Video_ de Media, _Desenfoque del propio video_ o
    _Transparente_ (se ven las pistas de abajo).
 3. Studio recorta a la persona (RobustVideoMatting en videos, paquete **matting**; BiRefNet en
-   imágenes, paquete **matting-image**). En la RTX 4050 va a unos 15 cuadros por segundo o más;
-   sin GPU avisa _Va a correr en CPU (más lento)_.
+   imágenes, paquete **matting-image**: la variante liviana BiRefNet-lite, backbone
+   **swin_v1_tiny**). En la RTX 4050 va a unos 15 cuadros por segundo o más; sin GPU avisa _Va a
+   correr en CPU (más lento)_. En imágenes también avisa si la PC tiene GPU pero onnxruntime quedó
+   en su versión CPU (volvé a descargar **matting-image** para pasarla a la de GPU).
 4. Al terminar la Vista previa ya muestra el recorte. El fondo se cambia después en
    **Propiedades → Quitar fondo**; **Volver al video original** lo deshace.
 
 ### 18.5 Seguir objeto
 
 1. Elegí el clip de video y tocá **Seguir objeto** (mira) en la Vista previa.
-2. **Dibujá un rectángulo** alrededor del objeto arrastrando sobre el video.
-3. Cuando termina, el aviso dice qué método usó: _CSRT_ o, si el OpenCV instalado no lo trae,
+2. **Método** (en la barra violeta): _Automático_ (usa **SAM 2** si su paquete está instalado; si
+   no, el rápido), _SAM 2_ (más preciso, pide el paquete **sam2**) o _Rápido_ (OpenCV).
+   **Dibujá un rectángulo** alrededor del objeto arrastrando sobre el video.
+3. Cuando termina, el aviso dice qué método usó: _SAM 2_, _CSRT_ o, si el OpenCV instalado no lo trae,
    _template matching_ (sigue bien objetos con textura; si se pierde, dibujá una caja más
    ajustada). Elegí qué **texto o motion** lo sigue (o **Crear un texto**), el **Ancla**
    (centro, arriba o debajo del objeto) y el **Desvío** en % del lienzo. **Asignar**.

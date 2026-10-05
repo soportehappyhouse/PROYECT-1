@@ -10,7 +10,7 @@ Protocol: one JSON object per stdout line (stderr is free text, never parsed):
   {"event":"chunk","index":k,"start":a,"end":b}
   {"event":"progress","frame":i,"frames":N,"progress":0.42,"fps":31.5}
   {"event":"done","output":"...","frames":N,"fps":"30/1","device":"cpu","proc_fps":31.2,
-   "warnings":[...]}
+   "precision":"fp32","downsample":0.2667,"warnings":[...]}
   {"event":"error","message":"..."}
 Exit code 0 = done, 1 = error.
 
@@ -208,6 +208,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "fps": f"{fps.numerator}/{fps.denominator}",
         "device": device,
         "proc_fps": round(processed / elapsed, 2),
+        # model weights used (fp16 TorchScript on CUDA, fp32 on CPU) and RVM downsample_ratio
+        "precision": "fp16" if device == "cuda" else "fp32",
+        "downsample": ratio,
         "warnings": list(dict.fromkeys(warnings)),
     }
     if not args.keep_work:

@@ -15,7 +15,7 @@ import {
 } from "@studio/shared";
 import type { FastifyPluginAsync, FastifyReply } from "fastify";
 import { requirePack, toPackRequired } from "../jobs/handlers/ai.js";
-import { reframeSourceClip } from "../jobs/handlers/vision.js";
+import { reframeSourceClip, resolveTrackMethod } from "../jobs/handlers/vision.js";
 import { errorBody, HttpError } from "../lib/errors.js";
 import { resolveStoragePath } from "../services/storage.js";
 import { copyIntoMasks, MASKS_SUBDIR, safeSegment } from "../services/vision-assets.js";
@@ -179,7 +179,9 @@ export const visionRoutes: FastifyPluginAsync = async (app) => {
     if (body.maskAssetId) requireMediaAsset(app.ctx, body.maskAssetId);
     if (body.target) requireClip(body.target.projectId, body.target.clipId);
     if (body.method === "sam2") await requirePack(workers, FEATURE_PACKS.sam2);
-    return accepted(reply, "vision.track", body, body.target?.projectId);
+    // "auto": SAM 2 when its pack is installed, else CSRT/template (decided here, kept in the job)
+    const method = await resolveTrackMethod(workers, body.method);
+    return accepted(reply, "vision.track", { ...body, method }, body.target?.projectId);
   });
 
   app.post(API_ROUTES.aiVisionReframe, async (req, reply) => {

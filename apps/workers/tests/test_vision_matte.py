@@ -186,6 +186,7 @@ def test_matte_rvm_subprocess_mock(
     task = _wait(res.json()["task_id"])
     r = task.result
     assert r["model"] == "rvm" and r["device"] == "cpu" and r["frames"] == 50
+    assert r["precision"] == "fp32" and r["downsample"] == 1.0  # 160x90: no downsampling
     alpha = storage / r["alpha_path"]
     assert frames.webm_has_alpha(alpha) and count_frames(alpha) == 50
     assert abs(sum(decoded_alpha(alpha, 30)) / (160 * 90) - 200) < 4  # mock alpha = 200
@@ -246,6 +247,7 @@ def test_vision_gpl_cli_protocol_chunks_and_resume(tmp_path: Path) -> None:
     start, done = events[0], events[-1]
     assert start["frames"] == 50 and start["fps"] == "25/1" and start["downsample"] == 1.0
     assert done["frames"] == 50 and done["device"] == "cpu" and Path(done["output"]) == out
+    assert done["precision"] == "fp32" and done["downsample"] == 1.0  # fp16 only on CUDA
     assert count_frames(out) == 50 and frames.webm_has_alpha(out)
     # re-run: every chunk is already done -> resumes at the end, same output
     code, events = _cli(*args)

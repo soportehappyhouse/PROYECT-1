@@ -10,3 +10,11 @@ Detalle por módulo: [fuentes-motion.md](fuentes-motion.md) · [fuentes-audio.md
 | faster-whisper   | MIT                          | Transcripción/subtítulos (workers)                            |
 | dockview         | MIT                          | Paneles acoplables del dashboard                              |
 | wavesurfer.js    | BSD-3-Clause                 | Formas de onda en la web                                      |
+| RobustVideoMatting (RVM) mobilenetv3 | GPL-3.0 | Recorte de personas en video (paquete `matting`). **Aislado**: corre como proceso aparte (`python -m vision_gpl.rvm`) en su propio entorno `apps\workers\.venv-gpl`; `studio_workers` nunca lo importa (test). Pesos TorchScript fp16/fp32 de github.com/PeterL1n/RobustVideoMatting releases v1.0.0 (tamaño y sha256 verificados) |
+| BiRefNet-general-lite (swin_v1_tiny) | MIT | Quitar fondo de imágenes (paquete `matting-image`). El ONNX **no** es del repo oficial (ZhengPeng7/BiRefNet publica `.pth`): es el **re-host de rembg** (github.com/danielgatis/rembg releases v0.0.0, `BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx`, 224 005 088 B, sha256 verificado); misma licencia MIT |
+| SAM 2.1 (código + pesos tiny/small) | Apache-2.0 | Máscara por clic y seguimiento (paquete `sam2`). Código `git+https://github.com/facebookresearch/sam2` fijado al commit `2b90b9f5` (sin tags de release); pesos de dl.fbaipublicfiles.com (sha256 registrado en la primera descarga) |
+| YuNet (face_detection_yunet_2023mar) | MIT | Detección de caras para reencuadrar (paquete `reframe`, OpenCV Zoo; tamaño y sha256 verificados) |
+| onnxruntime / onnxruntime-gpu 1.24.4 | MIT | Inferencia ONNX de BiRefNet (`-gpu` con CUDA 12 reemplaza a la versión CPU que traen piper/faster-whisper) |
+| opencv-python-headless 4.11.0.86 | Apache-2.0 | Lectura de cuadros, seguimiento CSRT/plantilla, YuNet (paquetes `scenes`, `reframe`, `matting-image`) |
+| scenedetect (PySceneDetect) 0.7.1 | BSD-3-Clause | Detección de escenas (paquete `scenes`) |
+| deepfilternet / deepfilterlib 0.5.6 | MIT / Apache-2.0 (doble) | Limpieza de voz (paquete `voz-limpia`, pesos DeepFilterNet3 del repo oficial) |

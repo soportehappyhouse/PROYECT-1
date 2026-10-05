@@ -3455,8 +3455,8 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
               </tr>
               <tr>
                 <td><strong>matting-image</strong></td>
-                <td>BiRefNet</td>
-                <td>0,2 GB</td>
+                <td>BiRefNet-lite (swin_v1_tiny)</td>
+                <td>0,28 GB</td>
                 <td>Quitar fondo (imagen)</td>
               </tr>
               <tr>
@@ -3518,11 +3518,14 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
         <h3 id="173-test-de-rendimiento-ia">17.3 Test de rendimiento IA</h3>
         <p>
           En <strong>Ajustes → Paquetes de IA → Test de rendimiento IA</strong> Studio mide en tu PC
-          (un par de minutos) Whisper, Piper, RVC y la detección de escenas, y guarda el resultado.
-          La tabla muestra cada velocidad y al lado los <strong>tiempos estimados</strong>, por
-          ejemplo <em>Transcribir 10 min de audio ≈ 25 s</em> o
-          <em>Detectar escenas en 10 min a 30 fps ≈ 1 min</em>. Volvé a correrlo si cambiás de placa
-          o de driver.
+          (un par de minutos) Whisper, Piper, RVC, la detección de escenas y, con el paquete
+          <strong>matting</strong>, el recorte de personas, y guarda el resultado. La tabla muestra
+          cada velocidad y al lado los <strong>tiempos estimados</strong>, por ejemplo
+          <em>Transcribir 10 min de audio ≈ 25 s</em> o
+          <em>Detectar escenas en 10 min a 30 fps ≈ 1 min</em>. La fila
+          <strong>Recorte de personas ≈ X fps (meta 15)</strong> mide un clip 1080p de 5 s y dice la
+          precisión (fp16 en GPU, fp32 en CPU) y la reducción interna usada. Volvé a correrlo si
+          cambiás de placa o de driver.
         </p>
         <h3 id="174-quitar-silencios-y-muletillas">17.4 Quitar silencios y muletillas</h3>
         <ol>
@@ -3788,9 +3791,12 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
           </li>
           <li>
             Studio recorta a la persona (RobustVideoMatting en videos, paquete
-            <strong>matting</strong>; BiRefNet en imágenes, paquete <strong>matting-image</strong>).
-            En la RTX 4050 va a unos 15 cuadros por segundo o más; sin GPU avisa
-            <em>Va a correr en CPU (más lento)</em>.
+            <strong>matting</strong>; BiRefNet en imágenes, paquete <strong>matting-image</strong>:
+            la variante liviana BiRefNet-lite, backbone <strong>swin_v1_tiny</strong>). En la RTX
+            4050 va a unos 15 cuadros por segundo o más; sin GPU avisa
+            <em>Va a correr en CPU (más lento)</em>. En imágenes también avisa si la PC tiene GPU
+            pero onnxruntime quedó en su versión CPU (volvé a descargar
+            <strong>matting-image</strong> para pasarla a la de GPU).
           </li>
           <li>
             Al terminar la Vista previa ya muestra el recorte. El fondo se cambia después en
@@ -3804,14 +3810,19 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
             Elegí el clip de video y tocá <strong>Seguir objeto</strong> (mira) en la Vista previa.
           </li>
           <li>
-            <strong>Dibujá un rectángulo</strong> alrededor del objeto arrastrando sobre el video.
+            <strong>Método</strong> (en la barra violeta): <em>Automático</em> (usa
+            <strong>SAM 2</strong> si su paquete está instalado; si no, el rápido),
+            <em>SAM 2</em> (más preciso, pide el paquete <strong>sam2</strong>) o
+            <em>Rápido</em> (OpenCV). <strong>Dibujá un rectángulo</strong> alrededor del objeto
+            arrastrando sobre el video.
           </li>
           <li>
-            Cuando termina, el aviso dice qué método usó: <em>CSRT</em> o, si el OpenCV instalado no
-            lo trae, <em>template matching</em> (sigue bien objetos con textura; si se pierde,
-            dibujá una caja más ajustada). Elegí qué <strong>texto o motion</strong> lo sigue (o
-            <strong>Crear un texto</strong>), el <strong>Ancla</strong> (centro, arriba o debajo del
-            objeto) y el <strong>Desvío</strong> en % del lienzo. <strong>Asignar</strong>.
+            Cuando termina, el aviso dice qué método usó: <em>SAM 2</em>, <em>CSRT</em> o, si el
+            OpenCV instalado no lo trae, <em>template matching</em> (sigue bien objetos con textura;
+            si se pierde, dibujá una caja más ajustada). Elegí qué
+            <strong>texto o motion</strong> lo sigue (o <strong>Crear un texto</strong>), el
+            <strong>Ancla</strong> (centro, arriba o debajo del objeto) y el
+            <strong>Desvío</strong> en % del lienzo. <strong>Asignar</strong>.
           </li>
           <li>
             En <strong>Propiedades → Seguimiento</strong> se ve el método, cambiás ancla y desvío,

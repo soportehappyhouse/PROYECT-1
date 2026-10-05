@@ -42,6 +42,11 @@ export const GpuStatusSchema = z.object({
   mode: z.enum(["gpu", "cpu"]),
   sysmem_fallback: z.boolean().default(false),
   warnings: z.array(z.string()).optional(),
+  /**
+   * onnxruntime execution provider BiRefNet gets ("cpu" when only the CPU build is installed, e.g.
+   * pulled by piper/faster-whisper); null = onnxruntime not installed.
+   */
+  onnx_provider: z.enum(["cuda", "cpu"]).nullish(),
 });
 export type GpuStatus = z.infer<typeof GpuStatusSchema>;
 
@@ -129,6 +134,19 @@ export const PerfResultSchema = z.object({
   piper_s_per_100chars: z.number().nullish(),
   rvc_s_per_min: z.number().nullish(),
   scenes_fps: z.number().nullish(),
+  /**
+   * Sprint 2 (vision). `rvm_fps`: a 1920×1080 5 s clip through the GPL subprocess (decode + model +
+   * VP9 alpha encode); criterion ≥ `rvm_target_fps` (15). Precision fp16 (CUDA) / fp32 (CPU).
+   */
+  rvm_fps: z.number().nullish(),
+  rvm_proc_fps: z.number().nullish(),
+  rvm_device: z.string().nullish(),
+  rvm_precision: z.string().nullish(),
+  rvm_downsample: z.number().nullish(),
+  rvm_resolution: z.string().nullish(),
+  rvm_target_fps: z.number().nullish(),
+  sam2_fps: z.number().nullish(),
+  yunet_fps: z.number().nullish(),
   cpu_fallback_ok: z.boolean().default(false),
   ran_at: z.string(),
   skipped: z.record(z.string(), z.string()).default({}),
@@ -300,6 +318,8 @@ export const FEATURE_VRAM_MB = {
   /** Sprint 2: RVM mobilenetv3 at 1080p ~1 GB, SAM 2.1 tiny ~1.5 GB (small > 3 GB). */
   matting: 1000,
   sam2: 1500,
+  /** BiRefNet-lite (onnxruntime, 1024²) ~1.8 GB; also CPU when only the CPU onnxruntime is there. */
+  birefnet: 1800,
 } as const;
 export type GpuFeature = keyof typeof FEATURE_VRAM_MB;
 
@@ -308,11 +328,16 @@ export type GpuFeature = keyof typeof FEATURE_VRAM_MB;
  * the estimate. Unknown free VRAM in GPU mode is not a warning (the workers decide).
  */
 export function willRunOnCpu(
-  status: Pick<GpuStatus, "mode" | "vram_free_mb"> | undefined,
+  status:
+    | (Pick<GpuStatus, "mode" | "vram_free_mb"> &
+        Partial<Pick<GpuStatus, "cuda" | "onnx_provider">>)
+    | undefined,
   feature: GpuFeature,
 ): boolean {
   if (!status) return false;
   if (status.mode === "cpu") return true;
+  // CUDA machine whose onnxruntime is the CPU build: BiRefNet runs on the CPU whatever the VRAM.
+  if (feature === "birefnet" && status.onnx_provider === "cpu") return true;
   return status.vram_free_mb != null && status.vram_free_mb < FEATURE_VRAM_MB[feature];
 }
 

@@ -7,7 +7,13 @@ from ..rvc_engine import base_status, discover_models
 from ..schemas import Capabilities, FfmpegInfo, ModelsInfo, WorkerHealth
 from ..services import gpu_budget, matte_engine
 from ..stt.engine import installed_models
-from ..system_probe import ctranslate2_cuda_devices, module_installed, package_versions, torch_info
+from ..system_probe import (
+    ctranslate2_cuda_devices,
+    module_installed,
+    onnxruntime_info,
+    package_versions,
+    torch_info,
+)
 from ..tts.piper_catalog import installed_voice_ids
 
 router = APIRouter(tags=["health"])
@@ -29,9 +35,14 @@ def health() -> WorkerHealth:
     gpu_seen = bool(torch.cuda_available) or (settings.use_cuda and ctranslate2_cuda_devices() > 0)
     ffmpeg = find_ffmpeg()
     packs = packs_summary(root)
+    engine = matte_engine()
     vision = {
-        "gpl_venv": matte_engine().gpl_status()["state"],
+        "gpl_venv": engine.gpl_status()["state"],
         "packs": {k: packs.get(k, "missing") for k in VISION_PACKS},
+        # BiRefNet's execution provider: CUDAExecutionProvider | CPUExecutionProvider | None
+        "onnxruntime": onnxruntime_info(
+            settings.use_cuda, settings.use_cuda and gpu_seen, engine.birefnet_device()
+        ),
     }
     return WorkerHealth(
         cuda=settings.use_cuda and gpu_seen,

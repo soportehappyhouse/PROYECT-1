@@ -410,7 +410,7 @@ class FileItem:
         res = fetch_file(
             self.url, root / self.rel, self.expected, client=client, on_progress=progress
         )
-        manifest.record(
+        entry = manifest.record(
             self.rel,
             name=self.name,
             group=self.group,
@@ -418,6 +418,10 @@ class FileItem:
             sha256=res.sha256,
             md5=res.md5 if self.expected.md5 else None,
         )
+        if not (self.expected.sha256 or self.expected.md5):
+            # No published hash (e.g. SAM 2.1 on dl.fbaipublicfiles.com): this first download's
+            # size + sha256 become the reference that later checks (--check, deep) compare to.
+            entry["verified"] = "first-download"
         return res.size
 
 

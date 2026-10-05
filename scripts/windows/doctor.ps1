@@ -246,6 +246,14 @@ if (Test-Path $VenvPython) {
                 elseif ($p.partial) { Add-Result ("  pack {0}" -f $p.id) warn ("parcial: setup.ps1 -Full o Ajustes > Paquetes de IA lo reanuda ({0})" -f $size) }
                 elseif ($p.id -eq 'core') { Add-Result ("  pack {0}" -f $p.id) fail ("falta ({0}): setup.ps1" -f $size) }
                 else { Add-Result ("  pack {0}" -f $p.id) skip ("no descargado ({0}); se pide al usar la funcion" -f $size) }
+                # Files without a published sha256 (SAM 2.1): size + sha256 are recorded in
+                # models\manifest.json at the first download and compared from then on.
+                if ($p.integrity -eq 'pending') {
+                    # ASCII-only script (Windows PowerShell 5.1 reads it as ANSI): o-acute via [char].
+                    Add-Result ("    integridad {0}" -f $p.id) warn ("verificaci{0}n pendiente de primera descarga (sin sha256 publicado: se registra en models\manifest.json al bajar)" -f [char]0x00F3)
+                } elseif ($p.integrity -eq 'first-download') {
+                    Write-Info ("    {0}: sha256 registrado en la primera descarga (models\manifest.json)" -f $p.id)
+                }
             }
         } catch {
             Add-Result 'Paquetes de IA' warn ("salida ilegible: {0}" -f $_.Exception.Message)

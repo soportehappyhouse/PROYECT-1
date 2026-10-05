@@ -94,7 +94,13 @@ describe("Sprint 1 AI contract", () => {
   });
 
   it("estimates VRAM per feature and predicts the CPU fallback (decision 7)", () => {
-    expect(FEATURE_VRAM_MB).toEqual({ transcribe: 2500, rvc: 2000, denoise: 1000 });
+    expect(FEATURE_VRAM_MB).toEqual({
+      transcribe: 2500,
+      rvc: 2000,
+      denoise: 1000,
+      matting: 1000,
+      sam2: 1500,
+    });
     expect(willRunOnCpu({ mode: "cpu", vram_free_mb: null }, "denoise")).toBe(true);
     expect(willRunOnCpu({ mode: "gpu", vram_free_mb: 2200 }, "transcribe")).toBe(true);
     expect(willRunOnCpu({ mode: "gpu", vram_free_mb: 2200 }, "rvc")).toBe(false);

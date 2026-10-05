@@ -88,3 +88,40 @@ export interface RenderMetaProps {
   /** "system" skips Google Fonts downloads (offline PCs). */
   __fontMode?: "google" | "system";
 }
+
+/**
+ * Sprint 2: object track in COMPOSITION space (the api maps the TrackFile through the video clip:
+ * `t` = seconds from frame 0, boxes in fractions 0..1 of the composition, x,y = top-left). Mirrors
+ * @studio/shared TrackFileSchema; filled by the api (motion.render with a clip `trackRef`).
+ */
+export const TrackPropSchema = z
+  .object({
+    version: z.literal(1).default(1),
+    fps: z.number().positive(),
+    frames: z.array(
+      z.object({
+        t: z.number(),
+        x: z.number(),
+        y: z.number(),
+        w: z.number(),
+        h: z.number(),
+        conf: z.number().optional(),
+      }),
+    ),
+    smoothed: z.boolean().optional(),
+    source: z.object({ assetId: z.string(), method: z.string() }).optional(),
+  })
+  .meta({ title: "Seguimiento (lo completa la api)" });
+export type TrackProp = z.infer<typeof TrackPropSchema>;
+
+export const TRACK_ANCHORS = ["center", "top", "bottom"] as const;
+
+/** Optional follow-a-track props shared by lower-third and animated-captions. */
+export const trackProps = {
+  track: TrackPropSchema.optional(),
+  trackAnchor: z.enum(TRACK_ANCHORS).meta({ title: "Ancla del seguimiento" }).optional(),
+  trackOffset: z
+    .object({ x: z.number(), y: z.number() })
+    .meta({ title: "Desplazamiento (fracción del cuadro)" })
+    .optional(),
+};

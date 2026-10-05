@@ -22,7 +22,7 @@ export function createMediaProbeHandler(
     parse: (p) => MediaJobPayloadSchema.parse(p),
     async run({ assetId }, ctx) {
       const asset = requireAsset(app, assetId);
-      if (asset.kind === "subtitle" || asset.kind === "lottie")
+      if (["subtitle", "lottie", "track", "mask"].includes(asset.kind))
         return { assetId, path: asset.path };
       const input = absPath(app, asset.path);
       const { signal } = ctx;

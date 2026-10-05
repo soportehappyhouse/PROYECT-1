@@ -1,9 +1,9 @@
 import { createWriteStream } from "node:fs";
-import { rename, rm } from "node:fs/promises";
+import { readFile, rename, rm } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { nanoid } from "nanoid";
-import { API_ROUTES, MediaKindSchema, type MediaAsset } from "@studio/shared";
+import { API_ROUTES, MediaKindSchema, TrackFileSchema, type MediaAsset } from "@studio/shared";
 import { z } from "zod";
 import { errorBody, HttpError } from "../lib/errors.js";
 import { sendFileWithRange } from "../lib/range.js";
@@ -25,6 +25,16 @@ const FileQuery = z.object({
   proxy: z.enum(["0", "1", "true", "false"]).optional(),
   download: z.enum(["0", "1", "true", "false"]).optional(),
 });
+
+/** True when the uploaded JSON is a TrackFile (Sprint 2 track import). */
+async function isTrackJson(abs: string): Promise<boolean> {
+  try {
+    const raw = JSON.parse(await readFile(abs, "utf8")) as Record<string, unknown>;
+    return Array.isArray(raw.frames) && TrackFileSchema.safeParse(raw).success;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Media library: multipart upload -> storage/media/<id>.<ext> (the client name is only a label),
@@ -72,16 +82,19 @@ export const mediaRoutes: FastifyPluginAsync = async (app) => {
       await rm(part, { force: true });
       throw err;
     }
+    // Sprint 2: a .json that is a TrackFile (frames + fps) is imported as a track, not a Lottie.
+    const finalKind =
+      kind === "lottie" && ext === "json" && (await isTrackJson(target)) ? "track" : kind;
     const asset = repos.media.insert({
       id,
-      kind,
+      kind: finalKind,
       name: safeDisplayName(file.filename),
       path: rel,
       mimeType: EXT_MIME[ext] ?? file.mimetype,
       sizeBytes: size,
       createdAt: new Date().toISOString(),
     });
-    if (kind === "video" || kind === "audio" || kind === "image") {
+    if (finalKind === "video" || finalKind === "audio" || finalKind === "image") {
       queue.enqueue({ type: "media.probe", payload: { assetId: id }, priority: 1 });
       if (kind === "video") queue.enqueue({ type: "media.proxy", payload: { assetId: id } });
     }

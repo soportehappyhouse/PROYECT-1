@@ -28,6 +28,11 @@ export const JobTypeSchema = z.enum([
   "timeline.apply-cuts", // (api) split a clip, remove ranges, ripple; returns the saved project
   "audio.denoise", // (workers /audio/denoise) new audio asset
   "perf.run", // (workers /perf/run) AI performance test -> storage/run/perf.json
+  "vision.matte", // (workers /vision/matte | /vision/matte-image) alpha asset (+ clip.matte)
+  "vision.mask", // (workers /vision/sam/session/{id}/propagate) mask/track/alpha assets
+  "vision.track", // (workers /vision/track) asset kind "track" (+ clip.trackRef)
+  "vision.reframe", // (workers /vision/reframe) project.reframe
+  "timeline.track-to-keyframes", // (api) clip.trackRef -> clip.keyframes.position
 ]);
 export type JobType = z.infer<typeof JobTypeSchema>;
 

@@ -52,8 +52,13 @@ export const DEFAULT_JOB_LANES: Record<JobType, JobLane> = {
   "analyze.silences": "workers",
   "audio.denoise": "workers",
   "perf.run": "workers",
+  "vision.matte": "workers",
+  "vision.mask": "workers",
+  "vision.track": "workers",
+  "vision.reframe": "workers",
   // Pure project edit (no ffmpeg): own lane so it never waits behind exports or renders.
   "timeline.apply-cuts": "edit",
+  "timeline.track-to-keyframes": "edit",
 };
 
 /** Raised by handlers (or the runner) when ctx.signal aborts. */

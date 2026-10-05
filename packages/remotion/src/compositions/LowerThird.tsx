@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { Easing, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { fontStack } from "../fonts.js";
 import { secToFrames, unitScale } from "../lib/anim.js";
+import { trackPoint } from "../lib/track.js";
 import type { LowerThirdProps } from "../schemas/lower-third.js";
 
 type Anim = LowerThirdProps["enter"] | LowerThirdProps["exit"];
@@ -167,6 +168,26 @@ export function LowerThird(props: LowerThirdProps) {
       );
       break;
   }
+
+  // Sprint 2: following a track, the card's center sits on the tracked point (per frame).
+  const tracked = props.track
+    ? trackPoint(props.track, frame / fps, props.trackAnchor, props.trackOffset)
+    : undefined;
+  if (tracked)
+    return (
+      <div
+        style={{
+          position: "absolute",
+          left: tracked.x * width,
+          top: tracked.y * height,
+          transform: "translate(-50%, -50%)",
+        }}
+      >
+        <div style={{ ...anim, transformOrigin: horizontal === "right" ? "right" : "left" }}>
+          {card}
+        </div>
+      </div>
+    );
 
   return (
     <div

@@ -16,6 +16,7 @@ import {
   pageEndMs,
   transcriptToCaptions,
 } from "../lib/captions.js";
+import { trackPoint } from "../lib/track.js";
 import type { AnimatedCaptionsProps } from "../schemas/animated-captions.js";
 import { Backdrop } from "./common.js";
 
@@ -25,6 +26,11 @@ import { Backdrop } from "./common.js";
  */
 export function AnimatedCaptions(props: AnimatedCaptionsProps) {
   const { fps, width, height, durationInFrames } = useVideoConfig();
+  const frame = useCurrentFrame();
+  // Sprint 2: following a track, each page is centered on the tracked point (per frame).
+  const tracked = props.track
+    ? trackPoint(props.track, frame / fps, props.trackAnchor, props.trackOffset)
+    : undefined;
   const pages = useMemo(() => {
     const captions =
       props.captions && props.captions.length > 0
@@ -48,20 +54,36 @@ export function AnimatedCaptions(props: AnimatedCaptionsProps) {
         if (to <= from || from >= durationInFrames) return null;
         return (
           <Sequence key={`${page.startMs}-${i}`} from={from} durationInFrames={to - from}>
-            <AbsoluteFill
-              style={{
-                padding: `${(safe.top / 100) * height}px ${(safe.right / 100) * width}px ${(safe.bottom / 100) * height}px ${(safe.left / 100) * width}px`,
-                justifyContent:
-                  props.position === "top"
-                    ? "flex-start"
-                    : props.position === "center"
-                      ? "center"
-                      : "flex-end",
-                alignItems: "center",
-              }}
-            >
-              <CaptionPage page={page} props={props} u={unit} />
-            </AbsoluteFill>
+            {tracked ? (
+              <div
+                style={{
+                  position: "absolute",
+                  left: tracked.x * width,
+                  top: tracked.y * height,
+                  transform: "translate(-50%, -50%)",
+                  width: width * (1 - (safe.left + safe.right) / 100),
+                  display: "flex",
+                  justifyContent: "center",
+                }}
+              >
+                <CaptionPage page={page} props={props} u={unit} />
+              </div>
+            ) : (
+              <AbsoluteFill
+                style={{
+                  padding: `${(safe.top / 100) * height}px ${(safe.right / 100) * width}px ${(safe.bottom / 100) * height}px ${(safe.left / 100) * width}px`,
+                  justifyContent:
+                    props.position === "top"
+                      ? "flex-start"
+                      : props.position === "center"
+                        ? "center"
+                        : "flex-end",
+                  alignItems: "center",
+                }}
+              >
+                <CaptionPage page={page} props={props} u={unit} />
+              </AbsoluteFill>
+            )}
           </Sequence>
         );
       })}

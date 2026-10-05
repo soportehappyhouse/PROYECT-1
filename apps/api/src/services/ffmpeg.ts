@@ -10,6 +10,7 @@ import type {
   SpriteSheet,
   VideoEncoderId,
   WaveformPeaks,
+  TrackFile,
 } from "@studio/shared";
 import {
   buildAudioFxGraph,
@@ -41,6 +42,7 @@ import {
 } from "./ffmpeg/segments.js";
 import {
   compileExport,
+  resolveExportProject,
   timelineDuration,
   type CompileExportOptions,
   type TimelineAsset,
@@ -79,6 +81,8 @@ export interface ExportInput {
    * presets / timelines fall back to the single pass (ExportOutcome.fallbackReason).
    */
   segmentCache?: { dir: string; maxBytes: number };
+  /** Sprint 2: track files of the clips' trackRef (asset id -> TrackFile). */
+  tracks?: ReadonlyMap<string, TrackFile>;
 }
 
 export interface ExportOutcome {
@@ -349,7 +353,14 @@ export function createFfmpegService(ffmpegPath: string, ffprobePath: string): Ff
         runOpts(opts, dur),
       );
     },
-    async exportProject(input, opts) {
+    async exportProject(rawInput, opts) {
+      // Sprint 2: trackRef -> position keyframes once, for the compiler AND the segment hash.
+      const input = rawInput.tracks?.size
+        ? {
+            ...rawInput,
+            project: resolveExportProject(rawInput.project, rawInput.assets, rawInput.tracks),
+          }
+        : rawInput;
       const version = await service.versionInfo();
       const rubberband = await service.hasFilter("rubberband");
       const base = (encoder: VideoEncoderId): CompileExportOptions => ({

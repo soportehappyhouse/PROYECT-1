@@ -1497,6 +1497,212 @@ await step("sprint1: export with project.publish.aiLabel -> label bottom-left", 
   return out;
 });
 
+// ---------------------------------------------------------------- Sprint 2 (keyframes / track / reframe)
+/** Bounding box (center) of the pixels brighter than `min` of the frame at `at`, scaled to `w` wide. */
+async function brightBox(file, at, { w = 480, min = 170 } = {}) {
+  const probe = await ffprobe(file);
+  const v = probe.streams.find((s) => s.codec_type === "video");
+  const h = Math.round((v.height * w) / v.width / 2) * 2;
+  const raw = await new Promise((resolve, reject) => {
+    const p = spawn(
+      FFMPEG,
+      [
+        "-v",
+        "error",
+        "-ss",
+        String(at),
+        "-i",
+        file,
+        "-frames:v",
+        "1",
+        "-vf",
+        `scale=${w}:${h},format=gray`,
+        "-f",
+        "rawvideo",
+        "pipe:1",
+      ],
+      { windowsHide: true },
+    );
+    const chunks = [];
+    p.stdout.on("data", (d) => chunks.push(d));
+    p.on("error", reject);
+    p.on("close", () => resolve(Buffer.concat(chunks)));
+  });
+  let [x0, y0, x1, y1] = [w, h, -1, -1];
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++)
+      if (raw[y * w + x] > min) {
+        x0 = Math.min(x0, x);
+        y0 = Math.min(y0, y);
+        x1 = Math.max(x1, x);
+        y1 = Math.max(y1, y);
+      }
+  return x1 < 0
+    ? undefined
+    : {
+        cx: (x0 + x1) / 2,
+        cy: (y0 + y1) / 2,
+        w: x1 - x0 + 1,
+        h: y1 - y0 + 1,
+        frameW: w,
+        frameH: h,
+      };
+}
+
+// A dim box (0x404040, 120×80) moving right on black: x = 80 + 200 t, y = 300 (1280×720, 30 fps, 4 s).
+const S2 = {
+  W: 1280,
+  H: 720,
+  fps: 30,
+  dur: 4,
+  box: (t) => ({ x: 80 + 200 * t, y: 300, w: 120, h: 80 }),
+};
+async function sprint2Media() {
+  if (ctx.s2) return ctx.s2;
+  const src = path.join(WORK, "e2e-caja-movil.mp4");
+  await run(FFMPEG, [
+    "-y",
+    "-v",
+    "error",
+    "-f",
+    "lavfi",
+    "-i",
+    `color=c=black:s=${S2.W}x${S2.H}:r=${S2.fps}:d=${S2.dur}[b];color=c=0x404040:s=120x80:r=${S2.fps}:d=${S2.dur}[w];[b][w]overlay=x='80+200*t':y=300`,
+    "-c:v",
+    "libx264",
+    "-pix_fmt",
+    "yuv420p",
+    src,
+  ]);
+  const video = await upload(src, "video/mp4");
+  await waitAssetJobs(video.id, ["media.probe"]);
+  const track = {
+    version: 1,
+    fps: S2.fps,
+    smoothed: true,
+    source: { assetId: video.id, method: "csrt" },
+    frames: Array.from({ length: S2.dur * S2.fps + 1 }, (_, i) => {
+      const b = S2.box(i / S2.fps);
+      return { t: i / S2.fps, x: b.x / S2.W, y: b.y / S2.H, w: b.w / S2.W, h: b.h / S2.H, conf: 1 };
+    }),
+  };
+  const trackFile = path.join(WORK, "e2e-seguimiento.json");
+  await writeFile(trackFile, JSON.stringify(track));
+  const trackAsset = await upload(trackFile, "application/json");
+  assert(trackAsset.kind === "track", `track.json imported as ${trackAsset.kind}`);
+  ctx.s2 = { video, trackAsset };
+  return ctx.s2;
+}
+
+await step(
+  "sprint2: text follows a track (trackRef) -> export pixel check at 3 timestamps",
+  async () => {
+    const { video, trackAsset } = await sprint2Media();
+    const p = await ok("POST", "/api/projects", { name: "E2E seguimiento" }, [201]);
+    const V = p.tracks.find((t) => t.kind === "video");
+    const T = p.tracks.find((t) => t.kind === "text");
+    assert(T, "project without a text track");
+    V.clips = [{ id: id("c"), trackId: V.id, assetId: video.id, start: 0, in: 0, out: S2.dur }];
+    T.clips = [
+      {
+        id: id("t"),
+        trackId: T.id,
+        start: 0,
+        in: 0,
+        out: S2.dur,
+        text: "II",
+        textStyle: { fontSize: 72, color: "#ffffff", position: "bottom" },
+        trackRef: { assetId: trackAsset.id, anchor: "center", offset: { x: 0, y: 0 } },
+      },
+    ];
+    await ok("PUT", `/api/projects/${p.id}`, p);
+    const { jobId } = await ok("POST", `/api/projects/${p.id}/export`, {
+      presetId: "youtube-1080p",
+      fileName: "seguimiento",
+    });
+    const job = await waitOk(jobId);
+    const file = await download(job.result.path, "seguimiento.mp4");
+    // 1280×720 source fitted to the 1920×1080 canvas (×1.5), sampled at 960 px wide (×0.5).
+    const k = (1920 / S2.W) * 0.5;
+    const checks = [];
+    for (const t of [0.5, 1.5, 3]) {
+      const b = await brightBox(file, t, { w: 960, min: 200 });
+      const exp = S2.box(t);
+      const ex = (exp.x + exp.w / 2) * k;
+      const ey = (exp.y + exp.h / 2) * k;
+      assert(b, `no text at t=${t}`);
+      assert(
+        near(b.cx, ex, 10) && near(b.cy, ey, 10),
+        `t=${t}: text at ${b.cx},${b.cy}, box at ${ex},${ey}`,
+      );
+      checks.push({ t, text: [b.cx, b.cy], box: [ex, ey] });
+    }
+    return { mode: job.result.mode, checks };
+  },
+);
+
+await step(
+  "sprint2: reframe 9:16 export follows project.reframe keyframes (no blurred background)",
+  async () => {
+    const { video } = await sprint2Media();
+    const p = await ok("POST", "/api/projects", { name: "E2E reencuadre" }, [201]);
+    const V = p.tracks.find((t) => t.kind === "video");
+    V.clips = [{ id: id("c"), trackId: V.id, assetId: video.id, start: 0, in: 0, out: S2.dur }];
+    // crop 608×1080 of the 1920×1080 canvas centered on the box center (×1.5 on the canvas)
+    const cw = 608 / 1920;
+    const rect = (t) => {
+      const b = S2.box(t);
+      return { x: ((b.x + b.w / 2) * 1.5) / 1920 - cw / 2, y: 0, w: cw, h: 1 };
+    };
+    p.reframe = {
+      target: "9:16",
+      mode: "manual",
+      keyframes: [
+        { t: 0, v: rect(0), ease: "linear" },
+        { t: S2.dur, v: rect(S2.dur), ease: "linear" },
+      ],
+    };
+    await ok("PUT", `/api/projects/${p.id}`, p);
+    const { jobId } = await ok("POST", `/api/projects/${p.id}/export`, {
+      presetId: "reels-tiktok",
+      fileName: "reencuadre",
+    });
+    const job = await waitOk(jobId);
+    const file = await download(job.result.path, "reencuadre.mp4");
+    const v = (await ffprobe(file)).streams.find((s) => s.codec_type === "video");
+    assert(v.width === 1080 && v.height === 1920, `size ${v.width}x${v.height}`);
+    const checks = [];
+    for (const t of [1, 2, 3]) {
+      const b = await brightBox(file, t, { w: 270, min: 40 });
+      assert(b, `no box at t=${t}`);
+      // box 120×80 ×1.5 ×(1080/608) ×0.25 ≈ 80 px wide, centered horizontally
+      assert(near(b.cx, 135, 6), `t=${t}: box center ${b.cx} (expected 135)`);
+      assert(near(b.w, 80, 8), `t=${t}: box width ${b.w}`);
+      checks.push({ t, cx: b.cx, w: b.w });
+    }
+    return { mode: job.result.mode, checks };
+  },
+);
+
+await step(
+  "sprint2: vision.track (csrt) on the moving box -> track asset",
+  async () => {
+    const { video } = await sprint2Media();
+    const b = S2.box(0);
+    const res = await api("POST", "/api/ai/vision/track", {
+      assetId: video.id,
+      method: "csrt",
+      bbox: { x: b.x / S2.W, y: b.y / S2.H, w: b.w / S2.W, h: b.h / S2.H },
+    });
+    if (res.status === 409) return { packRequired: res.json };
+    assert(res.status === 202, `HTTP ${res.status} ${JSON.stringify(res.json)}`);
+    const job = await waitJob(res.json.jobId, { timeoutMs: 300_000 });
+    assert(job.status === "succeeded", `job ${job.status}: ${job.error}`);
+    return { frames: job.result.frames, assetId: job.result.assetId };
+  },
+  "optional",
+);
+
 await step(
   "cancel a running job (motion render 60 s mp4)",
   async () => {

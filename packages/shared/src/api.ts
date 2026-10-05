@@ -60,6 +60,14 @@ export const API_ROUTES = {
   aiDenoise: "/api/ai/audio/denoise", // POST DenoiseRequest -> JobAccepted
   aiPerf: "/api/ai/perf", // GET last PerfResult (404 = never ran) | POST -> JobAccepted (perf.run)
   aiPerfRun: "/api/ai/perf/run", // POST -> JobAccepted (perf.run), alias of POST aiPerf
+  aiVisionMatte: "/api/ai/vision/matte", // POST VisionMatteRequest -> JobAccepted (vision.matte)
+  aiVisionSamSession: "/api/ai/vision/sam/session", // POST SamSessionRequest -> SamSessionResponse
+  aiVisionSamPoints: "/api/ai/vision/sam/session/:id/points", // POST SamPointsRequest -> SamPointsResponse
+  aiVisionSamPropagate: "/api/ai/vision/sam/session/:id/propagate", // POST SamPropagateRequest -> JobAccepted (vision.mask)
+  aiVisionSamSessionItem: "/api/ai/vision/sam/session/:id", // DELETE -> {deleted: true}
+  aiVisionTrack: "/api/ai/vision/track", // POST VisionTrackRequest -> JobAccepted (vision.track)
+  aiVisionReframe: "/api/ai/vision/reframe", // POST VisionReframeRequest -> JobAccepted (vision.reframe)
+  aiTrackToKeyframes: "/api/ai/timeline/track-to-keyframes", // POST TrackToKeyframesRequest -> JobAccepted
   files: "/files/*", // GET static files from STORAGE_DIR (renders/exports/proxies)
 } as const;
 export type ApiRouteKey = keyof typeof API_ROUTES;

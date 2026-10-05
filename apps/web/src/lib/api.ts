@@ -24,6 +24,9 @@ import {
   type LibraryScanResult,
   type LibrarySearchQuery,
   type MediaAsset,
+  type ModelDownloadProgress,
+  type ModelDownloadRequestInput,
+  type ModelDownloadResult,
   type MotionEngineInfo,
   type MotionRenderRequestInput,
   type MotionRenderTarget,
@@ -35,7 +38,7 @@ import {
   type RvcRequest,
   type TranscribeRequest,
   type TtsRequestInput,
-  type TtsVoice,
+  type TtsVoiceInfo,
 } from "@studio/shared";
 import { addBreadcrumb } from "@/stores/breadcrumbs-store";
 
@@ -241,8 +244,13 @@ export const api = {
   uploadMedia: (file: File, onProgress?: (ratio: number) => void) =>
     uploadFile<MediaAsset>(API_ROUTES.media, file, onProgress),
   getMedia: (id: string) => apiFetch<MediaAsset>(API_ROUTES.mediaItem, { params: { id } }),
-  deleteMedia: (id: string) =>
-    apiFetch<void>(API_ROUTES.mediaItem, { method: "DELETE", params: { id } }),
+  /** 409 MEDIA_IN_USE when a project uses it, unless `force` (feedback 11). */
+  deleteMedia: (id: string, force = false) =>
+    apiFetch<void>(API_ROUTES.mediaItem, {
+      method: "DELETE",
+      params: { id },
+      ...(force && { query: { force: 1 } }),
+    }),
   createProxy: (id: string) =>
     apiFetch<JobAccepted>(API_ROUTES.mediaProxy, { method: "POST", params: { id } }),
 
@@ -273,12 +281,19 @@ export const api = {
       json: { ...spec, ...(target && { target }) } satisfies MotionRenderRequestInput,
     }),
 
-  ttsVoices: () => apiFetch<TtsVoice[]>(API_ROUTES.ttsVoices),
+  ttsVoices: () => apiFetch<TtsVoiceInfo[]>(API_ROUTES.ttsVoices),
   tts: (body: TtsRequestInput) =>
     apiFetch<JobAccepted>(API_ROUTES.tts, { method: "POST", json: body }),
   /** `format` is optional (api default: wav). */
   voiceEffects: (body: VoiceEffectRequest | Omit<VoiceEffectRequest, "format">) =>
     apiFetch<JobAccepted>(API_ROUTES.voiceEffects, { method: "POST", json: body }),
+  /** Download a model through the workers (synchronous: resolves when the files are in place). */
+  downloadModel: (body: ModelDownloadRequestInput) =>
+    apiFetch<ModelDownloadResult>(API_ROUTES.voiceModelDownload, { method: "POST", json: body }),
+  modelDownloadProgress: (id: string) =>
+    apiFetch<ModelDownloadProgress>(API_ROUTES.voiceModelDownloadProgress, {
+      query: { kind: "piper", id },
+    }),
   rvcModels: () => apiFetch<RvcModel[]>(API_ROUTES.rvcModels),
   rvc: (body: Partial<RvcRequest> & Pick<RvcRequest, "assetId" | "modelId">) =>
     apiFetch<JobAccepted>(API_ROUTES.rvc, { method: "POST", json: body }),

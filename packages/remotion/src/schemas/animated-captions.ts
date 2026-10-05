@@ -1,6 +1,17 @@
 import { z } from "zod";
 import { color, fontFamily, fontWeight, mediaSrc, SafeAreaSchema, background } from "./common.js";
 
+/** x/y/width/height in % of the composition. */
+export const VideoRectSchema = z
+  .object({
+    x: z.number().min(0).max(100),
+    y: z.number().min(0).max(100),
+    width: z.number().min(1).max(100),
+    height: z.number().min(1).max(100),
+  })
+  .meta({ title: "Rectángulo del video (%)" });
+export type VideoRect = z.infer<typeof VideoRectSchema>;
+
 /** Mirrors @studio/shared TranscriptSchema (faster-whisper output, times in seconds). */
 export const TranscriptWordSchema = z.object({
   start: z.number().nonnegative(),
@@ -90,6 +101,11 @@ export const animatedCaptionsSchema = z.object({
     .default(900),
   /** When absent, computed from the aspect ratio (9:16 leaves room for TikTok/Reels UI). */
   safeArea: SafeAreaSchema.optional(),
+  /**
+   * Rect of the video inside the canvas (% of the canvas). With a vertical clip pillarboxed in a
+   * 16:9 project the captions are laid out, wrapped and sized inside it instead of the canvas.
+   */
+  videoRect: VideoRectSchema.optional(),
   videoSrc: mediaSrc("Video de fondo"),
   background: background("transparent"),
 });

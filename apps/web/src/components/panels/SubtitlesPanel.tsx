@@ -2,11 +2,12 @@
 
 import {
   MotionSpecSchema,
+  videoRectAt,
   WhisperModelSchema,
   type MotionSpecInput,
   type WhisperModel,
 } from "@studio/shared";
-import { Download, Plus, Sparkles, Trash2 } from "lucide-react";
+import { Download, Plus, Scissors, Sparkles, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { hasAudio, SelectedClipHint, useSelectedClip } from "@/components/common/SelectedClipInfo";
@@ -23,6 +24,7 @@ import {
   type CaptionStyle,
 } from "@/stores/caption-style-store";
 import { useJobsStore } from "@/stores/jobs-store";
+import { useMediaStore } from "@/stores/media-store";
 import { useProjectStore } from "@/stores/project-store";
 import { Panel } from "./Panel";
 
@@ -133,7 +135,19 @@ export function SubtitlesPanel() {
   const [language, setLanguage] = useState("es");
   const [model, setModel] = useState<WhisperModel | "">("");
   const [busy, setBusy] = useState(false);
+  const [gapMs, setGapMs] = useState(600);
   const store = useProjectStore.getState;
+  const hasWords = subtitles.some((s) => s.words?.length);
+
+  const removeSilences = () => {
+    if (!sel) return;
+    const removed = store().removeSilences(sel.clip.id, gapMs / 1000);
+    if (removed > 0)
+      toast.success(`Se quitaron ${removed.toFixed(1).replace(".", ",")} s de silencios`, {
+        description: "Si había subtítulos animados renderizados, vuelve a renderizarlos.",
+      });
+    else toast.message(`No hay pausas de más de ${gapMs} ms en el clip seleccionado`);
+  };
 
   const transcribe = async () => {
     if (!hasAudio(sel)) return;
@@ -167,6 +181,24 @@ export function SubtitlesPanel() {
     );
     if (!built) return;
     const span = { start: built.start, end: built.start + built.durationSec };
+    // Feedback 4: lay the captions out inside the video (e.g. a vertical clip in a 16:9 canvas).
+    const assets = useMediaStore.getState().assets;
+    const rect = videoRectAt(
+      store().project,
+      (id) => {
+        const a = assets[id];
+        return a?.width && a.height ? { width: a.width, height: a.height } : undefined;
+      },
+      span.start,
+    );
+    const pct = (v: number, of: number) => Math.round((v / of) * 10_000) / 100;
+    const videoRect = {
+      x: pct(rect.x, settings.width),
+      y: pct(rect.y, settings.height),
+      width: Math.max(1, pct(rect.width, settings.width)),
+      height: Math.max(1, pct(rect.height, settings.height)),
+    };
+    if (videoRect.width < 99.5 || videoRect.height < 99.5) built.props.videoRect = videoRect;
     const spec: MotionSpecInput = {
       engine: "remotion",
       template: "animated-captions",
@@ -245,6 +277,38 @@ export function SubtitlesPanel() {
           <Button size="sm" disabled={busy || !hasAudio(sel)} onClick={() => void transcribe()}>
             {busy ? <Spinner /> : null} Transcribir clip
           </Button>
+        </Section>
+
+        <Section title="Quitar silencios">
+          <p className="text-[11px] text-muted-foreground">
+            Corta las pausas entre palabras del clip seleccionado usando las marcas de tiempo de
+            Whisper (transcribe primero) y junta lo que queda.
+          </p>
+          <div className="flex items-end gap-2">
+            <Label className="w-32">
+              Pausa mínima (ms)
+              <Input
+                type="number"
+                min={150}
+                step={50}
+                value={gapMs}
+                onChange={(e) => setGapMs(Math.max(150, Number(e.target.value) || 600))}
+              />
+            </Label>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!hasAudio(sel) || !hasWords}
+              tooltip={
+                hasWords
+                  ? "Quita las pausas largas y desplaza el resto"
+                  : "Transcribe el clip primero"
+              }
+              onClick={removeSilences}
+            >
+              <Scissors /> Quitar silencios
+            </Button>
+          </div>
         </Section>
 
         <Section

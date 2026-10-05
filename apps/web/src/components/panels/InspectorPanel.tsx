@@ -1,11 +1,13 @@
 "use client";
 
 import type { Clip, TextStyle, Transition } from "@studio/shared";
-import { Trash2 } from "lucide-react";
+import { Maximize, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { useSelectedClip } from "@/components/common/SelectedClipInfo";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Range, Select, Textarea } from "@/components/ui/input";
 import { Badge, Section } from "@/components/ui/misc";
+import { canvasForVideo, firstVideoAsset, fitCanvasToVideo } from "@/lib/canvas-fit";
 import { formatTime, roundTime } from "@/lib/format";
 import { clipDuration, clipEnd, TRACK_KIND_LABELS } from "@/lib/timeline";
 import { effectSummary } from "@/lib/voice-effects";
@@ -104,11 +106,115 @@ function TransitionField({
   );
 }
 
+/** Anchor presets (feedback 7): position of the scaled clip inside the free canvas space. */
+const ANCHORS: { label: string; x: number; y: number }[] = [
+  { label: "Arriba izquierda", x: 0, y: 0 },
+  { label: "Arriba", x: 0.5, y: 0 },
+  { label: "Arriba derecha", x: 1, y: 0 },
+  { label: "Izquierda", x: 0, y: 0.5 },
+  { label: "Centro", x: 0.5, y: 0.5 },
+  { label: "Derecha", x: 1, y: 0.5 },
+  { label: "Abajo izquierda", x: 0, y: 1 },
+  { label: "Abajo", x: 0.5, y: 1 },
+  { label: "Abajo derecha", x: 1, y: 1 },
+];
+const ANCHOR_GLYPHS = ["↖", "↑", "↗", "←", "•", "→", "↙", "↓", "↘"];
+
+/**
+ * Feedback 7: free placement of video/motion clips — scale and X/Y in % plus anchor presets.
+ * Applied on export by the PiP builder (pipPlacementFilters) and drawn in the preview.
+ */
+function PlacementFields({
+  clip,
+  update,
+}: {
+  clip: Clip;
+  update: (patch: Partial<Omit<Clip, "id" | "trackId">>) => void;
+}) {
+  const scale = clip.scale ?? 1;
+  const pos = clip.position ?? { x: 0.5, y: 0.5 };
+  const pct = (v: number) => Math.round(v * 100);
+  const setPos = (p: { x: number; y: number }) =>
+    update({
+      position: { x: Math.min(1, Math.max(0, p.x)), y: Math.min(1, Math.max(0, p.y)) },
+      // At 100 % the clip fills the canvas and cannot move: shrink it so the anchor is visible.
+      ...(scale >= 1 && (p.x !== 0.5 || p.y !== 0.5) ? { scale: 0.5 } : {}),
+    });
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="grid grid-cols-3 gap-2">
+        <NumberField
+          label="Escala (%)"
+          value={pct(scale)}
+          min={5}
+          max={100}
+          step={5}
+          onChange={(v) => update({ scale: Math.min(1, Math.max(0.05, v / 100)) })}
+        />
+        <NumberField
+          label="Posición X (%)"
+          value={pct(pos.x)}
+          min={0}
+          max={100}
+          step={5}
+          onChange={(v) => setPos({ x: v / 100, y: pos.y })}
+        />
+        <NumberField
+          label="Posición Y (%)"
+          value={pct(pos.y)}
+          min={0}
+          max={100}
+          step={5}
+          onChange={(v) => setPos({ x: pos.x, y: v / 100 })}
+        />
+      </div>
+      <div className="flex items-center gap-2">
+        <div role="group" aria-label="Anclaje" className="grid w-fit grid-cols-3 gap-0.5">
+          {ANCHORS.map((a, i) => (
+            <Button
+              key={a.label}
+              size="icon-sm"
+              variant={pos.x === a.x && pos.y === a.y ? "secondary" : "ghost"}
+              aria-label={`Anclar: ${a.label.toLowerCase()}`}
+              aria-pressed={pos.x === a.x && pos.y === a.y}
+              onClick={() => setPos(a)}
+            >
+              <span className="text-xs leading-none">{ANCHOR_GLYPHS[i]}</span>
+            </Button>
+          ))}
+        </div>
+        <div className="flex flex-col gap-1">
+          <p className="text-[11px] text-muted-foreground">
+            X/Y: 0 % = izquierda/arriba, 100 % = derecha/abajo.
+            {scale >= 1 ? " Con escala 100 % el clip ocupa todo el lienzo." : ""}
+          </p>
+          {clip.scale !== undefined || clip.position ? (
+            <Button
+              size="xs"
+              variant="outline"
+              className="w-fit"
+              onClick={() => update({ scale: undefined, position: undefined })}
+            >
+              Restablecer
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ProjectSettings() {
   const project = useProjectStore((s) => s.project);
   const { renameProject, updateProjectSettings } = useProjectStore.getState();
   const selectedAssetId = useProjectStore((s) => s.selectedAssetId);
   const asset = useMediaStore((s) => (selectedAssetId ? s.assets[selectedAssetId] : undefined));
+  const assets = useMediaStore((s) => s.assets);
+  const video = firstVideoAsset(project, assets);
+  const fit =
+    video?.width && video.height
+      ? canvasForVideo({ width: video.width, height: video.height })
+      : undefined;
   return (
     <div className="flex flex-col gap-4">
       <Section title="Proyecto">
@@ -160,6 +266,22 @@ function ProjectSettings() {
             onClick={() => updateProjectSettings({ width: 1080, height: 1080 })}
           >
             1:1
+          </Button>
+          <Button
+            size="xs"
+            variant="secondary"
+            disabled={!video}
+            tooltip={
+              video
+                ? `Lienzo con la forma de «${video.name}» (${video.width}×${video.height}): ${fit?.width}×${fit?.height}`
+                : "Añade un video a la línea de tiempo primero"
+            }
+            onClick={() => {
+              const size = fitCanvasToVideo(video);
+              if (size) toast.success(`Lienzo ${size.width}×${size.height}`);
+            }}
+          >
+            <Maximize /> Ajustar lienzo al video
           </Button>
         </div>
       </Section>
@@ -278,42 +400,7 @@ export function InspectorPanel() {
                 onChange={(e) => update({ opacity: Number(e.target.value) })}
               />
             </Label>
-            {track.kind !== "text" ? (
-              <div className="grid grid-cols-3 gap-2">
-                <NumberField
-                  label="Escala (PiP)"
-                  value={clip.scale ?? 1}
-                  min={0.05}
-                  max={1}
-                  step={0.05}
-                  onChange={(v) => update({ scale: Math.min(1, Math.max(0.05, v)) })}
-                />
-                <NumberField
-                  label="Posición X (0–1)"
-                  value={clip.position?.x ?? 0.5}
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  onChange={(v) =>
-                    update({
-                      position: { x: Math.min(1, Math.max(0, v)), y: clip.position?.y ?? 0.5 },
-                    })
-                  }
-                />
-                <NumberField
-                  label="Posición Y (0–1)"
-                  value={clip.position?.y ?? 0.5}
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  onChange={(v) =>
-                    update({
-                      position: { x: clip.position?.x ?? 0.5, y: Math.min(1, Math.max(0, v)) },
-                    })
-                  }
-                />
-              </div>
-            ) : null}
+            {track.kind !== "text" ? <PlacementFields clip={clip} update={update} /> : null}
             <TransitionField
               label="Transición de entrada"
               value={clip.transitionIn}
@@ -411,7 +498,7 @@ export function InspectorPanel() {
               {clip.motion.template} · {clip.motion.engine ?? "auto"} · {clip.motion.format}
             </p>
             <p className="text-xs text-muted-foreground">
-              {clip.renderedAssetId
+              {clip.renderedAssetId || clip.assetId
                 ? "Renderizado"
                 : "Sin renderizar — usa el panel Motion graphics"}
             </p>

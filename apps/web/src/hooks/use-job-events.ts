@@ -50,7 +50,7 @@ export function shouldToastSuccess(type: Job["type"], hasIntent: boolean): boole
   return hasIntent || (type !== "media.probe" && type !== "media.proxy");
 }
 
-async function handleFinished(job: Job): Promise<void> {
+export async function handleFinished(job: Job): Promise<void> {
   const jobs = useJobsStore.getState();
   if (jobs.handled[job.id]) return;
   jobs.markHandled(job.id);
@@ -83,6 +83,23 @@ async function handleFinished(job: Job): Promise<void> {
   const project = useProjectStore.getState();
 
   if (job.type.startsWith("media.")) void media.refresh();
+
+  // Feedback 1: a motion render linked by the api (result.linkedClip) must reach this tab's copy
+  // of the project even when the UI intent was lost (page reloaded while rendering, another tab):
+  // otherwise the next save would send the clip without its render.
+  const linked = (full.result as { linkedClip?: { projectId?: string; clipId?: string } } | null)
+    ?.linkedClip;
+  if (
+    job.type === "motion.render" &&
+    intent?.kind !== "setMotionRender" &&
+    assetId &&
+    linked?.clipId &&
+    linked.projectId === project.project.id &&
+    findClip(project.project, linked.clipId)
+  ) {
+    await media.ensure(assetId);
+    project.updateClip(linked.clipId, { renderedAssetId: assetId }, false);
+  }
 
   switch (intent?.kind) {
     case "replaceClipAsset": {

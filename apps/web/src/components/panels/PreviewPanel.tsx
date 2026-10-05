@@ -1,7 +1,19 @@
 "use client";
 
-import type { Clip, MediaAsset, SubtitleSegment, Track } from "@studio/shared";
-import { Pause, Play, SkipBack, StepBack, StepForward } from "lucide-react";
+import {
+  effectiveBurnSubtitles,
+  fitRect,
+  subtitlesToBurn,
+  videoRectAt,
+  type CaptionStyle as SharedCaptionStyle,
+  type Clip,
+  type MediaAsset,
+  type Rect,
+  type SubtitleSegment,
+  type Track,
+} from "@studio/shared";
+import { Pause, Play, SkipBack, SkipForward, StepBack, StepForward } from "lucide-react";
+import type { CSSProperties } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { assetPreviewUrl } from "@/lib/api";
@@ -21,26 +33,30 @@ function SyncedMedia({
   track,
   asset,
   className,
+  style,
 }: {
   kind: "video" | "audio";
   clip: Clip;
   track: Track;
   asset: MediaAsset;
   className?: string;
+  style?: CSSProperties;
 }) {
   const ref = useRef<HTMLVideoElement & HTMLAudioElement>(null);
   const [failed, setFailed] = useState(false);
   const playhead = useProjectStore((s) => s.playhead);
-  const playing = useProjectStore((s) => s.playing);
+  // J (backwards) cannot use <video> playback: the element stays paused and follows the playhead.
+  const playing = useProjectStore((s) => s.playing && s.playbackRate > 0);
+  const rate = useProjectStore((s) => Math.abs(s.playbackRate));
   const target = Math.max(0, sourceTimeAt(clip, playhead));
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    el.playbackRate = clip.speed;
+    el.playbackRate = clip.speed * rate;
     el.volume = Math.min(1, Math.max(0, clip.volume));
     el.muted = track.muted;
-  }, [clip.speed, clip.volume, track.muted]);
+  }, [clip.speed, clip.volume, track.muted, rate]);
 
   useEffect(() => {
     const el = ref.current;
@@ -63,7 +79,7 @@ function SyncedMedia({
         className={className}
         preload="auto"
         playsInline
-        style={{ opacity: clip.opacity }}
+        style={{ ...style, opacity: clip.opacity }}
         onError={() => setFailed(true)}
         onLoadedData={() => setFailed(false)}
       />
@@ -86,21 +102,53 @@ function positionClass(position: "top" | "center" | "bottom"): string {
       : "items-end pb-[6%]";
 }
 
+/** CSS box (% of the stage) of a rect in canvas pixels. */
+function rectStyle(r: Rect, width: number, height: number): CSSProperties {
+  return {
+    left: `${(r.x / width) * 100}%`,
+    top: `${(r.y / height) * 100}%`,
+    width: `${(r.width / width) * 100}%`,
+    height: `${(r.height / height) * 100}%`,
+  };
+}
+
+/**
+ * Feedback 7: where a video/motion clip lands (Clip.scale / Clip.position, same math as the
+ * export's PiP builder). Full-frame clips keep the old object-contain layout.
+ */
+function placementStyle(
+  clip: Clip,
+  asset: MediaAsset | undefined,
+  width: number,
+  height: number,
+): CSSProperties | undefined {
+  if (clip.scale === undefined && !clip.position) return undefined;
+  const media =
+    asset?.width && asset.height ? { width: asset.width, height: asset.height } : undefined;
+  const r = fitRect({ width, height }, media, clip);
+  return { ...rectStyle(r, width, height), objectFit: "fill" };
+}
+
 function SubtitleOverlay({
   segment,
   style,
   scale,
   playhead,
+  box,
 }: {
   segment: SubtitleSegment;
-  style: CaptionStyle;
+  style: CaptionStyle | SharedCaptionStyle;
+  /** Pixels on screen per canvas pixel × caption unit of the video rect. */
   scale: number;
   playhead: number;
+  /** Video rect (feedback 4: captions fit the video, like the export). */
+  box: CSSProperties;
 }) {
   const words = segment.words;
   return (
     <div
-      className={`pointer-events-none absolute inset-0 flex justify-center px-[5%] ${positionClass(style.position)}`}
+      className={`pointer-events-none absolute flex justify-center px-[5%] ${positionClass(style.position)}`}
+      style={box}
     >
       <span
         className="rounded px-2 py-1 text-center leading-tight font-bold"
@@ -136,7 +184,9 @@ export function PreviewPanel() {
   const playhead = useProjectStore((s) => s.playhead);
   const playing = useProjectStore((s) => s.playing);
   const assets = useMediaStore((s) => s.assets);
-  const captionStyle = useCaptionStyleStore((s) => s.style);
+  const localCaptionStyle = useCaptionStyleStore((s) => s.style);
+  const captionStyle = project.captionStyle ?? localCaptionStyle;
+  const playbackRate = useProjectStore((s) => s.playbackRate);
   const boxRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 640, h: 360 });
   const { width, height, fps } = project.settings;
@@ -158,18 +208,29 @@ export function PreviewPanel() {
 
   const video = clipAt(project, playhead, ["video"]);
   const videoAsset = video?.clip.assetId ? assets[video.clip.assetId] : undefined;
-  const motion = clipAt(project, playhead, ["motion"]);
-  const motionAsset = motion?.clip.renderedAssetId
-    ? assets[motion.clip.renderedAssetId]
-    : undefined;
+  // Every motion clip under the playhead, bottom track first (feedback 1/5: overlapping overlays
+  // live on separate tracks). Renders added from Media use assetId, linked ones renderedAssetId.
+  const motions = clipsAt(project, playhead, ["motion"])
+    .map((m) => {
+      const id = m.clip.renderedAssetId ?? m.clip.assetId;
+      return { ...m, asset: id ? assets[id] : undefined };
+    })
+    .reverse();
   const texts = clipsAt(project, playhead, ["text"]);
   const audios = clipsAt(project, playhead, ["audio"]).filter(
     (a) => a.clip.assetId && assets[a.clip.assetId],
   );
-  const subtitle = useMemo(
-    () => project.subtitles.find((s) => playhead >= s.start && playhead < s.end),
-    [project.subtitles, playhead],
+  // Feedback 2: same rule as the export (burn choice + no segment under animated captions).
+  const burned = useMemo(
+    () => subtitlesToBurn(project, effectiveBurnSubtitles(project)),
+    [project],
   );
+  const subtitle = burned.find((s) => playhead >= s.start && playhead < s.end);
+  const mediaSize = (id: string) => {
+    const a = assets[id];
+    return a?.width && a.height ? { width: a.width, height: a.height } : undefined;
+  };
+  const captionRect = subtitle ? videoRectAt(project, mediaSize, playhead) : undefined;
   const duration = projectDuration(project);
   const store = useProjectStore.getState;
 
@@ -179,6 +240,7 @@ export function PreviewPanel() {
         variant="ghost"
         size="icon-sm"
         aria-label="Ir al inicio"
+        shortcut="playback.toStart"
         onClick={() => store().setPlayhead(0)}
       >
         <SkipBack />
@@ -187,6 +249,7 @@ export function PreviewPanel() {
         variant="ghost"
         size="icon-sm"
         aria-label="Fotograma anterior"
+        shortcut="playback.frameBack"
         onClick={() => store().setPlayhead(playhead - 1 / fps)}
       >
         <StepBack />
@@ -194,6 +257,7 @@ export function PreviewPanel() {
       <Button
         size="icon-sm"
         aria-label={playing ? "Pausar" : "Reproducir"}
+        shortcut="playback.toggle"
         onClick={() => store().togglePlaying()}
       >
         {playing ? <Pause /> : <Play />}
@@ -202,10 +266,28 @@ export function PreviewPanel() {
         variant="ghost"
         size="icon-sm"
         aria-label="Fotograma siguiente"
+        shortcut="playback.frameForward"
         onClick={() => store().setPlayhead(playhead + 1 / fps)}
       >
         <StepForward />
       </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Ir al final"
+        shortcut="playback.toEnd"
+        onClick={() => {
+          store().setPlaying(false);
+          store().setPlayhead(duration);
+        }}
+      >
+        <SkipForward />
+      </Button>
+      {playing && playbackRate !== 1 ? (
+        <span className="font-mono text-[11px] text-primary">
+          {playbackRate > 0 ? "▶" : "◀"} {Math.abs(playbackRate)}×
+        </span>
+      ) : null}
       <span className="ml-auto font-mono text-xs tabular-nums text-muted-foreground">
         {formatTime(playhead)} / {formatTime(duration)} · {width}×{height} · {fps} fps
       </span>
@@ -229,26 +311,33 @@ export function PreviewPanel() {
                 track={video.track}
                 asset={videoAsset}
                 className="absolute inset-0 size-full object-contain"
+                style={placementStyle(video.clip, videoAsset, width, height)}
               />
             ) : (
               <div className="absolute inset-0 flex items-center justify-center text-xs text-neutral-500">
                 {video ? "El medio del clip no está disponible" : "Sin video en el cursor"}
               </div>
             )}
-            {motion && motionAsset ? (
-              <SyncedMedia
-                key={motion.clip.id}
-                kind="video"
-                clip={motion.clip}
-                track={motion.track}
-                asset={motionAsset}
-                className="pointer-events-none absolute inset-0 size-full object-contain"
-              />
-            ) : motion ? (
-              <div className="pointer-events-none absolute inset-x-[10%] top-[10%] rounded border border-dashed border-fuchsia-400 bg-fuchsia-500/20 p-2 text-center text-xs text-white">
-                Motion «{motion.clip.motion?.template ?? "?"}» — pendiente de render
-              </div>
-            ) : null}
+            {motions.map(({ clip, track, asset }) =>
+              asset ? (
+                <SyncedMedia
+                  key={clip.id}
+                  kind="video"
+                  clip={clip}
+                  track={track}
+                  asset={asset}
+                  className="pointer-events-none absolute inset-0 size-full object-contain"
+                  style={placementStyle(clip, asset, width, height)}
+                />
+              ) : (
+                <div
+                  key={clip.id}
+                  className="pointer-events-none absolute inset-x-[10%] top-[10%] rounded border border-dashed border-fuchsia-400 bg-fuchsia-500/20 p-2 text-center text-xs text-white"
+                >
+                  Motion «{clip.motion?.template ?? "?"}» — pendiente de render
+                </div>
+              ),
+            )}
             {texts.map(({ clip }) => {
               const ts = clip.textStyle;
               return (
@@ -272,12 +361,13 @@ export function PreviewPanel() {
                 </div>
               );
             })}
-            {subtitle ? (
+            {subtitle && captionRect ? (
               <SubtitleOverlay
                 segment={subtitle}
                 style={captionStyle}
-                scale={scale}
+                scale={(scale * Math.min(captionRect.width, captionRect.height)) / 1080}
                 playhead={playhead}
+                box={rectStyle(captionRect, width, height)}
               />
             ) : null}
             {audios.map(({ clip, track }) => (

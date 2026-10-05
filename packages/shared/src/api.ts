@@ -46,6 +46,7 @@ export const API_ROUTES = {
   voiceEffectPresets: "/api/voice/effects/presets", // GET named voice effect presets
   ttsProviders: "/api/voice/tts/providers", // GET TtsProviderInfo[]
   voiceModelDownload: "/api/voice/models/download", // POST ModelDownloadRequest -> ModelDownloadResult
+  voiceModelDownloadProgress: "/api/voice/models/download/progress", // GET ?kind=piper&id= -> ModelDownloadProgress
   jobDiagnostics: "/api/jobs/:id/diagnostics", // GET JobDiagnostics (commands, stderr tail, timings)
   reports: "/api/reports", // GET ReportSummary[] | POST CreateReportRequest -> CreateReportResponse
   reportDownload: "/api/reports/:id/download", // GET the report .zip

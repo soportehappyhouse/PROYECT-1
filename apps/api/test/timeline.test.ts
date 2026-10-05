@@ -215,12 +215,12 @@ describe("timeline compiler", () => {
     expect(g).toMatch(
       /amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,apad,atrim=end=10/,
     );
-    expect(g).toContain("subtitles=subs.srt:force_style=");
+    expect(g).toContain("subtitles=subs.ass");
     expect(g).toContain("format=yuv420p[vout]");
-    expect(c.files.map((f) => f.name)).toEqual(["graph.txt", "text-0.txt", "subs.srt"]);
+    expect(c.files.map((f) => f.name)).toEqual(["graph.txt", "text-0.txt", "subs.ass"]);
     expect(c.files.find((f) => f.name === "text-0.txt")!.content).toBe("Título: 100%");
-    expect(c.files.find((f) => f.name === "subs.srt")!.content).toBe(
-      "1\n00:00:00,500 --> 00:00:02,000\nHola\n",
+    expect(c.files.find((f) => f.name === "subs.ass")!.content).toContain(
+      "Dialogue: 0,0:00:00.50,0:00:02.00,Default,,",
     );
     expect(c.warnings).toEqual([]);
   });
@@ -314,21 +314,64 @@ describe("timeline compiler", () => {
       animation: "pop",
     };
     const out = compileExport({ project: p, preset: youtube, assets, output: "o.mp4" });
-    expect(out.graph).toContain("FontSize=19");
-    expect(out.graph).toContain("Alignment=8");
-    expect(out.graph).toContain("PrimaryColour=&H000AD6FF");
-    expect(out.files.find((f) => f.name === "subs.srt")?.content).toContain("HOLA");
+    const ass = out.files.find((f) => f.name === "subs.ass")!.content;
+    // Canvas-sized PlayRes, numpad alignment 8 (top) in a real [V4+ Styles] block.
+    expect(ass).toContain("PlayResX: 1920\nPlayResY: 1080");
+    expect(ass).toMatch(/Style: Default,Inter,72,&H000AD6FF,.*,1,\d+,0,8,\d+,\d+,\d+,1/);
+    expect(ass).toContain(",,HOLA");
+  });
+
+  it("fits burned subtitles to a pillarboxed vertical clip (feedback 4)", () => {
+    const p = project();
+    const vertical = new Map(assets);
+    vertical.set("v1", { ...assets.get("v1")!, width: 478, height: 850 });
+    const ass = compileExport({
+      project: p,
+      preset: youtube,
+      assets: vertical,
+      output: "o.mp4",
+    }).files.find((f) => f.name === "subs.ass")!.content;
+    // 478×850 fitted in 1920×1080 = 607 px wide at x=656: margins keep the text inside it.
+    const ev = /Dialogue: 0,[^,]+,[^,]+,Default,,(\d+),(\d+),(\d+),/.exec(ass)!;
+    expect(Number(ev[1])).toBeGreaterThanOrEqual(656);
+    expect(Number(ev[2])).toBeGreaterThanOrEqual(656);
+    expect(ass).toMatch(/Style: Default,Inter,\d+,/);
+    expect(Number(/Style: Default,Inter,(\d+),/.exec(ass)![1])).toBeLessThan(60);
+  });
+
+  it("stacks overlapping motion clips in lanes instead of dropping them (feedback 1)", () => {
+    const p = project();
+    const motion = p.tracks.find((t) => t.kind === "motion")!;
+    const m1 = motion.clips[0]!;
+    motion.clips.push({ ...m1, id: "m2" }, { ...m1, id: "m3", start: 2 });
+    const c = compileExport({ project: p, preset: youtube, assets, output: "o.mp4" });
+    expect(c.warnings.join(" ")).not.toMatch(/se omite/);
+    expect(c.warnings).toContain(
+      "Clips solapados en «Motion»: se apilan en 3 capas (el último encima)",
+    );
+    // base + video + 3 motion lanes = 4 overlays before the subtitles
+    expect(c.graph.match(/overlay=0:0:eof_action=pass/g)).toHaveLength(4);
+    expect(c.args.filter((a) => a === "/s/renders/mo.webm")).toHaveLength(3);
   });
   it("does not burn subtitles twice when an animated-captions clip shows them", () => {
     const p = project();
     const motion = p.tracks.find((t) => t.kind === "motion")!;
     const base = { project: p, preset: youtube, assets, output: "o.mp4" };
-    expect(compileExport(base).graph).toContain("subtitles=subs.srt");
+    expect(compileExport(base).graph).toContain("subtitles=subs.ass");
     motion.clips[0]!.motion = { ...motion.clips[0]!.motion!, template: "animated-captions" };
     const auto = compileExport(base);
     expect(auto.graph).not.toContain("subtitles=");
-    expect(auto.files.some((f) => f.name === "subs.srt")).toBe(false);
-    expect(compileExport({ ...base, burnSubtitles: true }).graph).toContain("subtitles=subs.srt");
+    expect(auto.files.some((f) => f.name === "subs.ass")).toBe(false);
+    // Forced on: segments covered by the animated captions (1–4 s) are still not burned twice...
+    expect(compileExport({ ...base, burnSubtitles: true }).graph).not.toContain("subtitles=");
+    // ...but the ones outside them are.
+    p.subtitles.push({ start: 6, end: 7, text: "Fuera" });
+    const forced = compileExport({ ...base, burnSubtitles: true });
+    expect(forced.files.find((f) => f.name === "subs.ass")!.content).toContain(",,Fuera");
+    expect(forced.files.find((f) => f.name === "subs.ass")!.content).not.toContain(",,Hola");
+    // Project-level choice (Export panel checkbox) is the default for the request.
+    p.burnSubtitles = true;
+    expect(compileExport(base).graph).toContain("subtitles=subs.ass");
     motion.clips[0]!.motion!.template = "title-card";
     expect(compileExport({ ...base, burnSubtitles: false }).graph).not.toContain("subtitles=");
   });

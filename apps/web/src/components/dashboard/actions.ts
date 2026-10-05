@@ -1,6 +1,7 @@
 import { toast } from "sonner";
 import { saveProjectNow } from "@/hooks/use-project-sync";
 import type { ShortcutActionId } from "@/lib/shortcuts";
+import { projectDuration } from "@/lib/timeline";
 import { useProjectStore } from "@/stores/project-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { showPanel } from "./dock-controller";
@@ -16,6 +17,19 @@ export function runAction(id: ShortcutActionId): void {
       break;
     case "playback.toStart":
       p.setPlayhead(0);
+      break;
+    case "playback.toEnd":
+      p.setPlaying(false);
+      p.setPlayhead(projectDuration(p.project));
+      break;
+    case "playback.shuttleBack":
+      p.shuttleBackward();
+      break;
+    case "playback.pause":
+      p.shuttleStop();
+      break;
+    case "playback.shuttleForward":
+      p.shuttleForward();
       break;
     case "playback.frameBack":
       p.setPlayhead(p.playhead - frame);

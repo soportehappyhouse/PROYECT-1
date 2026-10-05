@@ -29,7 +29,7 @@ export function TimelinePanel() {
         label="Añadir pista"
         align="start"
         trigger={(p) => (
-          <Button variant="ghost" size="xs" {...p}>
+          <Button variant="ghost" size="xs" tooltip="Añadir una pista" {...p}>
             <Plus /> Pista
           </Button>
         )}
@@ -48,7 +48,12 @@ export function TimelinePanel() {
           ))
         }
       </Menu>
-      <Button variant="ghost" size="xs" onClick={() => store().addTextClip()}>
+      <Button
+        variant="ghost"
+        size="xs"
+        tooltip="Añadir un texto en el cursor"
+        onClick={() => store().addTextClip()}
+      >
         <Type /> Texto
       </Button>
       <span className="mx-1 h-4 w-px bg-border" />
@@ -56,6 +61,7 @@ export function TimelinePanel() {
         variant="ghost"
         size="icon-sm"
         aria-label="Deshacer"
+        shortcut="edit.undo"
         disabled={!canUndo}
         onClick={() => store().undo()}
       >
@@ -65,6 +71,7 @@ export function TimelinePanel() {
         variant="ghost"
         size="icon-sm"
         aria-label="Rehacer"
+        shortcut="edit.redo"
         disabled={!canRedo}
         onClick={() => store().redo()}
       >
@@ -73,7 +80,8 @@ export function TimelinePanel() {
       <Button
         variant="ghost"
         size="icon-sm"
-        aria-label="Dividir en el cursor"
+        aria-label="Cortar en el cursor"
+        shortcut="timeline.split"
         onClick={() => store().splitAt()}
       >
         <Scissors />
@@ -82,6 +90,7 @@ export function TimelinePanel() {
         variant="ghost"
         size="icon-sm"
         aria-label="Eliminar clip"
+        shortcut="timeline.delete"
         disabled={!hasSelection}
         onClick={() => store().deleteClip()}
       >
@@ -91,6 +100,7 @@ export function TimelinePanel() {
         variant={snapping ? "secondary" : "ghost"}
         size="icon-sm"
         aria-label="Imán (snapping)"
+        shortcut="timeline.toggleSnap"
         aria-pressed={snapping}
         onClick={() => store().toggleSnapping()}
       >
@@ -103,6 +113,7 @@ export function TimelinePanel() {
         variant="ghost"
         size="icon-sm"
         aria-label="Alejar"
+        shortcut="timeline.zoomOut"
         onClick={() => store().zoomBy(1 / 1.25)}
       >
         <ZoomOut />
@@ -120,6 +131,7 @@ export function TimelinePanel() {
         variant="ghost"
         size="icon-sm"
         aria-label="Acercar"
+        shortcut="timeline.zoomIn"
         onClick={() => store().zoomBy(1.25)}
       >
         <ZoomIn />

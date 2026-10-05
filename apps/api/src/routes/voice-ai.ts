@@ -1,8 +1,11 @@
+import { stat } from "node:fs/promises";
+import path from "node:path";
 import {
   API_ROUTES,
   ModelDownloadRequestSchema,
   RvcRequestSchema,
   TtsRequestSchema,
+  type ModelDownloadProgress,
   type TtsProviderInfo,
 } from "@studio/shared";
 import type { FastifyInstance } from "fastify";
@@ -19,6 +22,41 @@ export async function viaWorkers<T>(fn: () => Promise<T>): Promise<T> {
     throw err;
   }
 }
+
+/**
+ * Feedback 6: turn a failed model download into a clear Spanish message with a stable code
+ * (offline / blocked by a proxy, HTTP 403, checksum mismatch, workers down).
+ */
+export function classifyDownloadError(err: WorkersError): HttpError {
+  const m = err.message;
+  if (err.code === "WORKERS_UNAVAILABLE")
+    return new HttpError(503, "WORKERS_UNAVAILABLE", `No se pudo descargar: ${m}`);
+  if (/HTTP 40[13]\b|\b403\b|Forbidden/i.test(m))
+    return new HttpError(
+      502,
+      "DOWNLOAD_FORBIDDEN",
+      "Hugging Face rechazó la descarga (HTTP 403). Puede ser un proxy o firewall de la red; " +
+        "prueba otra conexión o descarga la voz con setup.ps1 -Models. Detalle: " +
+        m,
+    );
+  if (/md5|sha256|tama[nñ]o|incompleta|vac[ií]o/i.test(m))
+    return new HttpError(
+      502,
+      "DOWNLOAD_CHECKSUM",
+      "El archivo descargado no coincide con el catálogo (checksum o tamaño): se descartó. " +
+        "Vuelve a intentarlo. Detalle: " +
+        m,
+    );
+  if (/red|network|connect|timed? ?out|resolve|proxy|getaddrinfo|ENOTFOUND/i.test(m))
+    return new HttpError(
+      502,
+      "DOWNLOAD_OFFLINE",
+      "Sin conexión con Hugging Face (¿estás sin Internet o detrás de un proxy?). Detalle: " + m,
+    );
+  return new HttpError(err.statusCode, err.code, m);
+}
+
+const PIPER_ID = /^[a-z]{2}_[A-Z]{2}-[A-Za-z0-9_]+-[a-z_]+$/;
 
 /** Module (d) voice routes: Piper/cloud TTS and RVC through the Python workers. */
 export function registerVoiceAiRoutes(app: FastifyInstance): void {
@@ -67,6 +105,26 @@ export function registerVoiceAiRoutes(app: FastifyInstance): void {
 
   app.post(API_ROUTES.voiceModelDownload, async (req) => {
     const body = ModelDownloadRequestSchema.parse(req.body);
-    return viaWorkers(() => workers.downloadModel(body));
+    try {
+      return await workers.downloadModel(body);
+    } catch (err) {
+      if (err instanceof WorkersError) throw classifyDownloadError(err);
+      throw err;
+    }
   });
+
+  /** Progress of a running Piper download: size of models/piper/<id>.onnx(.part). */
+  app.get<{ Querystring: { kind?: string; id?: string } }>(
+    API_ROUTES.voiceModelDownloadProgress,
+    async (req): Promise<ModelDownloadProgress> => {
+      const { kind, id } = req.query;
+      if (kind !== "piper" || !id || !PIPER_ID.test(id))
+        throw new HttpError(400, "BAD_REQUEST", "Solo voces Piper (kind=piper&id=es_AR-…)");
+      const base = path.join(config.modelsDir, "piper", `${id}.onnx`);
+      const part = await stat(`${base}.part`).catch(() => undefined);
+      if (part) return { bytes: part.size, active: true };
+      const done = await stat(base).catch(() => undefined);
+      return { bytes: done?.size ?? 0, active: false };
+    },
+  );
 }

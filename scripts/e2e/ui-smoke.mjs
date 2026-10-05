@@ -367,6 +367,40 @@ await step("Export panel with presets", async () => {
   return shot(page, "05-export-panel.png");
 });
 
+// Feedback 2026-10-05 (items 8 and 9): tooltips with shortcuts, Space/J/K/L.
+await step("tooltip on the timeline scissors: «Cortar en el cursor (S)»", async () => {
+  await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).click();
+  await page.getByRole("button", { name: "Cortar en el cursor" }).hover();
+  const tip = page.getByRole("tooltip");
+  await tip.waitFor({ timeout: 3_000 });
+  const text = (await tip.textContent())?.trim();
+  if (text !== "Cortar en el cursor (S)") throw new Error(`tooltip: ${text}`);
+  await page.mouse.move(0, 0);
+  return { text };
+});
+
+await step("Space plays/pauses once with the Play button focused; L/K shuttle", async () => {
+  const preview = page.locator("section[aria-label='Vista previa']");
+  await page.locator(".dv-tab", { hasText: "Vista previa" }).click();
+  await seek(page, 0.2);
+  const play = () => preview.getByRole("button", { name: /^(Reproducir|Pausar)$/ });
+  await play().click(); // starts playing and leaves the button focused
+  await sleep(300);
+  if ((await play().getAttribute("aria-label")) !== "Pausar") throw new Error("click did not play");
+  await page.keyboard.press("Space"); // must pause (once), not pause + click again
+  await sleep(400);
+  const afterSpace = await play().getAttribute("aria-label");
+  if (afterSpace !== "Reproducir") throw new Error(`after Space: ${afterSpace}`);
+  await page.keyboard.press("l");
+  await sleep(300);
+  const afterL = await play().getAttribute("aria-label");
+  await page.keyboard.press("k");
+  await sleep(300);
+  const afterK = await play().getAttribute("aria-label");
+  if (afterL !== "Pausar" || afterK !== "Reproducir") throw new Error(`L ${afterL} / K ${afterK}`);
+  return { afterSpace, afterL, afterK };
+});
+
 await step("command palette (Ctrl+K)", async () => {
   await page.keyboard.press("Control+k");
   await page.getByRole("dialog").waitFor({ timeout: 5_000 });

@@ -199,5 +199,20 @@ describe("motion routes (module c)", () => {
     });
     expect(compiled.args).toContain(path.join(storage, asset.path));
     expect(compiled.warnings.join(" ")).not.toContain("sin renderizar");
+
+    // Feedback 1: a stale dashboard save (clip without renderedAssetId, same spec) keeps the link...
+    const stale = structuredClone(project);
+    for (const t of stale.tracks) for (const c of t.clips) delete c.renderedAssetId;
+    const saved = repos.projects.save(created.id, stale)!;
+    expect(
+      saved.tracks.flatMap((t) => t.clips).find((c) => c.id === "clip-m")?.renderedAssetId,
+    ).toBe(asset.id);
+    // ...while a changed spec ("Actualizar clip y renderizar") drops it.
+    const edited = structuredClone(stale);
+    edited.tracks.flatMap((t) => t.clips).find((c) => c.id === "clip-m")!.motion!.durationSec = 3;
+    const again = repos.projects.save(created.id, edited)!;
+    expect(
+      again.tracks.flatMap((t) => t.clips).find((c) => c.id === "clip-m")?.renderedAssetId,
+    ).toBeUndefined();
   });
 });

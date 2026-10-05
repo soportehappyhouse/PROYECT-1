@@ -15,6 +15,31 @@ export interface ProjectSummary {
   updatedAt: string;
 }
 
+/**
+ * Feedback 1: motion.render links its output with patchClip while the dashboard keeps saving its
+ * own copy of the project; a save sent before the dashboard heard about the render (debounce,
+ * reload, lost SSE) would erase `renderedAssetId`. Keep the stored link when the incoming clip has
+ * the same motion spec and no link of its own (a changed spec means "render again": dropped).
+ */
+export function keepRenderLinks(next: Project, stored: Project): Project {
+  const links = new Map<string, Clip>();
+  for (const t of stored.tracks)
+    for (const c of t.clips) if (c.renderedAssetId && c.motion) links.set(c.id, c);
+  if (links.size === 0) return next;
+  for (const t of next.tracks)
+    for (const c of t.clips) {
+      const old = links.get(c.id);
+      if (
+        old &&
+        !c.renderedAssetId &&
+        c.motion &&
+        JSON.stringify(c.motion) === JSON.stringify(old.motion)
+      )
+        c.renderedAssetId = old.renderedAssetId;
+    }
+  return next;
+}
+
 /** Project documents (tracks/clips/subtitles) persisted as JSON in the `projects` table. */
 export class ProjectRepo {
   constructor(private readonly db: SqlDatabase) {}
@@ -76,12 +101,15 @@ export class ProjectRepo {
     const current = this.get(id);
     if (!current) return undefined;
     const now = new Date().toISOString();
-    const project = ProjectSchema.parse({
-      ...(body as object),
-      id,
-      createdAt: current.createdAt,
-      updatedAt: now,
-    });
+    const project = keepRenderLinks(
+      ProjectSchema.parse({
+        ...(body as object),
+        id,
+        createdAt: current.createdAt,
+        updatedAt: now,
+      }),
+      current,
+    );
     this.db
       .prepare(`UPDATE projects SET name = ?, data = ?, updated_at = ? WHERE id = ?`)
       .run(project.name, JSON.stringify(project), now, id);

@@ -48,39 +48,57 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\setup.ps1
 no cambia la configuración de seguridad de Windows.
 
 Sin pasos manuales extra, salvo aceptar UAC: los instaladores de winget (Node.js, VC++) muestran
-el aviso de **Control de cuentas de usuario** y eso es lo esperado. Qué hace (se puede repetir sin
-romper nada; lo ya instalado se saltea):
+el aviso de **Control de cuentas de usuario** y eso es lo esperado.
 
-1. Con **winget** instala lo que falte: Git, **Node.js 22**, **Python 3.11**, **FFmpeg** (build
-   "full" de Gyan) y **Visual C++ Redistributable x64**. Node y VC++ muestran un aviso de
+**Es incremental**: cada paso primero revisa qué hay y, si ya está, muestra
+`✔ ya instalado, se omite: <qué y versión>` y pasa al siguiente. La primera vez tarda lo que tarde
+(descargas grandes); repetirlo (o actualizar a una versión nueva) solo hace lo que falta o cambió.
+Qué hace:
+
+1. Con **winget** instala lo que falte: Git (≥ 2.40), **Node.js 22** (≥ 22.12), **Python 3.11**,
+   **FFmpeg** (build "full" de Gyan) y **Visual C++ Redistributable x64**. Si ya están y la versión
+   alcanza, se omiten; si son más viejos, `winget upgrade`. Node y VC++ muestran un aviso de
    **Control de cuentas (UAC)**: aceptalo.
 2. Crea `.env` copiando `.env.example` (nunca pisa uno existente) y las carpetas `storage\` y `models\`.
-3. Instala **pnpm 12** (`npm i -g pnpm@12`), las dependencias JS (`pnpm install`) y el navegador de
-   Remotion (`pnpm --filter @studio/remotion browser:ensure`, desde la raíz del repo).
-4. Crea el entorno Python `apps\workers\.venv` con faster-whisper, Piper y RVC (torch CPU).
-5. Descarga los modelos: voz **es_AR-daniela-high**, Whisper **base**, activos de RVC
-   (`rmvpe.pt` + `hubert_base`). Los archivos se verifican por tamaño/checksum.
-6. Compila el proyecto (`pnpm build`) con los valores de `.env` (la URL de la API que usa el
-   dashboard se toma de `NEXT_PUBLIC_API_URL` o `API_PORT`; si cambiás `.env`, `start.ps1` recompila
-   la web).
-7. Muestra un **resumen con ✅ / ❌** por componente. Si al final falta la voz Piper, el modelo
-   Whisper o el navegador de Remotion, termina con error (código 1) y los lista en rojo.
+3. Instala **pnpm 12** (`npm i -g pnpm@12`), las dependencias JS (`pnpm install`, se omite si
+   `pnpm-lock.yaml` y los `package.json` no cambiaron desde la última vez) y el navegador de Remotion
+   (`pnpm --filter @studio/remotion browser:ensure`, se omite si ya está descargado).
+4. Crea el entorno Python `apps\workers\.venv` con faster-whisper, Piper y RVC (torch CPU). Se omite
+   si el sello `.venv\.studio-install` coincide con el hash de `requirements.txt` (o
+   `requirements-cuda.txt`) y `pyproject.toml`; cambiar entre CPU y `-WithCuda` lo rehace.
+5. Modelos: primero `models_cli --check` muestra la tabla **presente / falta / parcial / corrupto**
+   y después baja **solo lo que falta**: voz **es_AR-daniela-high**, Whisper **base**, activos de
+   RVC (`rmvpe.pt` + `hubert_base`). Cada archivo se verifica (tamaño, md5 del catálogo de Piper,
+   sha256 publicado por Hugging Face) y queda registrado en **`models\manifest.json`** (nombre,
+   ruta, tamaño, sha256/md5, URL de origen, fecha). Una descarga cortada queda como `<archivo>.part`
+   y **se reanuda** donde quedó (HTTP Range) la próxima vez.
+6. Compila el proyecto (`pnpm build`), salvo que el build existente coincida con el hash del
+   código, del lockfile y de los valores de `.env` que entran al build (`NEXT_PUBLIC_*`, puertos).
+   `start.ps1` usa la misma regla: si cambiaste `.env` o el código, recompila antes de abrir.
+7. Muestra un **resumen con ✅ / ❌**, los **segundos de cada paso**, si se `[omitido]` o
+   `[ejecutado]`, y la línea `N pasos omitidos (ya instalados), M ejecutados, tiempo total X s`
+   (también en `storage\run\setup-last.json`). Si al final falta la voz Piper, el modelo Whisper o
+   el navegador de Remotion, termina con error (código 1) y los lista en rojo.
 
-Duración típica: 15–40 minutos según la conexión (torch ≈ 200 MB, CUDA ≈ 3 GB).
+Duración típica la primera vez: 15–40 minutos según la conexión (torch ≈ 200 MB, CUDA ≈ 3 GB).
+Re-ejecutarlo con todo instalado: alrededor de un minuto (verificaciones, sin descargas).
 
 > **Si winget instaló algo nuevo y algún paso falló**, cerrá PowerShell, abrí una nueva (para que se
 > actualice el PATH) y volvé a ejecutar `setup.ps1`.
 
 ### Opciones útiles
 
-| Opción                                        | Para qué                                                                        |
-| --------------------------------------------- | ------------------------------------------------------------------------------- |
-| `-WithCuda`                                   | GPU NVIDIA: torch CUDA 12.8 (cu128) y `USE_CUDA=true` en `.env`                 |
-| `-WhisperModel small`                         | Otro modelo de subtítulos (`tiny`, `base`, `small`, `medium`, `large-v3-turbo`) |
-| `-PiperVoice es_MX-claude-high`               | Otra voz por defecto                                                            |
-| `-SkipRvc`                                    | Instalación liviana sin torch/RVC                                               |
-| `-SkipModels` / `-SkipBuild` / `-SkipBrowser` | Saltear pasos                                                                   |
-| `-SkipWinget`                                 | No usa winget: Git, Node 22, Python 3.11 y FFmpeg ya deben estar en el PATH     |
+| Opción                                        | Para qué                                                                                    |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `-Update`                                     | Después de bajar una versión nueva: todo incremental (ver [9](#9-actualizar-y-desinstalar)) |
+| `-Force`                                      | Ignora los sellos: rehace `pnpm install`, `pip install`, el build y re-descarga modelos     |
+| `-WithCuda`                                   | GPU NVIDIA: torch CUDA 12.8 (cu128) y `USE_CUDA=true` en `.env` (se recuerda)               |
+| `-WithCuda:$false`                            | Volver de CUDA al perfil CPU                                                                |
+| `-WhisperModel small`                         | Otro modelo de subtítulos (`tiny`, `base`, `small`, `medium`, `large-v3-turbo`)             |
+| `-PiperVoice es_MX-claude-high`               | Otra voz por defecto                                                                        |
+| `-SkipRvc` / `-SkipRvc:$false`                | Instalación liviana sin torch/RVC (se recuerda) / volver a instalar RVC                     |
+| `-SkipModels` / `-SkipBuild` / `-SkipBrowser` | Saltear pasos                                                                               |
+| `-SkipWinget`                                 | No usa winget: Git, Node 22, Python 3.11 y FFmpeg ya deben estar en el PATH                 |
 
 ## 4. Abrir Studio
 
@@ -149,7 +167,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\doctor.ps1
 ```
 
 Muestra versiones, PATH, filtros de FFmpeg (incluido `rubberband`), GPU, paquetes Python, modelos,
-puertos y estado de los servicios. No modifica nada.
+puertos y estado de los servicios. También el **estado de `models\manifest.json`** (archivos
+registrados por grupo, cuáles faltan o cambiaron de tamaño, la tabla presentes/faltantes de
+`models_cli --check`) y el **espacio en disco** que ocupan `models\` y `storage\` (con detalle de
+`media`, `proxies`, `renders`, etc.). No modifica nada.
+
+Para ver solo los modelos:
+
+```powershell
+apps\workers\.venv\Scripts\python.exe -m studio_workers.models_cli --check --update
+```
 
 ## 8. Solución de problemas
 
@@ -163,7 +190,7 @@ puertos y estado de los servicios. No modifica nada.
 | `DLL load failed` / `VCRUNTIME140.dll` (torch, onnxruntime)          | `winget install -e --id Microsoft.VCRedist.2015+.x64` y reiniciá los workers.                                                                                                                                                                              |
 | Error por rutas largas (`ENAMETOOLONG`, `Filename too long`)         | Clonar en `C:\dev\studio`. Como administrador: `New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name LongPathsEnabled -Value 1 -PropertyType DWORD -Force` y `git config --global core.longpaths true`.                        |
 | `El puerto 3000/3001/8001 está ocupado`                              | `scripts\windows\stop.ps1`; si sigue, cambiá el puerto en `.env`. Hyper-V/WSL reservan rangos: `netsh interface ipv4 show excludedportrange protocol=tcp`.                                                                                                 |
-| Falla la descarga de modelos                                         | Reintentá `setup.ps1` (los archivos verificados se saltean). Proxies corporativos pueden bloquear `huggingface.co`.                                                                                                                                        |
+| Falla la descarga de modelos                                         | Reintentá `setup.ps1` (o `-Update`): lo verificado se saltea y el `.part` se reanuda donde quedó. Un archivo corrupto se vuelve a bajar solo. Proxies corporativos pueden bloquear `huggingface.co`.                                                       |
 | Subtítulos con `-WithCuda` dicen "CUDA no disponible, usando CPU"    | Actualizá el driver NVIDIA (570+). faster-whisper necesita cuBLAS 12 + cuDNN 9: los toma de `torch\lib`; si aun falla, `apps\workers\.venv\Scripts\python.exe -m pip install nvidia-cublas-cu12 nvidia-cudnn-cu12`.                                        |
 | RVC tarda mucho                                                      | Normal en CPU. Usá clips cortos, `f0Method: "pm"` (más rápido) o `-WithCuda`.                                                                                                                                                                              |
 | `doctor.ps1` dice que falta `rubberband`                             | Los efectos de tono usan `asetrate+atempo` como respaldo. Para mejor calidad, instalá el build "full": `winget install -e --id Gyan.FFmpeg`.                                                                                                               |
@@ -173,7 +200,39 @@ puertos y estado de los servicios. No modifica nada.
 
 ## 9. Actualizar y desinstalar
 
-- Actualizar: bajá el ZIP nuevo y descomprimilo encima (conservá `.env`, `storage\` y `models\`), o
-  `git pull` si clonaste; después volvé a correr `setup.ps1` (solo instala lo nuevo).
+**Actualizar a una versión nueva** (no se vuelve a bajar lo que ya tenés):
+
+1. Cerrá Studio (`scripts\windows\stop.ps1` o cerrá sus ventanas).
+2. Bajá el ZIP nuevo y **descomprimilo encima de la misma carpeta** (`C:\dev\studio`), aceptando
+   "Reemplazar los archivos". Si clonaste con Git, en cambio: `git pull`.
+3. Desbloqueá los scripts: `Get-ChildItem -Recurse C:\dev\studio\scripts | Unblock-File`.
+4. Corré la actualización (o doble clic en `scripts\windows\actualizar.cmd`):
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\setup.ps1 -Update
+   ```
+
+   `-Update` no toca Git: revisa todo, omite lo que ya está (prerrequisitos, `node_modules`, `.venv`,
+   navegador, modelos registrados en `models\manifest.json`), conserva el perfil anterior (CUDA o sin
+   RVC) y solo instala, descarga o recompila lo que la versión nueva cambió. Termina con
+   `N pasos omitidos, M ejecutados, tiempo total`.
+
+**No borres** al actualizar (ahí está lo que ya descargaste o creaste):
+
+| Carpeta / archivo                           | Qué contiene                                                |
+| ------------------------------------------- | ----------------------------------------------------------- |
+| `.env`                                      | Tu configuración y API keys (el ZIP no lo trae: no se pisa) |
+| `storage\`                                  | Proyectos, medios importados, proxies, renders, biblioteca  |
+| `models\` (incluye `manifest.json`)         | Voces Piper, Whisper, RVC (GB de descargas)                 |
+| `apps\workers\.venv\`                       | Entorno Python (torch, faster-whisper…): se reutiliza       |
+| `node_modules\` y `packages\*\node_modules` | Dependencias JS y el navegador de Remotion: se reutilizan   |
+
+Si borrás `node_modules\` o `.venv\` no se rompe nada, pero `setup.ps1` los vuelve a instalar
+(más tiempo y descargas). Borrar `apps\web\.next\` solo fuerza a recompilar.
+
+Descomprimir encima no borra los archivos que la versión nueva eliminó. Si después el build falla
+por un archivo que ya no existe en el ZIP, borrá las carpetas `src` de `apps\web`, `apps\api` y
+`packages\*` (nada más), descomprimí de nuevo y repetí `setup.ps1 -Update`.
+
 - Desinstalar Studio: borrar la carpeta `C:\dev\studio` (incluye `storage\`, `models\` y `.venv`).
   Node, Python, Git y FFmpeg se quitan desde "Aplicaciones" o con `winget uninstall --id <ID>`.

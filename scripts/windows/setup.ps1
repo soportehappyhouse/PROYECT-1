@@ -1,17 +1,31 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Studio - instalacion desde cero en Windows 10/11 (x64). Idempotente: se puede repetir.
+  Studio - instalacion en Windows 10/11 (x64). Incremental: reconoce lo ya instalado/descargado y
+  solo hace lo que falta. Desde cero tarda lo que tarde (descargas grandes); repetirlo es rapido.
 .DESCRIPTION
   1. Prerrequisitos con winget: Git, Node.js 22, Python 3.11, FFmpeg (Gyan, build full), VC++ 2015+.
+     Si ya estan y la version alcanza: "ya instalado, se omite".
   2. .env (copia de .env.example si falta; nunca lo sobrescribe) y carpetas storage\ y models\.
-  3. pnpm 12 (npm i -g pnpm@12, sin Corepack) + pnpm install + navegador de Remotion.
-  4. Python: apps\workers\.venv con requirements.txt (CPU) o requirements-cuda.txt (-WithCuda).
-  5. Modelos: voz Piper por defecto, modelo Whisper, activos base de RVC (rmvpe + hubert).
-  6. pnpm build (necesario para start.ps1 sin -Dev).
+  3. pnpm 12 + pnpm install (se omite si pnpm-lock.yaml y los package.json no cambiaron)
+     + navegador de Remotion (se omite si ya esta).
+  4. Python: apps\workers\.venv con requirements.txt (CPU) o requirements-cuda.txt (-WithCuda); se
+     omite si el sello .venv\.studio-install coincide con el hash de requirements/pyproject.
+  5. Modelos: models_cli --check muestra la tabla presentes/faltantes y despues se baja solo lo que
+     falta (descargas reanudables, verificadas, registradas en models\manifest.json).
+  6. pnpm build (se omite si el build coincide con el hash del codigo y de .env).
+  Al final: tabla con segundos por paso, "N pasos omitidos, M ejecutados" y el tiempo total
+  (tambien en storage\run\setup-last.json).
   Corre como usuario normal: winget pide UAC solo para los instaladores de maquina (Node, VC++).
+.PARAMETER Update
+  Actualizacion tras bajar una version nueva (ZIP descomprimido encima de la misma carpeta o git
+  pull). No toca git: corre todo en modo incremental, revisa tambien los modelos registrados en
+  models\manifest.json y conserva el perfil anterior (CUDA / sin RVC).
+.PARAMETER Force
+  Ignora los sellos: rehace pnpm install, pip install, el build y vuelve a descargar los modelos.
 .PARAMETER WithCuda
   Instala torch CUDA 12.8 (cu128) y pone USE_CUDA=true en .env. Requiere GPU NVIDIA + driver 570+.
+  Una vez instalado se conserva en los re-run; -WithCuda:$false vuelve al perfil CPU.
 .PARAMETER WhisperModel
   Modelo faster-whisper a descargar (default: base). En .env nuevo tambien fija WHISPER_MODEL.
 .PARAMETER PiperVoice
@@ -19,7 +33,8 @@
 .PARAMETER SkipWinget
   No usa winget: asume Git, Node.js 22, Python 3.11 y FFmpeg ya en el PATH (solo verifica).
 .PARAMETER SkipRvc
-  No instala torch / infer-rvc-python (instalacion mas liviana; RVC queda deshabilitado).
+  No instala torch / infer-rvc-python (instalacion mas liviana; RVC queda deshabilitado). Se
+  conserva en los re-run; -SkipRvc:$false instala RVC.
 .PARAMETER SkipModels
   No descarga modelos (whisper / piper / rvc).
 .PARAMETER SkipBrowser
@@ -29,6 +44,8 @@
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\setup.ps1
 .EXAMPLE
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\setup.ps1 -Update
+.EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\setup.ps1 -WithCuda
 #>
 [CmdletBinding()]
@@ -36,6 +53,8 @@ param(
     [Alias('Cuda')][switch]$WithCuda,
     [string]$WhisperModel = 'base',
     [string]$PiperVoice = '',
+    [switch]$Update,
+    [switch]$Force,
     [switch]$SkipWinget,
     [switch]$SkipRvc,
     [switch]$SkipModels,
@@ -47,15 +66,42 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 Initialize-Console
+# models_cli prints a check mark: Python stdio in UTF-8, decoded as UTF-8 by Initialize-Console.
+$env:PYTHONIOENCODING = 'utf-8'
 $started = Get-Date
 
-Write-Host "Studio - setup (repo: $RepoRoot)" -ForegroundColor White
+# Minimum versions: an installed tool at or above them is kept ("ya instalado, se omite").
+$MinGit = '2.40.0'
+$MinNode = '22.12.0'   # package.json engines: >=22.12.0 <23
+
+$modeLabel = 'instalacion'
+if ($Update) { $modeLabel = 'actualizacion' }
+Write-Host "Studio - setup, modo $modeLabel (repo: $RepoRoot)" -ForegroundColor White
+if ($Update) {
+    Write-Info 'Modo -Update: no se baja nada de git; se reutiliza todo lo ya instalado y se completa lo que falta.'
+    Write-Info 'Se conservan .env, storage\ y models\ (ver "Actualizar" en docs\INSTALACION-WINDOWS.md).'
+}
+if ($Force) { Write-Careful '-Force: se ignoran los sellos de instalacion (se rehace todo lo rehacible).' }
 if ($RepoRoot.Length -gt 60) {
     Write-Careful "La ruta del repo es larga ($($RepoRoot.Length) caracteres). Recomendado: C:\dev\studio"
 }
 
+# Previous Python profile (cuda / norvc) is kept unless the switch is passed explicitly: a re-run
+# without -WithCuda must not silently swap a 2.5 GB CUDA torch for the CPU one.
+$venvStamp = Join-Path $WorkersDir '.venv\.studio-install'
+$prevProfile = ((Read-Stamp $venvStamp) -split '\s+')[0]
+if (-not $PSBoundParameters.ContainsKey('WithCuda') -and $prevProfile -like 'cuda*') {
+    $WithCuda = [switch]$true
+    Write-Info 'Se conserva el perfil CUDA de la instalacion anterior (-WithCuda:$false para volver a CPU).'
+}
+if (-not $PSBoundParameters.ContainsKey('SkipRvc') -and $prevProfile -like '*-norvc') {
+    $SkipRvc = [switch]$true
+    Write-Info 'Se conserva la instalacion sin RVC de la vez anterior (-SkipRvc:$false para instalar RVC).'
+}
+
 # ============================================================================ 0. sanity checks
 Write-Step 'Verificando el sistema'
+Start-StepClock
 if (-not [Environment]::Is64BitOperatingSystem) { throw 'Se requiere Windows de 64 bits.' }
 Write-Info ("Windows {0}, PowerShell {1}" -f [Environment]::OSVersion.Version, $PSVersionTable.PSVersion)
 $hasWinget = Test-Cmd 'winget'
@@ -65,18 +111,20 @@ if (-not $hasWinget -and -not $SkipWinget) {
     Write-Info 'https://apps.microsoft.com/detail/9NBLGGH4NNS1  (o usa -SkipWinget e instala a mano)'
 }
 if (Test-LongPaths) {
-    Add-Result 'Rutas largas (Windows)' ok 'LongPathsEnabled=1'
+    Add-Result 'Rutas largas (Windows)' ok 'LongPathsEnabled=1' -Seconds (Stop-StepClock)
 } else {
-    Add-Result 'Rutas largas (Windows)' warn 'desactivadas; ver docs/INSTALACION-WINDOWS.md'
+    Add-Result 'Rutas largas (Windows)' warn 'desactivadas; ver docs/INSTALACION-WINDOWS.md' -Seconds (Stop-StepClock)
     Write-Careful 'Rutas largas desactivadas. Como administrador (opcional, recomendado):'
     Write-Info "New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name LongPathsEnabled -Value 1 -PropertyType DWORD -Force"
 }
 
 # ============================================================================ 1. winget packages
 function Install-WingetPackage {
-    param([string]$Id, [string[]]$Extra = @())
+    param([string]$Id, [string[]]$Extra = @(), [switch]$Upgrade)
     if (-not $hasWinget -or $SkipWinget) { return $false }
-    $wingetArgs = @('install', '-e', '--id', $Id, '--silent', '--accept-package-agreements', '--accept-source-agreements') + $Extra
+    $verb = 'install'
+    if ($Upgrade) { $verb = 'upgrade' }
+    $wingetArgs = @($verb, '-e', '--id', $Id, '--silent', '--accept-package-agreements', '--accept-source-agreements') + $Extra
     Write-Info ("> winget {0}" -f ($wingetArgs -join ' '))
     $ErrorActionPreference = 'Continue'
     & winget @wingetArgs | Out-Host
@@ -90,74 +138,119 @@ Write-Step 'Prerrequisitos del sistema (winget)'
 Update-SessionPath
 
 # --- Git
-if (-not (Test-Cmd 'git')) {
-    if (-not (Install-WingetPackage 'Git.Git' @('--scope', 'user'))) { [void](Install-WingetPackage 'Git.Git') }
-}
+Start-StepClock
+$gitAction = 'omitido'
 $gitVer = Get-CmdOutput 'git' @('--version')
+if (-not $gitVer) {
+    $gitAction = ''
+    if (Install-WingetPackage 'Git.Git' @('--scope', 'user')) { $gitAction = 'ejecutado' }
+    elseif (Install-WingetPackage 'Git.Git') { $gitAction = 'ejecutado' }
+    $gitVer = Get-CmdOutput 'git' @('--version')
+} elseif (-not (Test-VersionAtLeast $gitVer $MinGit)) {
+    Write-Info "$gitVer es anterior a $MinGit`: actualizando"
+    $gitAction = ''
+    if (Install-WingetPackage 'Git.Git' -Upgrade) { $gitAction = 'ejecutado' }
+    $gitVer = Get-CmdOutput 'git' @('--version')
+} else {
+    Write-Omit $gitVer
+}
 if ($gitVer) {
-    Add-Result 'Git' ok $gitVer
     # Long paths inside git checkouts (node_modules nests deeply). --global needs no admin.
     & git config --global core.longpaths true 2>$null | Out-Null
-} else { Add-Result 'Git' fail 'no encontrado (winget install -e --id Git.Git)' }
+    Add-Result 'Git' ok $gitVer -Action $gitAction -Seconds (Stop-StepClock)
+} else { Add-Result 'Git' fail 'no encontrado (winget install -e --id Git.Git)' -Seconds (Stop-StepClock) }
 
 # --- Node.js 22 (pinned major; OpenJS.NodeJS.LTS may jump to 24/26)
+Start-StepClock
+$nodeAction = 'omitido'
 $nodeVer = Get-CmdOutput 'node' @('--version')
 if (-not $nodeVer) {
     Write-Info 'Instalando Node.js 22 (pedira permiso de administrador / UAC)...'
-    [void](Install-WingetPackage 'OpenJS.NodeJS.22')
+    $nodeAction = ''
+    if (Install-WingetPackage 'OpenJS.NodeJS.22') { $nodeAction = 'ejecutado' }
     $nodeVer = Get-CmdOutput 'node' @('--version')
+} elseif ($nodeVer.StartsWith('v22.') -and -not (Test-VersionAtLeast $nodeVer $MinNode)) {
+    Write-Info "Node.js $nodeVer es anterior a $MinNode`: actualizando (UAC)..."
+    $nodeAction = ''
+    if (Install-WingetPackage 'OpenJS.NodeJS.22' -Upgrade) { $nodeAction = 'ejecutado' }
+    $nodeVer = Get-CmdOutput 'node' @('--version')
+} elseif ($nodeVer.StartsWith('v22.')) {
+    Write-Omit "Node.js $nodeVer"
 }
 if ($nodeVer -and $nodeVer.StartsWith('v22.')) {
-    Add-Result 'Node.js 22' ok $nodeVer
+    $state = 'ok'
+    if (-not (Test-VersionAtLeast $nodeVer $MinNode)) { $state = 'warn' }
+    Add-Result 'Node.js 22' $state $nodeVer -Action $nodeAction -Seconds (Stop-StepClock)
 } elseif ($nodeVer) {
-    Add-Result 'Node.js 22' fail "encontrado $nodeVer; desinstalalo e instala OpenJS.NodeJS.22"
+    Add-Result 'Node.js 22' fail "encontrado $nodeVer; desinstalalo e instala OpenJS.NodeJS.22" -Seconds (Stop-StepClock)
 } else {
-    Add-Result 'Node.js 22' fail 'no encontrado (winget install -e --id OpenJS.NodeJS.22)'
+    Add-Result 'Node.js 22' fail 'no encontrado (winget install -e --id OpenJS.NodeJS.22)' -Seconds (Stop-StepClock)
 }
 
 # --- Python 3.11
+Start-StepClock
+$pyAction = 'omitido'
 $py311 = Find-Python311
 if (-not $py311) {
-    if (-not (Install-WingetPackage 'Python.Python.3.11' @('--scope', 'user', '--version', '3.11.9'))) {
-        [void](Install-WingetPackage 'Python.Python.3.11' @('--scope', 'user'))
-    }
+    $pyAction = ''
+    if (Install-WingetPackage 'Python.Python.3.11' @('--scope', 'user', '--version', '3.11.9')) { $pyAction = 'ejecutado' }
+    elseif (Install-WingetPackage 'Python.Python.3.11' @('--scope', 'user')) { $pyAction = 'ejecutado' }
     $py311 = Find-Python311
 }
-if ($py311) { Add-Result 'Python 3.11' ok $py311 }
-else { Add-Result 'Python 3.11' fail 'no encontrado (winget install -e --id Python.Python.3.11)' }
+if ($py311) {
+    $pyVer = Get-CmdOutput $py311 @('--version')
+    if ($pyAction -eq 'omitido') { Write-Omit "$pyVer ($py311)" }
+    Add-Result 'Python 3.11' ok "$pyVer  $py311" -Action $pyAction -Seconds (Stop-StepClock)
+} else { Add-Result 'Python 3.11' fail 'no encontrado (winget install -e --id Python.Python.3.11)' -Seconds (Stop-StepClock) }
 
 # --- FFmpeg (Gyan full build: rubberband, libass, nvenc/qsv/amf)
+Start-StepClock
+$ffAction = 'omitido'
 $ffmpeg = Find-FfmpegExe
 if (-not $ffmpeg) {
-    [void](Install-WingetPackage 'Gyan.FFmpeg')
+    $ffAction = ''
+    if (Install-WingetPackage 'Gyan.FFmpeg') { $ffAction = 'ejecutado' }
     $ffmpeg = Find-FfmpegExe
 }
-if ($ffmpeg) { Add-Result 'FFmpeg' ok $ffmpeg }
-else { Add-Result 'FFmpeg' fail 'no encontrado (winget install -e --id Gyan.FFmpeg)' }
+if ($ffmpeg) {
+    $ffVer = Get-CmdOutput $ffmpeg @('-hide_banner', '-version')
+    if ($ffVer) { $ffVer = (($ffVer -split '\s+') | Select-Object -First 3) -join ' ' }
+    if ($ffAction -eq 'omitido') { Write-Omit "$ffVer" }
+    Add-Result 'FFmpeg' ok "$ffVer  $ffmpeg" -Action $ffAction -Seconds (Stop-StepClock)
+} else { Add-Result 'FFmpeg' fail 'no encontrado (winget install -e --id Gyan.FFmpeg)' -Seconds (Stop-StepClock) }
 
 # --- Visual C++ 2015-2022 x64 runtime (torch, onnxruntime, ctranslate2)
+Start-StepClock
+$vcAction = 'omitido'
 $vc = Test-VCRedist
 if (-not $vc) {
     Write-Info 'Instalando Visual C++ Redistributable x64 (UAC)...'
-    [void](Install-WingetPackage 'Microsoft.VCRedist.2015+.x64')
+    $vcAction = ''
+    if (Install-WingetPackage 'Microsoft.VCRedist.2015+.x64') { $vcAction = 'ejecutado' }
     $vc = Test-VCRedist
+} else {
+    Write-Omit "VC++ Redistributable $vc"
 }
-if ($vc) { Add-Result 'VC++ Redistributable x64' ok $vc }
-else { Add-Result 'VC++ Redistributable x64' warn 'no detectado (winget install -e --id Microsoft.VCRedist.2015+.x64)' }
+if ($vc) { Add-Result 'VC++ Redistributable x64' ok $vc -Action $vcAction -Seconds (Stop-StepClock) }
+else { Add-Result 'VC++ Redistributable x64' warn 'no detectado (winget install -e --id Microsoft.VCRedist.2015+.x64)' -Seconds (Stop-StepClock) }
 
 # ============================================================================ 2. config + folders
 Write-Step 'Configuracion (.env) y carpetas'
+Start-StepClock
+$cfgAction = 'omitido'
 $envCreated = $false
 if (-not (Test-Path $EnvFile)) {
     Copy-Item $EnvExample $EnvFile
     $envCreated = $true
+    $cfgAction = 'ejecutado'
     Write-Good '.env creado desde .env.example (completa las API keys opcionales si queres)'
+    if ($Update) { Write-Careful 'No habia .env: si tenias uno de la version anterior, copialo encima de este.' }
 } else {
     Write-Info '.env ya existe: no se modifica salvo los valores de este setup'
 }
 if ($envCreated) { Set-DotEnvValue 'WHISPER_MODEL' $WhisperModel }
-if ($WithCuda) { Set-DotEnvValue 'USE_CUDA' 'true' }
-if ($ffmpeg -and -not (Test-Cmd 'ffmpeg')) {
+if ($WithCuda -and (Get-EnvSetting 'USE_CUDA' 'false') -ne 'true') { Set-DotEnvValue 'USE_CUDA' 'true' }
+if ($ffmpeg -and -not (Test-Cmd 'ffmpeg') -and (Get-EnvSetting 'FFMPEG_PATH' '') -ne $ffmpeg) {
     # winget portable package not on PATH yet: pin absolute paths so api/workers find it.
     Set-DotEnvValue 'FFMPEG_PATH' $ffmpeg
     Set-DotEnvValue 'FFPROBE_PATH' (Join-Path (Split-Path $ffmpeg) 'ffprobe.exe')
@@ -165,48 +258,74 @@ if ($ffmpeg -and -not (Test-Cmd 'ffmpeg')) {
 }
 $storage = Get-StorageDir
 $models = Get-ModelsDir
-foreach ($d in @('media', 'proxies', 'renders', 'exports', 'library', 'tmp', 'logs', 'run')) {
-    New-Item -ItemType Directory -Force -Path (Join-Path $storage $d) | Out-Null
+$dirs = @()
+foreach ($d in @('media', 'proxies', 'renders', 'exports', 'library', 'tmp', 'logs', 'run')) { $dirs += (Join-Path $storage $d) }
+foreach ($d in @('whisper', 'piper', 'rvc\_base')) { $dirs += (Join-Path $models $d) }
+foreach ($d in $dirs) {
+    if (-not (Test-Path $d)) {
+        New-Item -ItemType Directory -Force -Path $d | Out-Null
+        $cfgAction = 'ejecutado'
+    }
 }
-foreach ($d in @('whisper', 'piper', 'rvc\_base')) {
-    New-Item -ItemType Directory -Force -Path (Join-Path $models $d) | Out-Null
-}
-Add-Result '.env + carpetas' ok ("storage={0}  models={1}" -f $storage, $models)
+if ($cfgAction -eq 'omitido') { Write-Omit '.env y carpetas storage\ / models\' }
+Add-Result '.env + carpetas' ok ("storage={0}  models={1}" -f $storage, $models) -Action $cfgAction -Seconds (Stop-StepClock)
 
 # ============================================================================ 3. JS toolchain
 Write-Step 'pnpm 12 + dependencias JS'
 $pnpmOk = $false
 if ($nodeVer) {
+    Start-StepClock
     try {
+        $pnpmAction = 'omitido'
         $pnpmVer = Get-CmdOutput 'pnpm' @('--version')
         if (-not $pnpmVer -or -not $pnpmVer.StartsWith('12.')) {
             # Not Corepack: it cannot run pnpm 12 (native binary). Installs into %APPDATA%\npm (no admin).
             Invoke-Native 'npm' @('install', '-g', 'pnpm@12')
             Update-SessionPath
             $pnpmVer = Get-CmdOutput 'pnpm' @('--version')
+            $pnpmAction = 'ejecutado'
+        } else {
+            Write-Omit "pnpm $pnpmVer"
         }
         if ($pnpmVer -and $pnpmVer.StartsWith('12.')) {
-            Add-Result 'pnpm 12' ok $pnpmVer
-            Invoke-Native 'pnpm' @('install')
-            Add-Result 'Dependencias JS (pnpm install)' ok ''
+            Add-Result 'pnpm 12' ok $pnpmVer -Action $pnpmAction -Seconds (Stop-StepClock)
+            # Skip when the lockfile + every package.json are byte-identical to the last install.
+            $jsStamp = Join-Path $RepoRoot 'node_modules\.studio-install'
+            $jsPrint = Get-JsDepsFingerprint $nodeVer $pnpmVer
+            $modulesYaml = Join-Path $RepoRoot 'node_modules\.modules.yaml'
+            if (-not $Force -and (Test-Path $modulesYaml) -and (Read-Stamp $jsStamp) -eq $jsPrint) {
+                Write-Omit 'node_modules (pnpm-lock.yaml sin cambios)'
+                Add-Result 'Dependencias JS (pnpm install)' ok 'pnpm-lock.yaml sin cambios' -Action omitido -Seconds (Stop-StepClock)
+            } else {
+                Invoke-Native 'pnpm' @('install')
+                Write-Stamp $jsStamp $jsPrint
+                Add-Result 'Dependencias JS (pnpm install)' ok 'pnpm install' -Action ejecutado -Seconds (Stop-StepClock)
+            }
             $pnpmOk = $true
         } else {
-            Add-Result 'pnpm 12' fail "version: $pnpmVer"
+            Add-Result 'pnpm 12' fail "version: $pnpmVer" -Seconds (Stop-StepClock)
         }
     } catch {
-        Add-Result 'Dependencias JS (pnpm install)' fail $_.Exception.Message
+        Add-Result 'Dependencias JS (pnpm install)' fail $_.Exception.Message -Seconds (Stop-StepClock)
     }
+    Start-StepClock
     if ($pnpmOk -and $SkipBrowser) {
         Add-Result 'Remotion (Chrome Headless Shell)' skip '-SkipBrowser'
     } elseif ($pnpmOk) {
-        try {
-            # Chrome Headless Shell for Remotion renders, run from the repo root: pnpm executes the
-            # script inside packages\remotion, so it lands in packages\remotion\node_modules\.remotion
-            # (one of the folders packages/remotion/src/browser.ts searches).
-            Invoke-Native 'pnpm' @('--filter', '@studio/remotion', 'browser:ensure') $RepoRoot
-            Add-Result 'Remotion (Chrome Headless Shell)' ok ''
-        } catch {
-            Add-Result 'Remotion (Chrome Headless Shell)' fail ("{0} - reintenta setup.ps1" -f $_.Exception.Message)
+        $browser = Find-RemotionBrowser
+        if ($browser -and -not $Force) {
+            Write-Omit 'Chrome Headless Shell de Remotion'
+            Add-Result 'Remotion (Chrome Headless Shell)' ok 'ya descargado' -Action omitido -Seconds (Stop-StepClock)
+        } else {
+            try {
+                # Chrome Headless Shell for Remotion renders, run from the repo root: pnpm executes the
+                # script inside packages\remotion, so it lands in packages\remotion\node_modules\.remotion
+                # (one of the folders packages/remotion/src/browser.ts searches).
+                Invoke-Native 'pnpm' @('--filter', '@studio/remotion', 'browser:ensure') $RepoRoot
+                Add-Result 'Remotion (Chrome Headless Shell)' ok 'descargado' -Action ejecutado -Seconds (Stop-StepClock)
+            } catch {
+                Add-Result 'Remotion (Chrome Headless Shell)' fail ("{0} - reintenta setup.ps1" -f $_.Exception.Message) -Seconds (Stop-StepClock)
+            }
         }
     }
 } else {
@@ -220,7 +339,9 @@ $hasGpu = Test-Cmd 'nvidia-smi'
 if ($WithCuda -and -not $hasGpu) { Write-Careful '-WithCuda sin nvidia-smi: se instala igual; sin GPU caera a CPU.' }
 if (-not $WithCuda -and $hasGpu) { Write-Careful 'GPU NVIDIA detectada: podes re-ejecutar con -WithCuda para acelerar Whisper/RVC.' }
 if ($py311) {
+    Start-StepClock
     try {
+        $pyStepAction = 'omitido'
         $venvVer = $null
         if (Test-Path $VenvPython) {
             $venvVer = Get-CmdOutput $VenvPython @('-c', $PyVersionCode)
@@ -228,77 +349,101 @@ if ($py311) {
         if ($venvVer -ne '3.11') {
             if (Test-Path (Join-Path $WorkersDir '.venv')) { Remove-Item -Recurse -Force (Join-Path $WorkersDir '.venv') }
             Invoke-Native $py311 @('-m', 'venv', '.venv') $WorkersDir
+            $pyStepAction = 'ejecutado'
         }
-        # Never Activate.ps1 (blocked by execution policy): always call .venv\Scripts\python.exe.
-        Invoke-Native $VenvPython @('-m', 'pip', 'install', '--upgrade', 'pip>=24', 'setuptools<=80.6.0', 'wheel') $WorkersDir
         $profileName = 'cpu'
         if ($WithCuda) { $profileName = 'cuda' }
         if ($SkipRvc) { $profileName = "$profileName-norvc" }
         $reqFile = 'requirements.txt'
         if ($WithCuda) { $reqFile = 'requirements-cuda.txt' }
-        $hash = (Get-FileHash (Join-Path $WorkersDir $reqFile) -Algorithm SHA256).Hash
-        $stamp = Join-Path $WorkersDir '.venv\.studio-install'
-        $wanted = "$profileName $hash"
-        $current = ''
-        if (Test-Path $stamp) { $current = (Get-Content $stamp -Raw).Trim() }
-        if ($current -ne $wanted) {
+        # Line 1 keeps the format of older setups ("<profile> <SHA256 of requirements>") so their
+        # stamps are recognized; line 2 tracks pyproject.toml (editable install of studio_workers).
+        $line1 = "$profileName $((Get-FileHash (Join-Path $WorkersDir $reqFile) -Algorithm SHA256).Hash)"
+        $line2 = "pyproject $(Get-FileSha256 (Join-Path $WorkersDir 'pyproject.toml'))"
+        $stampLines = @((Read-Stamp $venvStamp) -split "`r?`n" | ForEach-Object { $_.Trim() })
+        $heavyOk = (-not $Force) -and ($stampLines[0] -eq $line1)
+        $editableOk = $heavyOk -and ($stampLines.Count -gt 1) -and ($stampLines[1] -eq $line2)
+        # Never Activate.ps1 (blocked by execution policy): always call .venv\Scripts\python.exe.
+        if (-not $heavyOk) {
+            if ($stampLines[0]) { Write-Info "Cambio el perfil o requirements ($($stampLines[0].Split(' ')[0]) -> $profileName): pip install" }
+            Invoke-Native $VenvPython @('-m', 'pip', 'install', '--upgrade', 'pip>=24', 'setuptools<=80.6.0', 'wheel') $WorkersDir
             if ($SkipRvc) {
                 Invoke-Native $VenvPython @('-m', 'pip', 'install', '-e', '.[whisper,tts]') $WorkersDir
             } else {
                 Invoke-Native $VenvPython @('-m', 'pip', 'install', '-r', $reqFile) $WorkersDir
                 Invoke-Native $VenvPython @('-m', 'pip', 'install', '-e', '.', '--no-deps') $WorkersDir
             }
-            Set-Content -Path $stamp -Value $wanted -Encoding ASCII
+            $pyStepAction = 'ejecutado'
+        } elseif (-not $editableOk) {
+            Write-Info 'pyproject.toml cambio: reinstalando solo studio_workers (sin dependencias)'
+            Invoke-Native $VenvPython @('-m', 'pip', 'install', '-e', '.', '--no-deps') $WorkersDir
+            $pyStepAction = 'ejecutado'
         } else {
-            Write-Info "Dependencias Python ya instaladas ($profileName); se omite pip install"
+            Write-Omit "dependencias Python (perfil $profileName, requirements sin cambios)"
         }
         $check = Get-CmdOutput $VenvPython @('-c', 'import faster_whisper, piper, studio_workers; print(1)')
         if ($check -eq '1') {
-            Add-Result 'Workers Python (.venv)' ok "perfil $profileName"
+            Write-Stamp $venvStamp "$line1`n$line2"
+            Add-Result 'Workers Python (.venv)' ok "perfil $profileName" -Action $pyStepAction -Seconds (Stop-StepClock)
             $venvOk = $true
         } else {
-            Add-Result 'Workers Python (.venv)' fail 'import faster_whisper/piper fallo'
+            Remove-Item -Force $venvStamp -ErrorAction SilentlyContinue  # next run reinstalls
+            Add-Result 'Workers Python (.venv)' fail 'import faster_whisper/piper fallo' -Seconds (Stop-StepClock)
         }
         if (-not $SkipRvc) {
             $torch = Get-CmdOutput $VenvPython @('-c', 'import torch; print(torch.__version__, torch.cuda.is_available())')
             if ($torch) {
                 $state = 'ok'
                 if ($WithCuda -and $torch -notmatch 'True$') { $state = 'warn' }
-                Add-Result 'torch (RVC)' $state $torch
+                Add-Result 'torch (RVC)' $state $torch -Seconds (Stop-StepClock)
             } else {
-                Add-Result 'torch (RVC)' fail 'import torch fallo (VC++ Redistributable?)'
+                Add-Result 'torch (RVC)' fail 'import torch fallo (VC++ Redistributable?)' -Seconds (Stop-StepClock)
             }
         } else {
             Add-Result 'torch (RVC)' skip '-SkipRvc'
         }
     } catch {
-        Add-Result 'Workers Python (.venv)' fail $_.Exception.Message
+        Add-Result 'Workers Python (.venv)' fail $_.Exception.Message -Seconds (Stop-StepClock)
     }
 } else {
     Add-Result 'Workers Python (.venv)' skip 'requiere Python 3.11'
 }
 
 # ============================================================================ 5. models
-Write-Step 'Modelos (Piper, Whisper, RVC base)'
+Write-Step 'Modelos (Piper, Whisper, RVC base): primero se revisa lo que ya esta'
+if (-not $PiperVoice) { $PiperVoice = Get-EnvSetting 'PIPER_DEFAULT_VOICE' 'es_AR-daniela-high' }
 if ($SkipModels) {
     Add-Result 'Modelos' skip '-SkipModels'
 } elseif (-not $venvOk) {
     Add-Result 'Modelos' skip 'requiere el .venv de workers'
 } else {
-    if (-not $PiperVoice) { $PiperVoice = Get-EnvSetting 'PIPER_DEFAULT_VOICE' 'es_AR-daniela-high' }
+    Start-StepClock
     $whisperList = @($WhisperModel)
     $envWhisper = Get-EnvSetting 'WHISPER_MODEL' $WhisperModel
     if ($envWhisper -ne $WhisperModel) { $whisperList += $envWhisper }
     $cliArgs = @('-m', 'studio_workers.models_cli', '--piper', $PiperVoice, '--whisper') + $whisperList
     if (-not $SkipRvc) { $cliArgs += '--rvc-base' }
     if ($IncludeLegacyHubert) { $cliArgs += '--rvc-legacy-hubert' }
+    $runDir = Get-RunDir
+    $checkReport = Join-Path $runDir 'models-check.json'
+    $dlReport = Join-Path $runDir 'models-update.json'
     try {
-        Invoke-Native $VenvPython $cliArgs $WorkersDir
-        Add-Result 'Voz Piper' ok $PiperVoice
-        Add-Result 'Whisper' ok ($whisperList -join ', ')
-        if (-not $SkipRvc) { Add-Result 'RVC base (rmvpe + hubert)' ok 'models\rvc\_base' }
+        # --check --update: what was asked + every group already in models\manifest.json (offline).
+        Invoke-Native $VenvPython ($cliArgs + @('--check', '--update', '--report', $checkReport)) $WorkersDir
+        $check = Get-Content -Raw -Encoding UTF8 $checkReport | ConvertFrom-Json
+        if ($check.missing -eq 0 -and -not $Force) {
+            Write-Omit ("modelos: {0} elementos presentes y verificados (models\manifest.json)" -f $check.present)
+            Add-Result 'Modelos' ok ("{0} elementos presentes" -f $check.present) -Action omitido -Seconds (Stop-StepClock)
+        } else {
+            Write-Info ("Faltan {0} de {1} elementos: se descargan solo esos (reanudables)" -f $check.missing, ($check.present + $check.missing))
+            $mode = '--update'
+            if ($Force) { $mode = '--force' }
+            Invoke-Native $VenvPython ($cliArgs + @($mode, '--report', $dlReport)) $WorkersDir
+            $dl = Get-Content -Raw -Encoding UTF8 $dlReport | ConvertFrom-Json
+            Add-Result 'Modelos' ok ("{0} descargados, {1} ya estaban" -f $dl.downloaded, $dl.skipped) -Action ejecutado -Seconds (Stop-StepClock)
+        }
     } catch {
-        Add-Result 'Modelos' fail ("{0} - reintenta setup.ps1 (las descargas se reanudan)" -f $_.Exception.Message)
+        Add-Result 'Modelos' fail ("{0} - reintenta setup.ps1 (las descargas se reanudan)" -f $_.Exception.Message) -Seconds (Stop-StepClock)
     }
 }
 
@@ -309,13 +454,22 @@ if ($SkipBuild) {
 } elseif (-not $pnpmOk) {
     Add-Result 'Build' skip 'requiere pnpm install'
 } else {
+    Start-StepClock
     try {
-        # NEXT_PUBLIC_API_URL / API_PORT from .env reach next.config.ts (inlined into the web build).
-        Import-DotEnvToProcess
-        Invoke-Native 'pnpm' @('build')
-        Add-Result 'Build' ok 'pnpm build'
+        $build = Get-WebBuildState
+        if ($build.Fresh -and -not $Force) {
+            Write-Omit "build de produccion ($($build.Reason))"
+            Add-Result 'Build' ok $build.Reason -Action omitido -Seconds (Stop-StepClock)
+        } else {
+            Write-Info "Se compila: $($build.Reason)"
+            # NEXT_PUBLIC_API_URL / API_PORT from .env reach next.config.ts (inlined into the web build).
+            Import-DotEnvToProcess
+            Invoke-Native 'pnpm' @('build')
+            Save-WebBuildStamp
+            Add-Result 'Build' ok 'pnpm build' -Action ejecutado -Seconds (Stop-StepClock)
+        }
     } catch {
-        Add-Result 'Build' fail ("{0} (podes usar start.ps1 -Dev)" -f $_.Exception.Message)
+        Add-Result 'Build' fail ("{0} (podes usar start.ps1 -Dev)" -f $_.Exception.Message) -Seconds (Stop-StepClock)
     }
 }
 
@@ -324,30 +478,18 @@ if ($SkipBuild) {
 Write-Step 'Verificacion final (voz Piper, Whisper, navegador de Remotion)'
 $missingAssets = @()
 if (-not $SkipModels) {
-    $voice = $PiperVoice
-    if (-not $voice) { $voice = Get-EnvSetting 'PIPER_DEFAULT_VOICE' 'es_AR-daniela-high' }
     $piperDir = Join-Path $models 'piper'
-    if (-not ((Test-Path (Join-Path $piperDir "$voice.onnx")) -and (Test-Path (Join-Path $piperDir "$voice.onnx.json")))) {
-        $missingAssets += "voz Piper $voice (models\piper)"
+    if (-not ((Test-Path (Join-Path $piperDir "$PiperVoice.onnx")) -and (Test-Path (Join-Path $piperDir "$PiperVoice.onnx.json")))) {
+        $missingAssets += "voz Piper $PiperVoice (models\piper)"
     }
     $wModel = Get-EnvSetting 'WHISPER_MODEL' $WhisperModel
     $wHit = Get-ChildItem -Path (Join-Path $models 'whisper') -Filter 'model.bin' -Recurse -ErrorAction SilentlyContinue |
-        Where-Object { $_.FullName -match ('models--[^\\]+--faster-whisper-' + [regex]::Escape($wModel) + '\\snapshots\\') } |
+        Where-Object { $_.FullName -match ('models--[^\\/]+--faster-(distil-)?whisper-' + [regex]::Escape($wModel) + '[\\/]snapshots[\\/]') } |
         Select-Object -First 1
-    if (-not $wHit) { $missingAssets += "modelo Whisper $wModel (models\whisper)" }
+    if (-not $wHit -and $wModel -notmatch '^(large|turbo)$') { $missingAssets += "modelo Whisper $wModel (models\whisper)" }
 }
-if (-not $SkipBrowser) {
-    $browserExe = Get-EnvSetting 'REMOTION_BROWSER_EXECUTABLE' ''
-    $browserOk = $false
-    if ($browserExe) {
-        $browserOk = Test-Path (Resolve-RepoPath $browserExe)
-    } else {
-        $rel = 'node_modules\.remotion\chrome-headless-shell\win64\chrome-headless-shell-win64\chrome-headless-shell.exe'
-        foreach ($root in @('packages\remotion', '.', 'apps\api')) {
-            if (Test-Path (Join-Path (Join-Path $RepoRoot $root) $rel)) { $browserOk = $true }
-        }
-    }
-    if (-not $browserOk) { $missingAssets += 'Chrome Headless Shell de Remotion (pnpm --filter @studio/remotion browser:ensure)' }
+if (-not $SkipBrowser -and -not (Find-RemotionBrowser)) {
+    $missingAssets += 'Chrome Headless Shell de Remotion (pnpm --filter @studio/remotion browser:ensure)'
 }
 if ($missingAssets.Count -gt 0) {
     foreach ($m in $missingAssets) { Add-Result 'Falta' fail $m }
@@ -356,9 +498,21 @@ if ($missingAssets.Count -gt 0) {
 }
 
 # ============================================================================ summary
-$mins = [math]::Round(((Get-Date) - $started).TotalMinutes, 1)
-Show-Results "Resumen de instalacion ($mins min)"
+$totalSecs = [math]::Round(((Get-Date) - $started).TotalSeconds, 1)
+$omitted = @($Results | Where-Object { $_.Action -eq 'omitido' }).Count
+$executed = @($Results | Where-Object { $_.Action -eq 'ejecutado' }).Count
 $failed = Get-FailedCount
+Show-Results ("Resumen de {0} ({1} s = {2} min)" -f $modeLabel, $totalSecs, [math]::Round($totalSecs / 60, 1))
+Write-Host (" {0} pasos omitidos (ya instalados), {1} ejecutados, tiempo total {2} s" -f $omitted, $executed, $totalSecs) -ForegroundColor White
+try {
+    $summary = [ordered]@{
+        mode = $modeLabel; finished = (Get-Date).ToString('s'); seconds = $totalSecs
+        omitted = $omitted; executed = $executed; failed = $failed
+        steps = @($Results | ForEach-Object { [ordered]@{ component = $_.Component; state = $_.State; action = $_.Action; seconds = $_.Seconds; detail = $_.Detail } })
+    }
+    $summaryPath = Join-Path (Get-RunDir) 'setup-last.json'
+    [IO.File]::WriteAllText($summaryPath, ($summary | ConvertTo-Json -Depth 4), (New-Object System.Text.UTF8Encoding $false))
+} catch { Write-Careful "No se pudo escribir storage\run\setup-last.json: $($_.Exception.Message)" }
 if ($failed -eq 0) {
     Write-Host ''
     Write-Host 'Listo. Para abrir Studio:' -ForegroundColor Green
@@ -370,4 +524,5 @@ Write-Host ''
 Write-Host "$failed componente(s) con error. Diagnostico: scripts\windows\doctor.ps1" -ForegroundColor Red
 foreach ($m in $missingAssets) { Write-Host "  FALTA: $m" -ForegroundColor Red }
 Write-Host 'Si se instalo algo nuevo con winget, cerra y abri una terminal nueva y volve a correr setup.ps1.'
+Write-Host 'Volver a correrlo es seguro: lo que ya quedo instalado o descargado se omite.'
 exit 1

@@ -12,6 +12,8 @@ param()
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 Initialize-Console
+# models_cli prints a check mark: Python stdio in UTF-8, decoded as UTF-8 by Initialize-Console.
+$env:PYTHONIOENCODING = 'utf-8'
 Update-SessionPath
 
 Write-Host "Studio - doctor (repo: $RepoRoot)" -ForegroundColor White
@@ -153,11 +155,66 @@ $hubert = Test-Path (Join-Path $models 'rvc\_base\hubert_base\config.json')
 Add-Result 'RVC base (rmvpe/hubert)' $(if ($rmvpe -and $hubert) { 'ok' } else { 'warn' }) ("rmvpe={0} hubert={1}" -f $rmvpe, $hubert)
 $rvcModels = @(Get-ChildItem -Path (Join-Path $models 'rvc') -Directory -ErrorAction SilentlyContinue | Where-Object { -not $_.Name.StartsWith('_') -and (Get-ChildItem $_.FullName -Filter '*.pth' -ErrorAction SilentlyContinue) } | ForEach-Object { $_.Name })
 Add-Result 'Modelos de voz RVC' $(if ($rvcModels.Count) { 'ok' } else { 'skip' }) $(if ($rvcModels.Count) { $rvcModels -join ', ' } else { 'ninguno: copia <nombre>\*.pth (+ .index) a models\rvc\' })
-$remotionCache = @(
-    (Join-Path $RepoRoot 'node_modules\.remotion'),
-    (Join-Path $RepoRoot 'packages\remotion\node_modules\.remotion')
-) | Where-Object { Test-Path $_ }
-Add-Result 'Remotion browser' $(if ($remotionCache) { 'ok' } else { 'warn' }) $(if ($remotionCache) { 'descargado' } else { 'no encontrado (pnpm --filter @studio/remotion browser:ensure)' })
+$remotionExe = Find-RemotionBrowser
+Add-Result 'Remotion browser' $(if ($remotionExe) { 'ok' } else { 'warn' }) $(if ($remotionExe) { 'descargado' } else { 'no encontrado (pnpm --filter @studio/remotion browser:ensure)' })
+
+# ------------------------------------------------------------------ models manifest + disk usage
+Write-Step 'Manifiesto de modelos y espacio en disco'
+$manifestPath = Join-Path $models 'manifest.json'
+if (Test-Path $manifestPath) {
+    try {
+        $mf = Get-Content -Raw -Encoding UTF8 $manifestPath | ConvertFrom-Json
+        $entries = @($mf.files.PSObject.Properties | ForEach-Object { $_.Value })
+        $missingFiles = @()
+        $badSize = @()
+        foreach ($e in $entries) {
+            $p = Join-Path $models ($e.path -replace '/', '\')
+            if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { $missingFiles += $e.path; continue }
+            if ((Get-Item -LiteralPath $p).Length -ne [int64]$e.size) { $badSize += $e.path }
+        }
+        $groups = @($entries | ForEach-Object { $_.group } | Sort-Object -Unique)
+        Write-Info ("manifest.json: {0} archivos, actualizado {1}" -f $entries.Count, $mf.updated)
+        foreach ($g in $groups) {
+            $gs = @($entries | Where-Object { $_.group -eq $g })
+            $bytes = [int64]0
+            foreach ($e in $gs) { $bytes += [int64]$e.size }
+            Write-Info ("  {0,-34} {1,3} archivo(s)  {2,10}" -f $g, $gs.Count, (Format-Bytes $bytes))
+        }
+        $state = 'ok'
+        $detail = "{0} archivos registrados, todos presentes" -f $entries.Count
+        if ($missingFiles.Count -or $badSize.Count) {
+            $state = 'warn'
+            $detail = "{0} faltan, {1} con otro tamano (setup.ps1 -Update los vuelve a bajar)" -f $missingFiles.Count, $badSize.Count
+            foreach ($m in ($missingFiles + $badSize)) { Write-Careful "  $m" }
+        }
+        Add-Result 'Manifiesto de modelos' $state $detail
+    } catch {
+        Add-Result 'Manifiesto de modelos' warn ("models\manifest.json ilegible: {0}" -f $_.Exception.Message)
+    }
+} else {
+    Add-Result 'Manifiesto de modelos' warn 'models\manifest.json no existe (setup.ps1 lo crea)'
+}
+if (Test-Path $VenvPython) {
+    Write-Info 'Detalle (presentes / faltantes) segun models_cli --check --update --no-write:'
+    $ErrorActionPreference = 'Continue'
+    Push-Location $WorkersDir
+    $voice = Get-EnvSetting 'PIPER_DEFAULT_VOICE' 'es_AR-daniela-high'
+    $wModel = Get-EnvSetting 'WHISPER_MODEL' 'base'
+    try {
+        & $VenvPython -m studio_workers.models_cli --check --update --no-write --piper $voice --whisper $wModel 2>&1 |
+            ForEach-Object { Write-Info "$_" }
+    } finally { Pop-Location }
+    $ErrorActionPreference = 'Stop'
+}
+$storageRoot = Get-StorageDir
+foreach ($pair in @(@('models\', $models), @('storage\', $storageRoot))) {
+    $bytes = Get-FolderBytes $pair[1]
+    Add-Result ("Espacio usado {0}" -f $pair[0]) ok ("{0}  ({1})" -f (Format-Bytes $bytes), $pair[1])
+}
+foreach ($sub in @('media', 'proxies', 'renders', 'exports', 'library', 'tmp', 'logs')) {
+    $p = Join-Path $storageRoot $sub
+    if (Test-Path $p) { Write-Info ("  storage\{0,-10} {1,10}" -f $sub, (Format-Bytes (Get-FolderBytes $p))) }
+}
 
 # ------------------------------------------------------------------ ports / services
 Write-Step 'Puertos y servicios'

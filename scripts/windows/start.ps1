@@ -57,18 +57,13 @@ $runDir = Get-RunDir
 $pidFile = Join-Path $runDir 'pids.json'
 
 if (-not $Dev) {
-    $needBuild = (-not (Test-Path (Join-Path $RepoRoot 'apps\api\dist\index.js'))) -or
-        (-not (Test-Path (Join-Path $RepoRoot 'apps\web\.next\BUILD_ID')))
-    if ($needBuild) {
-        Write-Step 'No hay build de produccion: ejecutando pnpm build (solo la primera vez)'
+    # Same rule as setup.ps1: rebuild only when the code, the lockfile or the build-relevant .env
+    # values (NEXT_PUBLIC_*, ports) changed since the last build (content hash, not dates).
+    $build = Get-WebBuildState
+    if (-not $build.Fresh) {
+        Write-Step "Compilando (pnpm build): $($build.Reason)"
         Invoke-Native 'pnpm' @('build')
-    } else {
-        # NEXT_PUBLIC_API_URL is inlined at build time: rebuild the web if .env changed since then.
-        $buildId = Get-Item (Join-Path $RepoRoot 'apps\web\.next\BUILD_ID')
-        if ((Get-Item $EnvFile).LastWriteTimeUtc -gt $buildId.LastWriteTimeUtc) {
-            Write-Step '.env cambio despues del ultimo build del dashboard: recompilando la web'
-            Invoke-Native 'pnpm' @('--filter', '@studio/web', 'build')
-        }
+        Save-WebBuildStamp
     }
 }
 

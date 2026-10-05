@@ -90,7 +90,23 @@ jobs:
           python-version: "3.11.9"
       - run: choco install ffmpeg -y --no-progress
       # -SkipWinget: Git, Node 22, Python 3.11 and ffmpeg come from the steps above (on PATH).
-      - run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/setup.ps1 -SkipWinget -SkipRvc -SkipModels -SkipBrowser
+      - name: setup.ps1 (first run, from zero)
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/setup.ps1 -SkipWinget -SkipRvc -SkipModels -SkipBrowser
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item storage\run\setup-last.json storage\run\setup-first.json
+      # Incremental re-run: everything already installed must be "omitido" (nothing executed) and faster.
+      - name: setup.ps1 -Update (second run, incremental)
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows/setup.ps1 -Update -SkipWinget -SkipRvc -SkipModels -SkipBrowser
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $first = Get-Content -Raw storage\run\setup-first.json | ConvertFrom-Json
+          $second = Get-Content -Raw storage\run\setup-last.json | ConvertFrom-Json
+          Write-Host ("first: {0} s, {1} executed | second: {2} s, {3} omitted, {4} executed" -f $first.seconds, $first.executed, $second.seconds, $second.omitted, $second.executed)
+          $second.steps | Where-Object { $_.action -eq 'ejecutado' } | ForEach-Object { Write-Host "executed on re-run: $($_.component) - $($_.detail)" }
+          if ($second.executed -ne 0) { Write-Host 'FAIL: the re-run executed steps that were already done'; exit 1 }
+          if ($second.omitted -lt 5) { Write-Host 'FAIL: too few steps recognized as installed'; exit 1 }
+          if ($second.seconds -ge $first.seconds) { Write-Host 'FAIL: the re-run was not faster'; exit 1 }
       - name: Start services and poll health (3 min)
         run: |
           Start-Process powershell -WindowStyle Hidden -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts\windows\start.ps1', '-SingleConsole', '-NoBrowser')

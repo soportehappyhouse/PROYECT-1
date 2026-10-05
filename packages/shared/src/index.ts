@@ -19,3 +19,4 @@ export * from "./ai.js";
 export * from "./keyframes.js";
 export * from "./vision.js";
 export * from "./track.js";
+export * from "./agent.js";

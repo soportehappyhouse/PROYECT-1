@@ -12,13 +12,15 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "schemas"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "export-schemas": "tsc -p tsconfig.build.json && node scripts/export-schemas.mjs"
   },
   "dependencies": {
     "zod": "^4.6.5"

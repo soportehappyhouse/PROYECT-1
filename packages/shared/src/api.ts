@@ -68,6 +68,15 @@ export const API_ROUTES = {
   aiVisionTrack: "/api/ai/vision/track", // POST VisionTrackRequest -> JobAccepted (vision.track)
   aiVisionReframe: "/api/ai/vision/reframe", // POST VisionReframeRequest -> JobAccepted (vision.reframe)
   aiTrackToKeyframes: "/api/ai/timeline/track-to-keyframes", // POST TrackToKeyframesRequest -> JobAccepted
+  // Sprint 3 (agent.ts): local command agent.
+  agentPlan: "/api/agent/plan", // POST AgentPlanRequest -> AgentPlanRecord (validated + resolved)
+  agentApply: "/api/agent/apply", // POST AgentApplyRequest -> JobAccepted (agent.apply)
+  agentPlans: "/api/agent/plans", // GET AgentPlanRecord[] (newest first; ?projectId=&limit=)
+  agentPlanReject: "/api/agent/plans/:id/reject", // POST -> AgentPlanRecord (status rejected)
+  agentPlanUndo: "/api/agent/plans/:id/undo", // POST -> {project, plan} (restores the undo snapshot)
+  agentStatus: "/api/agent/status", // GET AgentStatus (workers proxy + pack agent-llm)
+  agentEval: "/api/agent/eval", // POST AgentEvalRequest -> JobAccepted (agent.eval) | GET last result
+  agentBugreport: "/api/agent/bugreport", // POST AgentBugreportRequest -> AgentBugreportResponse
   files: "/files/*", // GET static files from STORAGE_DIR (renders/exports/proxies)
 } as const;
 export type ApiRouteKey = keyof typeof API_ROUTES;

@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { agentRoutes } from "./agent.js";
 import { aiRoutes } from "./ai.js";
 import { visionRoutes } from "./vision.js";
 import { exportPresetRoutes } from "./export-presets.js";
@@ -29,4 +30,5 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   await app.register(reportRoutes);
   await app.register(aiRoutes);
   await app.register(visionRoutes);
+  await app.register(agentRoutes);
 }

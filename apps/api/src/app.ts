@@ -10,6 +10,7 @@ import { ZodError } from "zod";
 import type { ApiConfig } from "./config.js";
 import type { AppContext } from "./context.js";
 import { openDatabase } from "./db/database.js";
+import { registerAgentHandlers } from "./jobs/handlers/agent.js";
 import { registerAiHandlers } from "./jobs/handlers/ai.js";
 import { registerVisionHandlers } from "./jobs/handlers/vision.js";
 import { registerModuleBHandlers } from "./jobs/handlers/index.js";
@@ -63,6 +64,7 @@ export async function buildApp({
   registerAiHandlers(ctx); // Sprint 1: packs.download, analyze.*, timeline.apply-cuts, audio.denoise, perf.run
   registerVisionHandlers(ctx); // Sprint 2: vision.matte/mask/track/reframe, timeline.track-to-keyframes
   queue.register(createMotionRenderHandler(ctx)); // module c: motion.render
+  registerAgentHandlers(ctx); // Sprint 3: agent.apply (lane edit), agent.eval
 
   // stdout + storage/logs/api-YYYY-MM-DD.log (7 days, secrets redacted). Tests use logger: false.
   const logStream =

@@ -1,4 +1,13 @@
 import {
+  AgentWorkerStatusSchema,
+  BugreportResponseSchema,
+  WORKER_AGENT_ROUTES,
+  WorkerAgentPlanResponseSchema,
+  type AgentWorkerStatus,
+  type BugreportResponse,
+  type WorkerAgentPlanRequest,
+  type WorkerAgentPlanResponse,
+  type WorkerBugreportRequest,
   buildRoute,
   GpuStatusSchema,
   ModelDownloadResultSchema,
@@ -175,6 +184,12 @@ export interface WorkersClient {
   samDelete(sessionId: string): Promise<unknown>;
   visionTrack(req: WorkerTrackRequest): Promise<WorkerTaskAccepted>;
   visionReframe(req: WorkerReframeRequest): Promise<WorkerTaskAccepted>;
+  // ---- Sprint 3 (WORKER_AGENT_ROUTES) ----
+  agentStatus(): Promise<AgentWorkerStatus>;
+  /** LLM call: no timeout besides `signal` (a cold 8B model can take a minute to load). */
+  agentPlan(req: WorkerAgentPlanRequest, signal?: AbortSignal): Promise<WorkerAgentPlanResponse>;
+  agentBugreport(req: WorkerBugreportRequest, signal?: AbortSignal): Promise<BugreportResponse>;
+  agentEval(req: { models?: string[]; dataset?: string }): Promise<WorkerTaskAccepted>;
 }
 
 /**
@@ -492,6 +507,13 @@ export function createWorkersClient(baseUrl: string): WorkersClient {
       call("POST", WORKER_AI_ROUTES.visionTrack, WorkerTaskAcceptedSchema, req, undefined, true),
     visionReframe: (req) =>
       call("POST", WORKER_AI_ROUTES.visionReframe, WorkerTaskAcceptedSchema, req, undefined, true),
+    agentStatus: () => call("GET", WORKER_AGENT_ROUTES.status, AgentWorkerStatusSchema),
+    agentPlan: (req, signal) =>
+      call("POST", WORKER_AGENT_ROUTES.plan, WorkerAgentPlanResponseSchema, req, signal, true),
+    agentBugreport: (req, signal) =>
+      call("POST", WORKER_AGENT_ROUTES.bugreport, BugreportResponseSchema, req, signal, true),
+    agentEval: (req) =>
+      call("POST", WORKER_AGENT_ROUTES.evaluate, WorkerTaskAcceptedSchema, req, undefined, true),
     async jobProgress(jobId) {
       try {
         return await call(

@@ -1,0 +1,1009 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "number",
+      "const": 1,
+      "description": "Versión del esquema; siempre 1."
+    },
+    "summary_es": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "description": "Resumen en una frase, en español rioplatense, de lo que va a hacer el plan."
+    },
+    "ops": {
+      "maxItems": 20,
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "cut_silences",
+                "description": "Cortar silencios (y muletillas) de un clip."
+              },
+              "clip": {
+                "description": "Clip a procesar; omitir = el clip de video principal.",
+                "$ref": "#/$defs/ClipRef"
+              },
+              "min_silence_ms": {
+                "description": "Duración mínima del silencio a cortar, en milisegundos (por defecto 500).",
+                "type": "integer",
+                "minimum": 100,
+                "maximum": 10000
+              },
+              "padding_ms": {
+                "description": "Margen que se deja antes y después de cada corte, en milisegundos (120).",
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2000
+              },
+              "fillers": {
+                "description": "También cortar muletillas (eh, este, o sea).",
+                "type": "boolean"
+              },
+              "confirm": {
+                "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
+                "type": "boolean"
+              },
+              "note_es": {
+                "description": "Aclaración breve en español para el usuario.",
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": ["op"],
+            "additionalProperties": false,
+            "description": "Cortar silencios."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "detect_scenes",
+                "description": "Detectar cambios de escena."
+              },
+              "clip": {
+                "description": "Clip a analizar; omitir = el clip de video principal.",
+                "$ref": "#/$defs/ClipRef"
+              },
+              "split": {
+                "description": "Además dividir el clip en cada cambio de escena.",
+                "type": "boolean"
+              },
+              "confirm": {
+                "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
+                "type": "boolean"
+              },
+              "note_es": {
+                "description": "Aclaración breve en español para el usuario.",
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": ["op"],
+            "additionalProperties": false,
+            "description": "Detectar escenas."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "split",
+                "description": "Dividir un clip en dos en un momento."
+              },
+              "clip": {
+                "description": "Clip a dividir.",
+                "$ref": "#/$defs/ClipRef"
+              },
+              "t": {
+                "description": "Momento del corte (en la línea de tiempo).",
+                "$ref": "#/$defs/Time"
+              },
+              "confirm": {
+                "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
+                "type": "boolean"
+              },
+              "note_es": {
+                "description": "Aclaración breve en español para el usuario.",
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": ["op", "clip", "t"],
+            "additionalProperties": false,
+            "description": "Dividir clip."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "trim",
+                "description": "Recortar el inicio y/o el final de un clip."
+              },
+              "clip": {
+                "description": "Clip a recortar.",
+                "$ref": "#/$defs/ClipRef"
+              },
+              "in": {
+                "description": "Nuevo inicio del clip (en la línea de tiempo).",
+                "$ref": "#/$defs/Time"
+              },
+              "out": {
+                "description": "Nuevo final del clip (en la línea de tiempo).",
+                "$ref": "#/$defs/Time"
+              },
+              "confirm": {
+                "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
+                "type": "boolean"
+              },
+              "note_es": {
+                "description": "Aclaración breve en español para el usuario.",
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": ["op", "clip"],
+            "additionalProperties": false,
+            "description": "Recortar clip."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "delete_clip",
+                "description": "Borrar un clip (siempre pide confirmación)."
+              },
+              "clip": {
+                "description": "Clip a borrar.",
+                "$ref": "#/$defs/ClipRef"
+              },
+              "confirm": {
+                "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
+                "type": "boolean"
+              },
+              "note_es": {
+                "description": "Aclaración breve en español para el usuario.",
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": ["op", "clip"],
+            "additionalProperties": false,
+            "description": "Borrar clip."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "set_speed",
+                "description": "Cambiar la velocidad de un clip."
+              },
+              "clip": {
+                "description": "Clip a acelerar o ralentizar.",
+                "$ref": "#/$defs/ClipRef"
+              },
+              "speed": {
+                "type": "number",
+                "minimum": 0.1,
+                "maximum": 16,
+                "description": "Factor de velocidad: 2 = doble de rápido, 0.5 = cámara lenta."
+              },
+              "confirm": {
+                "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
+                "type": "boolean"
+              },
+              "note_es": {
+                "description": "Aclaración breve en español para el usuario.",
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": ["op", "clip", "speed"],
+            "additionalProperties": false,
+            "description": "Cambiar velocidad."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "add_text",
+                "description": "Agregar un texto o rótulo simple en la pista de texto."
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "description": "Texto exacto a mostrar."
+              },
+              "t": {
+                "description": "Momento en que aparece.",
+                "$ref": "#/$defs/Time"
+              },
+              "duration_s": {
+                "description": "Duración en pantalla, en segundos (por defecto 3).",
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 600
+              },
+              "style": {
+                "type": "object",
+                "properties": {
+                  "font_family": {
+                    "description": "Tipografía (p. ej. Inter, Georgia).",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "font_size": {
+                    "description": "Tamaño en píxeles.",
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 400
+                  },
+                  "color": {
+                    "description": "Color del texto (#rrggbb).",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "background": {
+                    "description": "Color de fondo de la caja (#rrggbb o rgba).",
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "description": "Estilo del texto."
+              },
+              "position": {
+                "type": "string",
+                "enum": ["top", "center", "bottom"],
+                "description": "Ubicación vertical en pantalla: top (arriba), center (centro), bottom (abajo)."
+              },
+              "confirm": {
+                "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
+                "type": "boolean"
+              },
+              "note_es": {
+                "description": "Aclaración breve en español para el usuario.",
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": ["op", "text", "t"],
+            "additionalProperties": false,
+            "description": "Agregar texto."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "add_motion",
+                "description": "Agregar un gráfico animado (plantilla de motion)."
+              },
+              "template": {
+                "type": "string",
+                "enum": [
+                  "title-card",
+                  "lower-third",
+                  "animated-captions",
+                  "transition",
+                  "audio-visualizer",
+                  "lottie-overlay",
+                  "end-screen",
+                  "progress-bar",
+                  "kinetic-typography"
+                ],
+                "description": "Plantilla de motion: title-card (título), lower-third (rótulo con nombre), animated-captions (subtítulos animados), transition, audio-visualizer, lottie-overlay, end-screen (pantalla final), progress-bar (barra de progreso), kinetic-typography (texto cinético)."
+              },
+              "t": {
+                "description": "Momento en que aparece.",
+                "$ref": "#/$defs/Time"
+              },
+              "duration_s": {
+                "description": "Duración en segundos (por defecto la de la plantilla).",
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 600
+              },
+              "params": {
+                "description": "Parámetros de la plantilla (p. ej. {title, subtitle} o {name, role}).",
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              },
+              "follow": {
+                "description": "Hacer que el gráfico siga a un clip con tracking o a la cara ('face').",
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ClipRef"
+                  },
+                  {
+                    "type": "string",
+                    "const": "face",
+                    "description": "Seguir la cara detectada."
+                  }
+                ]
+              },
+              "confirm": {
+                "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
+                "type": "boolean"
+              },
+              "note_es": {
+                "description": "Aclaración breve en español para el usuario.",
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": ["op", "template", "t"],
+            "additionalProperties": false,
+            "description": "Agregar motion."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "add_captions",
+                "description": "Generar subtítulos (transcribe si hace falta)."
+              },
+              "clip": {
+                "description": "Clip con la voz; omitir = el clip principal.",
+                "$ref": "#/$defs/ClipRef"
+              },
+              "style": {
+                "type": "string",
+                "enum": ["clasico", "reels", "karaoke", "minimal", "titular"],
+                "description": "Estilo de subtítulos: clasico (abajo con fondo), reels (palabra a palabra, grande, centro), karaoke (resalta la palabra dicha), minimal (sin fondo), titular (arriba, amarillo)."
+              },
+              "animated": {
+                "description": "Subtítulos animados palabra a palabra (motion) en vez de quemados simples.",
+                "type": "boolean"
+              },
+              "language": {
+                "description": "Idioma de la transcripción (es).",
+                "type": "string",
+                "const": "es"
+              },
+              "confirm": {
+                "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
+                "type": "boolean"
+              },
+              "note_es": {
+                "description": "Aclaración breve en español para el usuario.",
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": ["op"],
+            "additionalProperties": false,
+            "description": "Agregar subtítulos."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "transcribe",
+                "description": "Transcribir la voz de un clip a texto."
+              },
+              "clip": {
+                "description": "Clip a transcribir; omitir = el clip principal.",
+                "$ref": "#/$defs/ClipRef"
+              },
+              "confirm": {
+                "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
+                "type": "boolean"
+              },
+              "note_es": {
+                "description": "Aclaración breve en español para el usuario.",
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": ["op"],
+            "additionalProperties": false,
+            "description": "Transcribir."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "tts",
+                "description": "Generar una voz que lee un texto y colocarla en la pista de audio."
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 5000,
+                "description": "Texto exacto a leer."
+              },
+              "voice": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Voz de TTS (id de Piper, p. ej. es_AR-daniela-high). Omitir para la voz por defecto."
+              },
+              "t": {
+                "description": "Momento en que empieza la voz.",
+                "$ref": "#/$defs/Time"
+              },
+              "effect": {
+                "type": "string",
+                "enum": [
+                  "pitch-up",
+                  "pitch-down",
+                  "chipmunk",
+                  "deep",
+                  "robot",
+                  "telephone",
+                  "radio",
+                  "reverb",
+                  "echo",
+                  "clean-voice"
+                ],
+                "description": "Efecto de voz: pitch-up (tono +4), pitch-down (tono -4), chipmunk (ardilla), deep (grave), robot, telephone (teléfono), radio (radio AM), reverb (sala), echo (eco), clean-voice (voz limpia: reduce ruido y normaliza)."
+              },
+              "confirm": {
+                "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
+                "type": "boolean"
+              },
+              "note_es": {
+                "description": "Aclaración breve en español para el usuario.",
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": ["op", "text", "t"],
+            "additionalProperties": false,
+            "description": "Texto a voz."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "voice_effect",
+                "description": "Aplicar un efecto de voz a un clip."
+              },
+              "clip": {
+                "description": "Clip con la voz.",
+                "$ref": "#/$defs/ClipRef"
+              },
+              "effect": {
+                "type": "string",
+                "enum": [
+                  "pitch-up",
+                  "pitch-down",
+                  "chipmunk",
+                  "deep",
+                  "robot",
+                  "telephone",
+                  "radio",
+                  "reverb",
+                  "echo",
+                  "clean-voice"
+                ],
+                "description": "Efecto de voz: pitch-up (tono +4), pitch-down (tono -4), chipmunk (ardilla), deep (grave), robot, telephone (teléfono), radio (radio AM), reverb (sala), echo (eco), clean-voice (voz limpia: reduce ruido y normaliza)."
+              },
+              "confirm": {
+                "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
+                "type": "boolean"
+              },
+              "note_es": {
+                "description": "Aclaración breve en español para el usuario.",
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": ["op", "clip", "effect"],
+            "additionalProperties": false,
+            "description": "Efecto de voz."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "denoise",
+                "description": "Limpiar el ruido de fondo de la voz de un clip."
+              },
+              "clip": {
+                "description": "Clip con la voz.",
+                "$ref": "#/$defs/ClipRef"
+              },
+              "confirm": {
+                "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
+                "type": "boolean"
+              },
+              "note_es": {
+                "description": "Aclaración breve en español para el usuario.",
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": ["op", "clip"],
+            "additionalProperties": false,
+            "description": "Limpiar voz."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "add_audio",
+                "description": "Agregar música o un efecto de sonido."
+              },
+              "query": {
+                "description": "Búsqueda en la biblioteca de audio (p. ej. 'música alegre', 'aplausos').",
+                "type": "string",
+                "minLength": 1
+              },
+              "asset": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "description": "Id exacto del asset (solo si figura en el resumen).",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "name": {
+                    "description": "Nombre (o parte) del archivo de la biblioteca.",
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false,
+                "description": "Referencia a un archivo ya importado o de la biblioteca."
+              },
+              "t": {
+                "description": "Momento en que empieza el audio.",
+                "$ref": "#/$defs/Time"
+              },
+              "volume_db": {
+                "description": "Volumen en dB (0 = original, -12 = de fondo).",
+                "type": "number",
+                "minimum": -60,
+                "maximum": 12
+              },
+              "duck": {
+                "description": "Bajar la música automáticamente cuando hay voz.",
+                "type": "boolean"
+              },
+              "confirm": {
+                "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
+                "type": "boolean"
+              },
+              "note_es": {
+                "description": "Aclaración breve en español para el usuario.",
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": ["op", "t"],
+            "additionalProperties": false,
+            "description": "Agregar audio."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "remove_background",
+                "description": "Recortar a la persona y reemplazar el fondo."
+              },
+              "clip": {
+                "description": "Clip con la persona.",
+                "$ref": "#/$defs/ClipRef"
+              },
+              "background": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["color", "image", "video", "blur"],
+                    "description": "Fondo detrás de la persona recortada: color, imagen, video o desenfoque."
+                  },
+                  "value": {
+                    "description": "Color (#rrggbb) o nombre del archivo de imagen/video; vacío para blur.",
+                    "type": "string"
+                  }
+                },
+                "required": ["type"],
+                "additionalProperties": false,
+                "description": "Fondo nuevo."
+              },
+              "confirm": {
+                "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
+                "type": "boolean"
+              },
+              "note_es": {
+                "description": "Aclaración breve en español para el usuario.",
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": ["op", "clip", "background"],
+            "additionalProperties": false,
+            "description": "Quitar fondo."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "reframe",
+                "description": "Reencuadrar el video a otra relación de aspecto siguiendo al sujeto."
+              },
+              "target": {
+                "type": "string",
+                "enum": ["9:16", "1:1", "4:5"],
+                "description": "Relación de aspecto de destino."
+              },
+              "subject": {
+                "description": "Qué seguir: face (la cara) o center (el centro).",
+                "type": "string",
+                "enum": ["face", "center"]
+              },
+              "confirm": {
+                "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
+                "type": "boolean"
+              },
+              "note_es": {
+                "description": "Aclaración breve en español para el usuario.",
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": ["op", "target"],
+            "additionalProperties": false,
+            "description": "Reencuadrar."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "set_canvas",
+                "description": "Cambiar el tamaño del lienzo del proyecto."
+              },
+              "preset": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": ["16:9", "9:16", "1:1"],
+                    "description": "Relación de aspecto estándar."
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "w": {
+                        "type": "integer",
+                        "minimum": 16,
+                        "maximum": 7680,
+                        "description": "Ancho en píxeles."
+                      },
+                      "h": {
+                        "type": "integer",
+                        "minimum": 16,
+                        "maximum": 7680,
+                        "description": "Alto en píxeles."
+                      }
+                    },
+                    "required": ["w", "h"],
+                    "additionalProperties": false,
+                    "description": "Tamaño exacto en píxeles."
+                  }
+                ],
+                "description": "Lienzo: 16:9 (horizontal), 9:16 (vertical), 1:1 (cuadrado) o {w, h}."
+              },
+              "confirm": {
+                "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
+                "type": "boolean"
+              },
+              "note_es": {
+                "description": "Aclaración breve en español para el usuario.",
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": ["op", "preset"],
+            "additionalProperties": false,
+            "description": "Cambiar lienzo."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "set_publish",
+                "description": "Configurar la Revisión para redes y la etiqueta de IA."
+              },
+              "for_social": {
+                "type": "boolean",
+                "description": "El video se va a subir a redes."
+              },
+              "flags": {
+                "type": "object",
+                "properties": {
+                  "ai_face": {
+                    "description": "El video tiene una cara generada o cambiada por IA.",
+                    "type": "boolean"
+                  },
+                  "ai_voice": {
+                    "description": "El video tiene voz generada o clonada por IA.",
+                    "type": "boolean"
+                  },
+                  "ai_other": {
+                    "description": "Otro contenido generado por IA.",
+                    "type": "boolean"
+                  },
+                  "music": {
+                    "description": "Tiene música.",
+                    "type": "boolean"
+                  },
+                  "third_party": {
+                    "description": "Tiene material de terceros.",
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false,
+                "description": "Checklist de la Revisión para redes."
+              },
+              "ai_label": {
+                "description": "Quemar la etiqueta 'Contenido alterado con IA' (solo si es para redes).",
+                "type": "boolean"
+              },
+              "confirm": {
+                "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
+                "type": "boolean"
+              },
+              "note_es": {
+                "description": "Aclaración breve en español para el usuario.",
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": ["op", "for_social"],
+            "additionalProperties": false,
+            "description": "Revisión para redes."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "export",
+                "description": "Exportar el video final (siempre pide confirmación)."
+              },
+              "preset": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Id del preset de exportación: youtube-1080p (horizontal), youtube-4k, reels-tiktok (vertical 9:16 para Reels/TikTok), youtube-shorts (vertical), gif-480, webm-alpha, o un preset propio del usuario."
+              },
+              "name": {
+                "description": "Nombre del archivo de salida.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "burn_subtitles": {
+                "description": "Quemar los subtítulos en el video.",
+                "type": "boolean"
+              },
+              "confirm": {
+                "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
+                "type": "boolean"
+              },
+              "note_es": {
+                "description": "Aclaración breve en español para el usuario.",
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": ["op", "preset"],
+            "additionalProperties": false,
+            "description": "Exportar."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "report_bug",
+                "description": "Redactar un reporte de error de Studio."
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "description": "Título breve del problema."
+              },
+              "steps_es": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4000,
+                "description": "Qué hizo el usuario y qué pasó, en español."
+              },
+              "confirm": {
+                "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
+                "type": "boolean"
+              },
+              "note_es": {
+                "description": "Aclaración breve en español para el usuario.",
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": ["op", "title", "steps_es"],
+            "additionalProperties": false,
+            "description": "Reportar error."
+          }
+        ],
+        "description": "Una operación de edición; el campo `op` indica cuál."
+      },
+      "description": "Operaciones en el orden en que se aplican. Vacío si solo hay preguntas."
+    },
+    "questions": {
+      "description": "Preguntas al usuario cuando falta un dato (clip, momento, texto). Nunca inventar ids ni tiempos: preguntar.",
+      "maxItems": 5,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 300
+      }
+    }
+  },
+  "required": ["version", "summary_es", "ops"],
+  "additionalProperties": false,
+  "description": "Plan de edición propuesto por el asistente local.",
+  "$defs": {
+    "ClipRef": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Id exacto del clip (solo si figura en el resumen).",
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "description": "Nombre (o parte del nombre) del clip o de su archivo, como lo dijo el usuario.",
+          "type": "string",
+          "minLength": 1
+        },
+        "index": {
+          "description": "Posición del clip por orden de inicio: 1 = primero, 2 = segundo; -1 = último, -2 = anteúltimo. Si se da `track`, cuenta solo en ese tipo de pista.",
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "track": {
+          "description": "Tipo de pista donde está el clip (filtra la búsqueda).",
+          "type": "string",
+          "enum": ["video", "audio", "text", "motion"]
+        },
+        "at": {
+          "description": "Clip que está en pantalla en ese momento.",
+          "$ref": "#/$defs/Time"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Referencia a un clip: id, nombre, posición (index), tipo de pista y/o momento (at). La API la resuelve a un id; si es ambigua, devuelve una pregunta."
+    },
+    "Time": {
+      "anyOf": [
+        {
+          "type": "number",
+          "minimum": 0,
+          "description": "Segundos desde el inicio de la línea de tiempo."
+        },
+        {
+          "type": "string",
+          "enum": ["start", "end", "cursor"],
+          "description": "start = inicio del video, end = final del video, cursor = posición del cabezal."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "scene": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991,
+              "description": "Número de escena detectada (1 = primera escena); se usa su inicio."
+            }
+          },
+          "required": ["scene"],
+          "additionalProperties": false,
+          "description": "Inicio de una escena detectada."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "after_clip": {
+              "description": "Clip de referencia; se usa el final de ese clip.",
+              "$ref": "#/$defs/BaseClipRef"
+            }
+          },
+          "required": ["after_clip"],
+          "additionalProperties": false,
+          "description": "Justo después de que termina un clip."
+        }
+      ],
+      "description": "Momento en la línea de tiempo: segundos, 'start', 'end', 'cursor', {scene: n} o {after_clip: ClipRef}. Nunca inventar tiempos: si el usuario no lo dijo, preguntar."
+    },
+    "PointTime": {
+      "anyOf": [
+        {
+          "type": "number",
+          "minimum": 0,
+          "description": "Segundos desde el inicio de la línea de tiempo."
+        },
+        {
+          "type": "string",
+          "enum": ["start", "end", "cursor"],
+          "description": "start = inicio del video, end = final del video, cursor = posición del cabezal."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "scene": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991,
+              "description": "Número de escena detectada (1 = primera escena); se usa su inicio."
+            }
+          },
+          "required": ["scene"],
+          "additionalProperties": false,
+          "description": "Inicio de una escena detectada."
+        }
+      ]
+    },
+    "BaseClipRef": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Id exacto del clip (solo si figura en el resumen).",
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "description": "Nombre (o parte del nombre) del clip o de su archivo, como lo dijo el usuario.",
+          "type": "string",
+          "minLength": 1
+        },
+        "index": {
+          "description": "Posición del clip por orden de inicio: 1 = primero, 2 = segundo; -1 = último, -2 = anteúltimo. Si se da `track`, cuenta solo en ese tipo de pista.",
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "track": {
+          "description": "Tipo de pista donde está el clip (filtra la búsqueda).",
+          "type": "string",
+          "enum": ["video", "audio", "text", "motion"]
+        },
+        "at": {
+          "description": "Clip que está en pantalla en ese momento.",
+          "$ref": "#/$defs/PointTime"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Referencia a un clip del proyecto."
+    }
+  },
+  "$id": "https://studio.local/schemas/editplan.schema.json",
+  "title": "EditPlan"
+}

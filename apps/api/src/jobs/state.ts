@@ -59,6 +59,9 @@ export const DEFAULT_JOB_LANES: Record<JobType, JobLane> = {
   // Pure project edit (no ffmpeg): own lane so it never waits behind exports or renders.
   "timeline.apply-cuts": "edit",
   "timeline.track-to-keyframes": "edit",
+  // Sprint 3: runs edits inline and waits for sub-jobs of other lanes (never edit-lane jobs).
+  "agent.apply": "edit",
+  "agent.eval": "workers",
 };
 
 /** Raised by handlers (or the runner) when ctx.signal aborts. */

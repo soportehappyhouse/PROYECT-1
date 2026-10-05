@@ -2038,6 +2038,60 @@ await step(
 );
 
 await step(
+  "sprint3: agent plan (mocked workers, fixed plan) -> resolve -> apply -> project changed -> undo",
+  async () => {
+    const { video } = await sprint2Media();
+    const p = await sprint2Project("E2E asistente", video);
+    const clipId = p.tracks.find((t) => t.kind === "video").clips[0].id;
+    const status = await ok("GET", "/api/agent/status");
+    assert(status.workers === true, `agent status ${JSON.stringify(status)}`);
+    // workers-with-mocks.py answers a fixed EditPlan to commands starting with "e2e:".
+    const plan = await ok(
+      "POST",
+      "/api/agent/plan",
+      { command: "e2e: dividí, poné un título y pasalo a vertical", projectId: p.id, cursor: 1 },
+      [201],
+    );
+    assert(plan.ok === true, `plan not ok: ${JSON.stringify(plan).slice(0, 600)}`);
+    assert(plan.preview_es.length === 3, `preview ${JSON.stringify(plan.preview_es)}`);
+    assert(
+      plan.resolved[0]?.clip?.id === clipId,
+      `split resolved to ${JSON.stringify(plan.resolved[0])}`,
+    );
+    const listed = await ok("GET", `/api/agent/plans?projectId=${p.id}`);
+    assert(listed[0]?.id === plan.id, "plan not listed");
+    const { jobId } = await ok("POST", "/api/agent/apply", { planId: plan.id }, [202]);
+    const job = await waitOk(jobId, { timeoutMs: 60_000 });
+    assert(job.type === "agent.apply", `job type ${job.type}`);
+    assert(job.result.applied === 3 && !job.result.failed, `apply ${JSON.stringify(job.result)}`);
+    const saved = await ok("GET", `/api/projects/${p.id}`);
+    const V = saved.tracks.find((t) => t.kind === "video").clips;
+    assert(V.length === 2 && near(V[1].start, 1, 1e-6), `video clips ${JSON.stringify(V)}`);
+    const texts = saved.tracks.flatMap((t) => (t.kind === "text" ? t.clips : []));
+    assert(
+      texts.some((c) => c.text === "Hola agente"),
+      "text clip missing",
+    );
+    assert(
+      saved.settings.width === 1080 && saved.settings.height === 1920,
+      `canvas ${saved.settings.width}x${saved.settings.height}`,
+    );
+    const progress = sseFor(jobId).map((e) => e.message ?? "");
+    const undo = await ok("POST", `/api/agent/plans/${plan.id}/undo`, {});
+    assert(
+      undo.project.settings.width === p.settings.width &&
+        undo.project.tracks.find((t) => t.kind === "video").clips.length === 1,
+      "undo did not restore the project",
+    );
+    return {
+      preview: plan.preview_es,
+      route: plan.route,
+      progressEvents: progress.filter((m) => m.startsWith("op ")).length,
+    };
+  },
+);
+
+await step(
   "cancel a running job (motion render 60 s mp4)",
   async () => {
     const { jobId } = await ok("POST", "/api/motion/render", {

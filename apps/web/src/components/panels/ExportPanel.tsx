@@ -2,7 +2,7 @@
 
 import {
   AspectRatioSchema,
-  defaultBurnSubtitles,
+  effectiveBurnSubtitles,
   hasAnimatedCaptions,
   type ExportPreset,
 } from "@studio/shared";
@@ -202,7 +202,6 @@ export function ExportPanel() {
   const [fileName, setFileName] = useState("");
   const [busy, setBusy] = useState(false);
   // undefined = automatic: burn subtitles unless an animated-captions clip already shows them.
-  const [burnOverride, setBurnOverride] = useState<boolean | undefined>(undefined);
 
   useEffect(() => {
     if (useExportPresetsStore.getState().source === "loading") void load();
@@ -213,7 +212,8 @@ export function ExportPanel() {
   const duration = projectDuration(project);
   const hasSubtitles = project.subtitles.length > 0;
   const animatedCaptions = hasAnimatedCaptions(project);
-  const burnSubtitles = burnOverride ?? defaultBurnSubtitles(project);
+  // Stored in the project so the preview shows exactly what the export burns (feedback 2).
+  const burnSubtitles = effectiveBurnSubtitles(project);
   const exportJobs = useMemo(
     () =>
       sortedJobs(jobs)
@@ -345,12 +345,15 @@ export function ExportPanel() {
             <label className="flex items-center gap-2 text-xs">
               <Checkbox
                 checked={burnSubtitles}
-                onChange={(e) => setBurnOverride(e.target.checked)}
+                onChange={(e) => useProjectStore.getState().setBurnSubtitles(e.target.checked)}
               />
               Quemar subtítulos en el video
               {animatedCaptions && burnSubtitles ? (
-                <Badge tone="warning" title="Ya hay un clip de subtítulos animados en Motion">
-                  saldrán dos veces
+                <Badge
+                  tone="muted"
+                  title="Los tramos que ya muestra un clip de subtítulos animados no se queman otra vez"
+                >
+                  salvo bajo los animados
                 </Badge>
               ) : null}
             </label>

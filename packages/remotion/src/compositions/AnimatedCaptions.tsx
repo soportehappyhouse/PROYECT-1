@@ -9,11 +9,10 @@ import {
   useVideoConfig,
 } from "remotion";
 import { fontStack } from "../fonts.js";
-import { unitScale } from "../lib/anim.js";
 import {
   activeTokenIndex,
-  autoSafeArea,
   buildCaptionPages,
+  captionFrame,
   pageEndMs,
   transcriptToCaptions,
 } from "../lib/captions.js";
@@ -33,7 +32,7 @@ export function AnimatedCaptions(props: AnimatedCaptionsProps) {
         : transcriptToCaptions(props.transcript);
     return buildCaptionPages(captions, props.combineWithinMs);
   }, [props.captions, props.transcript, props.combineWithinMs]);
-  const safe = props.safeArea ?? autoSafeArea(width, height);
+  const { safe, unit } = captionFrame(props, width, height);
   const totalMs = (durationInFrames / fps) * 1000;
 
   return (
@@ -61,7 +60,7 @@ export function AnimatedCaptions(props: AnimatedCaptionsProps) {
                 alignItems: "center",
               }}
             >
-              <CaptionPage page={page} props={props} u={unitScale(width, height)} />
+              <CaptionPage page={page} props={props} u={unit} />
             </AbsoluteFill>
           </Sequence>
         );

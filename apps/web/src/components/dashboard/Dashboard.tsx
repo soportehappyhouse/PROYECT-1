@@ -34,7 +34,8 @@ import { useProjectSync } from "@/hooks/use-project-sync";
 import { useSettingsSync } from "@/hooks/use-settings-sync";
 import { PANELS } from "@/lib/layout";
 import { displayKeys } from "@/lib/shortcuts";
-import { trackKindForAsset } from "@/lib/timeline";
+import { suggestCanvasFit } from "@/lib/canvas-fit";
+import { TRACK_KIND_LABELS, trackKindForAsset } from "@/lib/timeline";
 import { useProjectStore, type SaveState } from "@/stores/project-store";
 import { openReport } from "@/stores/report-store";
 import { THEME_LABELS, useSettingsStore } from "@/stores/settings-store";
@@ -95,6 +96,8 @@ function Header() {
         <Button
           variant="outline"
           size="sm"
+          tooltip="Paleta de comandos"
+          shortcut="palette.open"
           className="hidden gap-2 text-muted-foreground sm:inline-flex"
           onClick={() => settings().setCommandPaletteOpen(true)}
         >
@@ -234,12 +237,17 @@ export function handleAssetDrop(
   const clientX = (pointer && "clientX" in pointer ? pointer.clientX : 0) + event.delta.x;
   const kind = trackKindForAsset(data.asset);
   const start = target.timeAt(clientX);
-  useProjectStore.getState().addAssetClip(data.asset, {
+  const clip = useProjectStore.getState().addAssetClip(data.asset, {
     start,
     ...(target.kind === kind ? { trackId: target.trackId } : {}),
   });
   if (target.kind !== kind)
-    toast.message(`Añadido a una pista de ${kind === "audio" ? "audio" : kind}`);
+    toast.message(`Añadido a una pista de ${TRACK_KIND_LABELS[kind].toLowerCase()}`);
+  else if (clip.trackId !== target.trackId) {
+    const track = useProjectStore.getState().project.tracks.find((t) => t.id === clip.trackId);
+    toast.message(`Ese tramo estaba ocupado: añadido en «${track?.name ?? "otra pista"}»`);
+  }
+  suggestCanvasFit(data.asset);
 }
 
 export function Dashboard() {

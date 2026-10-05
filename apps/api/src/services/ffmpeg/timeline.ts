@@ -1,5 +1,7 @@
 import {
-  defaultBurnSubtitles,
+  effectiveBurnSubtitles,
+  subtitlesToBurn,
+  videoRectAt,
   type Clip,
   type ExportPreset,
   type MediaKind,
@@ -8,19 +10,16 @@ import {
   type Track,
   type VideoEncoderId,
 } from "@studio/shared";
+import { buildAss } from "./ass.js";
 import { atempoChain, buildAudioFxGraph } from "./audio-fx.js";
 import {
   blurredBackgroundFilter,
   enableBetween,
-  forceStyle,
-  hexToAssColour,
   pipPlacementFilters,
   xfadeTransitionName,
-  type SubtitleStyle,
 } from "./builders.js";
 import { escapeFilterPath, escapeOptionValue, quoteFilterArg, sec } from "./escape.js";
 import { presetEncoding } from "./encoders.js";
-import { toSrt } from "./srt.js";
 
 /** Resolved media for the compiler (absolute paths; metadata from ffprobe). */
 export interface TimelineAsset {
@@ -32,6 +31,9 @@ export interface TimelineAsset {
   hasAlpha?: boolean;
   videoCodec?: string;
   durationSec?: number;
+  /** Display size (fits captions to the video rect). */
+  width?: number;
+  height?: number;
 }
 
 export interface CompileExportOptions {
@@ -48,7 +50,7 @@ export interface CompileExportOptions {
   rubberband?: boolean;
   /** FFmpeg >= 7 uses `-/filter_complex <file>`; 6.x uses `-filter_complex_script <file>`. */
   ffmpegMajor?: number;
-  /** Burn project.subtitles; default defaultBurnSubtitles(project) (off with animated captions). */
+  /** Burn project.subtitles; default effectiveBurnSubtitles(project) (off with animated captions). */
   burnSubtitles?: boolean;
 }
 
@@ -56,7 +58,7 @@ export interface CompiledExport {
   /** argv after the global flags (run with cwd = job dir: graph/text/subtitle files are relative). */
   args: string[];
   graph: string;
-  /** Files to write into the job dir before running (graph.txt, text-N.txt, subs.srt). */
+  /** Files to write into the job dir before running (graph.txt, text-N.txt, subs.ass). */
   files: { name: string; content: string }[];
   durationSec: number;
   warnings: string[];
@@ -134,23 +136,6 @@ export function ffmpegColor(input: string | undefined, fallback = "white"): stri
     return `0x${r}${r}${g}${g}${b}${b}`.toUpperCase().replace("0X", "0x");
   }
   return /^[a-z]+$/i.test(v) ? v.toLowerCase() : fallback;
-}
-
-/**
- * project.captionStyle -> libass force_style. SRT renders at PlayResY 288, so sizes given in 1080p
- * pixels are scaled by 288/1080. Without a style: Inter 18, bottom.
- */
-export function captionForceStyle(project: Pick<Project, "captionStyle">): SubtitleStyle {
-  const c = project.captionStyle;
-  if (!c) return { fontName: "Inter", fontSize: 18, marginV: 30 };
-  const hex = /^#[0-9a-f]{6}$/i.test(c.color) ? c.color : undefined;
-  return {
-    fontName: c.fontFamily,
-    fontSize: Math.max(8, Math.round((c.fontSize * 288) / 1080)),
-    ...(hex && { primaryColour: hexToAssColour(hex) }),
-    alignment: c.position === "top" ? 8 : c.position === "center" ? 5 : 2,
-    marginV: 30,
-  };
 }
 
 const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
@@ -251,8 +236,9 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
     audioLabels.push(out);
   };
 
-  const visualTrack = (track: Track): Seg | undefined => {
-    const clips = track.clips
+  /** Playable clips of a visual track (unrendered motion / missing media are skipped with a warning). */
+  const playableClips = (track: Track): Clip[] =>
+    track.clips
       .filter((c) => {
         const a = asset(track.kind === "motion" ? (c.renderedAssetId ?? c.assetId) : c.assetId);
         if (!a) {
@@ -264,6 +250,27 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
         return a.hasVideo || a.kind === "image";
       })
       .sort((a, b) => a.start - b.start);
+
+  /**
+   * Feedback 1: clips that overlap on one track (two caption renders at the same start, title cards
+   * dropped on top of them) used to be trimmed or dropped ("solapado: se omite", only in the job
+   * log). They are split into lanes instead (greedy interval partitioning: a clip joins the first
+   * lane that is free at its start) and every lane is overlaid, later lanes on top.
+   */
+  const lanesOf = (clips: readonly Clip[]): Clip[][] => {
+    const lanes: { end: number; clips: Clip[] }[] = [];
+    for (const c of clips) {
+      const end = c.start + clipDuration(c);
+      const lane = lanes.find((l) => l.end <= c.start + EPS);
+      if (lane) {
+        lane.clips.push(c);
+        lane.end = end;
+      } else lanes.push({ end, clips: [c] });
+    }
+    return lanes.map((l) => l.clips);
+  };
+
+  const visualTrack = (track: Track, clips: readonly Clip[]): Seg | undefined => {
     if (clips.length === 0) return undefined;
 
     const segs: Seg[] = [];
@@ -494,24 +501,40 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
       }
       continue;
     }
-    const stream = visualTrack(track);
-    if (stream) {
+    const lanes = lanesOf(playableClips(track));
+    if (lanes.length > 1)
+      g.warnings.push(
+        `Clips solapados en «${track.name}»: se apilan en ${lanes.length} capas (el último encima)`,
+      );
+    for (const lane of lanes) {
+      const stream = visualTrack(track, lane);
+      if (!stream) continue;
       const next = g.label("c");
       g.add(`[${cur}][${stream.label}]overlay=0:0:eof_action=pass[${next}]`);
       cur = next;
     }
   }
 
-  const burnSubtitles = o.burnSubtitles ?? defaultBurnSubtitles(project);
-  if (burnSubtitles && project.subtitles.length) {
+  const burn = subtitlesToBurn(project, effectiveBurnSubtitles(project, o.burnSubtitles));
+  if (burn.length) {
     const upper = project.captionStyle?.uppercase;
-    const subs = upper
-      ? project.subtitles.map((x) => ({ ...x, text: x.text.toLocaleUpperCase("es") }))
-      : project.subtitles;
-    g.files.push({ name: "subs.srt", content: toSrt(subs) });
+    const subs = upper ? burn.map((x) => ({ ...x, text: x.text.toLocaleUpperCase("es") })) : burn;
+    // Fit the captions to the video rect (feedback 4), with real ASS alignment (feedback 3).
+    const size = (id: string) => {
+      const a = o.assets.get(id);
+      return a?.width && a.height ? { width: a.width, height: a.height } : undefined;
+    };
+    const proj = { ...project, settings: { ...project.settings, width: W, height: H } };
+    g.files.push({
+      name: "subs.ass",
+      content: buildAss(subs, {
+        canvas: { width: W, height: H },
+        ...(project.captionStyle && { style: project.captionStyle }),
+        rectAt: (t) => videoRectAt(proj, size, t),
+      }),
+    });
     const next = g.label("c");
-    const style = forceStyle(captionForceStyle(project));
-    g.add(`[${cur}]subtitles=subs.srt:force_style=${quoteFilterArg(style)}[${next}]`);
+    g.add(`[${cur}]subtitles=subs.ass[${next}]`);
     cur = next;
   }
 

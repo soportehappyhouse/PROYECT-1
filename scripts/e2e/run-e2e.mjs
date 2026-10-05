@@ -616,6 +616,7 @@ if (SKIP_MOTION) {
         ctx.capClip,
         "captions.webm",
       );
+      ctx.capJob = r.job;
       const { job: _j, ...rest } = r;
       return rest;
     },
@@ -703,6 +704,208 @@ await step("export YouTube 1080p preset (youtube-1080p)", () =>
 );
 await step("export Reels 9:16 preset (reels-tiktok, blurred reframe)", () =>
   exportWith("reels-tiktok", { w: 1080, h: 1920, sec: 6, fps: 30 }),
+);
+
+/** Pixels of a frame region brighter than `min` (gray, scaled to `w` px wide). */
+async function brightPixels(file, at, { w = 320, min = 170, region } = {}) {
+  const probe = await ffprobe(file);
+  const v = probe.streams.find((s) => s.codec_type === "video");
+  const h = Math.round((v.height * w) / v.width / 2) * 2;
+  const raw = await new Promise((resolve, reject) => {
+    const p = spawn(
+      FFMPEG,
+      [
+        "-v",
+        "error",
+        "-ss",
+        String(at),
+        "-i",
+        file,
+        "-frames:v",
+        "1",
+        "-vf",
+        `scale=${w}:${h},format=gray`,
+        "-f",
+        "rawvideo",
+        "pipe:1",
+      ],
+      { windowsHide: true },
+    );
+    const chunks = [];
+    p.stdout.on("data", (d) => chunks.push(d));
+    p.on("error", reject);
+    p.on("close", () => resolve(Buffer.concat(chunks)));
+  });
+  const [y0, y1] = region ? [Math.round(region[0] * h), Math.round(region[1] * h)] : [0, h];
+  let n = 0;
+  for (let y = y0; y < y1; y++) for (let x = 0; x < w; x++) if (raw[y * w + x] > min) n++;
+  return n;
+}
+
+// Feedback 2026-10-05 (docs/trabajo/feedback-usuario-2026-10-05.md): a vertical WhatsApp clip
+// (478×850) on a 1920×1080 project, 2 animated-captions + 3 title-card clips on ONE Motion track
+// (overlapping, as the dashboard created them), exported with YouTube 1080p and Reels 9:16. The
+// motion overlays must be in both exports: the source is a flat dark gray, so bright pixels can
+// only come from the overlays.
+await step(
+  "user scenario: vertical 478×850 + overlapping motion → overlays present in 16:9 and 9:16",
+  async () => {
+    assert(
+      !SKIP_MOTION && ctx.titleJob && ctx.capJob,
+      "needs the motion renders (no --skip-motion)",
+    );
+    const vertical = path.join(WORK, "whatsapp-vertical.mp4");
+    await run(FFMPEG, [
+      "-y",
+      "-v",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "color=c=0x303030:s=478x850:r=30:d=6",
+      "-f",
+      "lavfi",
+      "-i",
+      "sine=f=300:sample_rate=48000:d=6",
+      "-shortest",
+      "-c:v",
+      "libx264",
+      "-pix_fmt",
+      "yuv420p",
+      "-preset",
+      "veryfast",
+      "-c:a",
+      "aac",
+      vertical,
+    ]);
+    const asset = await upload(vertical, "video/mp4");
+    await waitAssetJobs(asset.id, ["media.probe"]);
+    const p = await ok(
+      "POST",
+      "/api/projects",
+      { name: "E2E vertical WhatsApp", settings: { width: 1920, height: 1080, fps: 30 } },
+      [201],
+    );
+    const V = p.tracks.find((t) => t.kind === "video");
+    V.clips = [{ id: id("c"), trackId: V.id, assetId: asset.id, start: 0, in: 0, out: 6 }];
+    const M = { id: id("t"), kind: "motion", name: "Motion 1", clips: [] };
+    const caps = {
+      template: "animated-captions",
+      durationSec: 3.5,
+      format: "webm-vp9-alpha",
+      props: {},
+    };
+    const title = { template: "title-card", durationSec: 2.5, format: "webm-vp9-alpha", props: {} };
+    const fresh = id("mt");
+    M.clips = [
+      // "Renderizar subtítulos como motion" ×2: same start, same span
+      {
+        id: id("mc"),
+        trackId: M.id,
+        start: 0,
+        in: 0,
+        out: 3.5,
+        motion: caps,
+        renderedAssetId: ctx.capJob.result.assetId,
+      },
+      {
+        id: id("mc"),
+        trackId: M.id,
+        start: 0,
+        in: 0,
+        out: 3.5,
+        motion: caps,
+        renderedAssetId: ctx.capJob.result.assetId,
+      },
+      // title-card ×3 at the playhead: one rendered now with `target`, one linked, one from Media
+      { id: fresh, trackId: M.id, start: 0, in: 0, out: 2.5, motion: title },
+      {
+        id: id("mt"),
+        trackId: M.id,
+        start: 0,
+        in: 0,
+        out: 2.5,
+        motion: title,
+        renderedAssetId: ctx.titleJob.result.assetId,
+      },
+      {
+        id: id("mt"),
+        trackId: M.id,
+        start: 0.5,
+        in: 0,
+        out: 2.5,
+        assetId: ctx.titleJob.result.assetId,
+      },
+    ];
+    p.tracks = [V, M, ...p.tracks.filter((t) => t.kind !== "video")];
+    await ok("PUT", `/api/projects/${p.id}`, p);
+    const { jobId } = await ok("POST", "/api/motion/render", {
+      template: "title-card",
+      durationSec: 2.5,
+      fps: 30,
+      width: 1920,
+      height: 1080,
+      format: "webm-vp9-alpha",
+      props: { title: "WhatsApp", subtitle: "vertical", background: "transparent" },
+      target: { projectId: p.id, clipId: fresh },
+    });
+    await waitOk(jobId);
+    const linked = (await ok("GET", `/api/projects/${p.id}`)).tracks
+      .flatMap((t) => t.clips)
+      .find((c) => c.id === fresh);
+    assert(linked?.renderedAssetId, "fresh title-card not linked (renderedAssetId missing)");
+    const out = {};
+    for (const [presetId, w, h] of [
+      ["youtube-1080p", 1920, 1080],
+      ["reels-tiktok", 1080, 1920],
+    ]) {
+      const r = await ok("POST", `/api/projects/${p.id}/export`, { presetId });
+      const job = await waitOk(r.jobId);
+      const log = (await ok("GET", `/api/jobs/${r.jobId}/log`)).lines ?? [];
+      assert(
+        !log.some((l) => /se omite/.test(l)),
+        `${presetId}: dropped clips: ${log.join(" / ")}`,
+      );
+      const file = await download(job.result.path, `vertical-${presetId}.mp4`);
+      const f = await ffprobe(file);
+      const v = f.streams.find((s) => s.codec_type === "video");
+      assert(v.width === w && v.height === h, `${presetId}: ${v.width}x${v.height}`);
+      assert(near(+f.format.duration, 6, 0.15), `${presetId}: duration ${f.format.duration}`);
+      // 9:16: the 16:9 canvas sits in the middle third over the blurred background
+      const mid = presetId === "reels-tiktok" ? [0.34, 0.66] : [0, 1];
+      const titles = await brightPixels(file, 1.0, { region: mid });
+      const captions = await brightPixels(file, 3.2, { region: mid });
+      const bare = await brightPixels(file, 5.0, { region: mid });
+      assert(titles > 150, `${presetId}: title overlays missing (${titles} bright px at 1 s)`);
+      assert(
+        captions > 60,
+        `${presetId}: caption overlay missing (${captions} bright px at 3.2 s)`,
+      );
+      assert(bare < 20, `${presetId}: unexpected bright pixels without overlays (${bare})`);
+      await run(FFMPEG, [
+        "-y",
+        "-v",
+        "error",
+        "-ss",
+        "1",
+        "-i",
+        file,
+        "-frames:v",
+        "1",
+        "-vf",
+        "scale=480:-2",
+        path.join(WORK, `vertical-${presetId}-1s.jpg`),
+      ]);
+      out[presetId] = {
+        size: `${v.width}x${v.height}`,
+        titles,
+        captions,
+        bare,
+        lanes: log.find((l) => /capas/.test(l)) ?? null,
+      };
+    }
+    return out;
+  },
 );
 
 await step(

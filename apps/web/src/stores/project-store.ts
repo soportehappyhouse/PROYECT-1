@@ -21,14 +21,20 @@ import {
   firstFreeStart,
   insertClip,
   moveClip,
+  nearestFreeStart,
+  NO_OVERLAP_KINDS,
+  overlapsOnTrack,
   projectDuration,
   removeClip,
   replaceClip,
+  sortClips,
   splitClip,
   trackKindForAsset,
   trimClipEnd,
   trimClipStart,
+  trimLimits,
 } from "@/lib/timeline";
+import { cutClip, speechRanges } from "@/lib/silences";
 import { addBreadcrumb } from "./breadcrumbs-store";
 
 /** The undoable part of a project. */
@@ -49,6 +55,8 @@ export interface ProjectState {
   selectedAssetId: string | undefined;
   playhead: number;
   playing: boolean;
+  /** J/K/L shuttle speed (±1, ±2, ±4; negative = backwards); the clock and the preview follow it. */
+  playbackRate: number;
   /** Timeline zoom in pixels per second. */
   zoom: number;
   snapping: boolean;
@@ -88,6 +96,10 @@ export interface ProjectState {
   ) => void;
   splitAt: (time?: number, clipId?: string) => boolean;
   deleteClip: (clipId?: string) => void;
+  /** Feedback 10: cut pauses > minGapSec out of a clip (ripple on its track + subtitles). */
+  removeSilences: (clipId: string, minGapSec: number) => number;
+  /** Feedback 11: remove every clip using an asset (assetId or renderedAssetId); returns how many. */
+  removeClipsUsingAsset: (assetId: string) => number;
   updateClip: (
     clipId: string,
     patch: Partial<Omit<Clip, "id" | "trackId">>,
@@ -98,6 +110,8 @@ export interface ProjectState {
   setSubtitles: (segments: SubtitleSegment[]) => void;
   /** Style used by the api to burn subtitles on export (Project.captionStyle). */
   setCaptionStyle: (style: CaptionStyle) => void;
+  /** "Quemar subtítulos" (Export panel); the preview follows it too. */
+  setBurnSubtitles: (burn: boolean) => void;
   updateSubtitle: (index: number, patch: Partial<SubtitleSegment>) => void;
   removeSubtitle: (index: number) => void;
   addSubtitle: (segment?: SubtitleSegment) => void;
@@ -108,6 +122,12 @@ export interface ProjectState {
   setPlayhead: (time: number) => void;
   setPlaying: (playing: boolean) => void;
   togglePlaying: () => void;
+  /** L: play forward (again = faster, up to 4×). */
+  shuttleForward: () => void;
+  /** J: play backwards (again = faster, up to 4×). */
+  shuttleBackward: () => void;
+  /** K: pause and reset the shuttle speed. */
+  shuttleStop: () => void;
   setZoom: (zoom: number) => void;
   zoomBy: (factor: number) => void;
   toggleSnapping: () => void;
@@ -149,7 +169,9 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
   const commit = (
     mutate: (
       p: Project,
-    ) => Partial<Pick<Project, "tracks" | "subtitles" | "settings" | "name" | "captionStyle">>,
+    ) => Partial<
+      Pick<Project, "tracks" | "subtitles" | "settings" | "name" | "captionStyle" | "burnSubtitles">
+    >,
     record = true,
   ) => {
     const { project, past } = get();
@@ -173,12 +195,33 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
     return track.id;
   };
 
+  /**
+   * Feedback 5: a clip dropped onto an occupied range of a video/audio/motion track goes to
+   * another track of the same kind that is free there, or to a new one ("Motion 2").
+   */
+  const freeTrackFor = (kind: TrackKind, trackId: string, start: number, duration: number) => {
+    if (!NO_OVERLAP_KINDS.includes(kind)) return trackId;
+    const tracks = get().project.tracks;
+    const wanted = tracks.find((t) => t.id === trackId);
+    if (wanted && !overlapsOnTrack(wanted, start, duration)) return trackId;
+    const other = tracks.find(
+      (t) => t.kind === kind && !t.locked && !overlapsOnTrack(t, start, duration),
+    );
+    if (other) return other.id;
+    const track = createTrack(kind, tracks);
+    const { project } = get();
+    set({ project: { ...project, tracks: [...project.tracks, track] } });
+    addBreadcrumb("track", `Creó «${track.name}» para no solapar clips`, { trackId: track.id });
+    return track.id;
+  };
+
   return {
     project: createEmptyProject(),
     selectedClipId: undefined,
     selectedAssetId: undefined,
     playhead: 0,
     playing: false,
+    playbackRate: 1,
     zoom: 60,
     snapping: true,
     past: [],
@@ -252,14 +295,14 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
     addAssetClip: (asset, opts = {}) => {
       get().checkpoint();
       const kind = trackKindForAsset(asset);
-      const trackId = ensureTrack(kind, opts.trackId);
+      let trackId = ensureTrack(kind, opts.trackId);
       const track = get().project.tracks.find((t) => t.id === trackId)!;
       const base = createClipFromAsset(asset, trackId, opts.start ?? get().playhead);
+      const length = clipEnd(base) - base.start;
       const start =
-        opts.start !== undefined
-          ? base.start
-          : firstFreeStart(track, base.start, clipEnd(base) - base.start);
-      const clip = { ...base, start };
+        opts.start !== undefined ? base.start : firstFreeStart(track, base.start, length);
+      if (opts.start !== undefined) trackId = freeTrackFor(kind, trackId, start, length);
+      const clip = { ...base, start, trackId };
       addBreadcrumb(
         "clip",
         `Añadió el clip «${asset.name}» (${asset.kind}) en ${start.toFixed(2)} s`,
@@ -287,7 +330,8 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
     },
     addClip: (kind, partial, trackId) => {
       get().checkpoint();
-      const id = ensureTrack(kind, trackId);
+      const length = Math.max(0, (partial.out - partial.in) / (partial.speed || 1));
+      const id = freeTrackFor(kind, ensureTrack(kind, trackId), partial.start, length);
       const clip: Clip = { ...partial, trackId: id };
       addBreadcrumb("clip", `Añadió un clip de ${kind} en ${clip.start.toFixed(2)} s`, {
         clipId: clip.id,
@@ -304,15 +348,28 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
         { clipId, start, ...(trackId && { trackId }) },
         `move:${clipId}`,
       );
-      commit((p) => ({ tracks: moveClip(p.tracks, clipId, start, trackId) }), record);
+      commit((p) => {
+        const found = findClip(p, clipId);
+        if (!found) return {};
+        const target = (trackId && p.tracks.find((t) => t.id === trackId)) || found.track;
+        const dest = target.kind === found.track.kind && !target.locked ? target : found.track;
+        // Feedback 5: never overlap on video/audio/motion tracks; snap next to the neighbour.
+        const free = NO_OVERLAP_KINDS.includes(dest.kind)
+          ? nearestFreeStart(dest, start, clipEnd(found.clip) - found.clip.start, clipId)
+          : start;
+        return { tracks: moveClip(p.tracks, clipId, free, trackId) };
+      }, record);
     },
     trimClip: (clipId, edge, time, maxSourceDuration, record = true) => {
       const found = findClip(get().project, clipId);
       if (!found || found.track.locked) return;
+      const lim = NO_OVERLAP_KINDS.includes(found.track.kind)
+        ? trimLimits(found.track, found.clip)
+        : { minStart: 0, maxEnd: Infinity };
       const next =
         edge === "start"
-          ? trimClipStart(found.clip, time)
-          : trimClipEnd(found.clip, time, maxSourceDuration);
+          ? trimClipStart(found.clip, Math.max(lim.minStart, time))
+          : trimClipEnd(found.clip, Math.min(lim.maxEnd, time), maxSourceDuration);
       addBreadcrumb(
         "clip",
         `Recortó el ${edge === "start" ? "inicio" : "final"} de un clip a ${time.toFixed(2)} s`,
@@ -359,6 +416,55 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
       commit((p) => ({ tracks: removeClip(p.tracks, id) }));
       if (get().selectedClipId === id) set({ selectedClipId: undefined });
     },
+    removeSilences: (clipId, minGapSec) => {
+      const found = findClip(get().project, clipId);
+      if (!found || found.track.locked) return 0;
+      const { clip, track } = found;
+      const end = clipEnd(clip);
+      const ranges = speechRanges(get().project.subtitles, clip.start, end, minGapSec);
+      if (ranges.length === 0) return 0;
+      const { pieces, removed, map, snap } = cutClip(clip, ranges);
+      if (pieces.length === 0 || removed < 0.05) return 0;
+      const shift = (c: Clip) =>
+        c.start >= end - 1e-3 ? { ...c, start: roundTime(c.start - removed) } : c;
+      const moveSeg = (s: SubtitleSegment): SubtitleSegment | undefined => {
+        const a = snap(s.start, 1);
+        const b = snap(s.end, -1);
+        if (b - a < 0.05) return undefined; // the segment was all silence
+        const words = s.words
+          ?.map((w) => ({ ...w, start: map(w.start), end: map(w.end) }))
+          .filter(
+            (w): w is typeof w & { start: number; end: number } =>
+              w.start !== undefined && w.end !== undefined,
+          );
+        return { ...s, start: a, end: b, ...(words && { words }) };
+      };
+      addBreadcrumb("clip", `Quitó silencios (${removed.toFixed(2)} s) de un clip`, { clipId });
+      commit((p) => ({
+        tracks: p.tracks.map((t) =>
+          t.id === track.id
+            ? {
+                ...t,
+                clips: sortClips([...t.clips.filter((c) => c.id !== clipId).map(shift), ...pieces]),
+              }
+            : t,
+        ),
+        subtitles: p.subtitles.map(moveSeg).filter((x): x is SubtitleSegment => x !== undefined),
+      }));
+      return removed;
+    },
+    removeClipsUsingAsset: (assetId) => {
+      const uses = (c: Clip) => c.assetId === assetId || c.renderedAssetId === assetId;
+      const n = get().project.tracks.reduce((k, t) => k + t.clips.filter(uses).length, 0);
+      if (n === 0) return 0;
+      addBreadcrumb("clip", `Quitó ${n} clip(s) que usaban un medio`, { assetId });
+      commit((p) => ({
+        tracks: p.tracks.map((t) => ({ ...t, clips: t.clips.filter((c) => !uses(c)) })),
+      }));
+      const sel = get().selectedClipId;
+      if (sel && !findClip(get().project, sel)) set({ selectedClipId: undefined });
+      return n;
+    },
     updateClip: (clipId, patch, record = true) => {
       const found = findClip(get().project, clipId);
       if (!found) return;
@@ -377,6 +483,7 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
       commit(() => ({ subtitles: [...segments].sort((a, b) => a.start - b.start) }));
     },
     setCaptionStyle: (captionStyle) => commit(() => ({ captionStyle }), false),
+    setBurnSubtitles: (burnSubtitles) => commit(() => ({ burnSubtitles }), false),
     updateSubtitle: (index, patch) =>
       commit((p) => ({
         subtitles: p.subtitles.map((s, i) => (i === index ? { ...s, ...patch } : s)),
@@ -399,8 +506,19 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
       const max = Math.max(projectDuration(get().project), 0) + 60;
       set({ playhead: roundTime(clamp(time, 0, max)) });
     },
-    setPlaying: (playing) => set({ playing }),
-    togglePlaying: () => set({ playing: !get().playing }),
+    setPlaying: (playing) => set(playing ? { playing } : { playing, playbackRate: 1 }),
+    togglePlaying: () => set({ playing: !get().playing, playbackRate: 1 }),
+    shuttleForward: () => {
+      const { playing, playbackRate } = get();
+      const faster = playing && playbackRate > 0;
+      set({ playing: true, playbackRate: faster ? Math.min(4, playbackRate * 2) : 1 });
+    },
+    shuttleBackward: () => {
+      const { playing, playbackRate } = get();
+      const faster = playing && playbackRate < 0;
+      set({ playing: true, playbackRate: faster ? Math.max(-4, playbackRate * 2) : -1 });
+    },
+    shuttleStop: () => set({ playing: false, playbackRate: 1 }),
     setZoom: (zoom) => set({ zoom: clamp(zoom, MIN_ZOOM, MAX_ZOOM) }),
     zoomBy: (factor) => set({ zoom: clamp(get().zoom * factor, MIN_ZOOM, MAX_ZOOM) }),
     toggleSnapping: () => set({ snapping: !get().snapping }),

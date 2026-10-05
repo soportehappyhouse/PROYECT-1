@@ -5,6 +5,10 @@ export type ShortcutActionId =
   | "playback.toStart"
   | "playback.frameBack"
   | "playback.frameForward"
+  | "playback.toEnd"
+  | "playback.shuttleBack"
+  | "playback.pause"
+  | "playback.shuttleForward"
   | "timeline.split"
   | "timeline.delete"
   | "timeline.zoomIn"
@@ -37,6 +41,20 @@ export const SHORTCUT_ACTIONS: readonly ShortcutActionInfo[] = [
     defaultKeys: contractDefaults["playback.toggle"] ?? "Space",
   },
   { id: "playback.toStart", label: "Ir al inicio", group: "Reproducción", defaultKeys: "Home" },
+  { id: "playback.toEnd", label: "Ir al final", group: "Reproducción", defaultKeys: "End" },
+  {
+    id: "playback.shuttleBack",
+    label: "Reproducir hacia atrás (otra vez: más rápido)",
+    group: "Reproducción",
+    defaultKeys: "J",
+  },
+  { id: "playback.pause", label: "Pausa", group: "Reproducción", defaultKeys: "K" },
+  {
+    id: "playback.shuttleForward",
+    label: "Reproducir (otra vez: más rápido)",
+    group: "Reproducción",
+    defaultKeys: "L",
+  },
   {
     id: "playback.frameBack",
     label: "Fotograma anterior",

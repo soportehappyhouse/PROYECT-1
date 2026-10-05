@@ -1,15 +1,23 @@
 "use client";
 
-import type { RvcRequest, TtsProvider } from "@studio/shared";
-import { Plus, Trash2 } from "lucide-react";
+import type { RvcRequest, TtsProvider, TtsVoiceInfo } from "@studio/shared";
+import { Download, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { hasAudio, SelectedClipHint, useSelectedClip } from "@/components/common/SelectedClipInfo";
 import { Button } from "@/components/ui/button";
 import { Checkbox, Label, Range, Select, Textarea } from "@/components/ui/input";
-import { ErrorNotice, NotImplementedNotice, Section, Spinner, Tabs } from "@/components/ui/misc";
+import {
+  Badge,
+  ErrorNotice,
+  NotImplementedNotice,
+  Progress,
+  Section,
+  Spinner,
+  Tabs,
+} from "@/components/ui/misc";
 import { useApiResource } from "@/hooks/use-api-resource";
-import { api, errorMessage, isNotImplemented } from "@/lib/api";
+import { api, ApiRequestError, errorMessage, isNotImplemented } from "@/lib/api";
 import {
   defaultEffect,
   EFFECT_DEFS,
@@ -20,6 +28,7 @@ import {
   type EditableEffect,
   type EditableEffectType,
 } from "@/lib/voice-effects";
+import { formatMb, withPiperCatalog } from "@/lib/voices";
 import { useJobsStore } from "@/stores/jobs-store";
 import { useProjectStore } from "@/stores/project-store";
 import { Panel } from "./Panel";
@@ -29,6 +38,113 @@ type Tab = "tts" | "effects" | "rvc";
 function reportError(action: string, err: unknown) {
   if (isNotImplemented(err)) toast.info(`${action}: módulo en desarrollo`);
   else toast.error(`${action}: error`, { description: errorMessage(err) });
+}
+
+/**
+ * Feedback 6: every catalog voice (es_AR / es_ES / es_MX) with «Descargar». The download runs in
+ * the workers (POST /api/voice/models/download, verified size/md5); progress is read from the
+ * `.part` file the workers write.
+ */
+function VoiceDownloads({
+  voices,
+  onInstalled,
+}: {
+  voices: TtsVoiceInfo[];
+  onInstalled: (id: string) => void;
+}) {
+  const [busy, setBusy] = useState<Record<string, number | null>>({});
+  const missing = voices.filter((v) => !v.installed);
+  if (voices.length === 0) return null;
+
+  const download = async (v: TtsVoiceInfo) => {
+    setBusy((b) => ({ ...b, [v.id]: null }));
+    const poll = setInterval(() => {
+      void api
+        .modelDownloadProgress(v.id)
+        .then((p) => {
+          if (p.active && v.sizeBytes)
+            setBusy((b) =>
+              v.id in b ? { ...b, [v.id]: Math.min(0.99, p.bytes / v.sizeBytes!) } : b,
+            );
+        })
+        .catch(() => undefined);
+    }, 700);
+    try {
+      const res = await api.downloadModel({ kind: "piper", id: v.id });
+      const skipped = res.files.every((f) => f.skipped);
+      toast.success(`Voz «${v.name}» ${skipped ? "ya estaba instalada" : "descargada"}`);
+      onInstalled(v.id);
+    } catch (err) {
+      toast.error(`No se pudo descargar «${v.name}»`, { description: downloadErrorMessage(err) });
+    } finally {
+      clearInterval(poll);
+      setBusy((b) => {
+        const next = { ...b };
+        delete next[v.id];
+        return next;
+      });
+    }
+  };
+
+  return (
+    <Section title={`Voces Piper (${voices.length - missing.length}/${voices.length} instaladas)`}>
+      <ul className="flex flex-col gap-1">
+        {voices.map((v) => {
+          const progress = busy[v.id];
+          const downloading = v.id in busy;
+          return (
+            <li key={v.id} className="flex items-center gap-2 rounded-md border px-2 py-1 text-xs">
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">{v.name}</span>
+                <span className="text-[11px] text-muted-foreground">
+                  {v.language}
+                  {v.quality ? ` · ${v.quality}` : ""}
+                  {v.sizeBytes ? ` · ${formatMb(v.sizeBytes)}` : ""}
+                </span>
+                {downloading ? (
+                  <Progress
+                    value={progress ?? 0}
+                    className={progress == null ? "animate-pulse" : ""}
+                  />
+                ) : null}
+              </span>
+              {v.installed ? (
+                <Badge tone="success">Instalada</Badge>
+              ) : (
+                <Button
+                  size="xs"
+                  variant="outline"
+                  disabled={downloading}
+                  tooltip={`Descargar de Hugging Face (rhasspy/piper-voices)${v.sizeBytes ? `, ${formatMb(v.sizeBytes)}` : ""}`}
+                  onClick={() => void download(v)}
+                >
+                  {downloading ? <Spinner className="size-3" /> : <Download />}
+                  {downloading
+                    ? progress != null
+                      ? `${Math.round(progress * 100)} %`
+                      : "Descargando…"
+                    : "Descargar"}
+                </Button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </Section>
+  );
+}
+
+/** Spanish explanation for a failed voice download (codes from the api). */
+export function downloadErrorMessage(err: unknown): string {
+  if (err instanceof ApiRequestError) {
+    if (err.code === "WORKERS_UNAVAILABLE" || err.status === 503)
+      return "Los workers de voz no están corriendo: inicia Studio con start.ps1 y reintenta.";
+    if (err.code === "DOWNLOAD_OFFLINE")
+      return "Sin conexión a Internet (o un proxy bloquea huggingface.co). " + err.message;
+    if (err.code === "DOWNLOAD_FORBIDDEN") return err.message;
+    if (err.code === "DOWNLOAD_CHECKSUM") return err.message;
+  }
+  return errorMessage(err);
 }
 
 function TtsForm() {
@@ -45,8 +161,11 @@ function TtsForm() {
     elevenlabs: config.data?.providers.elevenlabs ?? false,
     openai: config.data?.providers.openai ?? false,
   };
-  const list = (voices.data ?? []).filter((v) => v.provider === provider);
-  const selectedVoice = voice || list[0]?.id || "";
+  const all = provider === "piper" ? withPiperCatalog(voices.data ?? []) : (voices.data ?? []);
+  const list = all.filter((v) => v.provider === provider);
+  const installed = list.filter((v) => v.installed);
+  const selectedVoice =
+    (voice && installed.some((v) => v.id === voice) ? voice : undefined) ?? installed[0]?.id ?? "";
 
   const submit = async () => {
     if (!text.trim() || !selectedVoice) return;
@@ -94,17 +213,25 @@ function TtsForm() {
         <Select
           value={selectedVoice}
           onChange={(e) => setVoice(e.target.value)}
-          disabled={list.length === 0}
+          disabled={installed.length === 0}
         >
-          {list.length === 0 ? <option value="">Sin voces instaladas</option> : null}
-          {list.map((v) => (
-            <option key={v.id} value={v.id} disabled={!v.installed}>
+          {installed.length === 0 ? <option value="">Sin voces instaladas</option> : null}
+          {installed.map((v) => (
+            <option key={v.id} value={v.id}>
               {v.name} · {v.language}
-              {v.installed ? "" : " (no instalada)"}
             </option>
           ))}
         </Select>
       </Label>
+      {provider === "piper" ? (
+        <VoiceDownloads
+          voices={list}
+          onInstalled={(id) => {
+            setVoice(id);
+            voices.reload();
+          }}
+        />
+      ) : null}
       <Label>
         Texto
         <Textarea

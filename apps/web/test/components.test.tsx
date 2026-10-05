@@ -230,6 +230,8 @@ describe("ExportPanel burn subtitles (manual bug 2)", () => {
     });
     fireEvent.click(burn);
     expect(burn.checked).toBe(true);
-    expect(screen.getByText("saldrán dos veces")).toBeTruthy();
+    // Stored in the project (the preview reads it too); covered segments are still not doubled.
+    expect(useProjectStore.getState().project.burnSubtitles).toBe(true);
+    expect(screen.getByText("salvo bajo los animados")).toBeTruthy();
   });
 });

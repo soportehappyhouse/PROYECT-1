@@ -17,15 +17,20 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  Badge,
   EmptyState,
   ErrorNotice,
   NotImplementedNotice,
   Progress,
   Spinner,
 } from "@/components/ui/misc";
-import { api, errorMessage, fileUrl, isNotImplemented } from "@/lib/api";
+import { Dialog } from "@/components/ui/dialog";
+import { saveProjectNow } from "@/hooks/use-project-sync";
+import { api, ApiRequestError, errorMessage, fileUrl, isNotImplemented } from "@/lib/api";
 import { formatBytes, formatTime } from "@/lib/format";
+import { suggestCanvasFit } from "@/lib/canvas-fit";
 import { createId } from "@/lib/ids";
+import { isMotionRenderAsset } from "@/lib/timeline";
 import { cn } from "@/lib/utils";
 import { useJobsStore } from "@/stores/jobs-store";
 import { useMediaStore } from "@/stores/media-store";
@@ -87,14 +92,35 @@ function MediaItem({ asset, selected }: { asset: MediaAsset; selected: boolean }
   const thumb = asset.thumbnailPath ? fileUrl(asset.thumbnailPath) : undefined;
   const select = () => useProjectStore.getState().selectAsset(asset.id);
 
+  const [inUse, setInUse] = useState<string | undefined>(undefined);
   const remove = async () => {
     try {
       await api.deleteMedia(asset.id);
       useMediaStore.getState().remove(asset.id);
     } catch (err) {
+      // Feedback 11: offer to take it off the timeline instead of a dead-end error.
+      if (err instanceof ApiRequestError && err.status === 409 && err.code === "MEDIA_IN_USE")
+        setInUse(err.message);
+      else toast.error("No se pudo eliminar", { description: errorMessage(err) });
+    }
+  };
+  const removeEverywhere = async () => {
+    setInUse(undefined);
+    const removed = useProjectStore.getState().removeClipsUsingAsset(asset.id);
+    try {
+      await saveProjectNow();
+      await api.deleteMedia(asset.id, true);
+      useMediaStore.getState().remove(asset.id);
+      toast.success(`«${asset.name}» borrado`, {
+        description: removed ? `Se quitaron ${removed} clip(s) del timeline.` : undefined,
+      });
+    } catch (err) {
       toast.error("No se pudo eliminar", { description: errorMessage(err) });
     }
   };
+  const motionRender = isMotionRenderAsset(asset);
+  // Proxies only help videos the browser plays from media/ (not renders, images or audio).
+  const proxyApplies = asset.kind === "video" && !motionRender;
   const proxy = async () => {
     try {
       const { jobId } = await api.createProxy(asset.id);
@@ -130,8 +156,17 @@ function MediaItem({ asset, selected }: { asset: MediaAsset; selected: boolean }
           {asset.name}
         </p>
         <p className="truncate text-[11px] text-muted-foreground">{assetMeta(asset)}</p>
-        {!asset.proxyPath && asset.kind === "video" ? (
-          <p className="text-[11px] text-amber-600 dark:text-amber-400">Sin proxy</p>
+        {motionRender ? (
+          <Badge title="Render de motion graphics (overlay con alfa): no necesita proxy">
+            Render{asset.hasAlpha ? " · alfa" : ""}
+          </Badge>
+        ) : !asset.proxyPath && proxyApplies ? (
+          <p
+            className="text-[11px] text-muted-foreground"
+            title="La vista previa usa el original; genera un proxy si se reproduce lento"
+          >
+            Sin proxy
+          </p>
         ) : null}
       </div>
       <div className="flex flex-col gap-0.5 opacity-70 group-hover:opacity-100">
@@ -143,11 +178,12 @@ function MediaItem({ asset, selected }: { asset: MediaAsset; selected: boolean }
           onClick={(e) => {
             e.stopPropagation();
             useProjectStore.getState().addAssetClip(asset);
+            suggestCanvasFit(asset);
           }}
         >
           <Plus />
         </Button>
-        {asset.kind === "video" ? (
+        {proxyApplies ? (
           <Button
             variant="ghost"
             size="icon-sm"
@@ -174,6 +210,23 @@ function MediaItem({ asset, selected }: { asset: MediaAsset; selected: boolean }
           <Trash2 />
         </Button>
       </div>
+      <Dialog open={inUse !== undefined} onClose={() => setInUse(undefined)} title="Medio en uso">
+        <div className="flex flex-col gap-3 text-sm" onPointerDown={(e) => e.stopPropagation()}>
+          <p>{inUse}</p>
+          <p className="text-xs text-muted-foreground">
+            «Quitar del timeline y borrar» elimina los clips que lo usan en este proyecto y borra el
+            archivo. Otros proyectos que lo usen quedarán con un hueco.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setInUse(undefined)}>
+              Cancelar
+            </Button>
+            <Button size="sm" variant="destructive" onClick={() => void removeEverywhere()}>
+              <Trash2 /> Quitar del timeline y borrar
+            </Button>
+          </div>
+        </div>
+      </Dialog>
     </li>
   );
 }

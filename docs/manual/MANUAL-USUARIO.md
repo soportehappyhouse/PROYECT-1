@@ -150,23 +150,26 @@ De izquierda a derecha:
 
 ### 4.2 Los 10 paneles
 
-| Panel               | Para qué sirve                                                                                                                                                                                                                                                                                                                                       |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Media**           | Importar archivos (botón **Importar** o arrastrar y soltar), ver miniatura y datos (duración, resolución, fps, tamaño), **+** para agregar a la línea de tiempo, varita para **Generar proxy**, tacho para borrar, filtro por nombre.                                                                                                                |
-| **Biblioteca**      | Buscar efectos de sonido y música (_Efectos_, _Música_, _Ambiente_), escucharlos, **+** para agregarlos a la línea de tiempo, **Re-escanear** la carpeta de la biblioteca y **subir** sonidos propios.                                                                                                                                               |
-| **Vista previa**    | Reproductor sincronizado con el cursor de la línea de tiempo: ir al inicio, fotograma anterior/siguiente, reproducir/pausar. Muestra el clip bajo el cursor (usa el proxy si existe), el audio, los textos, los subtítulos y los motion ya renderizados.                                                                                             |
-| **Línea de tiempo** | Pistas y clips. Barra: **Pista** (agregar pista de video, audio, texto o motion), **Texto** (clip de texto en el cursor), deshacer/rehacer, tijera (**dividir** en el cursor), tacho, **imán**, tiempo actual / total y zoom.                                                                                                                        |
-| **Propiedades**     | Sin clip seleccionado: nombre y tamaño del proyecto (ancho, alto, FPS y botones _16:9 1080p_, _9:16 vertical_, _1:1_) y datos del medio seleccionado. Con un clip: tiempo (inicio, entrada, salida, velocidad), imagen (opacidad, escala y posición PiP, transiciones), audio (volumen, efectos guardados), texto (fuente, tamaño, color, posición). |
-| **Motion graphics** | Elegir plantilla, editar parámetros, duración y formato; **Renderizar y añadir**, **Añadir sin render** o **Actualizar clip y renderizar**. Arriba se ve qué motores están disponibles (en verde); las plantillas de un motor no disponible no se pueden elegir.                                                                                     |
-| **Voz y audio**     | Tres pestañas: **Texto a voz**, **Efectos** y **RVC**.                                                                                                                                                                                                                                                                                               |
-| **Subtítulos**      | **Transcribir (Whisper)** el clip seleccionado (idioma y modelo), editar segmentos, **Descargar SRT**, elegir **estilo** y **Renderizar subtítulos como motion**.                                                                                                                                                                                    |
-| **Exportar**        | Elegir preset (arranca en _YouTube 1080p_), duplicarlo y editarlo (incluida la casilla **Transparencia**), nombre del archivo, exportar un rango, **Quemar subtítulos en el video** y la lista de **Exportaciones recientes** con **Descargar**.                                                                                                     |
-| **Trabajos**        | Todo lo que tarda (análisis, proxies, renders, voz, transcripción, exportación) con su progreso. Permite cancelar, abrir el resultado, filtrar _Todos/Activos_, limpiar terminados y, en los que fallan, **Reportar**. Arriba indica la conexión: _En vivo_, _Consulta periódica_ o _Sin conexión_.                                                  |
+| Panel               | Para qué sirve                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Media**           | Importar archivos (botón **Importar** o arrastrar y soltar), ver miniatura y datos (duración, resolución, fps, tamaño), **+** para agregar a la línea de tiempo, varita para **Generar proxy**, tacho para borrar (si el medio está en uso ofrece **Quitar del timeline y borrar**), filtro por nombre. Los renders de motion llevan la etiqueta **Render** (no necesitan proxy).                                                          |
+| **Biblioteca**      | Buscar efectos de sonido y música (_Efectos_, _Música_, _Ambiente_), escucharlos, **+** para agregarlos a la línea de tiempo, **Re-escanear** la carpeta de la biblioteca y **subir** sonidos propios.                                                                                                                                                                                                                                     |
+| **Vista previa**    | Reproductor sincronizado con el cursor de la línea de tiempo: ir al inicio, fotograma anterior/siguiente, reproducir/pausar. Muestra el clip bajo el cursor (usa el proxy si existe), el audio, los textos, los subtítulos (dentro del video, como en la exportación) y **todos** los motion renderizados bajo el cursor, en su posición y escala.                                                                                         |
+| **Línea de tiempo** | Pistas y clips. Barra: **Pista** (agregar pista de video, audio, texto o motion), **Texto** (clip de texto en el cursor), deshacer/rehacer, tijera (**dividir** en el cursor), tacho, **imán**, tiempo actual / total y zoom.                                                                                                                                                                                                              |
+| **Propiedades**     | Sin clip seleccionado: nombre y tamaño del proyecto (ancho, alto, FPS y botones _16:9 1080p_, _9:16 vertical_, _1:1_) y datos del medio seleccionado. Con un clip: tiempo (inicio, entrada, salida, velocidad), imagen (opacidad, **escala y posición X/Y en %** con **anclas** arriba/centro/abajo y esquinas —también para motion graphics—, transiciones), audio (volumen, efectos guardados), texto (fuente, tamaño, color, posición). |
+| **Motion graphics** | Elegir plantilla, editar parámetros, duración y formato; **Renderizar y añadir**, **Añadir sin render** o **Actualizar clip y renderizar**. Arriba se ve qué motores están disponibles (en verde); las plantillas de un motor no disponible no se pueden elegir.                                                                                                                                                                           |
+| **Voz y audio**     | Tres pestañas: **Texto a voz**, **Efectos** y **RVC**.                                                                                                                                                                                                                                                                                                                                                                                     |
+| **Subtítulos**      | **Transcribir (Whisper)** el clip seleccionado (idioma y modelo), editar segmentos, **Descargar SRT**, elegir **estilo** y **Renderizar subtítulos como motion**.                                                                                                                                                                                                                                                                          |
+| **Exportar**        | Elegir preset (arranca en _YouTube 1080p_), duplicarlo y editarlo (incluida la casilla **Transparencia**), nombre del archivo, exportar un rango, **Quemar subtítulos en el video** y la lista de **Exportaciones recientes** con **Descargar**.                                                                                                                                                                                           |
+| **Trabajos**        | Todo lo que tarda (análisis, proxies, renders, voz, transcripción, exportación) con su progreso. Permite cancelar, abrir el resultado, filtrar _Todos/Activos_, limpiar terminados y, en los que fallan, **Reportar**. Arriba indica la conexión: _En vivo_, _Consulta periódica_ o _Sin conexión_.                                                                                                                                        |
 
 Cómo se trabaja en la **línea de tiempo**:
 
-- **Mover** un clip: arrastralo (puede pasar a otra pista del mismo tipo).
-- **Recortar**: arrastrá los bordes del clip.
+- **Mover** un clip: arrastralo (puede pasar a otra pista del mismo tipo). En pistas de video,
+  audio y motion **los clips no se superponen**: si lo soltás encima de otro, se pega al final
+  (o al principio) del vecino. Si agregás un clip (o un motion renderizado) en un tramo ocupado,
+  va a otra pista libre o se crea una nueva (_Motion 2_, _Video 2_…), encima de la anterior.
+- **Recortar**: arrastrá los bordes del clip (se frenan en el clip vecino).
 - **Dividir**: poné el cursor y tocá `S` (o la tijera).
 - **Zoom**: `Ctrl` + rueda del mouse, el control deslizante o las teclas `=` y `-`.
 - **Imán** (`N`): pega los clips al 0, al cursor y a los bordes de otros clips.
@@ -235,7 +238,10 @@ _Desde (s)_ / _Hasta (s)_.
 
 **Decidí primero el lienzo** (Propiedades, sin clip seleccionado):
 
-- **Video grabado vertical**: tocá **9:16 vertical** (1080×1920).
+- **Video grabado vertical**: tocá **9:16 vertical** (1080×1920) o **Ajustar lienzo al video**,
+  que copia la forma del primer video del timeline (un video de WhatsApp de 478×850 da un lienzo
+  de 1080×1920). Si soltás un video vertical en un proyecto 16:9, Studio te lo ofrece con un aviso
+  **Ajustar lienzo**.
 - **Video horizontal**: dejá el proyecto en 16:9. Al exportar con el preset vertical, Studio pone
   el cuadro completo centrado con un **fondo desenfocado** arriba y abajo. (Si en cambio ponés el
   proyecto en 9:16 con un video horizontal, el video queda con **barras negras**: no hay recorte ni
@@ -252,14 +258,24 @@ Pasos:
    _Titular arriba_, más tamaño, posición, colores, animación y mayúsculas.
 4. **Subtítulos simples (quemados)**: con eso alcanza. Al exportar, con la casilla
    **Quemar subtítulos en el video** marcada, los segmentos se queman con FFmpeg usando la fuente,
-   tamaño, color, posición y mayúsculas del estilo (sin animación).
+   tamaño, color, posición (_Arriba_, _Centro_, _Abajo_) y mayúsculas del estilo (sin animación).
+   Los subtítulos **se ajustan al rectángulo del video**: con un video vertical dentro de un
+   lienzo 16:9 el texto se corta en líneas dentro del video y no se sale por los costados. La
+   vista previa los muestra igual que la exportación.
 5. **Subtítulos animados (palabra a palabra)**: tocá **Renderizar subtítulos como motion**. Se
    crea un clip en la pista **Motion** con la plantilla _Subtítulos animados_ que empieza donde
    empieza el primer segmento, y se renderiza con fondo transparente (mirá **Trabajos**). Para
    cambiar el estilo de la animación (`highlight`, `karaoke`, `pop`, `box`), seleccioná ese clip,
    tocá _Editar el clip motion seleccionado_ en **Motion graphics** y **Actualizar clip y
-   renderizar**. Cuando hay un clip de subtítulos animados, la casilla **Quemar subtítulos en el
-   video** del panel Exportar arranca **desmarcada**, así no salen dos veces.
+   renderizar**. Los subtítulos animados también se acomodan dentro del video (tamaño y ancho
+   según el video, no según el lienzo). Cuando hay un clip de subtítulos animados, la casilla
+   **Quemar subtítulos en el video** del panel Exportar arranca **desmarcada**; y aunque la
+   marques, los tramos que ya muestran los animados **no se queman de nuevo** (ni en la vista
+   previa ni en la exportación), así no salen dos veces.
+   **Quitar silencios**: con el clip seleccionado y ya transcrito, en **Subtítulos → Quitar
+   silencios** elegí la _Pausa mínima_ (600 ms por defecto) y tocá **Quitar silencios**: se cortan
+   las pausas entre palabras y el resto del clip y los subtítulos se corren para cerrar los huecos.
+   Si ya habías renderizado los subtítulos animados, volvé a renderizarlos.
 6. Exportá con **Reels / TikTok (9:16)** (1080×1920, 30 fps) o **YouTube Shorts (9:16)**
    (1080×1920, 60 fps).
 
@@ -611,7 +627,14 @@ Ejemplo de parámetros de un **Rótulo** (lo que la API recibe en `POST /api/mot
 | `es_ES-mls_9972-low`    | MLS 9972 (Espana, baja)          | es-ES  | low                               |
 | `es_ES-carlfm-x_low`    | Carlfm (Espana, muy baja)        | es-ES  | x_low                             |
 
-Las voces no instaladas aparecen como _(no instalada)_. Para bajar otra (necesita internet):
+En **Voz y audio → Texto a voz** (proveedor Piper) la lista **Voces Piper** muestra todas las
+voces del catálogo (Argentina, España y México) con su tamaño. Las que no están instaladas tienen
+el botón **Descargar**: baja la voz desde Hugging Face (`rhasspy/piper-voices`), muestra el
+porcentaje y, al terminar, la deja elegida en _Voz_. Se verifica el tamaño y el md5 contra el
+catálogo oficial. Si falla, el aviso dice por qué: **sin conexión** (o un proxy bloquea
+huggingface.co), **HTTP 403** (la red o Hugging Face rechazó la descarga), **checksum** (el archivo
+llegó dañado: se descarta, reintentá) o **workers apagados** (iniciá Studio con `start.ps1`).
+También se puede bajar por consola:
 
 ```powershell
 apps\workers\.venv\Scripts\python.exe -m studio_workers.models_cli --piper es_MX-claude-high
@@ -672,27 +695,33 @@ respaldo (algo menos natural). El build "full" de Gyan, que instala `setup.ps1`,
 
 ## 10. Atajos de teclado
 
-Todos se cambian en **Ajustes → Atajos**. Mientras escribís en un campo de texto solo funcionan
-`Ctrl+K`, `Ctrl+S` y `Ctrl+E`.
+Todos se cambian en **Ajustes → Atajos** (ahí también aparecen todos). Mientras escribís en un
+campo de texto solo funcionan `Ctrl+K`, `Ctrl+S` y `Ctrl+E`; `Espacio` reproduce/pausa aunque un
+botón tenga el foco (no lo "aprieta" dos veces). Al pasar el mouse por cualquier botón de ícono
+aparece qué hace y su atajo, por ejemplo _Cortar en el cursor (S)_.
 
-| Acción                     | Atajo por defecto | Grupo           |
-| -------------------------- | ----------------- | --------------- |
-| Reproducir / pausar        | `Espacio`         | Reproducción    |
-| Ir al inicio               | `Inicio`          | Reproducción    |
-| Fotograma anterior         | `←`               | Reproducción    |
-| Fotograma siguiente        | `→`               | Reproducción    |
-| Dividir clip en el cursor  | `S`               | Línea de tiempo |
-| Eliminar clip seleccionado | `Supr`            | Línea de tiempo |
-| Acercar                    | `=`               | Línea de tiempo |
-| Alejar                     | `-`               | Línea de tiempo |
-| Activar / desactivar imán  | `N`               | Línea de tiempo |
-| Deshacer                   | `Ctrl+Z`          | Edición         |
-| Rehacer                    | `Ctrl+Shift+Z`    | Edición         |
-| Exportar (abre el panel)   | `Ctrl+E`          | Proyecto        |
-| Guardar proyecto           | `Ctrl+S`          | Proyecto        |
-| Paleta de comandos         | `Ctrl+K`          | Interfaz        |
-| Restaurar layout           | `Ctrl+Shift+R`    | Interfaz        |
-| Zoom de la línea de tiempo | `Ctrl` + rueda    | (fijo)          |
+| Acción                        | Atajo por defecto      | Grupo           |
+| ----------------------------- | ---------------------- | --------------- |
+| Reproducir / pausar           | `Espacio`              | Reproducción    |
+| Ir al inicio                  | `Inicio`               | Reproducción    |
+| Ir al final                   | `Fin`                  | Reproducción    |
+| Reproducir hacia atrás        | `J` (otra vez: 2×, 4×) | Reproducción    |
+| Pausa                         | `K`                    | Reproducción    |
+| Reproducir hacia adelante     | `L` (otra vez: 2×, 4×) | Reproducción    |
+| Fotograma anterior            | `←`                    | Reproducción    |
+| Fotograma siguiente           | `→`                    | Reproducción    |
+| Cortar (dividir) en el cursor | `S`                    | Línea de tiempo |
+| Eliminar clip seleccionado    | `Supr`                 | Línea de tiempo |
+| Acercar                       | `=`                    | Línea de tiempo |
+| Alejar                        | `-`                    | Línea de tiempo |
+| Activar / desactivar imán     | `N`                    | Línea de tiempo |
+| Deshacer                      | `Ctrl+Z`               | Edición         |
+| Rehacer                       | `Ctrl+Shift+Z`         | Edición         |
+| Exportar (abre el panel)      | `Ctrl+E`               | Proyecto        |
+| Guardar proyecto              | `Ctrl+S`               | Proyecto        |
+| Paleta de comandos            | `Ctrl+K`               | Interfaz        |
+| Restaurar layout              | `Ctrl+Shift+R`         | Interfaz        |
+| Zoom de la línea de tiempo    | `Ctrl` + rueda         | (fijo)          |
 
 ## 11. Variables de `.env` que podés tocar
 
@@ -752,7 +781,7 @@ en `false`).
 | ElevenLabs/OpenAI dicen **(sin API key)**                                                      | Falta la clave en `.env`.                                                                                  | Poné la clave y reiniciá con `stop.ps1` + `start.ps1`.                                                                                                                     |
 | Motor de motion en gris o plantilla **(no disponible)**                                        | Falta el Chrome Headless Shell de Remotion; el motor _motion-canvas_ siempre figura así (es un esqueleto). | Pasá el mouse sobre el motor para ver el motivo; para Remotion, desde la carpeta del proyecto: `pnpm --filter @studio/remotion browser:ensure`.                            |
 | **Parámetros inválidos** o error al renderizar motion                                          | Un valor fuera de rango, un color inválido o JSON mal escrito.                                             | Leé el mensaje (dice el campo). Para colores usá `#rrggbb`, `rgba(...)` o `transparent`.                                                                                   |
-| Los subtítulos salen **dos veces** en la exportación                                           | Quedó marcada **Quemar subtítulos en el video** además del clip de subtítulos animados.                    | Desmarcala en el panel Exportar antes de exportar.                                                                                                                         |
+| Los subtítulos salen **dos veces** (versiones anteriores)                                      | Quedaba marcada **Quemar subtítulos en el video** además del clip de subtítulos animados.                  | Corregido: los tramos cubiertos por subtítulos animados ya no se queman ni se dibujan en la vista previa.                                                                  |
 | La exportación no arranca y dice que hay clips motion sin renderizar o medios borrados         | Un clip motion está _Sin renderizar_, o un clip usa un medio que ya no existe.                             | Leé el mensaje (lista los clips): renderizalos (**Actualizar clip y renderizar**) o quitá esos clips.                                                                      |
 | No puedo borrar un medio: dice que **se usa en el proyecto …**                                 | El medio tiene clips en la línea de tiempo de ese proyecto.                                                | Quitá sus clips del timeline y volvé a borrarlo.                                                                                                                           |
 | Un video tapa a otro                                                                           | Orden de pistas: la de más abajo en la lista queda encima.                                                 | Mové los clips a la pista correcta o usá Escala/Posición (PiP).                                                                                                            |
@@ -980,15 +1009,18 @@ Comprobadas en el código; están para que no pierdas tiempo:
 - **Lottie importado** (`.json`) puesto directamente en la línea de tiempo no se exporta: usá la
   plantilla **Animación Lottie** con la URL del archivo.
 - **Vista previa**: muestra un solo clip de video a la vez (el de la primera pista de video de la
-  lista que tenga algo bajo el cursor, al revés que la exportación) y no compone PiP ni varias
-  pistas; la **exportación sí**. La vista previa de motion en su panel es
-  aproximada hasta que renderizás.
+  lista que tenga algo bajo el cursor) en su posición/escala; los motion renderizados sí se apilan
+  todos. La vista previa de motion en su panel es aproximada hasta que renderizás.
+- **Quitar silencios** usa solo las marcas de tiempo por palabra de Whisper (no analiza el audio
+  con `silencedetect`) y no quita muletillas; después hay que volver a renderizar los subtítulos
+  animados. `J` (hacia atrás) mueve el cursor pero el video se ve a saltos (el navegador no
+  reproduce hacia atrás).
 - **Sin recorte (crop) ni zoom** en la interfaz: un video horizontal en un proyecto vertical queda
   con barras.
 - **Un proyecto a la vez**: no hay lista para reabrir proyectos anteriores.
 - **No se pueden reordenar pistas** desde la interfaz.
-- El estilo de subtítulos no se recarga desde el proyecto al abrir otro navegador (queda el
-  guardado en ese navegador).
+- El panel Subtítulos muestra el estilo guardado en este navegador; la vista previa y la
+  exportación usan el del proyecto.
 - Motor **Motion Canvas**: solo esqueleto (no disponible; sus plantillas no se pueden elegir).
 - Nunca probado en un Windows real por el equipo que lo armó (se desarrolló en Linux): las
   recetas de [§14](#14-pruebas-que-podés-hacer-hoy) sirven justamente para eso.

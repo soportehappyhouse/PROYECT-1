@@ -31,6 +31,7 @@ export const ModelDownloadRequestSchema = z.object({
   includeLegacy: z.boolean().default(false),
 });
 export type ModelDownloadRequest = z.infer<typeof ModelDownloadRequestSchema>;
+export type ModelDownloadRequestInput = z.input<typeof ModelDownloadRequestSchema>;
 
 export const ModelDownloadResultSchema = z.object({
   kind: z.string(),
@@ -45,6 +46,14 @@ export const ModelDownloadResultSchema = z.object({
   ),
 });
 export type ModelDownloadResult = z.infer<typeof ModelDownloadResultSchema>;
+
+/** Bytes already written for an in-flight model download (the `.part` file in MODELS_DIR). */
+export const ModelDownloadProgressSchema = z.object({
+  bytes: z.number().int().nonnegative(),
+  /** True while the `.part` file exists (download running). */
+  active: z.boolean(),
+});
+export type ModelDownloadProgress = z.infer<typeof ModelDownloadProgressSchema>;
 
 export const WorkerJobProgressSchema = z.object({
   jobId: z.string(),

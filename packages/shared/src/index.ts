@@ -2,6 +2,7 @@ export * from "./api.js";
 export * from "./common.js";
 export * from "./dashboard.js";
 export * from "./export.js";
+export * from "./frame.js";
 export * from "./job.js";
 export * from "./library.js";
 export * from "./media.js";

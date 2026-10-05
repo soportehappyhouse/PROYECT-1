@@ -135,3 +135,78 @@ describe("project store", () => {
     expect(loadLocalProject().tracks).toHaveLength(4);
   });
 });
+
+describe("no overlapping clips on video/audio/motion tracks (feedback 5)", () => {
+  const motionClip = (id: string, start: number, dur: number) => ({
+    id,
+    start,
+    in: 0,
+    out: dur,
+    speed: 1,
+    volume: 1,
+    opacity: 1,
+    voiceEffects: [],
+    motion: {
+      schemaVersion: 1 as const,
+      template: "title-card",
+      props: {},
+      durationSec: dur,
+      fps: 30,
+      width: 1920,
+      height: 1080,
+      format: "webm-vp9-alpha" as const,
+      includeAudio: false,
+    },
+  });
+  const motionTracks = () =>
+    useProjectStore.getState().project.tracks.filter((t) => t.kind === "motion");
+
+  it("puts a motion clip added over an occupied range on «Motion 2»", () => {
+    const s = useProjectStore.getState();
+    s.addClip("motion", motionClip("m1", 0, 10));
+    useProjectStore.getState().addClip("motion", motionClip("m2", 0, 10));
+    useProjectStore.getState().addClip("motion", motionClip("m3", 12, 2));
+    const tracks = motionTracks();
+    expect(tracks.map((t) => t.name)).toEqual(["Motion 1", "Motion 2"]);
+    expect(tracks[0]!.clips.map((c) => c.id)).toEqual(["m1", "m3"]);
+    expect(tracks[1]!.clips.map((c) => c.id)).toEqual(["m2"]);
+    // a third one at 2 s overlaps both tracks -> Motion 3
+    useProjectStore.getState().addClip("motion", motionClip("m4", 2, 3));
+    expect(motionTracks().map((t) => t.name)).toEqual(["Motion 1", "Motion 2", "Motion 3"]);
+  });
+
+  it("drops onto an occupied video range land on a new video track", () => {
+    const s = useProjectStore.getState();
+    const video = s.project.tracks.find((t) => t.kind === "video")!;
+    s.addAssetClip(asset, { start: 0, trackId: video.id });
+    const b = useProjectStore.getState().addAssetClip(asset, { start: 3, trackId: video.id });
+    expect(b.trackId).not.toBe(video.id);
+    expect(
+      useProjectStore.getState().project.tracks.filter((t) => t.kind === "video"),
+    ).toHaveLength(2);
+  });
+
+  it("moving onto a neighbour snaps to its edge; trimming stops at it", () => {
+    const s = useProjectStore.getState();
+    const video = s.project.tracks.find((t) => t.kind === "video")!;
+    const a = s.addAssetClip(asset, { start: 0, trackId: video.id }); // 0–8
+    const b = useProjectStore.getState().addAssetClip(asset, { start: 10, trackId: video.id }); // 10–18
+    useProjectStore.getState().moveClip(b.id, 6);
+    const moved = clips().find((c) => c.id === b.id)!;
+    expect(moved.start).toBe(8); // end of the previous clip
+    useProjectStore.getState().moveClip(b.id, 1);
+    expect(clips().find((c) => c.id === b.id)!.start).toBe(8);
+    useProjectStore.getState().trimClip(b.id, "start", 2);
+    expect(clips().find((c) => c.id === b.id)!.start).toBe(8);
+    useProjectStore.getState().moveClip(b.id, 20);
+    useProjectStore.getState().trimClip(a.id, "end", 30, 100);
+    expect(clipEnd(clips().find((c) => c.id === a.id)!)).toBe(20);
+  });
+
+  it("render assets (renders/*.webm) go to the Motion track, not over the video", () => {
+    const render: MediaAsset = { ...asset, id: "r1", path: "renders/job.webm", hasAlpha: true };
+    const c = useProjectStore.getState().addAssetClip(render, { start: 0 });
+    const track = useProjectStore.getState().project.tracks.find((t) => t.id === c.trackId)!;
+    expect(track.kind).toBe("motion");
+  });
+});

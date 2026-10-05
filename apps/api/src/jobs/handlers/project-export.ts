@@ -82,6 +82,7 @@ export function createProjectExportHandler(
           ...(a.hasAlpha !== undefined && { hasAlpha: a.hasAlpha }),
           ...(a.videoCodec && { videoCodec: a.videoCodec }),
           ...(a.durationSec !== undefined && { durationSec: a.durationSec }),
+          ...(a.width && a.height && { width: a.width, height: a.height }),
         });
       }
       checkAborted(ctx);

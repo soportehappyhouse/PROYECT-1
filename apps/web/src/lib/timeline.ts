@@ -79,8 +79,21 @@ export function clipsAt(
   return out;
 }
 
+/**
+ * A rendered motion overlay (motion.render output: a video under renders/, usually with alpha).
+ * Feedback 1/12: these go to Motion tracks and never need a proxy.
+ */
+export function isMotionRenderAsset(
+  asset: Pick<MediaAsset, "kind" | "path"> & Partial<Pick<MediaAsset, "hasAlpha" | "name">>,
+): boolean {
+  return asset.kind === "video" && asset.path.startsWith("renders/");
+}
+
 /** Which track kind accepts a media kind. */
-export function trackKindForAsset(asset: Pick<MediaAsset, "kind">): TrackKind {
+export function trackKindForAsset(
+  asset: Pick<MediaAsset, "kind"> & Partial<Pick<MediaAsset, "path">>,
+): TrackKind {
+  if (asset.path && isMotionRenderAsset({ kind: asset.kind, path: asset.path })) return "motion";
   switch (asset.kind) {
     case "audio":
       return "audio";
@@ -309,4 +322,63 @@ export function firstFreeStart(track: Track, from: number, duration: number): nu
     if (start < end) start = end;
   }
   return roundTime(start);
+}
+
+/** Track kinds whose clips must not overlap (feedback 5); text clips may stack freely. */
+export const NO_OVERLAP_KINDS: readonly TrackKind[] = ["video", "audio", "motion"];
+
+/** Whether [start, start + duration) hits another clip of the track. */
+export function overlapsOnTrack(
+  track: Pick<Track, "clips">,
+  start: number,
+  duration: number,
+  excludeClipId?: string,
+): boolean {
+  const end = start + duration;
+  return track.clips.some(
+    (c) => c.id !== excludeClipId && start < clipEnd(c) - 1e-3 && end > c.start + 1e-3,
+  );
+}
+
+/**
+ * Closest start to `desired` where a clip of `duration` fits on the track without overlapping
+ * (snaps to the end of the previous clip or before the next one; after the last clip always fits).
+ */
+export function nearestFreeStart(
+  track: Pick<Track, "clips">,
+  desired: number,
+  duration: number,
+  excludeClipId?: string,
+): number {
+  const want = Math.max(0, desired);
+  if (!overlapsOnTrack(track, want, duration, excludeClipId)) return want;
+  const others = sortClips(track.clips.filter((c) => c.id !== excludeClipId));
+  const candidates: number[] = [];
+  let prevEnd = 0;
+  for (const c of others) {
+    // gap [prevEnd, c.start): try both edges
+    if (c.start - prevEnd >= duration - 1e-3) {
+      candidates.push(Math.min(Math.max(want, prevEnd), c.start - duration));
+    }
+    prevEnd = Math.max(prevEnd, clipEnd(c));
+  }
+  candidates.push(Math.max(want, prevEnd));
+  let best = candidates[0]!;
+  for (const c of candidates) if (Math.abs(c - want) < Math.abs(best - want)) best = c;
+  return roundTime(Math.max(0, best));
+}
+
+/** Limits for trimming a clip's edges so it never covers its neighbours. */
+export function trimLimits(
+  track: Pick<Track, "clips">,
+  clip: Clip,
+): { minStart: number; maxEnd: number } {
+  let minStart = 0;
+  let maxEnd = Infinity;
+  for (const c of track.clips) {
+    if (c.id === clip.id) continue;
+    if (clipEnd(c) <= clip.start + 1e-3) minStart = Math.max(minStart, clipEnd(c));
+    else if (c.start >= clipEnd(clip) - 1e-3) maxEnd = Math.min(maxEnd, c.start);
+  }
+  return { minStart, maxEnd };
 }

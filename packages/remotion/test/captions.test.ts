@@ -7,6 +7,7 @@ import {
   transcriptToCaptions,
 } from "../src/lib/captions.js";
 import { isImageSrc, splitKinetic } from "../src/lib/anim.js";
+import { captionFrame } from "../src/lib/captions.js";
 
 describe("captions", () => {
   it("maps word timestamps (seconds) to Caption[] (ms) with leading spaces", () => {
@@ -77,5 +78,29 @@ describe("anim helpers", () => {
   it("detects images by extension", () => {
     expect(isImageSrc("http://x/files/media/a.JPG?v=1")).toBe(true);
     expect(isImageSrc("http://x/files/media/a.mp4")).toBe(false);
+  });
+});
+
+describe("captionFrame (feedback 4: captions fit the video rect)", () => {
+  it("uses the canvas without videoRect", () => {
+    const f = captionFrame({}, 1920, 1080);
+    expect(f.unit).toBe(1);
+    expect(f.safe).toEqual(autoSafeArea(1920, 1080));
+  });
+  it("lays captions out inside a pillarboxed vertical clip", () => {
+    // 478×850 fitted in 1920×1080: 607 px wide at x = 656 (34.2 %).
+    const r = { x: 34.19, y: 0, width: 31.62, height: 100 };
+    const f = captionFrame({ videoRect: r }, 1920, 1080);
+    expect(f.safe.left).toBeGreaterThan(34);
+    expect(f.safe.right).toBeGreaterThan(34);
+    expect(f.unit).toBeCloseTo(607 / 1080, 2);
+    // an explicit safeArea is applied inside the rect
+    const g = captionFrame(
+      { videoRect: r, safeArea: { top: 0, bottom: 0, left: 0, right: 0 } },
+      1920,
+      1080,
+    );
+    expect(g.safe.left).toBeCloseTo(34.19, 2);
+    expect(g.safe.bottom).toBe(0);
   });
 });

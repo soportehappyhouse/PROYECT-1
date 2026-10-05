@@ -102,6 +102,11 @@ export const ProjectSchema = z.object({
   subtitles: z.array(SubtitleSegmentSchema).default([]),
   /** Style used to burn/animate `subtitles` (absent = api default). */
   captionStyle: CaptionStyleSchema.optional(),
+  /**
+   * "Quemar subtítulos" chosen in the Export panel (absent = defaultBurnSubtitles). The preview
+   * uses the same value so both show the same subtitles.
+   */
+  burnSubtitles: z.boolean().optional(),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
 });
@@ -123,6 +128,14 @@ export function hasAnimatedCaptions(project: Pick<Project, "tracks">): boolean {
  */
 export function defaultBurnSubtitles(project: Pick<Project, "tracks">): boolean {
   return !hasAnimatedCaptions(project);
+}
+
+/** ExportRequest.burnSubtitles ?? Project.burnSubtitles ?? defaultBurnSubtitles(project). */
+export function effectiveBurnSubtitles(
+  project: Pick<Project, "tracks" | "burnSubtitles">,
+  override?: boolean,
+): boolean {
+  return override ?? project.burnSubtitles ?? defaultBurnSubtitles(project);
 }
 
 export const CreateProjectSchema = z.object({

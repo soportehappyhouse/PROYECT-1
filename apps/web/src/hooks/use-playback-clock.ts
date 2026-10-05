@@ -16,7 +16,12 @@ export function usePlaybackClock(): void {
       const dt = (now - last) / 1000;
       last = now;
       const end = projectDuration(store.project);
-      const next = store.playhead + dt;
+      const next = store.playhead + dt * store.playbackRate;
+      if (next <= 0 && store.playbackRate < 0) {
+        store.setPlayhead(0);
+        store.setPlaying(false);
+        return;
+      }
       if (end > 0 && next >= end) {
         store.setPlayhead(end);
         store.setPlaying(false);

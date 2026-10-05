@@ -432,6 +432,13 @@ export function hexToAssColour(hex: string): string {
   return `&H${alpha}${m[3]}${m[2]}${m[1]}`.toUpperCase();
 }
 
+/** ASS v4+ numpad alignment (1-9) -> legacy SSA code used by libass internally / force_style. */
+export function numpadToSsaAlignment(numpad: number): number {
+  const n = Math.min(9, Math.max(1, Math.round(numpad)));
+  const col = ((n - 1) % 3) + 1;
+  return n <= 3 ? col : n <= 6 ? col + 8 : col + 4;
+}
+
 export function forceStyle(style: SubtitleStyle): string {
   const s: string[] = [];
   if (style.fontName) s.push(`FontName=${style.fontName}`);
@@ -439,7 +446,12 @@ export function forceStyle(style: SubtitleStyle): string {
   s.push(`PrimaryColour=${style.primaryColour ?? "&H00FFFFFF"}`);
   s.push(`OutlineColour=${style.outlineColour ?? "&H00000000"}`);
   s.push("BorderStyle=1", `Outline=${style.outline ?? 2}`);
-  s.push(`Alignment=${style.alignment ?? 2}`, `MarginV=${style.marginV ?? 40}`);
+  // libass applies force_style values raw, and it stores alignment as legacy SSA codes (1-3 bottom,
+  // 5-7 top, 9-11 middle): numpad 5 would land top-left. Convert numpad -> SSA.
+  s.push(
+    `Alignment=${numpadToSsaAlignment(style.alignment ?? 2)}`,
+    `MarginV=${style.marginV ?? 40}`,
+  );
   return s.join(",");
 }
 

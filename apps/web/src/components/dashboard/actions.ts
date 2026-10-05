@@ -2,6 +2,7 @@ import { toast } from "sonner";
 import { saveProjectNow } from "@/hooks/use-project-sync";
 import type { ShortcutActionId } from "@/lib/shortcuts";
 import { projectDuration, stepFrame } from "@/lib/timeline";
+import { focusAssistant } from "@/stores/agent-store";
 import { keyOrPause, REFRAME_OWNER, useKeyframeStore } from "@/stores/keyframe-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -85,6 +86,10 @@ export function runAction(id: ShortcutActionId): void {
     case "layout.reset":
       s.restoreDefaultLayout();
       toast.message("Layout restaurado");
+      break;
+    case "assistant.open":
+      showPanel("assistant");
+      focusAssistant();
       break;
   }
 }

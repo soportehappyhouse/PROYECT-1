@@ -110,6 +110,12 @@ export function CommandPalette() {
         run: () => cutAtScenes(),
       },
       {
+        id: "ai:assistant-settings",
+        group: "IA local",
+        label: "Ajustes del asistente local (modelo, evaluar modelos)",
+        run: () => s().setSettingsOpen(true, "assistant"),
+      },
+      {
         id: "ai:packs",
         group: "IA local",
         label: "Paquetes de IA y test de rendimiento",

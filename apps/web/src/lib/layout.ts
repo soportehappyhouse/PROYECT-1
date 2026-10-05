@@ -2,8 +2,11 @@ import type { PanelId, PanelLayout } from "@studio/shared";
 import { DEFAULT_DASHBOARD_SETTINGS } from "@studio/shared";
 import { z } from "zod";
 
-/** Dashboard panels (= shared `PanelIdSchema`, including `export`). */
-export type WebPanelId = PanelId;
+/**
+ * Dashboard panels: shared `PanelIdSchema` + `assistant` (Sprint 3; it lives only in the dockview
+ * layout, the contract `panels` array does not list it).
+ */
+export type WebPanelId = PanelId | "assistant";
 
 export interface PanelInfo {
   id: WebPanelId;
@@ -22,6 +25,7 @@ export const PANELS: readonly PanelInfo[] = [
   { id: "subtitles", title: "Subtítulos", description: "Transcripción y estilos" },
   { id: "export", title: "Exportar", description: "Presets y exportación" },
   { id: "jobs", title: "Trabajos", description: "Progreso de tareas" },
+  { id: "assistant", title: "Asistente", description: "Editar con comandos (IA local)" },
 ];
 
 export const PANEL_IDS = PANELS.map((p) => p.id);
@@ -99,6 +103,7 @@ const DEFAULT_PLACEMENT: Record<
   export: { anchor: "inspector", direction: "within", inactive: true },
   timeline: { direction: "below" },
   jobs: { anchor: "timeline", direction: "within", inactive: true },
+  assistant: { anchor: "inspector", direction: "within", inactive: true },
 };
 
 /** Panels shown by the default layout (the shared defaults hide subtitles/jobs; we keep them as tabs). */
@@ -140,6 +145,7 @@ export function buildDefaultLayout(api: LayoutBuilderApi): void {
     "voice",
     "subtitles",
     "export",
+    "assistant",
     "timeline",
     "jobs",
   ];
@@ -152,6 +158,7 @@ const AREA_BY_PANEL = Object.fromEntries(
 
 /** Contract-shaped `panels` array derived from the open dockview panels. */
 export function toPanelLayouts(openPanels: readonly WebPanelId[]): PanelLayout[] {
+  // `assistant` is not in the shared enum: its placement travels in `ui.layout` only.
   return DEFAULT_DASHBOARD_SETTINGS.panels.map((p) => ({
     id: p.id,
     area: AREA_BY_PANEL[p.id],

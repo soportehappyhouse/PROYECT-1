@@ -11,8 +11,11 @@ import type { AnyJobType } from "@/lib/ai-types";
 import { api, errorMessage, isNotImplemented } from "@/lib/api";
 import { addBreadcrumb } from "./breadcrumbs-store";
 
-/** Includes the Sprint 1 types before @studio/shared lists them (AnyJobType). */
-export const JOB_TYPE_LABELS: Record<AnyJobType, string> = {
+/**
+ * Every shared job type plus the ones the api may add before @studio/shared lists them
+ * (`agent.eval`, TODO(integration)).
+ */
+export const JOB_TYPE_LABELS: Record<AnyJobType, string> & Record<string, string> = {
   "media.probe": "Analizar medio",
   "media.proxy": "Generar proxy",
   "motion.render": "Render motion",
@@ -32,11 +35,32 @@ export const JOB_TYPE_LABELS: Record<AnyJobType, string> = {
   "vision.track": "Seguir objeto",
   "vision.reframe": "Reencuadre",
   "timeline.track-to-keyframes": "Seguimiento a keyframes",
+  "agent.apply": "Asistente: aplicar plan",
+  "agent.eval": "Asistente: evaluar modelos",
+};
+
+/** Packs whose download gets its own label in the Jobs panel and toasts. */
+const PACK_JOB_LABELS: Record<string, string> = {
+  "agent-llm": "Descargar modelo del asistente (Ollama)",
 };
 
 /** Label of any job type (unknown future types show their id). */
 export function jobTypeLabel(type: string): string {
-  return (JOB_TYPE_LABELS as Record<string, string>)[type] ?? type;
+  return JOB_TYPE_LABELS[type] ?? type;
+}
+
+/** Pack id of a packs.download job payload (`{packId}` or `{pack_id}`/`{id}`). */
+export function jobPackId(job: Pick<Job, "type" | "payload">): string | undefined {
+  if (job.type !== "packs.download") return undefined;
+  const p = job.payload as { packId?: unknown; pack_id?: unknown; id?: unknown } | null | undefined;
+  const id = p?.packId ?? p?.pack_id ?? p?.id;
+  return typeof id === "string" ? id : undefined;
+}
+
+/** Label of a job: the type label, specialized for some packs (agent-llm). */
+export function jobLabel(job: Pick<Job, "type" | "payload">): string {
+  const pack = jobPackId(job);
+  return (pack && PACK_JOB_LABELS[pack]) || jobTypeLabel(job.type);
 }
 
 export const JOB_STATUS_LABELS: Record<Job["status"], string> = {

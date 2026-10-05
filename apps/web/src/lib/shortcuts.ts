@@ -19,7 +19,8 @@ export type ShortcutActionId =
   | "project.export"
   | "project.save"
   | "palette.open"
-  | "layout.reset";
+  | "layout.reset"
+  | "assistant.open";
 
 export interface ShortcutActionInfo {
   id: ShortcutActionId;
@@ -113,6 +114,12 @@ export const SHORTCUT_ACTIONS: readonly ShortcutActionInfo[] = [
   { id: "project.save", label: "Guardar proyecto", group: "Proyecto", defaultKeys: "Ctrl+S" },
   { id: "palette.open", label: "Paleta de comandos", group: "Interfaz", defaultKeys: "Ctrl+K" },
   { id: "layout.reset", label: "Restaurar layout", group: "Interfaz", defaultKeys: "Ctrl+Shift+R" },
+  {
+    id: "assistant.open",
+    label: "Asistente: escribir un comando",
+    group: "Interfaz",
+    defaultKeys: "Ctrl+Shift+A",
+  },
 ];
 
 export type ShortcutMap = Record<ShortcutActionId, string>;

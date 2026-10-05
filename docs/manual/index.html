@@ -353,7 +353,7 @@
             <a href="#4-recorrido-por-el-dashboard">4. Recorrido por el dashboard</a>
           </li>
           <li class="d3"><a href="#41-encabezado">4.1 Encabezado</a></li>
-          <li class="d3"><a href="#42-los-10-paneles">4.2 Los 10 paneles</a></li>
+          <li class="d3"><a href="#42-los-11-paneles">4.2 Los 11 paneles</a></li>
           <li class="d3"><a href="#43-personalizar">4.3 Personalizar</a></li>
           <li class="d3"><a href="#44-guardado-del-proyecto">4.4 Guardado del proyecto</a></li>
           <li class="d2"><a href="#5-flujos-paso-a-paso">5. Flujos paso a paso</a></li>
@@ -464,6 +464,17 @@
             <a href="#186-reencuadrar-a-916--11--45">18.6 Reencuadrar a 9:16 / 1:1 / 4:5</a>
           </li>
           <li class="d3"><a href="#187-problemas-frecuentes">18.7 Problemas frecuentes</a></li>
+          <li class="d2"><a href="#19-asistente-local">19. Asistente local</a></li>
+          <li class="d3"><a href="#191-qué-puede-hacer">19.1 Qué puede hacer</a></li>
+          <li class="d3"><a href="#192-cómo-se-usa">19.2 Cómo se usa</a></li>
+          <li class="d3">
+            <a href="#193-cómo-escribir-buenos-comandos">19.3 Cómo escribir buenos comandos</a>
+          </li>
+          <li class="d3">
+            <a href="#194-ajustes--asistente-local">19.4 Ajustes → Asistente local</a>
+          </li>
+          <li class="d3"><a href="#195-límites">19.5 Límites</a></li>
+          <li class="d3"><a href="#196-privacidad">19.6 Privacidad</a></li>
         </ol>
       </nav>
       <main>
@@ -796,7 +807,7 @@
             <a href="#13-cómo-reportar-un-error">§13</a>).
           </li>
         </ul>
-        <h3 id="42-los-10-paneles">4.2 Los 10 paneles</h3>
+        <h3 id="42-los-11-paneles">4.2 Los 11 paneles</h3>
         <div class="table-wrap">
           <table>
             <thead>
@@ -909,6 +920,16 @@
                   <em>Todos/Activos</em>, limpiar terminados y, en los que fallan,
                   <strong>Reportar</strong>. Arriba indica la conexión: <em>En vivo</em>,
                   <em>Consulta periódica</em> o <em>Sin conexión</em>.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Asistente</strong></td>
+                <td>
+                  Escribís lo que querés hacer (<em>Cortá los silencios</em>,
+                  <em>Exportá para TikTok</em>) y el asistente <strong>local</strong> propone un
+                  plan: lo revisás paso a paso, corregís textos o tiempos, y recién ahí
+                  <strong>Aplicar</strong>; <strong>Deshacer todo</strong> vuelve atrás. Se abre con
+                  <code>Ctrl+Shift+A</code> (ver <a href="#19-asistente-local">§19</a>).
                 </td>
               </tr>
             </tbody>
@@ -2276,9 +2297,10 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
         <p>
           Todos se cambian en <strong>Ajustes → Atajos</strong> (ahí también aparecen todos).
           Mientras escribís en un campo de texto solo funcionan <code>Ctrl+K</code>,
-          <code>Ctrl+S</code> y <code>Ctrl+E</code>; <code>Espacio</code> reproduce/pausa aunque un
-          botón tenga el foco (no lo &quot;aprieta&quot; dos veces). Al pasar el mouse por cualquier
-          botón de ícono aparece qué hace y su atajo, por ejemplo <em>Cortar en el cursor (S)</em>.
+          <code>Ctrl+S</code>, <code>Ctrl+E</code> y <code>Ctrl+Shift+A</code>;
+          <code>Espacio</code> reproduce/pausa aunque un botón tenga el foco (no lo
+          &quot;aprieta&quot; dos veces). Al pasar el mouse por cualquier botón de ícono aparece qué
+          hace y su atajo, por ejemplo <em>Cortar en el cursor (S)</em>.
         </p>
         <div class="table-wrap">
           <table>
@@ -2383,6 +2405,11 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
               <tr>
                 <td>Restaurar layout</td>
                 <td><code>Ctrl+Shift+R</code></td>
+                <td>Interfaz</td>
+              </tr>
+              <tr>
+                <td>Asistente: escribir un comando</td>
+                <td><code>Ctrl+Shift+A</code></td>
                 <td>Interfaz</td>
               </tr>
               <tr>
@@ -2838,8 +2865,9 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
               <em>Reportar error (diagnóstico para Claude)</em>), el botón
               <strong>Reportar</strong> de un trabajo que falló en <strong>Trabajos</strong> o el
               botón <strong>Reportar</strong> del aviso rojo. Completá título, qué intentabas hacer
-              y severidad; al terminar te da el <strong>Prompt para Claude</strong> (botón para
-              copiarlo) y un <strong>.zip</strong>.
+              y severidad (o tocá <strong>Redactar con IA</strong>: el asistente local los escribe a
+              partir de tus últimas acciones y errores, y vos los corregís); al terminar te da el
+              <strong>Prompt para Claude</strong> (botón para copiarlo) y un <strong>.zip</strong>.
             </p>
           </li>
           <li>
@@ -3892,6 +3920,220 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
             </tbody>
           </table>
         </div>
+        <h2 id="19-asistente-local">19. Asistente local</h2>
+        <p>
+          El <strong>Asistente</strong> te deja editar escribiendo lo que querés hacer, en
+          castellano y con tus palabras. Un modelo de lenguaje que corre
+          <strong>en tu PC</strong> (con <a href="https://ollama.com" rel="noopener">Ollama</a>,
+          gratis) lee el pedido y <strong>propone un plan</strong>; Studio lo revisa, te lo muestra
+          paso a paso y <strong>no toca nada hasta que vos tocás <em>Aplicar</em></strong
+          >. Las tareas simples (cortar silencios, exportar, reencuadrar…) ni siquiera pasan por la
+          IA: las reconoce una regla directa y responden al instante.
+        </p>
+        <h3 id="191-qué-puede-hacer">19.1 Qué puede hacer</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Pedido (ejemplos)</th>
+                <th>Qué hace</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><em>Cortá los silencios</em> · <em>sacá las muletillas</em></td>
+                <td>
+                  Quitar silencios y muletillas (<a href="#174-quitar-silencios-y-muletillas"
+                    >§17.4</a
+                  >)
+                </td>
+              </tr>
+              <tr>
+                <td><em>Detectá escenas y cortá en cada una</em></td>
+                <td>Detectar escenas y dividir el clip</td>
+              </tr>
+              <tr>
+                <td><em>Dividí el clip en el segundo 12</em> · <em>recortá el final</em></td>
+                <td>Dividir, recortar, cambiar velocidad, borrar un clip</td>
+              </tr>
+              <tr>
+                <td><em>Poné un título &#39;Hola&#39; en el segundo 3</em></td>
+                <td>Texto o motion graphic (título, rótulo, pantalla final…)</td>
+              </tr>
+              <tr>
+                <td><em>Subtítulos animados estilo Reels</em></td>
+                <td>Transcribir y agregar subtítulos con estilo</td>
+              </tr>
+              <tr>
+                <td><em>Leé este texto con voz de robot</em></td>
+                <td>Texto a voz, efectos de voz, limpiar voz</td>
+              </tr>
+              <tr>
+                <td><em>Agregá música alegre de fondo bajita</em></td>
+                <td>Audio de la biblioteca (con volumen y ducking)</td>
+              </tr>
+              <tr>
+                <td><em>Quitá el fondo y poné uno azul</em></td>
+                <td>Quitar fondo</td>
+              </tr>
+              <tr>
+                <td><em>Pasalo a vertical siguiendo la cara</em></td>
+                <td>Reencuadrar a 9:16, 1:1 o 4:5; cambiar el lienzo</td>
+              </tr>
+              <tr>
+                <td><em>Exportá para TikTok</em></td>
+                <td>Exportar con el preset que corresponde (siempre pide confirmar)</td>
+              </tr>
+              <tr>
+                <td><em>Reportá que el TTS no suena</em></td>
+                <td>Redactar un reporte de error</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <h3 id="192-cómo-se-usa">19.2 Cómo se usa</h3>
+        <ol>
+          <li>
+            Abrí el panel con <code>Ctrl+Shift+A</code> (o la paleta →
+            <em>Asistente: escribir un comando</em>, o el menú <strong>Paneles</strong>). Arriba ves
+            el modelo, la insignia <strong>100 % local</strong> y cuánto tardó la última respuesta.
+          </li>
+          <li>
+            Escribí el pedido y tocá <strong>Proponer</strong> (o <code>Enter</code>). Con
+            <code>↑</code>/<code>↓</code> recorrés los comandos anteriores; los botones de ejemplo
+            completan el campo.
+          </li>
+          <li>
+            Revisá el plan: un resumen y cada operación en una lista con su casilla, lo que va a
+            hacer y etiquetas de riesgo (<strong>rojo</strong>: borra un clip o escribe un archivo;
+            <strong>ámbar</strong>: quita partes o usa IA y puede tardar). Los
+            <strong>riesgos</strong> generales aparecen en rojo arriba.
+          </li>
+          <li>
+            Corregí lo que haga falta <strong>sin volver a escribir</strong>: el texto, el momento
+            (<code>3</code>, <code>3,5</code>, <code>inicio</code>, <code>final</code> o
+            <code>cursor</code>), la duración, el preset, la plantilla o el estilo se editan en la
+            misma lista. Destildá las operaciones que no quieras.
+          </li>
+          <li>
+            Si el asistente <strong>pregunta</strong> algo (por ejemplo
+            <em>¿Qué clip querés cortar?</em>), respondé en el formulario y tocá
+            <strong>Responder y volver a proponer</strong>.
+          </li>
+          <li>
+            <strong>Aplicar</strong> ejecuta solo lo tildado, en orden, con una barra de progreso y
+            una marca por operación (en espera, en curso, hecha o falló). Si una falla, se detiene
+            ahí y te dice cuál.
+          </li>
+          <li>
+            <strong>Deshacer todo</strong> devuelve el proyecto a como estaba antes de aplicar
+            (además, el cambio entra como un paso de <code>Ctrl+Z</code>).
+            <strong>Rechazar</strong> descarta el plan.
+          </li>
+          <li>
+            El <strong>Historial</strong> guarda los planes con su estado (<em>Propuesto</em>,
+            <em>Aplicado</em>, <em>Rechazado</em>, <em>Deshecho</em>); tocá uno para volver a verlo.
+          </li>
+        </ol>
+        <p>Atajos del asistente:</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Tecla</th>
+                <th>Qué hace</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>Ctrl+Shift+A</code></td>
+                <td>Abre el panel y pone el cursor en el comando</td>
+              </tr>
+              <tr>
+                <td><code>Enter</code></td>
+                <td>Proponer</td>
+              </tr>
+              <tr>
+                <td><code>↑</code> / <code>↓</code></td>
+                <td>Comando anterior / siguiente</td>
+              </tr>
+              <tr>
+                <td><code>Ctrl+K</code></td>
+                <td>Paleta → <em>Asistente: escribir un comando</em> y ajustes</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <h3 id="193-cómo-escribir-buenos-comandos">19.3 Cómo escribir buenos comandos</h3>
+        <ul>
+          <li>
+            <strong>Un pedido claro por frase</strong> y los datos exactos:
+            <em>Poné &quot;Suscribite&quot; al final durante 4 segundos</em> es mejor que
+            <em>poné algo al final</em>.
+          </li>
+          <li>
+            <strong>Nombrá el clip</strong> como lo ves (<em>el clip &quot;entrevista&quot;</em>,
+            <em>el segundo clip</em>, <em>el último</em>) o elegilo antes: el asistente nunca
+            inventa clips ni tiempos; si falta algo, pregunta.
+          </li>
+          <li>
+            <strong>Tiempos</strong>: segundos (<em>en el segundo 3</em>), <em>al inicio</em>,
+            <em>al final</em>, <em>en el cursor</em>, <em>en la escena 2</em> o
+            <em>después del clip &quot;intro&quot;</em>.
+          </li>
+          <li>
+            Podés encadenar:
+            <em>cortá los silencios, agregá subtítulos estilo Reels y exportá para TikTok</em>.
+          </li>
+        </ul>
+        <h3 id="194-ajustes--asistente-local">19.4 Ajustes → Asistente local</h3>
+        <ul>
+          <li>
+            <strong>Modelo</strong>: <code>qwen3:8b</code> (recomendado), <code>hermes3:8b</code> o
+            cualquier otro instalado en Ollama. <strong>Descargar modelo</strong> baja el paquete
+            <code>agent-llm</code> (~5 GB, una sola vez) con su progreso en
+            <strong>Trabajos</strong>.
+          </li>
+          <li>
+            <strong>Temperatura</strong>: más baja = respuestas más predecibles (recomendado 0,2).
+          </li>
+          <li>
+            <strong>Evaluar modelos</strong>: corre 50 comandos de prueba con cada modelo instalado
+            y muestra una tabla con <strong>Válido %</strong> (el plan es correcto como formato),
+            <strong>Correcto %</strong> (hace lo pedido) y la <strong>latencia p50</strong>. Sirve
+            para elegir el mejor modelo para tu PC.
+          </li>
+        </ul>
+        <h3 id="195-límites">19.5 Límites</h3>
+        <ul>
+          <li>
+            Necesita <strong>Ollama</strong> abierto y el modelo descargado. Si falta, al proponer
+            se abre <em>Paquete requerido</em> con las instrucciones (instalarlo con
+            <code>scripts\windows\setup.ps1</code> o <code>winget install Ollama.Ollama</code>;
+            <code>scripts\windows\doctor.ps1</code> verifica que esté en marcha).
+          </li>
+          <li>
+            Con una GPU de 6 GB la primera respuesta tarda más (carga el modelo; antes se libera la
+            GPU de Whisper/visión); después, unos segundos. Sin GPU funciona, pero más lento.
+          </li>
+          <li>
+            Planea hasta <strong>20 operaciones</strong> y hace hasta
+            <strong>5 preguntas</strong> por vez. No edita keyframes uno por uno, no mueve pistas ni
+            crea plantillas nuevas: para eso usá los paneles.
+          </li>
+          <li>
+            Puede equivocarse: por eso <strong>siempre</strong> te muestra el plan antes y borrar o
+            exportar piden confirmación explícita.
+          </li>
+        </ul>
+        <h3 id="196-privacidad">19.6 Privacidad</h3>
+        <p>
+          Todo corre en tu computadora: el comando, el resumen del proyecto que lee el modelo
+          (nombres y duraciones de clips, escenas, las primeras líneas de la transcripción) y el
+          plan <strong>no se envían a ningún servicio externo</strong> ni necesitan claves o
+          cuentas. La única descarga es la del modelo, una vez. <strong>Redactar con IA</strong> en
+          <em>Reportar error</em> usa el mismo modelo local.
+        </p>
       </main>
     </div>
   </body>

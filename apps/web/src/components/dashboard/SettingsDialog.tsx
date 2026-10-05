@@ -24,6 +24,7 @@ import {
   type SettingsTab,
 } from "@/stores/settings-store";
 import { AiPacksTab } from "./AiPacksTab";
+import { AssistantTab } from "./AssistantTab";
 
 type Tab = SettingsTab;
 
@@ -247,6 +248,7 @@ export function SettingsDialog() {
             { value: "shortcuts", label: "Atajos" },
             { value: "layouts", label: "Layouts" },
             { value: "ai-packs", label: "Paquetes de IA" },
+            { value: "assistant", label: "Asistente local" },
           ]}
         />
         {tab === "appearance" ? (
@@ -255,6 +257,8 @@ export function SettingsDialog() {
           <ShortcutsTab />
         ) : tab === "layouts" ? (
           <LayoutsTab />
+        ) : tab === "assistant" ? (
+          <AssistantTab />
         ) : (
           <AiPacksTab />
         )}

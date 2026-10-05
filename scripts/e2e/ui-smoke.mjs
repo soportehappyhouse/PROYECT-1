@@ -1018,6 +1018,125 @@ await step(
   },
 );
 
+// Sprint 3: the assistant panel against a mocked /api/agent/* (no Ollama needed in CI).
+const AGENT_PLAN = {
+  id: "e2e-plan-1",
+  projectId: "e2e",
+  command: "Poné un título 'Hola' en el segundo 3 y exportá para TikTok",
+  status: "proposed",
+  created_at: new Date().toISOString(),
+  ok: true,
+  plan: {
+    version: 1,
+    summary_es: "Agrego el título «Hola» en el segundo 3 y exporto para TikTok.",
+    ops: [
+      { op: "add_text", text: "Hola", t: 3, duration_s: 3 },
+      { op: "export", preset: "reels-tiktok" },
+    ],
+  },
+  resolved: [
+    { op: "add_text", text: "Hola", t: 3, duration_s: 3 },
+    { op: "export", preset: "reels-tiktok" },
+  ],
+  preview_es: ["Texto «Hola» en 00:03 durante 3 s", "Exportar con «Reels / TikTok»"],
+  risks: ["La exportación escribe un archivo nuevo"],
+  unresolved: [],
+  errors: [],
+  model: "qwen3:8b",
+  route: "llm",
+  latency_ms: 1800,
+  warnings: [],
+};
+let agentJobPolls = 0;
+const agentJson = (route, json, status = 200) =>
+  route.fulfill({
+    status,
+    contentType: "application/json",
+    headers: { "access-control-allow-origin": "*" },
+    body: JSON.stringify(json),
+  });
+async function mockAgentApi(p) {
+  await p.route(`${API}/api/agent/**`, (route) => {
+    const url = new URL(route.request().url());
+    if (route.request().method() === "OPTIONS")
+      return route.fulfill({
+        status: 204,
+        headers: {
+          "access-control-allow-origin": "*",
+          "access-control-allow-headers": "content-type",
+          "access-control-allow-methods": "GET,POST,PUT,DELETE",
+        },
+      });
+    if (url.pathname === "/api/agent/status")
+      return agentJson(route, {
+        workers: true,
+        ollama: true,
+        model: "qwen3:8b",
+        models_installed: ["qwen3:8b"],
+        ready: true,
+        gpu_mode: "gpu",
+        pack: { id: "agent-llm", installed: true },
+        hint_es: null,
+      });
+    if (url.pathname === "/api/agent/plans") return agentJson(route, []);
+    if (url.pathname === "/api/agent/plan") return agentJson(route, AGENT_PLAN, 201);
+    if (url.pathname === "/api/agent/apply")
+      return agentJson(route, { jobId: "e2e-agent-job" }, 202);
+    return agentJson(route, { error: { code: "NOT_FOUND", message: "mock" } }, 404);
+  });
+  await p.route(`${API}/api/jobs/e2e-agent-job`, (route) => {
+    agentJobPolls += 1;
+    const done = agentJobPolls > 2;
+    return agentJson(route, {
+      id: "e2e-agent-job",
+      type: "agent.apply",
+      status: done ? "succeeded" : "running",
+      progress: done ? 1 : 0.5,
+      message: done ? "Aplicadas 2/2 operaciones" : "op 2/2: Exportar con «Reels / TikTok»",
+      payload: {},
+      createdAt: new Date().toISOString(),
+      ...(done && { result: { applied: 2, undoSnapshotId: "e2e-snap", steps: [] } }),
+    });
+  });
+}
+
+await step("Sprint 3: Asistente opens with Ctrl+Shift+A and renders a mocked plan", async () => {
+  await mockAgentApi(page);
+  await page.keyboard.press("Escape");
+  await page.mouse.click(5, 5);
+  await page.keyboard.press("Control+Shift+A");
+  const panel = page.locator("section[aria-label='Asistente']");
+  await panel.waitFor({ timeout: 10_000 });
+  await panel.getByText("Listo", { exact: true }).waitFor({ timeout: 10_000 });
+  const input = panel.getByRole("textbox", { name: "Comando para el asistente" });
+  if (!(await input.evaluate((el) => el === document.activeElement)))
+    throw new Error("Ctrl+Shift+A did not focus the command input");
+  await input.fill(AGENT_PLAN.command);
+  await panel.getByRole("button", { name: /Proponer/ }).click();
+  const plan = panel.getByTestId("agent-plan");
+  await plan.waitFor({ timeout: 15_000 });
+  const ops = await panel.getByTestId("agent-op").count();
+  if (ops !== 2) throw new Error(`expected 2 ops, got ${ops}`);
+  if (!(await plan.innerText()).includes("La exportación escribe un archivo nuevo"))
+    throw new Error("risk not shown");
+  await shot(page, "s3-asistente-plan.png");
+  return { ops };
+});
+
+await step("Sprint 3: Aplicar with a mocked api shows progress per op", async () => {
+  const panel = page.locator("section[aria-label='Asistente']");
+  await panel.getByRole("button", { name: /Aplicar \(2\)/ }).click();
+  const run = panel.getByTestId("agent-run");
+  await run.waitFor({ timeout: 10_000 });
+  await panel.getByText(/Listo: 2 operación/).waitFor({ timeout: 20_000 });
+  const done = await panel.getByLabel("Hecha").count();
+  if (done !== 2) throw new Error(`expected 2 ops done, got ${done}`);
+  await panel.getByRole("button", { name: /Deshacer todo/ }).waitFor();
+  await page.unroute(`${API}/api/agent/**`);
+  await page.unroute(`${API}/api/jobs/e2e-agent-job`);
+  return { polls: agentJobPolls, done };
+});
+
 await browser.close();
 console.log(
   `\nconsole errors (${consoleErrors.length}):`,

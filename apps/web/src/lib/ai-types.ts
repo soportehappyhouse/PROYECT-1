@@ -66,6 +66,8 @@ export interface PackRequiredInfo {
   packId: string;
   name_es?: string;
   size_bytes?: number;
+  /** Spanish explanation from the api (e.g. how to install Ollama for agent-llm). */
+  message?: string;
 }
 
 export const DEFAULT_SILENCE_OPTIONS: SilenceOptions = {

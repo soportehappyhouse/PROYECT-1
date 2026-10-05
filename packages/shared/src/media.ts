@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SceneSchema } from "./ai.js";
 import { IdSchema, SecondsSchema, TimestampSchema } from "./common.js";
 
 export const MediaKindSchema = z.enum(["video", "audio", "image", "subtitle", "lottie"]);
@@ -46,6 +47,8 @@ export const MediaAssetSchema = z.object({
   audioCodec: z.string().optional(),
   /** VP9/ProRes with alpha channel (motion overlays). */
   hasAlpha: z.boolean().optional(),
+  /** Scene cuts from analyze.scenes (source seconds). */
+  scenes: z.array(SceneSchema).optional(),
   createdAt: TimestampSchema,
 });
 export type MediaAsset = z.infer<typeof MediaAssetSchema>;

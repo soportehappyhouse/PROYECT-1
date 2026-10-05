@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PublishSettingsSchema } from "./ai.js";
 import { IdSchema, SecondsSchema, TimestampSchema } from "./common.js";
 import { MotionSpecSchema } from "./motion.js";
 import { CaptionStyleSchema, SubtitleSegmentSchema } from "./subtitles.js";
@@ -107,6 +108,8 @@ export const ProjectSchema = z.object({
    * uses the same value so both show the same subtitles.
    */
   burnSubtitles: z.boolean().optional(),
+  /** "Revisión para redes" + optional burned AI label (Sprint 1). */
+  publish: PublishSettingsSchema.optional(),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
 });

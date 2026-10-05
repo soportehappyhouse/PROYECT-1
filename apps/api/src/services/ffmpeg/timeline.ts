@@ -1,4 +1,5 @@
 import {
+  aiLabelText,
   effectiveBurnSubtitles,
   subtitlesToBurn,
   videoRectAt,
@@ -19,7 +20,7 @@ import {
   xfadeTransitionName,
 } from "./builders.js";
 import { escapeFilterPath, escapeOptionValue, quoteFilterArg, sec } from "./escape.js";
-import { presetEncoding } from "./encoders.js";
+import { presetEncoding, segmentSafetyArgs } from "./encoders.js";
 
 /** Resolved media for the compiler (absolute paths; metadata from ffprobe). */
 export interface TimelineAsset {
@@ -52,6 +53,16 @@ export interface CompileExportOptions {
   ffmpegMajor?: number;
   /** Burn project.subtitles; default effectiveBurnSubtitles(project) (off with animated captions). */
   burnSubtitles?: boolean;
+  /**
+   * Segment render (segment cache): only the video of the timeline window [start, end) is
+   * rendered, as a stream starting at 0 with a keyframe on its first frame (`-force_key_frames 0`,
+   * `-g` = gopFrames). Visual clips are sliced to the window (sliceClipsToWindow); text overlays,
+   * burned subtitles and the AI label keep their absolute times (setpts shifted around them), so
+   * every frame equals the single-pass frame. `timelineEnd` = end of the full export (text clamp).
+   */
+  window?: { start: number; end: number; timelineEnd: number; gopFrames: number; frames: number };
+  /** Render only the audio mix ([aout]) of the whole timeline (segment render: muxed later). */
+  audioOnly?: boolean;
 }
 
 export interface CompiledExport {
@@ -177,6 +188,12 @@ interface Seg {
 export function compileExport(o: CompileExportOptions): CompiledExport {
   const { project, preset } = o;
   const g = new GraphBuilder();
+  const win = o.window;
+  const audioOnly = !win && o.audioOnly === true;
+  /** Video graph parts are skipped in audioOnly mode (no decoding of unused video). */
+  const vadd = (part: string) => {
+    if (!audioOnly) g.add(part);
+  };
   const W = even(project.settings.width);
   const H = even(project.settings.height);
   const FPS = preset.fps;
@@ -185,15 +202,21 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
   /** GIF has no audio: no audio chains may be left unconnected in the graph. */
   const gif = enc.extension === "gif";
   const total = timelineDuration(project);
-  const rs = Math.max(0, o.range?.start ?? 0);
-  const re = Math.min(o.range?.end ?? total, total);
+  const rs = win ? 0 : Math.max(0, o.range?.start ?? 0);
+  const re = win ? win.end - win.start : Math.min(o.range?.end ?? total, total);
   if (!(re - rs > EPS))
     throw new Error("El proyecto no tiene contenido para exportar en ese rango");
   const T = re;
   const frame = 1 / FPS;
+  /** Absolute timeline time of local t = 0 (window renders) and the clamp for text overlays. */
+  const offset = win?.start ?? 0;
+  const textEnd = win ? win.timelineEnd : T;
+  /** Wrap filters that use absolute timeline time (drawtext t, ASS events) in a window render. */
+  const absTime = (filters: string) =>
+    offset > EPS ? `setpts=PTS+${sec(offset)}/TB,${filters},setpts=PTS-${sec(offset)}/TB` : filters;
 
   let cur = g.label("base");
-  g.add(
+  vadd(
     `color=c=${alpha ? "black@0" : "black"}:s=${W}x${H}:r=${FPS}:d=${sec(T)},format=${alpha ? "yuva420p" : "yuv420p"}[${cur}]`,
   );
   const audioLabels: string[] = [];
@@ -210,7 +233,7 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
     fadeIn: number,
     fadeOut: number,
   ) => {
-    if (gif || clip.volume <= 0 || dur <= EPS) return;
+    if (gif || win || clip.volume <= 0 || dur <= EPS) return;
     const pre = g.label("ap");
     const post = g.label("aq");
     const out = g.label("a");
@@ -281,7 +304,7 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
       if (list.length === 1) acc = list[0]!;
       else {
         const label = g.label("cat");
-        g.add(
+        vadd(
           `${list.map((s) => `[${s.label}]`).join("")}concat=n=${list.length}:v=1:a=0[${label}]`,
         );
         acc = { label, dur: list.reduce((n, s) => n + s.dur, 0) };
@@ -329,7 +352,7 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
 
       if (gap > EPS) {
         const gl = g.label("gap");
-        g.add(
+        vadd(
           `color=c=black@0:s=${W}x${H}:r=${FPS}:d=${sec(gap)},format=yuva420p,settb=AVTB[${gl}]`,
         );
         segs.push({ label: gl, dur: gap });
@@ -394,13 +417,13 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
         chain.push(`fade=t=out:st=${sec(segDur - fadeOut)}:d=${sec(fadeOut)}:alpha=1`);
       chain.push("settb=AVTB");
       const sl = g.label("seg");
-      g.add(`[${idx}:v]${chain.join(",")}[${sl}]`);
+      vadd(`[${idx}:v]${chain.join(",")}[${sl}]`);
 
       if (xfade > 0 && tr) {
         flush();
         const base = acc!;
         const xl = g.label("xf");
-        g.add(
+        vadd(
           `[${base.label}][${sl}]xfade=transition=${xfadeTransitionName(tr.type)}:duration=${sec(xfade)}:offset=${sec(base.dur - xfade)}[${xl}]`,
         );
         acc = { label: xl, dur: base.dur + segDur - xfade };
@@ -422,8 +445,9 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
       const text = clip.text?.trim();
       if (!text) continue;
       const start = clip.start;
-      const end = Math.min(T, start + clipDuration(clip));
+      const end = Math.min(textEnd, start + clipDuration(clip));
       if (end - start <= EPS) continue;
+      if (win && (end <= win.start + EPS || start >= win.end - EPS)) continue;
       const style: Partial<TextStyle> = clip.textStyle ?? {};
       const file = `text-${g.files.length}.txt`;
       g.files.push({ name: file, content: clip.text ?? "" });
@@ -491,17 +515,19 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
       }
       continue;
     }
-    if (track.hidden) continue;
+    if (track.hidden || (audioOnly && track.kind !== "video")) continue;
     if (track.kind === "text") {
       const filters = drawTexts(track);
       if (filters.length) {
         const next = g.label("c");
-        g.add(`[${cur}]${filters.join(",")}[${next}]`);
+        g.add(`[${cur}]${absTime(filters.join(","))}[${next}]`);
         cur = next;
       }
       continue;
     }
-    const lanes = lanesOf(playableClips(track));
+    const lanes = lanesOf(
+      playableClips(win ? { ...track, clips: sliceClipsToWindow(track.clips, win) } : track),
+    );
     if (lanes.length > 1)
       g.warnings.push(
         `Clips solapados en «${track.name}»: se apilan en ${lanes.length} capas (el último encima)`,
@@ -510,13 +536,13 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
       const stream = visualTrack(track, lane);
       if (!stream) continue;
       const next = g.label("c");
-      g.add(`[${cur}][${stream.label}]overlay=0:0:eof_action=pass[${next}]`);
+      vadd(`[${cur}][${stream.label}]overlay=0:0:eof_action=pass[${next}]`);
       cur = next;
     }
   }
 
   const burn = subtitlesToBurn(project, effectiveBurnSubtitles(project, o.burnSubtitles));
-  if (burn.length) {
+  if (burn.length && !audioOnly) {
     const upper = project.captionStyle?.uppercase;
     const subs = upper ? burn.map((x) => ({ ...x, text: x.text.toLocaleUpperCase("es") })) : burn;
     // Fit the captions to the video rect (feedback 4), with real ASS alignment (feedback 3).
@@ -534,8 +560,16 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
       }),
     });
     const next = g.label("c");
-    g.add(`[${cur}]subtitles=subs.ass[${next}]`);
+    g.add(`[${cur}]${absTime("subtitles=subs.ass")}[${next}]`);
     cur = next;
+  }
+
+  // "Revisión para redes": small AI label bottom-left for the whole video (font/size from the
+  // caption style), drawn on the project canvas like the captions.
+  const label = aiLabelText(project.publish);
+  if (label && !audioOnly) {
+    g.files.push({ name: "ailabel.txt", content: label });
+    g.add(`[${cur}]${aiLabelFilter(project, W, H, o.fontFile)}[${(cur = g.label("c"))}]`);
   }
 
   // Range trim + reframe to the preset size + output format.
@@ -543,7 +577,9 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
   const PH = even(preset.height);
   const post: string[] = [];
   if (rs > EPS) post.push(`trim=start=${sec(rs)}:end=${sec(re)}`, "setpts=PTS-STARTPTS");
-  if (gif) {
+  if (audioOnly) {
+    // no video output
+  } else if (gif) {
     const pre = post.length ? `[${cur}]${post.join(",")},` : `[${cur}]`;
     g.add(
       `${pre}fps=${FPS},scale=${PW}:-1:flags=lanczos,split[gs0][gs1];[gs0]palettegen=stats_mode=diff[gp];[gs1][gp]paletteuse=dither=bayer:bayer_scale=5[vout]`,
@@ -574,7 +610,7 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
   }
 
   const outDur = re - rs;
-  if (!gif) {
+  if (!gif && !win) {
     if (audioLabels.length) {
       const ins = audioLabels.map((l) => `[${l}]`).join("");
       const trim = rs > EPS ? `atrim=start=${sec(rs)}:end=${sec(re)}` : `atrim=end=${sec(re)}`;
@@ -589,19 +625,95 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
   const graph = g.parts.join(";\n");
   g.files.unshift({ name: "graph.txt", content: graph });
   const scriptFlag = (o.ffmpegMajor ?? 6) >= 7 ? "-/filter_complex" : "-filter_complex_script";
+  const outputArgs = audioOnly
+    ? ["-map", "[aout]", "-vn", ...enc.audio]
+    : win
+      ? [
+          "-map",
+          "[vout]",
+          ...enc.video,
+          ...segmentSafetyArgs(enc.video),
+          "-g",
+          String(win.gopFrames),
+          "-force_key_frames",
+          "0",
+          "-frames:v",
+          String(win.frames),
+          "-an",
+        ]
+      : [
+          "-map",
+          "[vout]",
+          ...(gif ? [] : ["-map", "[aout]"]),
+          ...enc.video,
+          ...enc.audio,
+          ...enc.container,
+        ];
   const args = [
     ...g.inputs.flat(),
     scriptFlag,
     "graph.txt",
-    "-map",
-    "[vout]",
-    ...(gif ? [] : ["-map", "[aout]"]),
-    ...enc.video,
-    ...enc.audio,
-    ...enc.container,
+    ...outputArgs,
     "-t",
     sec(outDur),
     o.output,
   ];
   return { args, graph, files: g.files, durationSec: outDur, warnings: g.warnings };
+}
+
+/**
+ * Visual clips of the timeline window [start, end) in window-local time: clips are cut at the
+ * window edges (in/out moved, start rebased to 0) and lose the transition of a side that was cut.
+ * The segment planner never cuts inside a transition window, so fades/xfades stay identical.
+ */
+export function sliceClipsToWindow(
+  clips: readonly Clip[],
+  win: { start: number; end: number },
+): Clip[] {
+  const out: Clip[] = [];
+  for (const c of clips) {
+    const end = c.start + clipDuration(c);
+    if (end <= win.start + EPS || c.start >= win.end - EPS) continue;
+    const speed = c.speed || 1;
+    const ns = Math.max(c.start, win.start);
+    const ne = Math.min(end, win.end);
+    const piece: Clip = {
+      ...c,
+      start: ns - win.start,
+      in: c.in + (ns - c.start) * speed,
+      out: c.in + (ne - c.start) * speed,
+    };
+    if (ns > c.start + EPS) delete piece.transitionIn;
+    if (ne < end - EPS) delete piece.transitionOut;
+    out.push(piece);
+  }
+  return out;
+}
+
+/** drawtext of the AI label (textfile ailabel.txt in the job dir), bottom-left. */
+export function aiLabelFilter(
+  project: Pick<Project, "captionStyle">,
+  W: number,
+  H: number,
+  fontFile?: string,
+): string {
+  const st = project.captionStyle;
+  const unit = Math.min(W, H) / 1080;
+  const size = Math.max(12, Math.round((st?.fontSize ?? 60) * 0.42 * unit));
+  const margin = Math.max(8, Math.round(24 * unit));
+  const font = fontFile
+    ? `fontfile=${escapeFilterPath(fontFile)}`
+    : `font=${quoteFilterArg(escapeOptionValue(st?.fontFamily || "Inter"))}`;
+  return [
+    `drawtext=${font}`,
+    "textfile=ailabel.txt",
+    "expansion=none",
+    `fontsize=${size}`,
+    "fontcolor=white@0.9",
+    "box=1",
+    "boxcolor=black@0.45",
+    `boxborderw=${Math.max(4, Math.round(size * 0.3))}`,
+    `x=${margin}`,
+    `y=h-text_h-${margin}`,
+  ].join(":");
 }

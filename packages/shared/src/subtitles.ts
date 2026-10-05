@@ -17,6 +17,8 @@ export const TranscribeRequestSchema = z.object({
   language: z.string().default("es"),
   model: WhisperModelSchema.optional(),
   wordTimestamps: z.boolean().default(true),
+  /** Whisper VAD filter (workers default: on). `false` keeps fillers like «eh»/«mmm». */
+  vad: z.boolean().optional(),
 });
 export type TranscribeRequest = z.infer<typeof TranscribeRequestSchema>;
 

@@ -5,6 +5,7 @@ import type { MediaAsset, Track } from "@studio/shared";
 import { Eye, EyeOff, Lock, Trash2, Unlock, Volume2, VolumeX } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useSceneMarkers } from "@/hooks/use-scene-markers";
 import { projectDuration } from "@/lib/timeline";
 import { cn } from "@/lib/utils";
 import { useMediaStore } from "@/stores/media-store";
@@ -142,6 +143,7 @@ export function Timeline() {
   const playing = useProjectStore((s) => s.playing);
   const selectedClipId = useProjectStore((s) => s.selectedClipId);
   const assets = useMediaStore((s) => s.assets);
+  const markers = useSceneMarkers();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [viewportWidth, setViewportWidth] = useState(800);
 
@@ -195,7 +197,7 @@ export function Timeline() {
             className="sticky left-0 z-30 shrink-0 border-r border-b bg-card"
             style={{ width: HEADER_WIDTH }}
           />
-          <Ruler zoom={zoom} duration={duration} onSeek={seek} />
+          <Ruler zoom={zoom} duration={duration} onSeek={seek} markers={markers} />
         </div>
         {project.tracks.map((track) => (
           <div key={track.id} className="flex">
@@ -208,6 +210,14 @@ export function Timeline() {
               selectedClipId={selectedClipId}
             />
           </div>
+        ))}
+        {markers.map((m) => (
+          <div
+            key={`${m.clipId}:${m.time}`}
+            aria-hidden
+            className="pointer-events-none absolute top-6 bottom-0 z-[5] w-0 border-l border-dashed border-amber-500/50"
+            style={{ left: HEADER_WIDTH + m.time * zoom }}
+          />
         ))}
         <div
           aria-hidden

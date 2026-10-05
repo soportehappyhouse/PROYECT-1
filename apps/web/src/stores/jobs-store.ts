@@ -7,10 +7,12 @@ import {
   type JobType,
 } from "@studio/shared";
 import { create } from "zustand";
+import type { AnyJobType } from "@/lib/ai-types";
 import { api, errorMessage, isNotImplemented } from "@/lib/api";
 import { addBreadcrumb } from "./breadcrumbs-store";
 
-export const JOB_TYPE_LABELS: Record<JobType, string> = {
+/** Includes the Sprint 1 types before @studio/shared lists them (AnyJobType). */
+export const JOB_TYPE_LABELS: Record<AnyJobType, string> = {
   "media.probe": "Analizar medio",
   "media.proxy": "Generar proxy",
   "motion.render": "Render motion",
@@ -19,7 +21,18 @@ export const JOB_TYPE_LABELS: Record<JobType, string> = {
   "voice.rvc": "Conversión RVC",
   "subtitles.transcribe": "Transcripción",
   "project.export": "Exportación",
+  "packs.download": "Descargar paquete de IA",
+  "analyze.scenes": "Detectar escenas",
+  "analyze.silences": "Analizar silencios y muletillas",
+  "timeline.apply-cuts": "Aplicar cortes",
+  "audio.denoise": "Limpiar voz (IA)",
+  "perf.run": "Test de rendimiento IA",
 };
+
+/** Label of any job type (unknown future types show their id). */
+export function jobTypeLabel(type: string): string {
+  return (JOB_TYPE_LABELS as Record<string, string>)[type] ?? type;
+}
 
 export const JOB_STATUS_LABELS: Record<Job["status"], string> = {
   queued: "En cola",
@@ -36,7 +49,9 @@ export type JobIntent =
   | { kind: "setMotionRender"; clipId: string }
   | { kind: "transcript"; clipId: string }
   | { kind: "refreshMedia" }
-  | { kind: "export" };
+  | { kind: "export" }
+  /** The UI awaits the result itself (job-runner): no success toast, no follow-up. */
+  | { kind: "await" };
 
 export type JobsConnection = "connecting" | "live" | "polling" | "not-implemented" | "offline";
 
@@ -49,7 +64,7 @@ interface JobsState {
   refresh: () => Promise<void>;
   upsertJob: (job: Job) => void;
   applyEvent: (event: JobEvent) => void;
-  track: (jobId: string, type: JobType, intent?: JobIntent) => void;
+  track: (jobId: string, type: JobType | AnyJobType, intent?: JobIntent) => void;
   markHandled: (jobId: string) => void;
   setConnection: (c: JobsConnection) => void;
   cancel: (jobId: string) => Promise<void>;
@@ -98,7 +113,7 @@ export const useJobsStore = create<JobsState>()((set, get) => ({
     if (e.status !== existing.status && (e.status === "failed" || e.status === "canceled"))
       addBreadcrumb(
         "job",
-        `${JOB_TYPE_LABELS[existing.type]} ${e.status === "failed" ? "falló" : "cancelado"}${
+        `${jobTypeLabel(existing.type)} ${e.status === "failed" ? "falló" : "cancelado"}${
           e.message ? `: ${e.message}` : ""
         }`,
         { jobId: e.jobId, type: existing.type, status: e.status },
@@ -118,7 +133,7 @@ export const useJobsStore = create<JobsState>()((set, get) => ({
   track: (jobId, type, intent) => {
     const now = new Date().toISOString();
     if (!get().jobs[jobId])
-      addBreadcrumb("job", `Inició: ${JOB_TYPE_LABELS[type]}`, {
+      addBreadcrumb("job", `Inició: ${jobTypeLabel(type)}`, {
         jobId,
         type,
         ...(intent && { intent: intent.kind }),
@@ -130,7 +145,8 @@ export const useJobsStore = create<JobsState>()((set, get) => ({
             ...s.jobs,
             [jobId]: {
               id: jobId,
-              type,
+              // Sprint 1 types may not be in the shared enum yet (AnyJobType).
+              type: type as JobType,
               status: "queued",
               progress: 0,
               payload: undefined,

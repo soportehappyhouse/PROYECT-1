@@ -1,9 +1,11 @@
 import { mkdir, open, rm } from "node:fs/promises";
+import path from "node:path";
 import {
   ExportJobPayloadSchema,
   ExportPresetSchema,
+  SEGMENT_CACHE_SUBDIR,
   type ExportJobPayload,
-  type FileJobResult,
+  type ExportJobResult,
 } from "@studio/shared";
 import type { AppContext } from "../../context.js";
 import { disableEncoder, selectEncoder } from "../../services/encoder-select.js";
@@ -32,10 +34,13 @@ async function reserveExportPath(app: AppContext, base: string, ext: string): Pr
   }
 }
 
-/** project.export: compile the timeline into one FFmpeg graph and render to storage/exports. */
+/**
+ * project.export: compile the timeline into FFmpeg graphs and render to storage/exports. With
+ * `useSegmentCache` (default) the video is rendered by blocks cached in storage/cache/segments.
+ */
 export function createProjectExportHandler(
   app: AppContext,
-): JobHandler<ExportJobPayload, FileJobResult> {
+): JobHandler<ExportJobPayload, ExportJobResult> {
   return {
     type: "project.export",
     parse: (p) => ExportJobPayloadSchema.parse(p),
@@ -98,6 +103,7 @@ export function createProjectExportHandler(
         ext,
       );
       const tmp = await jobTmpDir(app, job.id);
+      let result: ExportJobResult = { path: rel };
       try {
         ctx.reportProgress(0.02, "Renderizando");
         ctx.log(`Encoder: ${encoder} · preset ${preset.id}`);
@@ -111,21 +117,34 @@ export function createProjectExportHandler(
             encoder,
             ...(req.range && { range: req.range }),
             ...(req.burnSubtitles !== undefined && { burnSubtitles: req.burnSubtitles }),
+            ...(req.useSegmentCache !== false && {
+              segmentCache: {
+                dir: path.join(app.config.storageDir, SEGMENT_CACHE_SUBDIR),
+                maxBytes: app.config.segmentCacheMaxBytes,
+              },
+            }),
           },
           {
             signal: ctx.signal,
             log: ctx.log,
-            onProgress: (r) => ctx.reportProgress(0.02 + r * 0.97, "Renderizando"),
+            onProgress: (r, message) =>
+              ctx.reportProgress(0.02 + r * 0.97, message ?? "Renderizando"),
           },
         );
         if (outcome.fellBack) disableEncoder(app.repos.settings, encoder);
+        result = {
+          path: rel,
+          mode: outcome.mode,
+          ...(outcome.segments && { segments: outcome.segments }),
+          ...(outcome.fallbackReason && { fallbackReason: outcome.fallbackReason }),
+        };
       } catch (err) {
         await rm(absPath(app, rel), { force: true }); // drop the reserved (partial) output
         throw err;
       } finally {
         await tmp.cleanup();
       }
-      return { path: rel };
+      return result;
     },
   };
 }

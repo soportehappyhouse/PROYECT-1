@@ -49,14 +49,17 @@ afterEach(async () => {
   queues = [];
 });
 
-function setup(lanes?: { ffmpeg?: number; motion?: number; workers?: number }) {
+function setup(
+  lanes?: { ffmpeg?: number; motion?: number; workers?: number },
+  progressThrottleMs = 0,
+) {
   const db = openDatabase(":memory:");
   const store = new SqliteJobStore(db);
   const queue = new JobQueue({
     store,
     storageDir: "/tmp",
     lanes: lanes ?? {},
-    progressThrottleMs: 0,
+    progressThrottleMs,
   });
   const events: JobEvent[] = [];
   queue.on("job", (e) => events.push(e));
@@ -109,6 +112,31 @@ describe("JobQueue", () => {
     expect(statuses).toContain("running");
     expect(statuses.at(-1)).toBe("succeeded");
     expect(events.some((e) => e.progress === 0.5 && e.message === "mitad")).toBe(true);
+  });
+
+  it("publishes the last throttled progress step when the job ends inside the window", async () => {
+    const { queue, store, events } = setup(undefined, 60_000);
+    queue.register({
+      type: "media.probe",
+      parse: (p) => p,
+      async run(_p, ctx) {
+        ctx.reportProgress(0.1, "primero");
+        ctx.reportProgress(0.5, "intermedio");
+        ctx.reportProgress(0.9, "último paso");
+        return { path: "x" };
+      },
+    });
+    queue.start();
+    const job = queue.enqueue({ type: "media.probe", payload: { assetId: "a" } });
+    await until(() => store.get(job.id)!.status === "succeeded");
+    const mine = events.filter((e) => e.jobId === job.id);
+    const messages = mine.map((e) => e.message);
+    expect(messages).toContain("primero");
+    expect(messages).not.toContain("intermedio");
+    const last = messages.indexOf("último paso");
+    expect(last).toBeGreaterThan(-1);
+    expect(mine[last]).toMatchObject({ status: "running", progress: 0.9 });
+    expect(mine.at(-1)).toMatchObject({ status: "succeeded", message: "Completado" });
   });
 
   it("marks failures with the error message", async () => {

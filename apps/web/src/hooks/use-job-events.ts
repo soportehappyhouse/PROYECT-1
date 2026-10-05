@@ -9,16 +9,19 @@ import {
 } from "@studio/shared";
 import { useEffect } from "react";
 import { toast } from "sonner";
-import { api, fileUrl } from "@/lib/api";
+import { hasGpuFallback } from "@/lib/ai";
+import { api, fileUrl, packInfoFromBody } from "@/lib/api";
+import { suggestedPackLabel, suggestedPackOf } from "@/lib/gpu-preflight";
 import { clipEnd, findClip } from "@/lib/timeline";
 import {
   isTerminal,
-  JOB_TYPE_LABELS,
+  jobTypeLabel,
   jobOutputAssetId,
   jobOutputPath,
   useJobsStore,
 } from "@/stores/jobs-store";
 import { useMediaStore } from "@/stores/media-store";
+import { usePacksStore } from "@/stores/packs-store";
 import { useProjectStore } from "@/stores/project-store";
 import { openReport } from "@/stores/report-store";
 
@@ -54,9 +57,16 @@ export async function handleFinished(job: Job): Promise<void> {
   const jobs = useJobsStore.getState();
   if (jobs.handled[job.id]) return;
   jobs.markHandled(job.id);
-  const label = JOB_TYPE_LABELS[job.type];
+  const label = jobTypeLabel(job.type);
 
   if (job.status === "failed") {
+    // A missing model pack is not an error to report: offer the download instead.
+    const full = await api.getJob(job.id).catch(() => job);
+    const pack = packInfoFromBody(full.result);
+    if (pack) {
+      usePacksStore.getState().openRequest(pack);
+      return;
+    }
     toast.error(`${label}: falló`, {
       description: job.error ?? job.message,
       action: {
@@ -76,6 +86,22 @@ export async function handleFinished(job: Job): Promise<void> {
   } catch {
     // keep partial job
   }
+
+  if (hasGpuFallback(full.result))
+    toast.warning(`${label}: se usó la CPU`, {
+      description: "La GPU no tenía memoria libre suficiente; la tarea fue más lenta.",
+    });
+
+  // Decision 6 (soft): CUDA is there but whisper-turbo is not installed -> offer it, never block.
+  const suggested = suggestedPackOf(full.result);
+  if (suggested)
+    toast.info("Transcripción más precisa y rápida en tu GPU", {
+      description: `Falta el paquete «${suggested.name_es}».`,
+      action: {
+        label: suggestedPackLabel(suggested),
+        onClick: () => usePacksStore.getState().openRequest(suggested),
+      },
+    });
 
   const intent = jobs.intents[job.id];
   const assetId = jobOutputAssetId(full);
@@ -153,10 +179,14 @@ export async function handleFinished(job: Job): Promise<void> {
       }
       break;
     }
+    case "refreshMedia":
+      if (!job.type.startsWith("media.")) void media.refresh(); // media.* refreshed above
+      break;
     default:
       break;
   }
 
+  if (intent?.kind === "await") return;
   if (!shouldToastSuccess(job.type, !!intent)) return;
   const path = jobOutputPath(full);
   toast.success(`${label}: completado`, {

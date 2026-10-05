@@ -1,10 +1,14 @@
 import { MediaJobPayloadSchema, type FileJobResult, type MediaJobPayload } from "@studio/shared";
 import type { AppContext } from "../../context.js";
+import { disableEncoder, selectEncoder } from "../../services/encoder-select.js";
 import { derivativePaths } from "../../services/media-files.js";
 import type { JobHandler } from "../types.js";
 import { absPath, requireAsset } from "./util.js";
 
-/** media.proxy: 360p H.264 editing proxy (keyframe every 15 frames) -> storage/proxies/<id>.mp4. */
+/**
+ * media.proxy: 360p H.264 editing proxy (keyframe every 15 frames) -> storage/proxies/<id>.mp4,
+ * encoded with the detected hardware encoder (libx264 fallback).
+ */
 export function createMediaProxyHandler(
   app: AppContext,
 ): JobHandler<MediaJobPayload, FileJobResult> {
@@ -27,14 +31,19 @@ export function createMediaProxyHandler(
         throw new Error("Solo se generan proxies para video");
       }
       const out = derivativePaths(assetId).proxy;
+      // Sprint 1: NVENC/QSV/AMF for proxies (HW_ENCODER=off forces libx264).
+      const encoder = await selectEncoder(app.config, app.ffmpeg, app.repos.settings);
       ctx.reportProgress(0.02, "Generando proxy 360p");
-      await app.ffmpeg.makeProxy(input, absPath(app, out), {
+      ctx.log(`Encoder del proxy: ${encoder}`);
+      const used = await app.ffmpeg.makeProxy(input, absPath(app, out), {
+        encoder,
         signal: ctx.signal,
         log: ctx.log,
         ...(asset.durationSec !== undefined && { durationSec: asset.durationSec }),
         ...(asset.hasAudio !== undefined && { hasAudio: asset.hasAudio }),
         onProgress: (r) => ctx.reportProgress(0.02 + r * 0.97, "Generando proxy 360p"),
       });
+      if (used.fellBack) disableEncoder(app.repos.settings, encoder);
       app.repos.media.update(assetId, { proxyPath: out });
       return { assetId, path: out };
     },

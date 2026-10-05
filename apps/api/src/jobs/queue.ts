@@ -8,7 +8,7 @@ import type { CreateJobInput, JobContext, JobHandler, JobLane, JobStore } from "
 export interface JobQueueOptions {
   store: JobStore;
   storageDir: string;
-  /** Max concurrent jobs per lane. Defaults: ffmpeg 2, motion 1, workers 1. */
+  /** Max concurrent jobs per lane. Defaults: ffmpeg 2, motion 1, workers 1, edit 2. */
   lanes?: Partial<Record<JobLane, number>>;
   /** @deprecated use `lanes`; when set, applies to every lane without an explicit limit. */
   concurrency?: number;
@@ -27,8 +27,8 @@ interface RunningJob {
   shuttingDown: boolean;
 }
 
-const LANES: readonly JobLane[] = ["ffmpeg", "motion", "workers"];
-const DEFAULT_LANE_LIMITS: Record<JobLane, number> = { ffmpeg: 2, motion: 1, workers: 1 };
+const LANES: readonly JobLane[] = ["ffmpeg", "motion", "workers", "edit"];
+const DEFAULT_LANE_LIMITS: Record<JobLane, number> = { ffmpeg: 2, motion: 1, workers: 1, edit: 2 };
 
 /**
  * In-process job queue backed by the SQLite JobStore (source of truth).
@@ -40,7 +40,7 @@ export class JobQueue extends EventEmitter<{ job: [JobEvent] }> {
   readonly #running = new Map<string, RunningJob>();
   readonly #pools: Record<JobLane, PQueue>;
   readonly #limits: Record<JobLane, number>;
-  readonly #active: Record<JobLane, number> = { ffmpeg: 0, motion: 0, workers: 0 };
+  readonly #active: Record<JobLane, number> = { ffmpeg: 0, motion: 0, workers: 0, edit: 0 };
   readonly #logs = new Map<string, string[]>();
   #started = false;
   #stopping = false;
@@ -72,6 +72,22 @@ export class JobQueue extends EventEmitter<{ job: [JobEvent] }> {
 
   laneOf(type: JobType): JobLane {
     return this.#handlers.get(type)?.lane ?? DEFAULT_JOB_LANES[type];
+  }
+
+  /** A queued or running job of `type` whose payload matches (e.g. one download per pack). */
+  activeJob(type: JobType, match: (payload: Record<string, unknown>) => boolean): Job | undefined {
+    for (const status of ["running", "queued"] as const) {
+      const job = this.options.store
+        .list({ status, type, limit: 100 })
+        .find(
+          (j) =>
+            j.payload &&
+            typeof j.payload === "object" &&
+            match(j.payload as Record<string, unknown>),
+        );
+      if (job) return job;
+    }
+    return undefined;
   }
 
   /** Snapshot of lane usage (for health/debug). */
@@ -231,6 +247,9 @@ export class JobQueue extends EventEmitter<{ job: [JobEvent] }> {
       const payload = handler.parse(job.payload);
       const result = await runWithDiagnostics(diagnostics, () => handler.run(payload, ctx, job));
       clearTimeout(timer);
+      // Trailing edge of the throttle: a job that finishes inside the window must still publish
+      // its last progress step (e.g. "3/3 bloques (3 en caché)") before "Completado".
+      flush();
       if (controller.signal.aborted)
         throw Object.assign(new Error("Cancelado"), { name: "AbortError" });
       this.#transition(this.options.store.get(job.id)!, "succeeded", {
@@ -260,9 +279,15 @@ export class JobQueue extends EventEmitter<{ job: [JobEvent] }> {
             diagnostics.stderrLine(`[api] ${err.name}: ${message.split(/\r?\n/)[0] ?? ""}`);
             for (const f of frames.slice(0, 15)) diagnostics.stderrLine(`[api] ${f}`);
           }
+          // Errors may carry a structured body for the client (e.g. PACK_REQUIRED) as `jobResult`.
+          const jobResult =
+            err && typeof err === "object" && "jobResult" in err
+              ? (err as { jobResult: unknown }).jobResult
+              : undefined;
           this.#transition(latest, "failed", {
             error: message,
             message: "Error",
+            ...(jobResult !== undefined && { result: jobResult }),
             ...endPatch(),
           });
         }

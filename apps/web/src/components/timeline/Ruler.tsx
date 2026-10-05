@@ -2,6 +2,7 @@
 
 import { useRef } from "react";
 import { formatTime } from "@/lib/format";
+import type { SceneMarker } from "@/lib/scenes";
 
 const STEPS = [0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
 
@@ -14,10 +15,13 @@ export function Ruler({
   zoom,
   duration,
   onSeek,
+  markers = [],
 }: {
   zoom: number;
   duration: number;
   onSeek: (time: number) => void;
+  /** Scene changes (analyze.scenes) drawn as amber flags. */
+  markers?: readonly SceneMarker[];
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const step = rulerStep(zoom);
@@ -54,6 +58,17 @@ export function Ruler({
           style={{ left: t * zoom }}
         >
           {formatTime(t, step < 1 ? 1 : 0)}
+        </div>
+      ))}
+      {markers.map((m) => (
+        <div
+          key={`${m.clipId}:${m.time}`}
+          data-testid="scene-marker"
+          title={`Cambio de escena · ${formatTime(m.time)}`}
+          className="pointer-events-none absolute bottom-0 h-3 w-0 border-l-2 border-amber-500"
+          style={{ left: m.time * zoom }}
+        >
+          <span className="absolute -top-0.5 -left-[5px] size-2 rotate-45 bg-amber-500" />
         </div>
       ))}
     </div>

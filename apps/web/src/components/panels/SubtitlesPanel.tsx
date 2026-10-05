@@ -16,6 +16,7 @@ import { Checkbox, Input, Label, Select } from "@/components/ui/input";
 import { EmptyState, Section, Spinner } from "@/components/ui/misc";
 import { api, errorMessage, isNotImplemented } from "@/lib/api";
 import { formatTime } from "@/lib/format";
+import { warnIfCpu } from "@/lib/gpu-preflight";
 import { createId } from "@/lib/ids";
 import { animatedCaptionsProps, toSrt } from "@/lib/subtitles";
 import {
@@ -26,6 +27,7 @@ import {
 import { useJobsStore } from "@/stores/jobs-store";
 import { useMediaStore } from "@/stores/media-store";
 import { useProjectStore } from "@/stores/project-store";
+import { useSilencesStore } from "@/stores/silences-store";
 import { Panel } from "./Panel";
 
 const LANGUAGES = [
@@ -153,6 +155,7 @@ export function SubtitlesPanel() {
     if (!hasAudio(sel)) return;
     setBusy(true);
     try {
+      await warnIfCpu("transcribe");
       const { jobId } = await api.transcribe({
         assetId: sel.clip.assetId,
         language,
@@ -279,11 +282,19 @@ export function SubtitlesPanel() {
           </Button>
         </Section>
 
-        <Section title="Quitar silencios">
+        <Section title="Quitar silencios y muletillas">
           <p className="text-[11px] text-muted-foreground">
-            Corta las pausas entre palabras del clip seleccionado usando las marcas de tiempo de
-            Whisper (transcribe primero) y junta lo que queda.
+            Analiza el clip seleccionado (pausas y muletillas como «eh», «este», «o sea»), te
+            muestra cada corte para revisarlo y escucharlo, y aplica solo los que marques.
           </p>
+          <Button
+            size="sm"
+            disabled={!hasAudio(sel)}
+            tooltip={hasAudio(sel) ? undefined : "Selecciona un clip con voz"}
+            onClick={() => sel && useSilencesStore.getState().open(sel.clip.id)}
+          >
+            <Scissors /> Quitar silencios y muletillas…
+          </Button>
           <div className="flex items-end gap-2">
             <Label className="w-32">
               Pausa mínima (ms)
@@ -301,12 +312,12 @@ export function SubtitlesPanel() {
               disabled={!hasAudio(sel) || !hasWords}
               tooltip={
                 hasWords
-                  ? "Quita las pausas largas y desplaza el resto"
+                  ? "Sin revisión: quita las pausas entre palabras de la transcripción"
                   : "Transcribe el clip primero"
               }
               onClick={removeSilences}
             >
-              <Scissors /> Quitar silencios
+              Corte rápido
             </Button>
           </div>
         </Section>

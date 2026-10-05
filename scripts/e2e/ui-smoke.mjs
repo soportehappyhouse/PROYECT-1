@@ -410,6 +410,56 @@ await step("command palette (Ctrl+K)", async () => {
   return s;
 });
 
+// Sprint 1 (web): GPU indicator + «Paquetes de IA», and the social review saved in the project.
+await step("GPU indicator and Ajustes → Paquetes de IA", async () => {
+  const gpu = page.getByTestId("gpu-indicator");
+  await gpu.waitFor({ timeout: 15_000 });
+  const label = await gpu.getAttribute("aria-label");
+  await page.getByRole("button", { name: "Ajustes" }).click();
+  await page.getByRole("tab", { name: "Paquetes de IA" }).click();
+  const rows = page.getByTestId("pack-row");
+  await rows.first().waitFor({ timeout: 15_000 });
+  const packs = await rows.count();
+  await page.keyboard.press("Escape");
+  return { label, packs };
+});
+
+// Integration: a real `409 PACK_REQUIRED` (flat body) from the api must open «Paquete requerido».
+await step("Limpiar voz (IA) without the pack: real 409 opens «Paquete requerido»", async () => {
+  const pack = (await apiJson("/api/ai/packs")).find((p) => p.id === "voz-limpia");
+  if (!pack) throw new Error("pack voz-limpia not listed by /api/ai/packs");
+  if (pack.installed) return { skipped: "voz-limpia is installed here: no 409 to trigger" };
+  await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).click();
+  await page.locator("[data-track-kind='video'] [data-clip-id]").first().click();
+  await page.locator(".dv-tab", { hasText: "Voz y audio" }).click();
+  const panel = page.locator("section[aria-label='Voz y audio']");
+  await panel.getByRole("tab", { name: "Efectos" }).click();
+  await panel.getByRole("button", { name: /Limpiar voz \(IA\)/ }).click();
+  const dialog = page.getByTestId("pack-required");
+  await dialog.waitFor({ timeout: 10_000 });
+  const text = (await dialog.innerText()).replace(/\s+/g, " ");
+  if (!text.includes(pack.name_es)) throw new Error(`dialog text: ${text.slice(0, 200)}`);
+  const download = await dialog.getByRole("button", { name: /^Descargar/ }).textContent();
+  await shot(page, "07-pack-required.png");
+  await dialog.getByRole("button", { name: "Cancelar" }).click();
+  return { pack: pack.id, download: download?.trim() };
+});
+
+await step("Exportar → Revisión para redes is saved in project.publish", async () => {
+  await page.locator(".dv-tab", { hasText: "Exportar" }).click();
+  const panel = page.locator("section[aria-label='Exportar']");
+  await panel.getByRole("checkbox", { name: "Voy a subirlo a redes" }).check();
+  await panel.getByRole("checkbox", { name: /Voz generada o clonada/ }).check();
+  const label = panel.getByRole("checkbox", { name: /Etiqueta «Contenido alterado con IA»/ });
+  if (!(await label.isChecked())) throw new Error("AI label did not turn on by itself");
+  await sleep(2_500); // autosave debounce (1.5 s)
+  const id = await page.evaluate(() => JSON.parse(localStorage.getItem("studio.project.v1")).id);
+  const saved = await apiJson(`/api/projects/${id}`);
+  if (!saved.publish?.forSocial || !saved.publish.flags?.aiVoice || !saved.publish.aiLabel)
+    throw new Error(`publish not saved: ${JSON.stringify(saved.publish)}`);
+  return saved.publish;
+});
+
 await browser.close();
 console.log(
   `\nconsole errors (${consoleErrors.length}):`,

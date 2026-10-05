@@ -33,8 +33,33 @@ export const ExportRequestSchema = z.object({
    * timeline has an `animated-captions` motion clip.
    */
   burnSubtitles: z.boolean().optional(),
+  /**
+   * Segment cache render (Sprint 1): absent = true. Falls back to the single-pass render when the
+   * preset or the timeline cannot be split safely (see docs/ARQUITECTURA.md §5.1).
+   */
+  useSegmentCache: z.boolean().optional(),
 });
 export type ExportRequest = z.infer<typeof ExportRequestSchema>;
+
+/** Segment statistics of a project.export run with the segment cache. */
+export const ExportSegmentStatsSchema = z.object({
+  total: z.number().int().nonnegative(),
+  cached: z.number().int().nonnegative(),
+  rendered: z.number().int().nonnegative(),
+});
+export type ExportSegmentStats = z.infer<typeof ExportSegmentStatsSchema>;
+
+/** Result of project.export (FileJobResult + how it was rendered). */
+export const ExportJobResultSchema = z.object({
+  assetId: IdSchema.optional(),
+  /** Relative to STORAGE_DIR. */
+  path: z.string(),
+  mode: z.enum(["segments", "single"]).optional(),
+  segments: ExportSegmentStatsSchema.optional(),
+  /** Why the segment cache was not used (Spanish), when it was requested. */
+  fallbackReason: z.string().optional(),
+});
+export type ExportJobResult = z.infer<typeof ExportJobResultSchema>;
 
 export const DEFAULT_EXPORT_PRESETS: readonly ExportPreset[] = [
   {

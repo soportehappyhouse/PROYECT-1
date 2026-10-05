@@ -29,3 +29,9 @@ export const LOGS_SUBDIR = "logs";
 
 /** Error reports: reports/<yyyyMMdd-HHmmss>-<slug>/ + reports/<same>.zip. Never served by /files. */
 export const REPORTS_SUBDIR = "reports";
+
+/** Segment cache of the block render: cache/segments/<sha1>.mp4 (LRU, SEGMENT_CACHE_MAX_GB). */
+export const SEGMENT_CACHE_SUBDIR = "cache/segments";
+
+/** Runtime state written by the services (e.g. run/perf.json). */
+export const RUN_SUBDIR = "run";

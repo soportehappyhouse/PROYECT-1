@@ -22,6 +22,12 @@ export const JobTypeSchema = z.enum([
   "voice.rvc", // (workers /rvc/convert)
   "subtitles.transcribe", // (workers /transcribe)
   "project.export", // (api/ffmpeg) final timeline render with ExportPreset
+  "packs.download", // (workers /packs/{id}/download + polling /packs/tasks/{id})
+  "analyze.scenes", // (workers /analyze/scenes) stores scenes on the asset
+  "analyze.silences", // (workers /analyze/silences) proposes cuts, never applies them
+  "timeline.apply-cuts", // (api) split a clip, remove ranges, ripple; returns the saved project
+  "audio.denoise", // (workers /audio/denoise) new audio asset
+  "perf.run", // (workers /perf/run) AI performance test -> storage/run/perf.json
 ]);
 export type JobType = z.infer<typeof JobTypeSchema>;
 

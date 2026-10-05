@@ -22,6 +22,7 @@ from typing import Any
 
 from .config import Settings
 from .downloads import Expected, ProgressFn, download, file_matches
+from .gpu import RVC_VRAM_MB, GpuBudget
 from .media import to_wav
 from .schemas import RvcModel
 
@@ -93,6 +94,12 @@ def base_status(models_root: Path) -> dict[str, bool]:
     }
 
 
+def base_ready(models_root: Path, f0_method: str = "rmvpe") -> bool:
+    """hubert (+ rmvpe when it is the pitch method) present: pack ``rvc-base`` usable."""
+    status = base_status(models_root)
+    return status["hubert"] and (status["rmvpe"] or f0_method != "rmvpe")
+
+
 def download_base_assets(
     models_root: Path,
     *,
@@ -159,17 +166,40 @@ class ConvertParams:
     protect: float = 0.33
 
 
+BUDGET_KEY = "rvc"
+
+
 class RvcEngine:
-    def __init__(self, settings: Settings, loader_factory: LoaderFactory | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        loader_factory: LoaderFactory | None = None,
+        budget: GpuBudget | None = None,
+    ) -> None:
         self.settings = settings
         self._factory = loader_factory or _default_loader
         self._loaders: dict[str, Any] = {}
         self._lock = threading.Lock()
+        self.budget = budget
 
     def resolve_device(self, requested: str | None) -> str:
         if requested:
             return requested
         return "cuda" if self.settings.use_cuda else "cpu"
+
+    def acquire_device(self, requested: str | None) -> tuple[str, list[str]]:
+        """Device after the GPU budget (unload-before-load, CPU fallback when VRAM is short)."""
+        device = self.resolve_device(requested)
+        if device == "cuda" and self.budget is not None:
+            decision = self.budget.acquire(
+                BUDGET_KEY, RVC_VRAM_MB, lambda: self.unload_device("cuda")
+            )
+            return decision.device, decision.warnings
+        return device, []
+
+    def unload_device(self, device: str) -> None:
+        with self._lock:
+            self._loaders.pop(device, None)
 
     def _loader(self, device: str) -> Any:
         with self._lock:
@@ -185,8 +215,7 @@ class RvcEngine:
             return self._loaders[device]
 
     def ensure_assets(self, f0_method: str, on_progress: ProgressFn | None = None) -> None:
-        status = base_status(self.settings.models_root)
-        if status["hubert"] and (status["rmvpe"] or f0_method != "rmvpe"):
+        if base_ready(self.settings.models_root, f0_method):
             return
         log.info("RVC base assets missing; downloading to %s", base_dir(self.settings.models_root))
         download_base_assets(self.settings.models_root, on_progress=on_progress)

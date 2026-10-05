@@ -47,6 +47,13 @@ export const DEFAULT_JOB_LANES: Record<JobType, JobLane> = {
   "voice.tts": "workers",
   "voice.rvc": "workers",
   "subtitles.transcribe": "workers",
+  "packs.download": "workers",
+  "analyze.scenes": "workers",
+  "analyze.silences": "workers",
+  "audio.denoise": "workers",
+  "perf.run": "workers",
+  // Pure project edit (no ffmpeg): own lane so it never waits behind exports or renders.
+  "timeline.apply-cuts": "edit",
 };
 
 /** Raised by handlers (or the runner) when ctx.signal aborts. */

@@ -34,6 +34,10 @@ import {
   trimClipStart,
   trimLimits,
 } from "@/lib/timeline";
+import type { PublishSettings } from "@/lib/ai-types";
+import { keepRanges } from "@/lib/cuts";
+import { nextPublish, projectPublish, type ProjectWithPublish } from "@/lib/publish";
+import { splitClipAtTimes } from "@/lib/scenes";
 import { cutClip, speechRanges } from "@/lib/silences";
 import { addBreadcrumb } from "./breadcrumbs-store";
 
@@ -98,6 +102,15 @@ export interface ProjectState {
   deleteClip: (clipId?: string) => void;
   /** Feedback 10: cut pauses > minGapSec out of a clip (ripple on its track + subtitles). */
   removeSilences: (clipId: string, minGapSec: number) => number;
+  /**
+   * Sprint 1: remove reviewed cuts (timeline time) from a clip locally, with ripple and subtitle
+   * remap (fallback when the api has no timeline.apply-cuts). Returns the seconds removed.
+   */
+  applyCutsLocally: (clipId: string, cuts: readonly { start: number; end: number }[]) => number;
+  /** Adopt tracks + subtitles edited by the api (timeline.apply-cuts) as one undo step. */
+  applyServerEdit: (remote: Pick<Project, "tracks" | "subtitles">, label: string) => void;
+  /** «Cortar en escenas»: split one clip at several times (one undo step); returns new pieces. */
+  splitAtTimes: (clipId: string, times: readonly number[]) => number;
   /** Feedback 11: remove every clip using an asset (assetId or renderedAssetId); returns how many. */
   removeClipsUsingAsset: (assetId: string) => number;
   updateClip: (
@@ -112,6 +125,8 @@ export interface ProjectState {
   setCaptionStyle: (style: CaptionStyle) => void;
   /** "Quemar subtítulos" (Export panel); the preview follows it too. */
   setBurnSubtitles: (burn: boolean) => void;
+  /** «Revisión para redes» (project.publish); not part of undo. */
+  setPublish: (patch: Parameters<typeof nextPublish>[1]) => void;
   updateSubtitle: (index: number, patch: Partial<SubtitleSegment>) => void;
   removeSubtitle: (index: number) => void;
   addSubtitle: (segment?: SubtitleSegment) => void;
@@ -153,7 +168,15 @@ export function createEmptyProject(name = "Proyecto sin título"): Project {
 export function loadLocalProject(): Project {
   const raw = readJson(STORAGE_KEYS.project);
   const parsed = ProjectSchema.safeParse(raw);
-  return parsed.success ? parsed.data : createEmptyProject();
+  if (!parsed.success) return createEmptyProject();
+  // Keep `publish` even while the shared schema does not list it (zod strips unknown keys).
+  const publish = (raw as { publish?: unknown }).publish;
+  return publish && !("publish" in parsed.data)
+    ? ({
+        ...parsed.data,
+        publish: projectPublish({ ...parsed.data, publish } as Project),
+      } as Project)
+    : parsed.data;
 }
 
 export function persistLocalProject(project: Project): void {
@@ -213,6 +236,50 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
     set({ project: { ...project, tracks: [...project.tracks, track] } });
     addBreadcrumb("track", `Creó «${track.name}» para no solapar clips`, { trackId: track.id });
     return track.id;
+  };
+
+  /**
+   * Keep only `ranges` (timeline time) of a clip: pieces packed from clip.start, later clips on
+   * its track shifted left, subtitles remapped (feedback 10 + Sprint 1 reviewed cuts).
+   */
+  const rippleKeep = (
+    clipId: string,
+    ranges: readonly { start: number; end: number }[],
+    label: string,
+  ): number => {
+    const found = findClip(get().project, clipId);
+    if (!found || found.track.locked || ranges.length === 0) return 0;
+    const { clip, track } = found;
+    const end = clipEnd(clip);
+    const { pieces, removed, map, snap } = cutClip(clip, ranges);
+    if (pieces.length === 0 || removed < 0.05) return 0;
+    const shift = (c: Clip) =>
+      c.start >= end - 1e-3 ? { ...c, start: roundTime(c.start - removed) } : c;
+    const moveSeg = (s: SubtitleSegment): SubtitleSegment | undefined => {
+      const a = snap(s.start, 1);
+      const b = snap(s.end, -1);
+      if (b - a < 0.05) return undefined; // the segment was all silence
+      const words = s.words
+        ?.map((w) => ({ ...w, start: map(w.start), end: map(w.end) }))
+        .filter(
+          (w): w is typeof w & { start: number; end: number } =>
+            w.start !== undefined && w.end !== undefined,
+        );
+      return { ...s, start: a, end: b, ...(words && { words }) };
+    };
+    addBreadcrumb("clip", `${label} (${removed.toFixed(2)} s) de un clip`, { clipId });
+    commit((p) => ({
+      tracks: p.tracks.map((t) =>
+        t.id === track.id
+          ? {
+              ...t,
+              clips: sortClips([...t.clips.filter((c) => c.id !== clipId).map(shift), ...pieces]),
+            }
+          : t,
+      ),
+      subtitles: p.subtitles.map(moveSeg).filter((x): x is SubtitleSegment => x !== undefined),
+    }));
+    return removed;
   };
 
   return {
@@ -419,39 +486,41 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
     removeSilences: (clipId, minGapSec) => {
       const found = findClip(get().project, clipId);
       if (!found || found.track.locked) return 0;
-      const { clip, track } = found;
-      const end = clipEnd(clip);
-      const ranges = speechRanges(get().project.subtitles, clip.start, end, minGapSec);
-      if (ranges.length === 0) return 0;
-      const { pieces, removed, map, snap } = cutClip(clip, ranges);
-      if (pieces.length === 0 || removed < 0.05) return 0;
-      const shift = (c: Clip) =>
-        c.start >= end - 1e-3 ? { ...c, start: roundTime(c.start - removed) } : c;
-      const moveSeg = (s: SubtitleSegment): SubtitleSegment | undefined => {
-        const a = snap(s.start, 1);
-        const b = snap(s.end, -1);
-        if (b - a < 0.05) return undefined; // the segment was all silence
-        const words = s.words
-          ?.map((w) => ({ ...w, start: map(w.start), end: map(w.end) }))
-          .filter(
-            (w): w is typeof w & { start: number; end: number } =>
-              w.start !== undefined && w.end !== undefined,
-          );
-        return { ...s, start: a, end: b, ...(words && { words }) };
-      };
-      addBreadcrumb("clip", `Quitó silencios (${removed.toFixed(2)} s) de un clip`, { clipId });
+      const ranges = speechRanges(
+        get().project.subtitles,
+        found.clip.start,
+        clipEnd(found.clip),
+        minGapSec,
+      );
+      return rippleKeep(clipId, ranges, "Quitó silencios");
+    },
+    applyCutsLocally: (clipId, cuts) => {
+      const found = findClip(get().project, clipId);
+      if (!found || found.track.locked || cuts.length === 0) return 0;
+      return rippleKeep(clipId, keepRanges(found.clip, cuts), "Aplicó cortes revisados");
+    },
+    applyServerEdit: (remote, label) => {
+      addBreadcrumb("clip", label);
+      commit(() => ({ tracks: remote.tracks, subtitles: remote.subtitles }));
+      const sel = get().selectedClipId;
+      if (sel && !findClip(get().project, sel)) set({ selectedClipId: undefined });
+    },
+    splitAtTimes: (clipId, times) => {
+      const found = findClip(get().project, clipId);
+      if (!found || found.track.locked) return 0;
+      const pieces = splitClipAtTimes(found.clip, times);
+      if (pieces.length < 2) return 0;
+      addBreadcrumb("clip", `Cortó un clip en ${pieces.length - 1} cambio(s) de escena`, {
+        clipId,
+      });
       commit((p) => ({
         tracks: p.tracks.map((t) =>
-          t.id === track.id
-            ? {
-                ...t,
-                clips: sortClips([...t.clips.filter((c) => c.id !== clipId).map(shift), ...pieces]),
-              }
+          t.id === found.track.id
+            ? { ...t, clips: sortClips([...t.clips.filter((c) => c.id !== clipId), ...pieces]) }
             : t,
         ),
-        subtitles: p.subtitles.map(moveSeg).filter((x): x is SubtitleSegment => x !== undefined),
       }));
-      return removed;
+      return pieces.length - 1;
     },
     removeClipsUsingAsset: (assetId) => {
       const uses = (c: Clip) => c.assetId === assetId || c.renderedAssetId === assetId;
@@ -484,6 +553,13 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
     },
     setCaptionStyle: (captionStyle) => commit(() => ({ captionStyle }), false),
     setBurnSubtitles: (burnSubtitles) => commit(() => ({ burnSubtitles }), false),
+    setPublish: (patch) => {
+      const { project } = get();
+      const publish: PublishSettings = nextPublish(projectPublish(project), patch);
+      addBreadcrumb("project", "Cambió la revisión para redes", { ...patch }, "project:publish");
+      const next: ProjectWithPublish = { ...project, publish, updatedAt: new Date().toISOString() };
+      set({ project: next, saveState: "dirty" });
+    },
     updateSubtitle: (index, patch) =>
       commit((p) => ({
         subtitles: p.subtitles.map((s, i) => (i === index ? { ...s, ...patch } : s)),

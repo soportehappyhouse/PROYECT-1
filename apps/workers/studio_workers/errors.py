@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 
 from .downloads import DownloadError
 from .media import FfmpegNotFoundError
+from .packs import PackRequiredError
 from .tts.providers import ProviderNotConfiguredError, VoiceNotInstalledError
 
 
@@ -29,6 +30,11 @@ _MAP: list[tuple[type[Exception], int, str]] = [
 
 
 def register_error_handlers(app: FastAPI) -> None:
+    def pack_required(_req: Request, exc: Exception) -> JSONResponse:
+        assert isinstance(exc, PackRequiredError)
+        return JSONResponse(status_code=409, content=exc.payload())
+
+    app.add_exception_handler(PackRequiredError, pack_required)
     for exc_type, status, code in _MAP:
 
         def handler(_req: Request, exc: Exception, status: int = status, code: str = code):

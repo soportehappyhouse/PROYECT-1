@@ -2,6 +2,7 @@
 
 import type { Clip, MediaAsset, Track } from "@studio/shared";
 import { useRef } from "react";
+import { sceneSnapTimes } from "@/hooks/use-scene-markers";
 import { fileUrl } from "@/lib/api";
 import { clipDuration, clipEnd, snapClipStart, snapPoints, snapTime } from "@/lib/timeline";
 import { cn } from "@/lib/utils";
@@ -79,7 +80,10 @@ export function ClipView({
     const store = useProjectStore.getState();
     const dt = dx / store.zoom;
     const threshold = SNAP_PX / store.zoom;
-    const points = store.snapping ? snapPoints(store.project.tracks, clip.id, store.playhead) : [];
+    // Scene markers (when shown) are snap points too.
+    const points = store.snapping
+      ? [...snapPoints(store.project.tracks, clip.id, store.playhead), ...sceneSnapTimes()]
+      : [];
     if (g.mode === "move") {
       let start = Math.max(0, g.originStart + dt);
       if (store.snapping) start = Math.max(0, snapClipStart(start, duration, points, threshold));

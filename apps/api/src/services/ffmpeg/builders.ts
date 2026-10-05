@@ -1,4 +1,4 @@
-import type { Transition } from "@studio/shared";
+import type { Transition, VideoEncoderId } from "@studio/shared";
 import { atempoChain } from "./audio-fx.js";
 import { escapeFilterPath, quoteFilterArg, sec } from "./escape.js";
 
@@ -607,12 +607,88 @@ export function spriteArgs(o: { input: string; output: string; plan: SpritePlan 
   ];
 }
 
+/**
+ * Video args of an editing proxy / intermediate for an H.264 encoder (Sprint 1: NVENC & co. with
+ * libx264 fallback): fast, low quality, a keyframe every `gop` frames, no B-frames on hardware.
+ */
+export function proxyVideoArgs(encoder: VideoEncoderId = "libx264", gop = 15): string[] {
+  const g = String(gop);
+  switch (encoder) {
+    case "h264_nvenc":
+      return [
+        "-c:v",
+        "h264_nvenc",
+        "-preset",
+        "p2",
+        "-rc",
+        "vbr",
+        "-cq",
+        "30",
+        "-b:v",
+        "0",
+        "-g",
+        g,
+        "-bf",
+        "0",
+        "-no-scenecut",
+        "1",
+      ];
+    case "h264_qsv":
+      return [
+        "-c:v",
+        "h264_qsv",
+        "-preset",
+        "veryfast",
+        "-global_quality",
+        "30",
+        "-g",
+        g,
+        "-bf",
+        "0",
+      ];
+    case "h264_amf":
+      return [
+        "-c:v",
+        "h264_amf",
+        "-quality",
+        "speed",
+        "-rc",
+        "cqp",
+        "-qp_i",
+        "28",
+        "-qp_p",
+        "30",
+        "-g",
+        g,
+        "-bf",
+        "0",
+      ];
+    case "libx264":
+      return [
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "28",
+        "-g",
+        g,
+        "-keyint_min",
+        g,
+        "-sc_threshold",
+        "0",
+      ];
+  }
+}
+
 /** Low-res editing proxy: 360p, keyframe every 15 frames for smooth scrubbing. */
 export function proxyArgs(o: {
   input: string;
   output: string;
   height?: number;
   hasAudio?: boolean;
+  /** H.264 encoder (hardware when available; libx264 default). */
+  encoder?: VideoEncoderId;
 }): string[] {
   return [
     "-i",
@@ -622,18 +698,7 @@ export function proxyArgs(o: {
     ...(o.hasAudio === false ? [] : ["-map", "0:a:0?"]),
     "-vf",
     `scale=-2:${o.height ?? 360}`,
-    "-c:v",
-    "libx264",
-    "-preset",
-    "veryfast",
-    "-crf",
-    "28",
-    "-g",
-    "15",
-    "-keyint_min",
-    "15",
-    "-sc_threshold",
-    "0",
+    ...proxyVideoArgs(o.encoder),
     "-pix_fmt",
     "yuv420p",
     "-c:a",

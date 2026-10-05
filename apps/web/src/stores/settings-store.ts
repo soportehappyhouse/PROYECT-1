@@ -80,6 +80,8 @@ export interface SettingsState {
   syncState: SyncState;
   commandPaletteOpen: boolean;
   settingsOpen: boolean;
+  /** Tab to show when the settings dialog opens (e.g. "ai-packs" from the GPU indicator). */
+  settingsTab: SettingsTab | undefined;
 
   setTheme: (theme: Theme) => void;
   setAccent: (accent: string) => void;
@@ -102,8 +104,10 @@ export interface SettingsState {
   mergeRemote: (remote: DashboardSettings) => boolean;
   setSyncState: (s: SyncState) => void;
   setCommandPaletteOpen: (open: boolean) => void;
-  setSettingsOpen: (open: boolean) => void;
+  setSettingsOpen: (open: boolean, tab?: SettingsTab) => void;
 }
+
+export type SettingsTab = "appearance" | "shortcuts" | "layouts" | "ai-packs";
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -184,6 +188,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => {
     syncState: "idle",
     commandPaletteOpen: false,
     settingsOpen: false,
+    settingsTab: undefined,
 
     setTheme: (theme) => {
       addBreadcrumb("settings", `Cambió el tema a ${theme}`, { theme });
@@ -268,7 +273,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => {
     },
     setSyncState: (syncState) => set({ syncState }),
     setCommandPaletteOpen: (commandPaletteOpen) => set({ commandPaletteOpen }),
-    setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
+    setSettingsOpen: (settingsOpen, settingsTab) => set({ settingsOpen, settingsTab }),
   };
 });
 

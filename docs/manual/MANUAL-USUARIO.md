@@ -24,6 +24,7 @@
 14. [Pruebas que podés hacer hoy](#14-pruebas-que-podés-hacer-hoy)
 15. [Limitaciones conocidas](#15-limitaciones-conocidas)
 16. [Glosario](#16-glosario)
+17. [IA local: paquetes, GPU, silencios, escenas y redes](#17-ia-local-paquetes-gpu-silencios-escenas-y-redes)
 
 ---
 
@@ -140,12 +141,16 @@ De izquierda a derecha:
 - **Studio / nombre del proyecto** y un indicador de guardado: _Cambios sin guardar_,
   _Guardando…_, _Guardado_, _Guardado local_ (la API no responde: se guardó solo en este
   navegador) o _Error al guardar_.
+- **Indicador de IA** (chip con ícono de placa o de procesador): dice si la IA local corre en
+  **GPU** o en **CPU**, cuánta memoria de video (VRAM) queda libre y qué modelo está cargado. Se
+  actualiza cada 10 s; al pasar el mouse muestra el detalle y al hacer clic ofrece **Liberar GPU**
+  (ver [§17.2](#172-indicador-de-gpu)).
 - **Comandos** (`Ctrl+K`): abre la paleta de comandos.
 - **Paneles** (ícono de paneles): mostrar u ocultar cada panel.
 - **Layouts** (ícono de cuadrícula): _Restaurar layout_, _Guardar layout actual…_, tus layouts
   guardados y _Gestionar layouts…_.
 - **Tema** (sol / luna / monitor): Claro, Oscuro o Sistema.
-- **Ajustes** (engranaje): pestañas _Apariencia_, _Atajos_ y _Layouts_.
+- **Ajustes** (engranaje): pestañas _Apariencia_, _Atajos_, _Layouts_ y _Paquetes de IA_.
 - **🐞 Reportar error**: abre el formulario de reporte (ver [§13](#13-cómo-reportar-un-error)).
 
 ### 4.2 Los 10 paneles
@@ -155,12 +160,12 @@ De izquierda a derecha:
 | **Media**           | Importar archivos (botón **Importar** o arrastrar y soltar), ver miniatura y datos (duración, resolución, fps, tamaño), **+** para agregar a la línea de tiempo, varita para **Generar proxy**, tacho para borrar (si el medio está en uso ofrece **Quitar del timeline y borrar**), filtro por nombre. Los renders de motion llevan la etiqueta **Render** (no necesitan proxy).                                                          |
 | **Biblioteca**      | Buscar efectos de sonido y música (_Efectos_, _Música_, _Ambiente_), escucharlos, **+** para agregarlos a la línea de tiempo, **Re-escanear** la carpeta de la biblioteca y **subir** sonidos propios.                                                                                                                                                                                                                                     |
 | **Vista previa**    | Reproductor sincronizado con el cursor de la línea de tiempo: ir al inicio, fotograma anterior/siguiente, reproducir/pausar. Muestra el clip bajo el cursor (usa el proxy si existe), el audio, los textos, los subtítulos (dentro del video, como en la exportación) y **todos** los motion renderizados bajo el cursor, en su posición y escala.                                                                                         |
-| **Línea de tiempo** | Pistas y clips. Barra: **Pista** (agregar pista de video, audio, texto o motion), **Texto** (clip de texto en el cursor), deshacer/rehacer, tijera (**dividir** en el cursor), tacho, **imán**, tiempo actual / total y zoom.                                                                                                                                                                                                              |
+| **Línea de tiempo** | Pistas y clips. Barra: **Pista** (agregar pista de video, audio, texto o motion), **Texto** (clip de texto en el cursor), deshacer/rehacer, tijera (**dividir** en el cursor), tacho, onda (**Quitar silencios y muletillas**), menú **Escenas** (_Detectar escenas_, _Cortar en escenas_, _Mostrar marcadores de escena_), **imán**, tiempo actual / total y zoom.                                                                        |
 | **Propiedades**     | Sin clip seleccionado: nombre y tamaño del proyecto (ancho, alto, FPS y botones _16:9 1080p_, _9:16 vertical_, _1:1_) y datos del medio seleccionado. Con un clip: tiempo (inicio, entrada, salida, velocidad), imagen (opacidad, **escala y posición X/Y en %** con **anclas** arriba/centro/abajo y esquinas —también para motion graphics—, transiciones), audio (volumen, efectos guardados), texto (fuente, tamaño, color, posición). |
 | **Motion graphics** | Elegir plantilla, editar parámetros, duración y formato; **Renderizar y añadir**, **Añadir sin render** o **Actualizar clip y renderizar**. Arriba se ve qué motores están disponibles (en verde); las plantillas de un motor no disponible no se pueden elegir.                                                                                                                                                                           |
-| **Voz y audio**     | Tres pestañas: **Texto a voz**, **Efectos** y **RVC**.                                                                                                                                                                                                                                                                                                                                                                                     |
-| **Subtítulos**      | **Transcribir (Whisper)** el clip seleccionado (idioma y modelo), editar segmentos, **Descargar SRT**, elegir **estilo** y **Renderizar subtítulos como motion**.                                                                                                                                                                                                                                                                          |
-| **Exportar**        | Elegir preset (arranca en _YouTube 1080p_), duplicarlo y editarlo (incluida la casilla **Transparencia**), nombre del archivo, exportar un rango, **Quemar subtítulos en el video** y la lista de **Exportaciones recientes** con **Descargar**.                                                                                                                                                                                           |
+| **Voz y audio**     | Tres pestañas: **Texto a voz**, **Efectos** (arriba, **Limpiar voz (IA)**) y **RVC**.                                                                                                                                                                                                                                                                                                                                                      |
+| **Subtítulos**      | **Transcribir (Whisper)** el clip seleccionado (idioma y modelo), **Quitar silencios y muletillas…** (con revisión) o _Corte rápido_, editar segmentos, **Descargar SRT**, elegir **estilo** y **Renderizar subtítulos como motion**.                                                                                                                                                                                                      |
+| **Exportar**        | Elegir preset (arranca en _YouTube 1080p_), duplicarlo y editarlo (incluida la casilla **Transparencia**), **Revisión para redes** (casilla _Voy a subirlo a redes_, avisos y etiqueta de IA), nombre del archivo, exportar un rango, **Quemar subtítulos en el video** y la lista de **Exportaciones recientes** con **Descargar**.                                                                                                       |
 | **Trabajos**        | Todo lo que tarda (análisis, proxies, renders, voz, transcripción, exportación) con su progreso. Permite cancelar, abrir el resultado, filtrar _Todos/Activos_, limpiar terminados y, en los que fallan, **Reportar**. Arriba indica la conexión: _En vivo_, _Consulta periódica_ o _Sin conexión_.                                                                                                                                        |
 
 Cómo se trabaja en la **línea de tiempo**:
@@ -172,7 +177,11 @@ Cómo se trabaja en la **línea de tiempo**:
 - **Recortar**: arrastrá los bordes del clip (se frenan en el clip vecino).
 - **Dividir**: poné el cursor y tocá `S` (o la tijera).
 - **Zoom**: `Ctrl` + rueda del mouse, el control deslizante o las teclas `=` y `-`.
-- **Imán** (`N`): pega los clips al 0, al cursor y a los bordes de otros clips.
+- **Imán** (`N`): pega los clips al 0, al cursor, a los bordes de otros clips y a los
+  **marcadores de escena** (si están visibles).
+- **Escenas**: con un clip de video seleccionado, **Escenas → Detectar escenas** marca cada
+  cambio de plano en la regla (rombos naranjas y una línea punteada); **Cortar en escenas** lo
+  divide en esos puntos (ver [§17.5](#175-escenas)).
 - Cada pista tiene botones para **silenciar**, **ocultar**, **bloquear** y **eliminar** (solo se
   elimina si está vacía).
 - **Orden de las capas**: las pistas se apilan en el orden de la lista; la pista de **más arriba
@@ -272,10 +281,12 @@ Pasos:
    **Quemar subtítulos en el video** del panel Exportar arranca **desmarcada**; y aunque la
    marques, los tramos que ya muestran los animados **no se queman de nuevo** (ni en la vista
    previa ni en la exportación), así no salen dos veces.
-   **Quitar silencios**: con el clip seleccionado y ya transcrito, en **Subtítulos → Quitar
-   silencios** elegí la _Pausa mínima_ (600 ms por defecto) y tocá **Quitar silencios**: se cortan
-   las pausas entre palabras y el resto del clip y los subtítulos se corren para cerrar los huecos.
-   Si ya habías renderizado los subtítulos animados, volvé a renderizarlos.
+   **Quitar silencios y muletillas**: con el clip seleccionado, en **Subtítulos → Quitar silencios
+   y muletillas…** analizá el clip, revisá la lista de cortes (podés escuchar cada uno) y tocá
+   **Aplicar** (detalle en [§17.4](#174-quitar-silencios-y-muletillas)). El resto del clip y los
+   subtítulos se corren para cerrar los huecos. Si ya habías renderizado los subtítulos animados,
+   volvé a renderizarlos. Sin la IA, **Corte rápido** quita las pausas entre palabras de la
+   transcripción (pausa mínima de 600 ms por defecto) sin revisión.
 6. Exportá con **Reels / TikTok (9:16)** (1080×1920, 30 fps) o **YouTube Shorts (9:16)**
    (1080×1920, 60 fps).
 
@@ -1011,9 +1022,9 @@ Comprobadas en el código; están para que no pierdas tiempo:
 - **Vista previa**: muestra un solo clip de video a la vez (el de la primera pista de video de la
   lista que tenga algo bajo el cursor) en su posición/escala; los motion renderizados sí se apilan
   todos. La vista previa de motion en su panel es aproximada hasta que renderizás.
-- **Quitar silencios** usa solo las marcas de tiempo por palabra de Whisper (no analiza el audio
-  con `silencedetect`) y no quita muletillas; después hay que volver a renderizar los subtítulos
-  animados. `J` (hacia atrás) mueve el cursor pero el video se ve a saltos (el navegador no
+- **Quitar silencios y muletillas**: después de aplicar hay que volver a renderizar los
+  subtítulos animados (no se recalculan solos). _Corte rápido_ usa solo las marcas de tiempo de
+  Whisper y no quita muletillas. `J` (hacia atrás) mueve el cursor pero el video se ve a saltos (el navegador no
   reproduce hacia atrás).
 - **Sin recorte (crop) ni zoom** en la interfaz: un video horizontal en un proyecto vertical queda
   con barras.
@@ -1058,3 +1069,110 @@ Comprobadas en el código; están para que no pierdas tiempo:
 | **Whisper**              | Modelo de IA que transcribe audio a texto (Studio usa faster-whisper).                                         |
 | **Workers**              | El programa local en Python (puerto 8001) que corre Whisper, Piper y RVC.                                      |
 | **Zona segura**          | Margen donde no conviene poner texto porque la interfaz de TikTok/Reels/YouTube lo tapa.                       |
+
+## 17. IA local: paquetes, GPU, silencios, escenas y redes
+
+Todo corre en tu PC: no se sube nada a internet. La primera vez que usás una función de IA
+puede tener que bajar su modelo (un **paquete**).
+
+### 17.1 Paquetes de IA
+
+Los modelos se bajan **a pedido**, uno por función, a la carpeta `models\`. `setup.ps1` instala
+solo el paquete **core**; `setup.ps1 -Full` baja todos en secuencia.
+
+| Paquete           | Contenido                      | Tamaño aprox. | Lo usa                    |
+| ----------------- | ------------------------------ | ------------- | ------------------------- |
+| **core**          | Whisper base + voz Piper es_AR | 0,3 GB        | Transcribir, texto a voz  |
+| **whisper-turbo** | Whisper large-v3-turbo (GPU)   | 1,6 GB        | Transcribir (más preciso) |
+| **voces-es**      | Las otras 7 voces Piper        | 0,5 GB        | Texto a voz               |
+| **rvc-base**      | hubert_base + rmvpe            | 0,4 GB        | RVC                       |
+| **scenes**        | PySceneDetect                  | 0,05 GB       | Detectar escenas          |
+| **voz-limpia**    | DeepFilterNet                  | 0,2 GB        | Limpiar voz (IA)          |
+
+- **Paquete requerido**: si tocás una función cuyo paquete falta, aparece una ventana con el
+  nombre, el tamaño y la licencia. **Descargar** muestra el progreso; al terminar, Studio
+  **repite sola la acción** que habías pedido. Si cerrás con _Seguir en segundo plano_, la
+  descarga sigue y la acción se repite igual al terminar. Sin conexión o con error aparece
+  **Reintentar** (las descargas se reanudan donde quedaron).
+- **Ajustes → Paquetes de IA**: tabla con cada paquete, su estado (_Instalado_, _Incompleto_ o
+  _Falta_), tamaño y qué funciones lo usan. **Descargar** / **Completar** lo baja;
+  **Verificar** revisa los archivos de uno instalado y vuelve a bajar los dañados. Las descargas
+  van **de a una**: arriba se ve la cola (_1 en curso, 2 en espera_) y cada fila dice _En cola_.
+
+### 17.2 Indicador de GPU
+
+El chip del encabezado consulta la API cada 10 s:
+
+- **GPU · 3,2 GB libres** (verde): la IA usa la placa NVIDIA. Al lado aparece el modelo cargado
+  (por ejemplo `whisper-turbo`).
+- **CPU** (ámbar): no hay CUDA o no queda VRAM suficiente; funciona igual, más lento. Si el driver
+  usa memoria del sistema como VRAM también se pone ámbar (es mucho más lento).
+- **IA —** (gris): la API o los workers no responden; el detalle dice por qué.
+- Clic → **Liberar GPU**: descarga el modelo de la VRAM (útil antes de jugar o de usar otro
+  programa pesado). Studio carga **un modelo a la vez** y lo cambia solo cuando hace falta.
+
+### 17.3 Test de rendimiento IA
+
+En **Ajustes → Paquetes de IA → Test de rendimiento IA** Studio mide en tu PC (un par de minutos)
+Whisper, Piper, RVC y la detección de escenas, y guarda el resultado. La tabla muestra cada
+velocidad y al lado los **tiempos estimados**, por ejemplo _Transcribir 10 min de audio ≈ 25 s_ o
+_Detectar escenas en 10 min a 30 fps ≈ 1 min_. Volvé a correrlo si cambiás de placa o de driver.
+
+### 17.4 Quitar silencios y muletillas
+
+1. Seleccioná el clip con voz en la línea de tiempo.
+2. **Subtítulos → Quitar silencios y muletillas…** (o el botón de onda de la barra de la línea de
+   tiempo, o la paleta `Ctrl+K`).
+3. Opciones: **Silencio mínimo** (500 ms), **Margen a cada lado** (120 ms, deja respirar el
+   corte) e **Incluir muletillas** («eh», «este», «o sea», «digamos», «viste», «bueno», «tipo»,
+   «nada», «mmm»; usa la transcripción de Whisper). Tocá **Analizar**.
+4. **Revisión**: cada corte tiene su casilla, la etiqueta _silencio_ o _muletilla_, el texto, el
+   momento y la duración. 🎧 **Escuchar** lo reproduce en la Vista previa con medio segundo antes
+   y después. Arriba: cuántos cortes marcaste y cuántos segundos se quitan; los botones
+   _Quitar/Marcar silencios_ y _Quitar/Marcar muletillas_ cambian todos los de un tipo.
+5. **Aplicar N cortes**: el clip se divide, se quitan los tramos y lo que sigue se corre. Es **un
+   solo paso de deshacer** (`Ctrl+Z`). Si hay subtítulos animados renderizados, la ventana avisa
+   que hay que volver a renderizarlos.
+
+### 17.5 Escenas
+
+- **Escenas → Detectar escenas** (con un clip de video seleccionado) busca los cambios de plano.
+  La lista queda guardada en el medio, así que los marcadores aparecen también en otros clips del
+  mismo video.
+- Los marcadores se ven en la regla y el **imán** pega los clips a ellos. **Mostrar marcadores de
+  escena** los oculta o muestra.
+- **Cortar en escenas** divide el clip seleccionado en cada marcador (un solo paso de deshacer).
+
+### 17.6 Limpiar voz (IA)
+
+En **Voz y audio → Efectos → Limpiar voz (IA)** (con un clip de audio o video seleccionado)
+DeepFilterNet quita ruido de fondo, zumbidos y eco leve. Con _Reemplazar el audio del clip_
+marcado el resultado reemplaza al audio del clip; si no, queda como medio nuevo en **Media**. La
+primera vez pide el paquete **voz-limpia**.
+
+### 17.7 Revisión para redes
+
+En **Exportar → Revisión para redes** marcá **Voy a subirlo a redes** y después lo que tiene el
+video. Cada casilla muestra qué puede pasar en YouTube, TikTok o Instagram:
+
+| Casilla                              | Aviso                                   |
+| ------------------------------------ | --------------------------------------- |
+| Cara generada o cambiada con IA      | Requiere etiqueta · puede darse de baja |
+| Voz generada o clonada con IA        | Requiere etiqueta · puede darse de baja |
+| Otro contenido realista hecho con IA | Requiere etiqueta                       |
+| Música con derechos de autor         | No monetizable · puede darse de baja    |
+| Contenido de terceros                | No monetizable · puede darse de baja    |
+
+- **Etiqueta «Contenido alterado con IA»**: se prende sola cuando marcás algo de IA; el texto se
+  puede editar y se quema chico en la esquina inferior izquierda durante todo el video. Podés
+  apagarla (aparece un aviso). Igual marcá «contenido alterado o sintético» al subirlo.
+- Todo se guarda en el proyecto.
+
+### 17.8 Problemas frecuentes
+
+| Síntoma                                       | Qué hacer                                                                                            |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| La descarga de un paquete falla               | Revisá la conexión y tocá **Reintentar**; sigue desde donde quedó.                                   |
+| El indicador dice **CPU** teniendo una NVIDIA | Reinstalá con `setup.ps1 -WithCuda`; si la VRAM está llena, **Liberar GPU** o cerrá otros programas. |
+| **IA —** en el encabezado                     | Los workers no corren: mirá la ventana "workers" y `doctor.ps1`.                                     |
+| _Módulo en desarrollo_ al analizar            | La API es de una versión anterior: actualizá y corré `setup.ps1 -Update`.                            |

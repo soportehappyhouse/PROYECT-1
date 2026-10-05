@@ -70,4 +70,4 @@ Mismo protocolo: Fable coordina, Opus implementa, Sonnet investiga, auditoría i
 
 ## Descubierto (fuera de alcance)
 
-- (vacío)
+- HyperFrames (HeyGen) como referencia para preview multicapa, keyframes y pila de efectos — ver docs/trabajo/analisis-hyperframes.md

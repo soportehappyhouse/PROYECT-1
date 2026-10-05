@@ -1,7 +1,7 @@
 "use client";
 
 import type { RvcRequest, TtsProvider, TtsVoiceInfo } from "@studio/shared";
-import { Download, Plus, Trash2 } from "lucide-react";
+import { Download, Eraser, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { hasAudio, SelectedClipHint, useSelectedClip } from "@/components/common/SelectedClipInfo";
@@ -17,7 +17,7 @@ import {
   Tabs,
 } from "@/components/ui/misc";
 import { useApiResource } from "@/hooks/use-api-resource";
-import { api, ApiRequestError, errorMessage, isNotImplemented } from "@/lib/api";
+import { aiApi, api, ApiRequestError, errorMessage, isNotImplemented } from "@/lib/api";
 import {
   defaultEffect,
   EFFECT_DEFS,
@@ -28,12 +28,17 @@ import {
   type EditableEffect,
   type EditableEffectType,
 } from "@/lib/voice-effects";
+import { warnIfCpu } from "@/lib/gpu-preflight";
 import { formatMb, withPiperCatalog } from "@/lib/voices";
 import { useJobsStore } from "@/stores/jobs-store";
+import { runWithPack, usePacksStore } from "@/stores/packs-store";
 import { useProjectStore } from "@/stores/project-store";
 import { Panel } from "./Panel";
 
 type Tab = "tts" | "effects" | "rvc";
+
+/** Model pack with the 7 extra Spanish Piper voices (models/packs.json). */
+const VOICES_PACK_ID = "voces-es";
 
 function reportError(action: string, err: unknown) {
   if (isNotImplemented(err)) toast.info(`${action}: módulo en desarrollo`);
@@ -48,13 +53,27 @@ function reportError(action: string, err: unknown) {
 function VoiceDownloads({
   voices,
   onInstalled,
+  onPackInstalled,
 }: {
   voices: TtsVoiceInfo[];
   onInstalled: (id: string) => void;
+  /** The whole `voces-es` pack finished (packs route + «Paquete requerido» dialog). */
+  onPackInstalled: () => void;
 }) {
   const [busy, setBusy] = useState<Record<string, number | null>>({});
   const missing = voices.filter((v) => !v.installed);
   if (voices.length === 0) return null;
+
+  // Decision 6: the 7 extra voices are the `voces-es` pack; same dialog/progress as other packs.
+  const downloadPack = () => {
+    const packs = usePacksStore.getState();
+    const pack = packs.packs.find((p) => p.id === VOICES_PACK_ID);
+    packs.openRequest({
+      packId: VOICES_PACK_ID,
+      ...(pack && { name_es: pack.name_es, size_bytes: pack.size_bytes }),
+    });
+    packs.attachRetry(VOICES_PACK_ID, onPackInstalled);
+  };
 
   const download = async (v: TtsVoiceInfo) => {
     setBusy((b) => ({ ...b, [v.id]: null }));
@@ -88,6 +107,17 @@ function VoiceDownloads({
 
   return (
     <Section title={`Voces Piper (${voices.length - missing.length}/${voices.length} instaladas)`}>
+      {missing.length > 1 ? (
+        <Button
+          size="xs"
+          variant="outline"
+          className="self-start"
+          tooltip="Paquete «voces-es»: descarga en secuencia con progreso (Ajustes → Paquetes de IA)"
+          onClick={downloadPack}
+        >
+          <Download /> Descargar las {missing.length} que faltan (paquete voces-es)
+        </Button>
+      ) : null}
       <ul className="flex flex-col gap-1">
         {voices.map((v) => {
           const progress = busy[v.id];
@@ -108,9 +138,9 @@ function VoiceDownloads({
                   />
                 ) : null}
               </span>
-              {v.installed ? (
-                <Badge tone="success">Instalada</Badge>
-              ) : (
+              {v.installed ? <Badge tone="success">Instalada</Badge> : null}
+              {!v.installed && !downloading ? <Badge tone="muted">No instalada</Badge> : null}
+              {v.installed ? null : (
                 <Button
                   size="xs"
                   variant="outline"
@@ -230,6 +260,7 @@ function TtsForm() {
             setVoice(id);
             voices.reload();
           }}
+          onPackInstalled={() => voices.reload()}
         />
       ) : null}
       <Label>
@@ -260,6 +291,55 @@ function TtsForm() {
         {busy ? <Spinner /> : null} Generar y añadir al cursor
       </Button>
     </div>
+  );
+}
+
+/** «Limpiar voz (IA)»: DeepFilterNet (job audio.denoise, pack voz-limpia) → new audio asset. */
+function DenoiseSection() {
+  const sel = useSelectedClip();
+  const [replace, setReplace] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const run = async () => {
+    if (!hasAudio(sel)) return;
+    const { clip } = sel;
+    const assetId = clip.assetId;
+    setBusy(true);
+    try {
+      // Wrapped whole: after a «Paquete requerido» download the same request runs again.
+      await warnIfCpu("denoise");
+      await runWithPack(async () => {
+        const { jobId } = await aiApi.denoise(assetId);
+        useJobsStore
+          .getState()
+          .track(
+            jobId,
+            "audio.denoise",
+            replace ? { kind: "replaceClipAsset", clipId: clip.id } : { kind: "refreshMedia" },
+          );
+        toast.info("Limpiando la voz…");
+      });
+    } catch (err) {
+      reportError("Limpiar voz", err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Section title="Limpiar voz (IA)">
+      <p className="text-[11px] text-muted-foreground">
+        Quita ruido de fondo, zumbidos y eco leve de la voz con DeepFilterNet (la primera vez baja
+        el paquete «Voz limpia», unos 200 MB).
+      </p>
+      <label className="flex items-center gap-2 text-xs">
+        <Checkbox checked={replace} onChange={(e) => setReplace(e.target.checked)} />
+        Reemplazar el audio del clip (si no, el resultado queda en Media)
+      </label>
+      <Button size="sm" disabled={busy || !hasAudio(sel)} onClick={() => void run()}>
+        {busy ? <Spinner /> : <Eraser />} Limpiar voz (IA)
+      </Button>
+    </Section>
   );
 }
 
@@ -302,6 +382,7 @@ function EffectsForm() {
         sel={sel}
         need="Selecciona un clip de audio o video en la línea de tiempo."
       />
+      <DenoiseSection />
       <Section title="Presets">
         <div className="flex flex-wrap gap-1">
           {VOICE_PRESETS.map((p) => (
@@ -418,19 +499,24 @@ function RvcForm() {
   const submit = async () => {
     if (!hasAudio(sel) || !model) return;
     setBusy(true);
+    const { assetId } = sel.clip;
+    const clipId = sel.clip.id;
     try {
-      const { jobId } = await api.rvc({
-        assetId: sel.clip.assetId,
-        modelId: model,
-        pitchShift,
-        indexRate,
-        f0Method,
-        device: useCuda ? "cuda" : "cpu",
+      // CPU chosen on purpose: the «puede tardar en CPU» toast already says it.
+      if (useCuda) await warnIfCpu("rvc");
+      // 409 PACK_REQUIRED (rvc-base: hubert + rmvpe) opens «Paquete requerido» and retries.
+      await runWithPack(async () => {
+        const { jobId } = await api.rvc({
+          assetId,
+          modelId: model,
+          pitchShift,
+          indexRate,
+          f0Method,
+          device: useCuda ? "cuda" : "cpu",
+        });
+        useJobsStore.getState().track(jobId, "voice.rvc", { kind: "replaceClipAsset", clipId });
+        toast.info("Convirtiendo voz (puede tardar en CPU)…");
       });
-      useJobsStore
-        .getState()
-        .track(jobId, "voice.rvc", { kind: "replaceClipAsset", clipId: sel.clip.id });
-      toast.info("Convirtiendo voz (puede tardar en CPU)…");
     } catch (err) {
       reportError("RVC", err);
     } finally {

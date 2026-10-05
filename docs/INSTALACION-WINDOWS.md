@@ -63,13 +63,15 @@ Qué hace:
 3. Instala **pnpm 12** (`npm i -g pnpm@12`), las dependencias JS (`pnpm install`, se omite si
    `pnpm-lock.yaml` y los `package.json` no cambiaron desde la última vez) y el navegador de Remotion
    (`pnpm --filter @studio/remotion browser:ensure`, se omite si ya está descargado).
-4. Crea el entorno Python `apps\workers\.venv` con faster-whisper, Piper y RVC (torch CPU). Se omite
-   si el sello `.venv\.studio-install` coincide con el hash de `requirements.txt` (o
-   `requirements-cuda.txt`) y `pyproject.toml`; cambiar entre CPU y `-WithCuda` lo rehace.
+4. Crea el entorno Python `apps\workers\.venv` con faster-whisper, Piper y RVC (torch CPU, o CUDA
+   si hay GPU NVIDIA: ver [9](#9-actualizar-y-desinstalar)). Se omite si el sello
+   `.venv\.studio-install` coincide con el hash de `requirements.txt` (o `requirements-cuda.txt`) y
+   `pyproject.toml`; cambiar entre CPU y `-WithCuda` lo rehace.
 5. Modelos: primero `models_cli --check` muestra la tabla **presente / falta / parcial / corrupto**
-   y después baja **solo lo que falta**: voz **es_AR-daniela-high**, Whisper **base**, activos de
-   RVC (`rmvpe.pt` + `hubert_base`). Cada archivo se verifica (tamaño, md5 del catálogo de Piper,
-   sha256 publicado por Hugging Face) y queda registrado en **`models\manifest.json`** (nombre,
+   y después baja **solo lo que falta**: voz **es_AR-daniela-high** y Whisper **base** (los activos
+   de RVC, `rmvpe.pt` + `hubert_base`, solo con `-Full`; si no, al usar RVC). Cada archivo se
+   verifica (tamaño, md5 del catálogo de Piper, sha256 publicado por Hugging Face) y queda
+   registrado en **`models\manifest.json`** (nombre,
    ruta, tamaño, sha256/md5, URL de origen, fecha). Una descarga cortada queda como `<archivo>.part`
    y **se reanuda** donde quedó (HTTP Range) la próxima vez.
 6. Compila el proyecto (`pnpm build`), salvo que el build existente coincida con el hash del
@@ -92,13 +94,33 @@ Re-ejecutarlo con todo instalado: alrededor de un minuto (verificaciones, sin de
 | --------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | `-Update`                                     | Después de bajar una versión nueva: todo incremental (ver [9](#9-actualizar-y-desinstalar)) |
 | `-Force`                                      | Ignora los sellos: rehace `pnpm install`, `pip install`, el build y re-descarga modelos     |
-| `-WithCuda`                                   | GPU NVIDIA: torch CUDA 12.8 (cu128) y `USE_CUDA=true` en `.env` (se recuerda)               |
-| `-WithCuda:$false`                            | Volver de CUDA al perfil CPU                                                                |
+| `-WithCuda`                                   | GPU NVIDIA: torch CUDA 12.8 (cu128) y `USE_CUDA=true` (automático si se detecta la GPU)     |
+| `-NoCuda` (o `-WithCuda:$false`)              | Perfil CPU aunque haya GPU NVIDIA (`USE_CUDA=false`)                                        |
 | `-WhisperModel small`                         | Otro modelo de subtítulos (`tiny`, `base`, `small`, `medium`, `large-v3-turbo`)             |
 | `-PiperVoice es_MX-claude-high`               | Otra voz por defecto                                                                        |
-| `-SkipRvc` / `-SkipRvc:$false`                | Instalación liviana sin torch/RVC (se recuerda) / volver a instalar RVC                     |
+| `-SkipRvc` / `-SkipRvc:$false`                | Sin dependencias de RVC en el `.venv` (torch/RVC; se recuerda) / volver a instalarlas       |
 | `-SkipModels` / `-SkipBuild` / `-SkipBrowser` | Saltear pasos                                                                               |
 | `-SkipWinget`                                 | No usa winget: Git, Node 22, Python 3.11 y FFmpeg ya deben estar en el PATH                 |
+| `-Full`                                       | Descarga todos los paquetes de IA en secuencia (ver abajo)                                  |
+
+### Paquetes de IA (`-Full`)
+
+Por defecto `setup.ps1` instala solo el paquete **core** (Whisper base + voz Daniela). Los demás se
+descargan al usar cada función (Ajustes → Paquetes de IA, con barra de progreso). Con `-Full` se
+bajan todos ahora, uno por uno (~3,5 GB; repetirlo omite lo que ya está y reanuda lo parcial):
+
+| Paquete         | Contenido                               | Tamaño aprox. | Lo usa                                   |
+| --------------- | --------------------------------------- | ------------- | ---------------------------------------- |
+| `core`          | Whisper base + Piper es_AR-daniela-high | 0,3 GB        | subtítulos, locución                     |
+| `whisper-turbo` | Whisper large-v3-turbo (float16 en GPU) | 1,6 GB        | subtítulos (por defecto con `-WithCuda`) |
+| `voces-es`      | 7 voces Piper más (México, España)      | 0,5 GB        | locución                                 |
+| `rvc-base`      | hubert + rmvpe                          | 0,4 GB        | conversión de voz (RVC)                  |
+| `scenes`        | PySceneDetect + OpenCV (pip)            | 0,04 GB       | detectar escenas                         |
+| `voz-limpia`    | DeepFilterNet 3 (pip + pesos)           | 0,01–0,25 GB  | limpiar voz                              |
+
+Estado: `scripts\windows\doctor.ps1` (sección "Paquetes de IA") o, a mano,
+`apps\workers\.venv\Scripts\python.exe -m studio_workers.models_cli --packs list`.
+Uno solo: `... models_cli --packs download whisper-turbo`.
 
 ## 4. Abrir Studio
 
@@ -214,8 +236,35 @@ apps\workers\.venv\Scripts\python.exe -m studio_workers.models_cli --check --upd
 
    `-Update` no toca Git: revisa todo, omite lo que ya está (prerrequisitos, `node_modules`, `.venv`,
    navegador, modelos registrados en `models\manifest.json`), conserva el perfil anterior (CUDA o sin
-   RVC) y solo instala, descarga o recompila lo que la versión nueva cambió. Termina con
+   RVC; un perfil CPU pasa a CUDA si hay GPU NVIDIA, salvo `-NoCuda`) y solo instala, descarga o
+   recompila lo que la versión nueva cambió. Termina con
    `N pasos omitidos, M ejecutados, tiempo total`.
+
+**Opciones al instalar o actualizar** (se combinan con `-Update`):
+
+| Opción      | Qué hace                                                                                                                                                                                                                                                                     |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-Update`   | Incremental tras bajar una versión nueva; conserva el perfil anterior (con o sin RVC). Si la instalación estaba en CPU y ahora se detecta una GPU NVIDIA, **cambia a CUDA sola** (torch CUDA, ~2,5 GB una vez, y `USE_CUDA=true` en `.env`, sin tocar el resto del archivo). |
+| `-Full`     | Baja **todos** los paquetes de IA ahora, en secuencia (~3,5 GB). Sin `-Full` solo se instala `core`.                                                                                                                                                                         |
+| `-WithCuda` | Perfil GPU: torch CUDA 12.8 y `USE_CUDA=true`. No hace falta pasarlo: es **automático** si se detecta una GPU NVIDIA (`nvidia-smi` o el nombre del adaptador de video contiene «NVIDIA»), en la primera instalación y en `-Update`.                                          |
+| `-NoCuda`   | Perfil CPU aunque haya GPU NVIDIA (`USE_CUDA=false`). La elección queda registrada en `apps\workers\.venv\.studio-install`: los `-Update` siguientes no vuelven a cambiar a CUDA (para volver: `-WithCuda`).                                                                 |
+
+El setup imprime qué eligió, por ejemplo `Aceleracion IA: CUDA (GPU) - GPU NVIDIA detectada: NVIDIA
+GeForce RTX 4050 Laptop GPU`. Si ya tenías una instalación en CPU y hay GPU, `-Update` muestra
+`GPU NVIDIA detectada: cambiando a CUDA (descarga ~2.5 GB, una sola vez)` y la cambia; para quedarte
+en CPU usá `setup.ps1 -Update -NoCuda`. `doctor.ps1` muestra
+`USE_CUDA=<valor> / modo=<gpu|cpu> / GPU=<nombre>`.
+
+Qué se descarga y cuándo:
+
+| Paquete         | Por defecto              | Bajo demanda (al usar la función)                                       | Con `-Full` |
+| --------------- | ------------------------ | ----------------------------------------------------------------------- | ----------- |
+| `core`          | sí                       | —                                                                       | sí          |
+| `whisper-turbo` | no                       | sugerencia al transcribir con CUDA («Descargar whisper-turbo (1.6 GB)») | sí          |
+| `voces-es`      | no                       | Voz → «Descargar» (una voz o el paquete entero)                         | sí          |
+| `rvc-base`      | no (aunque instales RVC) | Conversión RVC → «Paquete requerido»                                    | sí          |
+| `scenes`        | no                       | Detectar escenas → «Paquete requerido»                                  | sí          |
+| `voz-limpia`    | no                       | Limpiar voz → «Paquete requerido»                                       | sí          |
 
 **No borres** al actualizar (ahí está lo que ya descargaste o creaste):
 

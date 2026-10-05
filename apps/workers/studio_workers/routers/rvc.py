@@ -2,8 +2,10 @@ from fastapi import APIRouter
 
 from ..config import get_settings
 from ..errors import NotFoundError, require_module
+from ..gpu import GPU_FALLBACK_CPU
+from ..packs import PackRequiredError
 from ..progress import registry
-from ..rvc_engine import ConvertParams, discover_models
+from ..rvc_engine import BUDGET_KEY, ConvertParams, base_ready, discover_models
 from ..schemas import RvcConvertRequest, RvcModel, RvcResult
 from ..services import rvc_engine
 
@@ -28,7 +30,9 @@ def list_models() -> list[RvcModel]:
     response_model_exclude_none=True,
 )
 def convert(req: RvcConvertRequest) -> RvcResult:
-    """Sync. CPU works but is slow (~audio duration or more); CUDA is optional."""
+    """Sync. CPU works but is slow (~audio duration or more); CUDA is optional.
+
+    409 PACK_REQUIRED (``rvc-base``) when hubert/rmvpe are missing."""
     settings = get_settings()
     model = next((m for m in discover_models(settings.models_root) if m.id == req.model_id), None)
     if model is None:
@@ -39,9 +43,12 @@ def convert(req: RvcConvertRequest) -> RvcResult:
     out = settings.storage_path(req.output_path)
     if out.suffix.lower() != ".wav":
         out = out.with_suffix(".wav")
+    # Decision 6: hubert/rmvpe come from the on-demand pack (no silent download mid-conversion).
+    if not base_ready(settings.models_root, req.f0_method):
+        raise PackRequiredError("rvc-base")
     require_module("infer_rvc_python", "infer-rvc-python==1.3.1")
     engine = rvc_engine()
-    device = engine.resolve_device(req.device)
+    device, warnings = engine.acquire_device(req.device)
     params = ConvertParams(
         pitch_shift=req.pitch_shift,
         index_rate=req.index_rate,
@@ -51,12 +58,21 @@ def convert(req: RvcConvertRequest) -> RvcResult:
         protect=req.protect,
     )
     with registry.track(req.job_id, "Convirtiendo voz (RVC)"):
-        path, rate, duration = engine.convert(
-            model, src, out, params, device, lambda p, m: registry.update(req.job_id, p, m)
-        )
+        progress = lambda p, m: registry.update(req.job_id, p, m)  # noqa: E731
+        try:
+            path, rate, duration = engine.convert(model, src, out, params, device, progress)
+        except Exception:
+            if device != "cuda":
+                raise
+            engine.unload_device("cuda")
+            warnings = [*warnings, *(engine.budget.failed(BUDGET_KEY) if engine.budget else [])]
+            warnings = list(dict.fromkeys(warnings or [GPU_FALLBACK_CPU]))
+            device = "cpu"
+            path, rate, duration = engine.convert(model, src, out, params, device, progress)
     return RvcResult(
         path=settings.storage_relative(path),
         sample_rate=rate,
         duration_sec=round(duration, 3),
         device=device,
+        warnings=warnings or None,
     )

@@ -1,14 +1,30 @@
 "use client";
 
 import type { TrackKind } from "@studio/shared";
-import { Magnet, Plus, Redo2, Scissors, Trash2, Type, Undo2, ZoomIn, ZoomOut } from "lucide-react";
+import {
+  AudioWaveform,
+  Film,
+  Magnet,
+  Plus,
+  Redo2,
+  Scissors,
+  Trash2,
+  Type,
+  Undo2,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react";
+import { toast } from "sonner";
+import { cutAtScenes, detectScenes } from "@/components/timeline/scene-actions";
 import { Timeline } from "@/components/timeline/Timeline";
 import { Button } from "@/components/ui/button";
 import { Range } from "@/components/ui/input";
-import { Menu, MenuItem } from "@/components/ui/menu";
+import { Menu, MenuItem, MenuSeparator } from "@/components/ui/menu";
 import { formatTime } from "@/lib/format";
-import { projectDuration, TRACK_KIND_LABELS } from "@/lib/timeline";
+import { findClip, projectDuration, TRACK_KIND_LABELS } from "@/lib/timeline";
 import { MAX_ZOOM, MIN_ZOOM, useProjectStore } from "@/stores/project-store";
+import { useScenesStore } from "@/stores/scenes-store";
+import { useSilencesStore } from "@/stores/silences-store";
 import { Panel } from "./Panel";
 
 const KINDS: TrackKind[] = ["video", "audio", "text", "motion"];
@@ -21,7 +37,16 @@ export function TimelinePanel() {
   const canRedo = useProjectStore((s) => s.future.length > 0);
   const hasSelection = useProjectStore((s) => s.selectedClipId !== undefined);
   const duration = useProjectStore((s) => projectDuration(s.project));
+  const showScenes = useScenesStore((s) => s.visible);
   const store = useProjectStore.getState;
+
+  const openSilences = () => {
+    const { project, selectedClipId } = store();
+    const found = selectedClipId ? findClip(project, selectedClipId) : undefined;
+    if (!found?.clip.assetId || (found.track.kind !== "audio" && found.track.kind !== "video"))
+      return toast.message("Selecciona un clip con voz para quitar silencios y muletillas");
+    useSilencesStore.getState().open(found.clip.id);
+  };
 
   const toolbar = (
     <>
@@ -96,6 +121,52 @@ export function TimelinePanel() {
       >
         <Trash2 />
       </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Quitar silencios y muletillas"
+        disabled={!hasSelection}
+        onClick={openSilences}
+      >
+        <AudioWaveform />
+      </Button>
+      <Menu
+        label="Escenas"
+        align="start"
+        trigger={(p) => (
+          <Button variant="ghost" size="xs" tooltip="Detectar y cortar en cambios de escena" {...p}>
+            <Film /> Escenas
+          </Button>
+        )}
+      >
+        {(close) => (
+          <>
+            <MenuItem
+              onSelect={() => {
+                close();
+                void detectScenes();
+              }}
+            >
+              Detectar escenas
+            </MenuItem>
+            <MenuItem
+              onSelect={() => {
+                close();
+                cutAtScenes();
+              }}
+            >
+              Cortar en escenas
+            </MenuItem>
+            <MenuSeparator />
+            <MenuItem
+              checked={showScenes}
+              onSelect={() => useScenesStore.getState().toggleVisible()}
+            >
+              Mostrar marcadores de escena
+            </MenuItem>
+          </>
+        )}
+      </Menu>
       <Button
         variant={snapping ? "secondary" : "ghost"}
         size="icon-sm"

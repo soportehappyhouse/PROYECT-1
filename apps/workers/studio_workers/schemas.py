@@ -5,7 +5,7 @@ wire to match TS. Fields marked "additive" extend the base contract in docs/ARQU
 they are optional so the api can ignore them.
 """
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
@@ -62,6 +62,9 @@ class WorkerHealth(CamelModel):
     ffmpeg: FfmpegInfo | None = None
     models: ModelsInfo | None = None
     packages: dict[str, str | None] | None = None
+    # Sprint 1: GET /gpu/status payload (snake_case) and {packId: installed|partial|missing}.
+    gpu: dict[str, Any] | None = None
+    packs: dict[str, str] | None = None
 
 
 # ---------------------------------------------------------------- jobs / progress
@@ -121,6 +124,10 @@ class Transcript(CamelModel):
     model: str | None = None
     device: str | None = None
     files: TranscriptFiles | None = None
+    # Sprint 1 (docs/trabajo/sprint1-contratos.md): snake_case on the wire, as in the contract.
+    model_used: str | None = Field(default=None, alias="model_used")
+    compute_type: str | None = Field(default=None, alias="compute_type")
+    warnings: list[str] | None = None
 
 
 # ---------------------------------------------------------------- tts
@@ -226,3 +233,48 @@ class RvcResult(CamelModel):
     sample_rate: int | None = None
     duration_sec: float | None = None
     device: str | None = None
+    warnings: list[str] | None = None
+
+
+# ---------------------------------------------------------------- sprint 1 (snake_case contract)
+
+
+class SnakeModel(BaseModel):
+    """docs/trabajo/sprint1-contratos.md uses snake_case; camelCase input is accepted too."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+
+class ScenesRequest(SnakeModel):
+    path: str
+    threshold: float | None = Field(default=None, gt=0, le=255)
+    min_scene_len_s: float | None = Field(default=None, ge=0, le=600)
+
+
+class TranscriptWord(SnakeModel):
+    w: str
+    s: float
+    e: float
+
+
+class TranscriptWords(SnakeModel):
+    words: list[TranscriptWord] = Field(default_factory=list)
+
+
+class SilencesRequest(SnakeModel):
+    path: str
+    min_silence_ms: int = Field(default=500, ge=50, le=60_000)
+    noise_db: float = Field(default=-35.0, ge=-120, le=0)
+    padding_ms: int = Field(default=120, ge=0, le=5_000)
+    fillers: bool = True
+    transcript: TranscriptWords | None = None
+    language: str = "es"
+    # Whisper VAD when the workers transcribe here (no transcript sent). Off by default: the VAD
+    # filter tends to drop fillers ("eh", "mmm") together with the pauses around them.
+    vad: bool = False
+
+
+class DenoiseRequest(SnakeModel):
+    path: str
+    output_base: str
+    format: Literal["wav", "mp3"] | None = None

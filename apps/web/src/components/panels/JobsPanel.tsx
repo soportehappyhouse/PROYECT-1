@@ -10,7 +10,7 @@ import { errorMessage, fileUrl } from "@/lib/api";
 import {
   isTerminal,
   JOB_STATUS_LABELS,
-  JOB_TYPE_LABELS,
+  jobTypeLabel,
   jobOutputPath,
   sortedJobs,
   useJobsStore,
@@ -50,7 +50,7 @@ function JobRow({ job }: { job: Job }) {
   return (
     <li className="rounded-md border p-2 text-xs" data-testid="job-row">
       <div className="flex items-center gap-2">
-        <span className="font-medium">{JOB_TYPE_LABELS[job.type]}</span>
+        <span className="font-medium">{jobTypeLabel(job.type)}</span>
         <Badge tone={STATUS_TONE[job.status]}>{JOB_STATUS_LABELS[job.status]}</Badge>
         <span className="ml-auto text-[11px] text-muted-foreground">
           {new Date(job.createdAt).toLocaleTimeString("es")}
@@ -68,7 +68,7 @@ function JobRow({ job }: { job: Job }) {
             title="Generar un reporte con el comando y la salida de error de este trabajo"
             onClick={() =>
               openReport({
-                title: `Falló: ${JOB_TYPE_LABELS[job.type]}`,
+                title: `Falló: ${jobTypeLabel(job.type)}`,
                 jobIds: [job.id],
                 source: "trabajos",
               })

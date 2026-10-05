@@ -10,6 +10,7 @@ import {
   type Project,
   type VideoEncoderId,
 } from "@studio/shared";
+import { presetEncoding, segmentSafetyArgs } from "./encoders.js";
 import { clipDuration, sliceClipsToWindow, type TimelineAsset } from "./timeline.js";
 
 /**
@@ -251,6 +252,9 @@ export function segmentHash(h: SegmentHashInput): string {
         v: COMPILER_VERSION,
         ffmpeg: h.ffmpegVersion,
         encoder: h.encoder,
+        // Only set for NVENC/QSV blocks: libx264 hashes (and caches) stay as they were.
+        blockFlags:
+          segmentSafetyArgs(presetEncoding(h.preset, h.encoder).video).join(" ") || undefined,
         preset: {
           w: p.width,
           h: p.height,

@@ -13,6 +13,9 @@
 //   --skip-motion      skip the Remotion renders (no Chrome Headless Shell installed)
 //   --timeout <sec>    max wait per job (default 900)
 //   --download-models  also download a real model pack (core, ~0.26 GB from Hugging Face)
+//   --hw               also export the 1-min project with the api's hardware encoder (HW_ENCODER=auto)
+//                      in blocks and in one pass, and compare duration + frame count (NVENC
+//                      -bf 0 -forced-idr 1); SKIP with the reason when there is no hw encoder
 //
 // Exit code 0 = every required step passed. Steps marked "expected-fail" (e.g. Whisper without
 // models) only record the observed behaviour.
@@ -40,6 +43,7 @@ const FFMPEG = opt("ffmpeg", "ffmpeg");
 const FFPROBE = opt("ffprobe", "ffprobe");
 const SKIP_MOTION = flag("skip-motion");
 const DOWNLOAD_MODELS = flag("download-models");
+const HW = flag("hw");
 const JOB_TIMEOUT_MS = Number(opt("timeout", "900")) * 1000;
 
 // ---------------------------------------------------------------- helpers
@@ -745,6 +749,207 @@ await step("export twice with the segment cache: 2nd run all blocks cached", asy
   assert(near(+f.format.duration, 6, 0.15), `2nd duration ${f.format.duration}`);
   return { first: s1, second: s2, wall1: fmt(first.ms), wall2: fmt(second.ms) };
 });
+
+/** Video frames actually decoded (ffprobe -count_frames). */
+async function frameCount(file) {
+  const out = await run(FFPROBE, [
+    "-v",
+    "error",
+    "-select_streams",
+    "v:0",
+    "-count_frames",
+    "-show_entries",
+    "stream=nb_read_frames",
+    "-of",
+    "csv=p=0",
+    file,
+  ]);
+  return Number(out.trim());
+}
+
+/** Export a project and time it (wall clock from POST to the end of the job). */
+async function timedExport(projectId, body) {
+  const t = Date.now();
+  const { jobId } = await ok("POST", `/api/projects/${projectId}/export`, body);
+  const job = await waitOk(jobId);
+  return { job, ms: Date.now() - t, jobId };
+}
+
+// Criterion 2 of docs/01-PLAN-BASE-v2.md, measured on a 1-min video (6 clips of 10 s = 6 blocks):
+// analyze.silences seconds per minute of media, and (export with one small change) / (full export).
+// Loose sandbox bounds: silences < 30 s/min, ratio < 0.5 (the plan targets < 0.2 on the real PC).
+ctx.measurements = {};
+await step(
+  "sprint1: criterion 2 — silences s/min + re-export ratio (1 change / full)",
+  async () => {
+    const src = path.join(WORK, "e2e-1min.mp4");
+    // tone with a 1 s silent gap every 10 s (at 4–5, 14–15, …)
+    await run(FFMPEG, [
+      "-y",
+      "-v",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "testsrc2=s=1280x720:r=30:d=60",
+      "-f",
+      "lavfi",
+      "-i",
+      "aevalsrc='0.4*sin(2*PI*220*t)*(1-between(mod(t\\,10)\\,4\\,5))':s=48000:d=60",
+      "-shortest",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "veryfast",
+      "-pix_fmt",
+      "yuv420p",
+      "-c:a",
+      "aac",
+      src,
+    ]);
+    const asset = await upload(src, "video/mp4");
+    await waitAssetJobs(asset.id, ["media.probe", "media.proxy"]);
+    const media = await ok("GET", `/api/media/${asset.id}`);
+    const minutes = (media.durationSec ?? 60) / 60;
+
+    // analyze.silences on the whole minute; the subtitles carry the words (no Whisper in the loop).
+    const sp = await ok("POST", "/api/projects", { name: "E2E criterio 2 silencios" }, [201]);
+    const SV = sp.tracks.find((t) => t.kind === "video");
+    const longClip = id("c");
+    SV.clips = [{ id: longClip, trackId: SV.id, assetId: asset.id, start: 0, in: 0, out: 60 }];
+    sp.subtitles = Array.from({ length: 6 }, (_, i) => ({
+      start: i * 10,
+      end: i * 10 + 3,
+      text: "hola eh listo",
+      words: [
+        { word: "hola", start: i * 10, end: i * 10 + 0.5 },
+        { word: "eh", start: i * 10 + 1, end: i * 10 + 1.4 },
+        { word: "listo", start: i * 10 + 2, end: i * 10 + 2.5 },
+      ],
+    }));
+    await ok("PUT", `/api/projects/${sp.id}`, sp);
+    const ts = Date.now();
+    const r = await ok(
+      "POST",
+      "/api/ai/analyze/silences",
+      { projectId: sp.id, clipId: longClip, options: { fillers: true } },
+      [202],
+    );
+    const found = (await waitOk(r.jobId)).result;
+    const silencesSec = (Date.now() - ts) / 1000;
+    const silencesPerMin = silencesSec / minutes;
+    assert(found.cuts.filter((c) => c.kind === "silence").length >= 5, JSON.stringify(found.cuts));
+    assert(
+      found.cuts.some((c) => c.kind === "filler"),
+      "no filler cut from the subtitles",
+    );
+
+    // export: 6 blocks rendered, then one clip changed -> only its block re-rendered
+    const ep = await ok("POST", "/api/projects", { name: "E2E criterio 2 export" }, [201]);
+    const EV = ep.tracks.find((t) => t.kind === "video");
+    EV.clips = Array.from({ length: 6 }, (_, i) => ({
+      id: id("c"),
+      trackId: EV.id,
+      assetId: asset.id,
+      start: i * 10,
+      in: i * 10,
+      out: (i + 1) * 10,
+    }));
+    await ok("PUT", `/api/projects/${ep.id}`, ep);
+    const body = { presetId: "youtube-1080p", fileName: "criterio2" };
+    const full = await timedExport(ep.id, body);
+    const s1 = full.job.result?.segments;
+    assert(full.job.result?.mode === "segments", `mode ${full.job.result?.mode}`);
+    assert(s1 && s1.total >= 6 && s1.rendered === s1.total, `1st segments ${JSON.stringify(s1)}`);
+    EV.clips[3] = { ...EV.clips[3], opacity: 0.8 }; // one small change inside one block
+    await ok("PUT", `/api/projects/${ep.id}`, ep);
+    const change = await timedExport(ep.id, body);
+    const s2 = change.job.result?.segments;
+    assert(
+      s2 && s2.total === s1.total && s2.rendered === 1 && s2.cached === s1.total - 1,
+      `2nd segments ${JSON.stringify(s2)}`,
+    );
+    const local = await download(change.job.result.path, "criterio2-cambio.mp4");
+    const f = await ffprobe(local);
+    assert(near(+f.format.duration, 60, 0.15), `duration ${f.format.duration}`);
+    const ratio = change.ms / full.ms;
+    ctx.measure = {
+      projectId: ep.id,
+      body,
+      frames: await frameCount(local),
+      duration: +f.format.duration,
+    };
+    ctx.measurements = {
+      silencesSecPerMin: +silencesPerMin.toFixed(2),
+      exportFullSec: +(full.ms / 1000).toFixed(2),
+      exportOneChangeSec: +(change.ms / 1000).toFixed(2),
+      reexportRatio: +ratio.toFixed(3),
+      blocks: s1.total,
+    };
+    console.log(
+      `  Mediciones: silencios ${silencesPerMin.toFixed(2)} s/min · export completo ${fmt(full.ms)} · con 1 cambio ${fmt(change.ms)} · ratio ${ratio.toFixed(3)} (${s2.rendered}/${s2.total} bloques)`,
+    );
+    assert(silencesPerMin < 30, `analyze.silences ${silencesPerMin.toFixed(2)} s/min (>= 30)`);
+    assert(ratio < 0.5, `re-export ratio ${ratio.toFixed(3)} (>= 0.5)`);
+    return ctx.measurements;
+  },
+);
+
+// Risk 3 (NVENC blocks): with a hardware encoder, the block export (concat -c copy) must match a
+// one-pass export (useSegmentCache:false) in duration and frame count.
+{
+  const name = "export --hw: hardware-encoder blocks vs one pass (duration + frames)";
+  const enc = HW ? await api("GET", "/api/system/encoders") : undefined;
+  const hw =
+    enc?.json?.preferred && enc.json.preferred !== "libx264" ? enc.json.preferred : undefined;
+  if (!HW) skip(name, "usar --hw (exporta con el encoder por hardware de la api, HW_ENCODER=auto)");
+  else if (!hw)
+    skip(
+      name,
+      `sin encoder por hardware (disponibles: ${(enc?.json?.available ?? []).join(", ") || "?"}; ¿HW_ENCODER=off?)`,
+    );
+  else if (!ctx.measure) skip(name, "falta el proyecto de 1 min del paso de criterio 2");
+  else
+    await step(
+      name,
+      async () => {
+        const out = {};
+        for (const [key, useSegmentCache] of [
+          ["blocks", true],
+          ["blocks2", true],
+          ["onePass", false],
+        ]) {
+          const r = await timedExport(ctx.measure.projectId, {
+            ...ctx.measure.body,
+            fileName: `hw-${key}`,
+            useSegmentCache,
+          });
+          const log = await api("GET", `/api/jobs/${r.jobId}/log`);
+          const encoderLine = (log.json?.lines ?? []).find((l) => String(l).includes("Encoder:"));
+          const file = await download(r.job.result.path, `hw-${key}.mp4`);
+          const f = await ffprobe(file);
+          out[key] = {
+            mode: r.job.result?.mode,
+            duration: +(+f.format.duration).toFixed(3),
+            frames: await frameCount(file),
+            encoder: encoderLine ? String(encoderLine).replace(/.*Encoder:\s*/, "") : undefined,
+            wall: fmt(r.ms),
+          };
+        }
+        const { blocks, blocks2, onePass } = out;
+        assert(blocks.mode === "segments" && onePass.mode !== "segments", JSON.stringify(out));
+        for (const b of [blocks, blocks2]) {
+          assert(b.frames === onePass.frames, `frames ${b.frames} vs one pass ${onePass.frames}`);
+          assert(
+            near(b.duration, onePass.duration, 0.05),
+            `duration ${b.duration} vs ${onePass.duration}`,
+          );
+        }
+        return { hw, ...out };
+      },
+      "optional",
+    );
+}
 
 /** Pixels of a frame region brighter than `min` (gray, scaled to `w` px wide). */
 async function brightPixels(file, at, { w = 320, min = 170, region, cols } = {}) {
@@ -1511,6 +1716,7 @@ const report = {
   sseError: sse.error ?? null,
   passed: required.length - failed.length,
   failed: failed.length,
+  measurements: ctx.measurements ?? null,
   results,
 };
 await mkdir(path.dirname(OUT), { recursive: true });
@@ -1523,5 +1729,9 @@ for (const r of results)
 console.log(
   `\n* = optional / expected-fail. Required: ${report.passed} PASS, ${report.failed} FAIL · total ${fmt(report.totalMs)}`,
 );
+if (ctx.measurements?.reexportRatio !== undefined)
+  console.log(
+    `Mediciones (criterio 2): silencios ${ctx.measurements.silencesSecPerMin} s/min · ratio re-export ${ctx.measurements.reexportRatio}`,
+  );
 console.log(`Report: ${OUT}`);
 process.exit(failed.length ? 1 : 0);

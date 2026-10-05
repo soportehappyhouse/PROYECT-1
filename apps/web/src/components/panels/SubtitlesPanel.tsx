@@ -16,6 +16,7 @@ import { Checkbox, Input, Label, Select } from "@/components/ui/input";
 import { EmptyState, Section, Spinner } from "@/components/ui/misc";
 import { api, errorMessage, isNotImplemented } from "@/lib/api";
 import { formatTime } from "@/lib/format";
+import { warnIfCpu } from "@/lib/gpu-preflight";
 import { createId } from "@/lib/ids";
 import { animatedCaptionsProps, toSrt } from "@/lib/subtitles";
 import {
@@ -154,6 +155,7 @@ export function SubtitlesPanel() {
     if (!hasAudio(sel)) return;
     setBusy(true);
     try {
+      await warnIfCpu("transcribe");
       const { jobId } = await api.transcribe({
         assetId: sel.clip.assetId,
         language,

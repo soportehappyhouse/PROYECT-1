@@ -7,6 +7,7 @@ import {
   type Project,
 } from "@studio/shared";
 import { proxyArgs, proxyVideoArgs } from "../src/services/ffmpeg/builders.js";
+import { segmentSafetyArgs } from "../src/services/ffmpeg/encoders.js";
 import {
   canonicalJson,
   COMPILER_VERSION,
@@ -178,6 +179,10 @@ describe("segment hash", () => {
       },
     };
     expect(hash(label, w1)).not.toBe(hash(p, w1));
+    // not for social -> no label -> same blocks as without publish settings
+    expect(hash({ ...label, publish: { ...label.publish, forSocial: false } }, w1)).toBe(
+      hash(p, w1),
+    );
   });
 
   it("canonical JSON sorts keys and drops undefined", () => {
@@ -231,6 +236,40 @@ describe("compiler window / audio-only / AI label", () => {
     expect(c.args[c.args.indexOf("-ss")! + 1]).toBe("11");
   });
 
+  it("adds -bf 0 -forced-idr 1 to NVENC blocks (QSV: -forced_idr) and leaves libx264 alone", () => {
+    const window = { start: 10, end: 14, timelineEnd: 18, gopFrames: 60, frames: 120 };
+    const block = (encoder?: "h264_nvenc" | "h264_qsv" | "h264_amf") =>
+      compileExport({
+        project: p,
+        preset: youtube,
+        assets,
+        output: "seg.mp4",
+        window,
+        ...(encoder && { encoder }),
+      }).args;
+    const nv = block("h264_nvenc");
+    const at = nv.indexOf("-bf");
+    expect(nv.slice(at, at + 4)).toEqual(["-bf", "0", "-forced-idr", "1"]);
+    expect(nv).toEqual(expect.arrayContaining(["h264_nvenc", "-force_key_frames", "0"]));
+    expect(block("h264_qsv")).toEqual(expect.arrayContaining(["-bf", "0", "-forced_idr", "1"]));
+    for (const args of [block(), block("h264_amf")]) {
+      expect(args).not.toContain("-forced-idr");
+      expect(args).not.toContain("-forced_idr");
+      expect(args).not.toContain("-bf");
+    }
+    // the single-pass export (no window) is unchanged
+    const full = compileExport({
+      project: p,
+      preset: youtube,
+      assets,
+      output: "o.mp4",
+      encoder: "h264_nvenc",
+    }).args;
+    expect(full).not.toContain("-forced-idr");
+    expect(segmentSafetyArgs(["-c:v", "hevc_nvenc"])).toEqual(["-bf", "0", "-forced-idr", "1"]);
+    expect(segmentSafetyArgs(["-c:v", "libx264"])).toEqual([]);
+  });
+
   it("renders the audio mix alone", () => {
     const c = compileExport({
       project: p,
@@ -273,6 +312,15 @@ describe("compiler window / audio-only / AI label", () => {
       output: "o.mp4",
     });
     expect(off.graph).not.toContain("ailabel");
+    // decision 4: unchecking "Voy a subirlo a redes" turns the label off even with aiLabel on
+    const notSocial = compileExport({
+      project: { ...p, publish: { ...p.publish!, forSocial: false } },
+      preset: youtube,
+      assets,
+      output: "o.mp4",
+    });
+    expect(notSocial.graph).not.toContain("ailabel");
+    expect(notSocial.files.find((f) => f.name === "ailabel.txt")).toBeUndefined();
     const custom = compileExport({
       project: { ...p, publish: { ...p.publish!, aiLabelText: "Hecho con IA" } },
       preset: youtube,

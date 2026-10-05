@@ -94,6 +94,12 @@ def base_status(models_root: Path) -> dict[str, bool]:
     }
 
 
+def base_ready(models_root: Path, f0_method: str = "rmvpe") -> bool:
+    """hubert (+ rmvpe when it is the pitch method) present: pack ``rvc-base`` usable."""
+    status = base_status(models_root)
+    return status["hubert"] and (status["rmvpe"] or f0_method != "rmvpe")
+
+
 def download_base_assets(
     models_root: Path,
     *,
@@ -209,8 +215,7 @@ class RvcEngine:
             return self._loaders[device]
 
     def ensure_assets(self, f0_method: str, on_progress: ProgressFn | None = None) -> None:
-        status = base_status(self.settings.models_root)
-        if status["hubert"] and (status["rmvpe"] or f0_method != "rmvpe"):
+        if base_ready(self.settings.models_root, f0_method):
             return
         log.info("RVC base assets missing; downloading to %s", base_dir(self.settings.models_root))
         download_base_assets(self.settings.models_root, on_progress=on_progress)

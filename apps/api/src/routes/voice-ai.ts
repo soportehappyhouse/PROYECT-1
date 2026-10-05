@@ -2,6 +2,7 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import {
   API_ROUTES,
+  FEATURE_PACKS,
   ModelDownloadRequestSchema,
   RvcRequestSchema,
   TtsRequestSchema,
@@ -9,6 +10,7 @@ import {
   type TtsProviderInfo,
 } from "@studio/shared";
 import type { FastifyInstance } from "fastify";
+import { requirePack } from "../jobs/handlers/ai.js";
 import { HttpError } from "../lib/errors.js";
 import { WorkersError } from "../services/workers-client.js";
 import { requireMediaAsset } from "../voice-ai/media-bridge.js";
@@ -99,6 +101,7 @@ export function registerVoiceAiRoutes(app: FastifyInstance): void {
   app.post(API_ROUTES.rvc, async (req, reply) => {
     const body = RvcRequestSchema.parse(req.body);
     requireMediaAsset(app.ctx, body.assetId);
+    await requirePack(workers, FEATURE_PACKS.rvc); // 409 PACK_REQUIRED (hubert + rmvpe)
     const job = queue.enqueue({ type: "voice.rvc", payload: body });
     return reply.code(202).send({ jobId: job.id });
   });

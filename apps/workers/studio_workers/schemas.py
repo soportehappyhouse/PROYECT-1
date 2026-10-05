@@ -269,6 +269,9 @@ class SilencesRequest(SnakeModel):
     fillers: bool = True
     transcript: TranscriptWords | None = None
     language: str = "es"
+    # Whisper VAD when the workers transcribe here (no transcript sent). Off by default: the VAD
+    # filter tends to drop fillers ("eh", "mmm") together with the pauses around them.
+    vad: bool = False
 
 
 class DenoiseRequest(SnakeModel):

@@ -74,6 +74,8 @@ export interface WorkerSilencesRequest {
   padding_ms?: number;
   fillers?: boolean;
   transcript?: { words: { w: string; s: number; e: number }[] };
+  /** Whisper VAD when the workers transcribe (no transcript sent); workers default false. */
+  vad?: boolean;
 }
 
 const RvcResultSchema = z.object({

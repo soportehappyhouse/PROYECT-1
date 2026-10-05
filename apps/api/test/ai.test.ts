@@ -68,6 +68,18 @@ describe("AI routes and jobs (mocked workers)", () => {
       group: null,
     },
     {
+      id: "rvc-base",
+      name_es: "RVC base",
+      description_es: "",
+      size_bytes: 3.7e8,
+      installed: false,
+      partial: false,
+      files: [],
+      required_by: ["rvc"],
+      license: "MIT",
+      group: "voice",
+    },
+    {
       id: "voz-limpia",
       name_es: "Voz limpia",
       description_es: "",
@@ -394,6 +406,36 @@ describe("AI routes and jobs (mocked workers)", () => {
     });
     // the project is untouched
     expect(app.ctx.repos.projects.get(project.id)!.tracks[0]!.clips).toHaveLength(2);
+  });
+
+  it("analyze.silences with vad:false skips the subtitles and asks the workers for no VAD", async () => {
+    const asset = addAsset("sv2");
+    const project = await makeProject(asset.id);
+    const res = await app.inject({
+      method: "POST",
+      url: API_ROUTES.aiAnalyzeSilences,
+      payload: { projectId: project.id, clipId: "c1", options: { vad: false } },
+    });
+    const job = await jobEnd(res.json<{ jobId: string }>().jobId);
+    expect(job.status, job.error).toBe("succeeded");
+    expect(seen.silences).toMatchObject({ fillers: true, vad: false });
+    expect(seen.silences!.transcript).toBeUndefined();
+  });
+
+  it("RVC answers 409 PACK_REQUIRED (rvc-base) before enqueueing", async () => {
+    const asset = addAsset("rv1", "audio");
+    const res = await app.inject({
+      method: "POST",
+      url: API_ROUTES.rvc,
+      payload: { assetId: asset.id, modelId: "mi_voz" },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({
+      error: "PACK_REQUIRED",
+      packId: "rvc-base",
+      name_es: "RVC base",
+      size_bytes: 3.7e8,
+    });
   });
 
   it("timeline.apply-cuts splits, ripples and saves the project", async () => {

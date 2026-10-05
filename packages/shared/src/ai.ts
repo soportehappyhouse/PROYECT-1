@@ -143,8 +143,9 @@ export type PublishFlags = z.infer<typeof PublishFlagsSchema>;
 export const DEFAULT_AI_LABEL_TEXT = "Contenido alterado con IA";
 
 /**
- * `project.publish`. When `aiLabel` is true the export burns `aiLabelText` (default
- * DEFAULT_AI_LABEL_TEXT) bottom-left for the whole video.
+ * `project.publish`. When `forSocial` AND `aiLabel` are true the export burns `aiLabelText`
+ * (default DEFAULT_AI_LABEL_TEXT) bottom-left for the whole video (decision 4: the label is only
+ * for social media; unchecking "Voy a subirlo a redes" turns it off without losing `aiLabel`).
  */
 export const PublishSettingsSchema = z.object({
   forSocial: z.boolean().default(false),
@@ -160,9 +161,9 @@ export const PublishSettingsSchema = z.object({
 });
 export type PublishSettings = z.infer<typeof PublishSettingsSchema>;
 
-/** Label text burned on export, or undefined when the label is off. */
+/** Label text burned on export, or undefined when the label is off (needs forSocial + aiLabel). */
 export function aiLabelText(publish: PublishSettings | undefined): string | undefined {
-  if (!publish?.aiLabel) return undefined;
+  if (!publish?.forSocial || !publish.aiLabel) return undefined;
   return publish.aiLabelText?.trim() || DEFAULT_AI_LABEL_TEXT;
 }
 
@@ -187,6 +188,11 @@ export const SilenceOptionsSchema = z.object({
   noiseDb: z.number().max(0).default(-35),
   paddingMs: z.number().int().nonnegative().default(120),
   fillers: z.boolean().default(true),
+  /**
+   * `false`: ignore the project subtitles (usually transcribed with VAD, which drops fillers) and
+   * let the workers re-transcribe the clip with Whisper's VAD off. Omitted = use the subtitles.
+   */
+  vad: z.boolean().optional(),
 });
 export type SilenceOptions = z.infer<typeof SilenceOptionsSchema>;
 
@@ -255,7 +261,42 @@ export const PACK_REQUIRED = "PACK_REQUIRED" as const;
 export const FEATURE_PACKS = {
   scenes: "scenes",
   denoise: "voz-limpia",
+  rvc: "rvc-base",
+  /** Not required: suggested (soft) when transcribing with CUDA and the pack is missing. */
+  transcribeGpu: "whisper-turbo",
 } as const;
+
+/** Soft pack suggestion in a job result (e.g. whisper-turbo when CUDA is there): never a 409. */
+export const SuggestedPackSchema = z.object({
+  packId: z.string(),
+  name_es: z.string(),
+  size_bytes: z.number().nonnegative(),
+});
+export type SuggestedPack = z.infer<typeof SuggestedPackSchema>;
+
+/**
+ * Estimated VRAM (MB) each GPU feature needs (decision 7: warn BEFORE starting when the job will
+ * run on the CPU). Whisper large-v3-turbo float16 ~2.5 GB, RVC ~2 GB, DeepFilterNet ~1 GB.
+ */
+export const FEATURE_VRAM_MB = {
+  transcribe: 2500,
+  rvc: 2000,
+  denoise: 1000,
+} as const;
+export type GpuFeature = keyof typeof FEATURE_VRAM_MB;
+
+/**
+ * True when `feature` will (probably) run on the CPU: workers in CPU mode, or less free VRAM than
+ * the estimate. Unknown free VRAM in GPU mode is not a warning (the workers decide).
+ */
+export function willRunOnCpu(
+  status: Pick<GpuStatus, "mode" | "vram_free_mb"> | undefined,
+  feature: GpuFeature,
+): boolean {
+  if (!status) return false;
+  if (status.mode === "cpu") return true;
+  return status.vram_free_mb != null && status.vram_free_mb < FEATURE_VRAM_MB[feature];
+}
 
 /** Result of timeline.apply-cuts: the saved project (undo = PUT the previous one). */
 export interface ApplyCutsResult {

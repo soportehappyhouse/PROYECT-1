@@ -49,7 +49,7 @@ def silences(req: SilencesRequest) -> dict[str, Any]:
             source = "request"
         elif module_present("faster_whisper"):
             transcript = whisper_engine().transcribe(
-                src, language=req.language, word_timestamps=True, vad=False
+                src, language=req.language, word_timestamps=True, vad=req.vad
             )
             words = words_from_transcript(transcript)
             warnings.extend(transcript.warnings or [])

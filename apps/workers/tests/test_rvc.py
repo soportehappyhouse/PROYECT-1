@@ -125,23 +125,37 @@ def test_convert(client: TestClient, dirs, fake_rvc) -> None:
     assert client.get("/jobs/r1").json()["status"] == "succeeded"
 
 
-def test_convert_downloads_missing_base_assets(
+def test_convert_missing_base_assets_is_pack_required(
     client: TestClient, dirs, fake_rvc, monkeypatch
 ) -> None:
     storage, models = dirs
     _make_models(models)
     (storage / "media" / "voz.wav").write_bytes(b"wav")
     calls: list[Path] = []
-    monkeypatch.setattr(
-        rvc_mod, "download_base_assets", lambda root, **_: calls.append(root) or _make_base(root)
-    )
+    monkeypatch.setattr(rvc_mod, "download_base_assets", lambda root, **_: calls.append(root))
     res = client.post(
         "/rvc/convert",
         json={"inputPath": "media/voz.wav", "modelId": "mi_voz", "outputPath": "renders/r2.wav"},
     )
+    assert res.status_code == 409, res.text
+    body = res.json()
+    assert body["error"] == "PACK_REQUIRED" and body["packId"] == "rvc-base"
+    assert body["size_bytes"] > 0
+    assert calls == []  # no silent download: the web opens «Paquete requerido»
+    # hubert alone is enough for a non-rmvpe pitch method
+    _make_base(models)
+    (models / "rvc" / "_base" / "rmvpe.pt").unlink()
+    assert base_status(models)["rmvpe"] is False
+    res = client.post(
+        "/rvc/convert",
+        json={
+            "inputPath": "media/voz.wav",
+            "modelId": "mi_voz",
+            "f0Method": "pm",
+            "outputPath": "renders/r3.wav",
+        },
+    )
     assert res.status_code == 200, res.text
-    assert calls == [models.resolve()]
-    assert base_status(models)["rmvpe"] is True
 
 
 def test_convert_unknown_model_404(client: TestClient, dirs) -> None:

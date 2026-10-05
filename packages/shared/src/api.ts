@@ -95,6 +95,8 @@ export interface WorkerTranscribeRequest extends WorkerCallFields {
   model?: string;
   wordTimestamps: boolean;
   outputBase?: string;
+  /** Whisper VAD filter (workers default true). */
+  vad?: boolean;
 }
 
 /** POST /tts body. `provider` defaults to piper; `format` to wav. */

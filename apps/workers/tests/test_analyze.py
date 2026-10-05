@@ -170,6 +170,34 @@ def test_silences_without_transcript_or_whisper_warns(
     assert "warnings" not in off.json()
 
 
+@needs_ffmpeg
+def test_silences_transcribes_without_vad_by_default(
+    client: TestClient, dirs, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+
+    storage, _ = dirs
+    _tone_with_gaps(storage / "media" / "gaps.wav")
+    calls: list[dict] = []
+
+    class FakeEngine:
+        def transcribe(self, _src, **kwargs):
+            calls.append(kwargs)
+            word = SimpleNamespace(word="mmm", start=2.6, end=3.0)
+            return SimpleNamespace(
+                segments=[SimpleNamespace(words=[word])], warnings=None, model_used="base"
+            )
+
+    monkeypatch.setattr("studio_workers.routers.analyze.module_present", lambda m: True)
+    monkeypatch.setattr("studio_workers.routers.analyze.whisper_engine", lambda: FakeEngine())
+    body = client.post("/analyze/silences", json={"path": "media/gaps.wav"}).json()
+    assert calls[-1]["vad"] is False
+    assert body["words_source"] == "whisper:base"
+    assert any(c["kind"] == "filler" and c["text"] == "mmm" for c in body["cuts"])
+    client.post("/analyze/silences", json={"path": "media/gaps.wav", "vad": True})
+    assert calls[-1]["vad"] is True
+
+
 def test_analyze_rejects_paths_outside_storage(client: TestClient, tmp_path: Path) -> None:
     outside = tmp_path / "x.wav"
     outside.write_bytes(b"x")

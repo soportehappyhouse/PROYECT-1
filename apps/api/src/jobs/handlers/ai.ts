@@ -248,7 +248,10 @@ export function createAnalyzeSilencesHandler(
       const asset = requireMediaAsset(deps, clip.assetId);
       if (asset.hasAudio === false)
         throw new HttpError(400, "BAD_REQUEST", "El clip no tiene audio para analizar");
-      const words = req.options.fillers ? clipWords(project.subtitles, clip) : [];
+      // vad:false = skip the project subtitles (VAD usually dropped the fillers) and let the
+      // workers re-transcribe the clip with Whisper's VAD off.
+      const words =
+        req.options.fillers && req.options.vad !== false ? clipWords(project.subtitles, clip) : [];
       ctx.reportProgress(0.05, "Buscando silencios y muletillas");
       const res = await viaPacks(() =>
         deps.workers.analyzeSilences(
@@ -259,6 +262,7 @@ export function createAnalyzeSilencesHandler(
             padding_ms: req.options.paddingMs,
             fillers: req.options.fillers,
             ...(words.length > 0 && { transcript: { words } }),
+            ...(req.options.vad !== undefined && { vad: req.options.vad }),
           },
           { signal: ctx.signal },
         ),

@@ -67,6 +67,23 @@ export async function detectHardwareEncoders(
   return available;
 }
 
+/**
+ * Extra args of a render BLOCK (segment cache, concat demuxer with `-c copy`) for hardware encoders:
+ * every block must start with a real IDR and carry no B-frames reordered across its edge, or the
+ * concatenated file can stutter/drop frames at the joins (risk 3).
+ * - NVENC (h264/hevc): `-bf 0 -forced-idr 1` (the forced keyframe at 0 becomes an IDR).
+ * - QSV (h264/hevc): `-bf 0 -forced_idr 1`.
+ * - AMF: no documented equivalent in FFmpeg 6/7 -> unchanged. libx264/x265: unchanged (a forced
+ *   keyframe is already an IDR with closed GOP at the block start).
+ */
+export function segmentSafetyArgs(videoArgs: readonly string[]): string[] {
+  const i = videoArgs.indexOf("-c:v");
+  const codec = i >= 0 ? videoArgs[i + 1] : undefined;
+  if (codec === "h264_nvenc" || codec === "hevc_nvenc") return ["-bf", "0", "-forced-idr", "1"];
+  if (codec === "h264_qsv" || codec === "hevc_qsv") return ["-bf", "0", "-forced_idr", "1"];
+  return [];
+}
+
 /** H.264 encoder args for a quality level (CRF-like, 0..51). */
 export function h264EncoderArgs(
   encoder: VideoEncoderId,

@@ -292,6 +292,21 @@ function Test-VCRedist {
     return $null
 }
 
+# NVIDIA GPU name, or $null: nvidia-smi first (driver installed), else the WMI video adapters
+# (GPU present but driver/nvidia-smi missing). Used by setup.ps1 (CUDA auto) and doctor.ps1.
+function Get-NvidiaGpuName {
+    if (Test-Cmd 'nvidia-smi') {
+        $name = Get-CmdOutput 'nvidia-smi' @('--query-gpu=name', '--format=csv,noheader')
+        if ($name) { return $name }  # first line = first GPU
+    }
+    try {
+        $adapter = Get-CimInstance Win32_VideoController -ErrorAction Stop |
+            Where-Object { $_.Name -match 'NVIDIA' } | Select-Object -First 1
+        if ($adapter) { return [string]$adapter.Name }
+    } catch { }
+    return $null
+}
+
 function Test-LongPaths {
     try {
         $v = Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name LongPathsEnabled -ErrorAction Stop

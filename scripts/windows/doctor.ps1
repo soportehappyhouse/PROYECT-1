@@ -101,8 +101,28 @@ if (Test-Cmd 'nvidia-smi') {
 } else {
     Add-Result 'GPU NVIDIA' skip 'no detectada: todo corre en CPU (normal)'
 }
-$useCuda = (Get-EnvSetting 'USE_CUDA' 'false') -eq 'true'
-Write-Info "USE_CUDA en .env: $useCuda"
+$useCudaValue = Get-EnvSetting 'USE_CUDA' 'false'
+$useCuda = $useCudaValue -eq 'true'
+$gpuName = Get-NvidiaGpuName
+# modo: what the running workers report (GET /gpu/status); if they are stopped, what .env + the
+# detected GPU imply.
+$cudaMode = 'cpu'
+if ($useCuda -and $gpuName) { $cudaMode = 'gpu' }
+try {
+    $live = Invoke-RestMethod -Uri "http://127.0.0.1:$((Get-Ports).Workers)/gpu/status" -TimeoutSec 3
+    if ($live.mode) { $cudaMode = [string]$live.mode }
+} catch { }
+$gpuLabel = '(ninguna)'
+if ($gpuName) { $gpuLabel = $gpuName }
+Write-Info "USE_CUDA=$useCudaValue / modo=$cudaMode / GPU=$gpuLabel"
+if ($gpuName -and -not $useCuda) {
+    $stamp = Read-Stamp (Join-Path $WorkersDir '.venv\.studio-install')
+    if ($stamp -match 'cuda-choice\s+nocuda') {
+        Write-Info 'Hay GPU NVIDIA pero elegiste CPU (-NoCuda). Para usarla: setup.ps1 -Update -WithCuda'
+    } else {
+        Write-Careful 'Hay GPU NVIDIA pero USE_CUDA=false: setup.ps1 -Update cambia a CUDA solo (descarga ~2.5 GB, una vez).'
+    }
+}
 
 # ------------------------------------------------------------------ python env
 Write-Step 'Workers Python'

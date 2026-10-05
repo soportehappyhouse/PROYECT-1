@@ -12,7 +12,8 @@
   4. Python: apps\workers\.venv con requirements.txt (CPU) o requirements-cuda.txt (-WithCuda); se
      omite si el sello .venv\.studio-install coincide con el hash de requirements/pyproject.
   5. Modelos: models_cli --check muestra la tabla presentes/faltantes y despues se baja solo lo que
-     falta (descargas reanudables, verificadas, registradas en models\manifest.json).
+     falta (descargas reanudables, verificadas, registradas en models\manifest.json). RVC base
+     (hubert + rmvpe) solo con -Full; si no, se pide al usar RVC (paquete rvc-base).
   6. Paquetes de IA (models\packs.json): por defecto solo "core" (Whisper base + voz Daniela);
      con -Full todos en secuencia (whisper-turbo, voces-es, rvc-base, scenes, voz-limpia). Lo que
      ya esta se omite; el resto se baja bajo demanda desde Ajustes > Paquetes de IA.
@@ -32,7 +33,12 @@
   usar cada funcion. Se puede repetir: lo ya descargado se omite y lo parcial se reanuda.
 .PARAMETER WithCuda
   Instala torch CUDA 12.8 (cu128) y pone USE_CUDA=true en .env. Requiere GPU NVIDIA + driver 570+.
-  Una vez instalado se conserva en los re-run; -WithCuda:$false vuelve al perfil CPU.
+  No hace falta: si se detecta una GPU NVIDIA (nvidia-smi o el nombre del adaptador de video) CUDA
+  se activa solo, tambien en -Update de una instalacion que estaba en CPU (una vez, ~2.5 GB).
+  Una vez instalado se conserva en los re-run.
+.PARAMETER NoCuda
+  Fuerza el perfil CPU aunque haya GPU NVIDIA (USE_CUDA=false en .env). Igual que -WithCuda:$false.
+  La eleccion queda registrada: los re-run siguientes no vuelven a cambiar a CUDA.
 .PARAMETER WhisperModel
   Modelo faster-whisper a descargar (default: base). En .env nuevo tambien fija WHISPER_MODEL.
 .PARAMETER PiperVoice
@@ -40,8 +46,9 @@
 .PARAMETER SkipWinget
   No usa winget: asume Git, Node.js 22, Python 3.11 y FFmpeg ya en el PATH (solo verifica).
 .PARAMETER SkipRvc
-  No instala torch / infer-rvc-python (instalacion mas liviana; RVC queda deshabilitado). Se
-  conserva en los re-run; -SkipRvc:$false instala RVC.
+  Sin dependencias de RVC en el .venv (torch / infer-rvc-python; instalacion mas liviana, RVC queda
+  deshabilitado). Se conserva en los re-run; -SkipRvc:$false instala RVC. Los modelos RVC base
+  (paquete rvc-base) nunca se bajan por defecto: solo con -Full o al usar RVC.
 .PARAMETER SkipModels
   No descarga modelos (whisper / piper / rvc).
 .PARAMETER SkipBrowser
@@ -56,10 +63,13 @@
   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\setup.ps1 -WithCuda
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\setup.ps1 -WithCuda -Full
+.EXAMPLE
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\setup.ps1 -NoCuda
 #>
 [CmdletBinding()]
 param(
     [Alias('Cuda')][switch]$WithCuda,
+    [switch]$NoCuda,
     [string]$WhisperModel = 'base',
     [string]$PiperVoice = '',
     [switch]$Update,
@@ -97,13 +107,49 @@ if ($RepoRoot.Length -gt 60) {
 }
 
 # Previous Python profile (cuda / norvc) is kept unless the switch is passed explicitly: a re-run
-# without -WithCuda must not silently swap a 2.5 GB CUDA torch for the CPU one.
+# without -NoCuda must not silently swap a 2.5 GB CUDA torch for the CPU one.
 $venvStamp = Join-Path $WorkersDir '.venv\.studio-install'
 $prevProfile = ((Read-Stamp $venvStamp) -split '\s+')[0]
-if (-not $PSBoundParameters.ContainsKey('WithCuda') -and $prevProfile -like 'cuda*') {
-    $WithCuda = [switch]$true
-    Write-Info 'Se conserva el perfil CUDA de la instalacion anterior (-WithCuda:$false para volver a CPU).'
+# CUDA: -NoCuda / -WithCuda win; else a previous -NoCuda (stamp line "cuda-choice nocuda") keeps
+# CPU; else a previous CUDA profile stays; else an NVIDIA GPU switches to CUDA automatically, also on
+# re-runs / -Update of an install that was on the CPU profile (once: the stamp records the result).
+$gpuName = Get-NvidiaGpuName
+$prevChoice = ''
+foreach ($l in ((Read-Stamp $venvStamp) -split "`r?`n")) {
+    if ($l -match '^\s*cuda-choice\s+(\S+)') { $prevChoice = $Matches[1] }
 }
+$cudaExplicit = $NoCuda -or $PSBoundParameters.ContainsKey('WithCuda')
+$cudaSwitch = $false
+if ($NoCuda) {
+    $WithCuda = [switch]$false
+    $cudaReason = '-NoCuda'
+} elseif ($PSBoundParameters.ContainsKey('WithCuda')) {
+    $cudaReason = '-WithCuda'
+    if (-not $WithCuda) { $cudaReason = '-WithCuda:$false' }
+} elseif ($prevChoice -eq 'nocuda') {
+    $WithCuda = [switch]$false
+    $cudaReason = 'elegiste -NoCuda en una instalacion anterior (-WithCuda para cambiarlo)'
+} elseif ($prevProfile -like 'cuda*') {
+    $WithCuda = [switch]$true
+    $cudaReason = 'perfil CUDA de la instalacion anterior (-NoCuda para volver a CPU)'
+} elseif ($gpuName) {
+    $WithCuda = [switch]$true
+    $cudaReason = "GPU NVIDIA detectada: $gpuName"
+    if ($prevProfile) {
+        $cudaSwitch = $true
+        Write-Careful 'GPU NVIDIA detectada: cambiando a CUDA (descarga ~2.5 GB, una sola vez)'
+        Write-Info 'Para quedarte en CPU: setup.ps1 -Update -NoCuda'
+    }
+} else {
+    $cudaReason = 'no se detecto GPU NVIDIA'
+}
+# Recorded in the venv stamp (line 3) so the choice is not re-made on every run.
+$cudaChoice = 'cpu'
+if ($WithCuda) { $cudaChoice = 'cuda' }
+if (-not $WithCuda -and ($NoCuda -or $cudaExplicit -or $prevChoice -eq 'nocuda')) { $cudaChoice = 'nocuda' }
+$cudaMode = 'CPU'
+if ($WithCuda) { $cudaMode = 'CUDA (GPU)' }
+Write-Info "Aceleracion IA: $cudaMode - $cudaReason"
 if (-not $PSBoundParameters.ContainsKey('SkipRvc') -and $prevProfile -like '*-norvc') {
     $SkipRvc = [switch]$true
     Write-Info 'Se conserva la instalacion sin RVC de la vez anterior (-SkipRvc:$false para instalar RVC).'
@@ -259,7 +305,15 @@ if (-not (Test-Path $EnvFile)) {
     Write-Info '.env ya existe: no se modifica salvo los valores de este setup'
 }
 if ($envCreated) { Set-DotEnvValue 'WHISPER_MODEL' $WhisperModel }
-if ($WithCuda -and (Get-EnvSetting 'USE_CUDA' 'false') -ne 'true') { Set-DotEnvValue 'USE_CUDA' 'true' }
+# USE_CUDA (only that key is edited): written on the first setup (new .env), when -WithCuda/-NoCuda
+# is passed, or when a re-run switches a CPU install to CUDA because a GPU was detected. Otherwise a
+# re-run (-Update) keeps the value the user left in .env.
+$cudaValue = 'false'
+if ($WithCuda) { $cudaValue = 'true' }
+if (($envCreated -or $cudaExplicit -or $cudaSwitch) -and (Get-EnvSetting 'USE_CUDA' '') -ne $cudaValue) {
+    Set-DotEnvValue 'USE_CUDA' $cudaValue
+    Write-Info "USE_CUDA=$cudaValue en .env"
+}
 if ($ffmpeg -and -not (Test-Cmd 'ffmpeg') -and (Get-EnvSetting 'FFMPEG_PATH' '') -ne $ffmpeg) {
     # winget portable package not on PATH yet: pin absolute paths so api/workers find it.
     Set-DotEnvValue 'FFMPEG_PATH' $ffmpeg
@@ -345,9 +399,8 @@ if ($nodeVer) {
 # ============================================================================ 4. Python workers
 Write-Step 'Entorno Python de los workers (apps\workers\.venv)'
 $venvOk = $false
-$hasGpu = Test-Cmd 'nvidia-smi'
-if ($WithCuda -and -not $hasGpu) { Write-Careful '-WithCuda sin nvidia-smi: se instala igual; sin GPU caera a CPU.' }
-if (-not $WithCuda -and $hasGpu) { Write-Careful 'GPU NVIDIA detectada: podes re-ejecutar con -WithCuda para acelerar Whisper/RVC.' }
+if ($WithCuda -and -not $gpuName) { Write-Careful '-WithCuda sin GPU NVIDIA detectada: se instala igual; sin GPU caera a CPU.' }
+if ($WithCuda -and $gpuName -and -not (Test-Cmd 'nvidia-smi')) { Write-Careful "Falta el driver NVIDIA (nvidia-smi) para $gpuName : instala el driver 570+ o CUDA caera a CPU." }
 if ($py311) {
     Start-StepClock
     try {
@@ -393,7 +446,7 @@ if ($py311) {
         }
         $check = Get-CmdOutput $VenvPython @('-c', 'import faster_whisper, piper, studio_workers; print(1)')
         if ($check -eq '1') {
-            Write-Stamp $venvStamp "$line1`n$line2"
+            Write-Stamp $venvStamp "$line1`n$line2`ncuda-choice $cudaChoice"
             Add-Result 'Workers Python (.venv)' ok "perfil $profileName" -Action $pyStepAction -Seconds (Stop-StepClock)
             $venvOk = $true
         } else {
@@ -432,7 +485,8 @@ if ($SkipModels) {
     $envWhisper = Get-EnvSetting 'WHISPER_MODEL' $WhisperModel
     if ($envWhisper -ne $WhisperModel) { $whisperList += $envWhisper }
     $cliArgs = @('-m', 'studio_workers.models_cli', '--piper', $PiperVoice, '--whisper') + $whisperList
-    if (-not $SkipRvc) { $cliArgs += '--rvc-base' }
+    # Decision 6: RVC base (hubert + rmvpe, pack rvc-base) only with -Full; otherwise on demand.
+    if ($Full -and -not $SkipRvc) { $cliArgs += '--rvc-base' }
     if ($IncludeLegacyHubert) { $cliArgs += '--rvc-legacy-hubert' }
     $runDir = Get-RunDir
     $checkReport = Join-Path $runDir 'models-check.json'

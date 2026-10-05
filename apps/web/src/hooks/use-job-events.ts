@@ -11,6 +11,7 @@ import { useEffect } from "react";
 import { toast } from "sonner";
 import { hasGpuFallback } from "@/lib/ai";
 import { api, fileUrl, packInfoFromBody } from "@/lib/api";
+import { suggestedPackLabel, suggestedPackOf } from "@/lib/gpu-preflight";
 import { clipEnd, findClip } from "@/lib/timeline";
 import {
   isTerminal,
@@ -89,6 +90,17 @@ export async function handleFinished(job: Job): Promise<void> {
   if (hasGpuFallback(full.result))
     toast.warning(`${label}: se usó la CPU`, {
       description: "La GPU no tenía memoria libre suficiente; la tarea fue más lenta.",
+    });
+
+  // Decision 6 (soft): CUDA is there but whisper-turbo is not installed -> offer it, never block.
+  const suggested = suggestedPackOf(full.result);
+  if (suggested)
+    toast.info("Transcripción más precisa y rápida en tu GPU", {
+      description: `Falta el paquete «${suggested.name_es}».`,
+      action: {
+        label: suggestedPackLabel(suggested),
+        onClick: () => usePacksStore.getState().openRequest(suggested),
+      },
     });
 
   const intent = jobs.intents[job.id];

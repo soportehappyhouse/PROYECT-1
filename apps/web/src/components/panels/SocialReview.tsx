@@ -91,7 +91,11 @@ export function SocialReview() {
             </p>
           ) : null}
         </div>
-      ) : null}
+      ) : (
+        <p className="text-[11px] text-muted-foreground" data-testid="ai-label-off">
+          Etiqueta IA desactivada (solo para redes)
+        </p>
+      )}
     </Section>
   );
 }

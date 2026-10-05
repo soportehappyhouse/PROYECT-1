@@ -163,6 +163,8 @@ export function SilencesDialog() {
     });
 
   const busy = step === "analyzing" || step === "applying";
+  // Risk 5: Whisper (above all with VAD) tends to drop «eh»/«mmm» from the transcript.
+  const noFillers = step === "review" && options.fillers && !cuts.some((c) => c.kind === "filler");
   const clipLength = found ? clipDuration(found.clip) : 0;
 
   return (
@@ -215,6 +217,19 @@ export function SilencesDialog() {
               />
               Incluir muletillas (usa la transcripción de Whisper)
             </label>
+            {options.fillers ? (
+              <label className="flex items-center gap-2 text-xs">
+                <Checkbox
+                  checked={options.vad === false}
+                  onChange={(e) =>
+                    useSilencesStore
+                      .getState()
+                      .setOptions({ vad: e.target.checked ? false : undefined })
+                  }
+                />
+                Transcribir de nuevo con VAD desactivado (encuentra más muletillas, más lento)
+              </label>
+            ) : null}
             {error ? <ErrorNotice message={error} /> : null}
             <div className="flex justify-end gap-2">
               <Button size="sm" variant="ghost" onClick={close}>
@@ -294,6 +309,29 @@ export function SilencesDialog() {
                 ))}
               </ul>
             )}
+            {noFillers ? (
+              <p
+                className="flex flex-wrap items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground"
+                data-testid="no-fillers-hint"
+              >
+                <span className="flex-1">
+                  No se detectaron muletillas: Whisper suele omitirlas; probá con VAD desactivado
+                </span>
+                {options.vad !== false ? (
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => {
+                      useSilencesStore.getState().setOptions({ vad: false });
+                      void analyze();
+                    }}
+                  >
+                    Reanalizar sin VAD
+                  </Button>
+                ) : null}
+              </p>
+            ) : null}
             {animated ? (
               <p className="flex items-start gap-1.5 rounded-md bg-amber-500/10 px-2 py-1 text-xs text-amber-700 dark:text-amber-400">
                 <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />

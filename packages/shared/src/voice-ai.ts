@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SuggestedPackSchema } from "./ai.js";
 import { IdSchema, SecondsSchema } from "./common.js";
 import { LibraryItemKindSchema, LibraryItemSchema } from "./library.js";
 import { TranscriptSchema } from "./subtitles.js";
@@ -90,6 +91,11 @@ export const TranscribeJobResultSchema = z.object({
   transcript: TranscriptSchema,
   /** Workers warnings, e.g. ["gpu_fallback_cpu"] (the web shows a toast). */
   warnings: z.array(z.string()).optional(),
+  /**
+   * Soft suggestion (decision 6): CUDA is available but the `whisper-turbo` pack is missing; the
+   * web offers «Descargar whisper-turbo (1,6 GB)». Never blocks the transcription.
+   */
+  suggestedPack: SuggestedPackSchema.optional(),
 });
 export type TranscribeJobResult = z.infer<typeof TranscribeJobResultSchema>;
 

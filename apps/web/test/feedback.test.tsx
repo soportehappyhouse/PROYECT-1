@@ -12,6 +12,7 @@ import { defaultShortcutMap, SHORTCUT_ACTIONS } from "@/lib/shortcuts";
 import { cutClip, speechRanges } from "@/lib/silences";
 import { isMotionRenderAsset, trackKindForAsset } from "@/lib/timeline";
 import { useMediaStore } from "@/stores/media-store";
+import { usePacksStore } from "@/stores/packs-store";
 import { createEmptyProject, useProjectStore } from "@/stores/project-store";
 
 /** Regression tests for docs/trabajo/feedback-usuario-2026-10-05.md (web side). */
@@ -221,8 +222,14 @@ describe("feedback 6: TTS voice downloads", () => {
     });
     render(<VoicePanel />);
     await screen.findByText("Claude (Mexico)");
-    expect(screen.getAllByRole("button", { name: /Descargar/ })).toHaveLength(7);
+    // 7 per-voice buttons + «Descargar las 7 que faltan (paquete voces-es)»
+    expect(screen.getAllByRole("button", { name: /^Descargar$/ })).toHaveLength(7);
+    expect(screen.getAllByText("No instalada")).toHaveLength(7);
     expect(screen.getByText("Instalada")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /paquete voces-es/ }));
+    expect(usePacksStore.getState().request?.info.packId).toBe("voces-es");
+    expect(usePacksStore.getState().retries["voces-es"]).toBeTypeOf("function");
+    usePacksStore.getState().closeRequest();
     const row = screen.getByText("Claude (Mexico)").closest("li")!;
     fireEvent.click(row.querySelector("button")!);
     await waitFor(() =>

@@ -7,11 +7,13 @@ import { describe, expect, it, vi } from "vitest";
 import { openDatabase } from "../src/db/database.js";
 import type { JobContext } from "../src/jobs/types.js";
 import { createRepos } from "../src/repos/index.js";
-import type { WorkersClient } from "../src/services/workers-client.js";
+import { PackRequiredError } from "../src/lib/errors.js";
+import { WorkersError, type WorkersClient } from "../src/services/workers-client.js";
 import {
   createRvcHandler,
   createTranscribeHandler,
   createTtsHandler,
+  suggestTurboPack,
   type VoiceAiDeps,
 } from "../src/voice-ai/handlers.js";
 
@@ -105,6 +107,26 @@ describe("voice.rvc handler", () => {
     expect(repos.media.get(result.assetId!)?.name).toBe("Mi voz (RVC mi_voz)");
   });
 
+  it("turns a workers PACK_REQUIRED (rvc-base) into a PackRequiredError (409 job body)", async () => {
+    const body = {
+      error: "PACK_REQUIRED" as const,
+      packId: "rvc-base",
+      name_es: "RVC base",
+      size_bytes: 3.7e8,
+    };
+    const rvcConvert = vi.fn<WorkersClient["rvcConvert"]>(async () => {
+      throw new WorkersError("falta", 409, "PACK_REQUIRED", body);
+    });
+    const { storageDir, deps, ctx, job, repos } = setup({ rvcConvert });
+    addAsset(repos, storageDir, "media/src1.wav");
+    const handler = createRvcHandler(deps);
+    const err = await handler
+      .run(handler.parse({ assetId: "src1", modelId: "mi_voz" }), ctx, job)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PackRequiredError);
+    expect((err as PackRequiredError).jobResult).toMatchObject(body);
+  });
+
   it("fails clearly when the source asset does not exist", async () => {
     const { deps, ctx, job } = setup({});
     const handler = createRvcHandler(deps);
@@ -153,4 +175,73 @@ describe.skipIf(!hasFfmpeg)("subtitles.transcribe handler", () => {
     // temp WAV is cleaned up
     expect(existsSync(path.join(storageDir, "tmp", "job1.wav"))).toBe(false);
   });
+});
+
+describe("whisper-turbo soft suggestion (decision 6)", () => {
+  const pack = (installed: boolean) => ({
+    id: "whisper-turbo",
+    name_es: "Whisper turbo",
+    description_es: "",
+    size_bytes: 1.6e9,
+    installed,
+    partial: false,
+    files: [],
+    required_by: ["transcribe"],
+  });
+  const gpu = (cuda: boolean) => ({
+    cuda,
+    resident_model: null,
+    mode: cuda ? ("gpu" as const) : ("cpu" as const),
+    sysmem_fallback: false,
+  });
+  const client = (cuda: boolean, installed: boolean) =>
+    ({
+      gpuStatus: async () => gpu(cuda),
+      packs: async () => [pack(installed)],
+    }) as unknown as WorkersClient;
+
+  it("suggests the pack only with CUDA and the pack missing", async () => {
+    expect(await suggestTurboPack(client(true, false))).toEqual({
+      packId: "whisper-turbo",
+      name_es: "Whisper turbo",
+      size_bytes: 1.6e9,
+    });
+    expect(await suggestTurboPack(client(false, false))).toBeUndefined();
+    expect(await suggestTurboPack(client(true, true))).toBeUndefined();
+    const down = {
+      gpuStatus: async () => Promise.reject(new Error("down")),
+      packs: async () => Promise.reject(new Error("down")),
+    } as unknown as WorkersClient;
+    expect(await suggestTurboPack(down)).toBeUndefined();
+  });
+
+  it.skipIf(!hasFfmpeg)(
+    "adds suggestedPack to the transcribe result and forwards vad",
+    async () => {
+      const transcribe = vi.fn<WorkersClient["transcribe"]>(async () => ({
+        language: "es",
+        durationSec: 1,
+        segments: [],
+      }));
+      const { storageDir, deps, ctx, job, repos } = setup({
+        transcribe,
+        gpuStatus: async () => gpu(true),
+        packs: async () => [pack(false)],
+      });
+      spawnSync("ffmpeg", [
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=f=440:d=1",
+        path.join(storageDir, "media", "src1.wav"),
+      ]);
+      addAsset(repos, storageDir, "media/src1.wav");
+      const handler = createTranscribeHandler(deps);
+      const result = await handler.run(handler.parse({ assetId: "src1", vad: false }), ctx, job);
+      expect(transcribe.mock.calls[0]?.[0]).toMatchObject({ vad: false });
+      expect(result.suggestedPack).toMatchObject({ packId: "whisper-turbo", size_bytes: 1.6e9 });
+    },
+  );
 });

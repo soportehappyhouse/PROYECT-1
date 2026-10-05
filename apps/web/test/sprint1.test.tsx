@@ -11,6 +11,12 @@ import { sceneSnapTimes, scenesLookup } from "@/hooks/use-scene-markers";
 import { toast } from "sonner";
 import { handleFinished } from "@/hooks/use-job-events";
 import { hasGpuFallback, perfEstimates } from "@/lib/ai";
+import {
+  CPU_PREFLIGHT_MESSAGE,
+  suggestedPackLabel,
+  suggestedPackOf,
+  warnIfCpu,
+} from "@/lib/gpu-preflight";
 import type { PackInfo, SilenceCut } from "@/lib/ai-types";
 import { aiApi, packInfoFromBody } from "@/lib/api";
 import { waitForJob } from "@/lib/job-runner";
@@ -304,6 +310,69 @@ describe("Aviso gpu_fallback_cpu", () => {
   });
 });
 
+describe("Aviso antes de empezar (decisión 7)", () => {
+  const gpu = (mode: "gpu" | "cpu", free: number | null) => ({
+    cuda: mode === "gpu",
+    gpu_name: "RTX 4050",
+    vram_total_mb: 6144,
+    vram_free_mb: free,
+    resident_model: null,
+    mode,
+    sysmem_fallback: false,
+  });
+
+  it("warns «Va a correr en CPU» in CPU mode or when the free VRAM is under the estimate", async () => {
+    let status = gpu("cpu", null);
+    mockFetch((path) => (path === "/api/ai/gpu" ? { json: status } : undefined));
+    const warn = vi.spyOn(toast, "warning");
+    expect(await warnIfCpu("transcribe")).toBe(true);
+    expect(warn).toHaveBeenLastCalledWith(CPU_PREFLIGHT_MESSAGE, expect.anything());
+    expect(CPU_PREFLIGHT_MESSAGE).toBe("Va a correr en CPU (más lento)");
+    status = gpu("gpu", 1500); // < 2.5 GB whisper-turbo / 2 GB rvc, >= 1 GB denoise
+    expect(await warnIfCpu("transcribe")).toBe(true);
+    expect(await warnIfCpu("rvc")).toBe(true);
+    expect(await warnIfCpu("denoise")).toBe(false);
+    status = gpu("gpu", 5000);
+    warn.mockClear();
+    expect(await warnIfCpu("transcribe")).toBe(false);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("never blocks nor warns when the api does not answer", async () => {
+    mockFetch(() => "offline");
+    expect(await warnIfCpu("denoise")).toBe(false);
+  });
+});
+
+describe("Sugerencia whisper-turbo (decisión 6)", () => {
+  it("a transcribe result with suggestedPack shows a toast that opens the pack dialog", async () => {
+    const suggested = { packId: "whisper-turbo", name_es: "Whisper turbo", size_bytes: 1.6e9 };
+    expect(suggestedPackOf({ suggestedPack: suggested })).toEqual(suggested);
+    expect(suggestedPackOf({})).toBeUndefined();
+    expect(suggestedPackLabel(suggested)).toBe("Descargar whisper-turbo (1.6 GB)");
+    const done: Job = {
+      id: "jt1",
+      type: "subtitles.transcribe",
+      status: "succeeded",
+      progress: 1,
+      payload: { assetId: "a1" },
+      result: { assetId: "a1", path: "renders/jt1.json", suggestedPack: suggested },
+      createdAt: "2026-10-05T10:00:00Z",
+    };
+    mockFetch((path) => (path === "/api/jobs/jt1" ? { json: done } : { json: [] }));
+    const info = vi.spyOn(toast, "info");
+    await handleFinished(done);
+    const call = info.mock.calls.find((c) => {
+      const opts = c[1] as { action?: { label?: string } } | undefined;
+      return opts?.action?.label === "Descargar whisper-turbo (1.6 GB)";
+    });
+    expect(call).toBeTruthy();
+    const action = (call![1] as { action: { onClick: () => void } }).action;
+    act(() => action.onClick());
+    expect(usePacksStore.getState().request?.info).toMatchObject({ packId: "whisper-turbo" });
+  });
+});
+
 describe("Indicador de GPU", () => {
   it("shows GPU, free VRAM and the resident model", async () => {
     mockFetch((path) =>
@@ -408,6 +477,33 @@ describe("Quitar silencios y muletillas", () => {
     expect(clipEnd(clips[clips.length - 1]!)).toBeCloseTo(19);
     expect(useProjectStore.getState().past.length).toBe(1);
   });
+
+  it("hints that Whisper may omit fillers and re-analyzes with VAD off (risk 5)", async () => {
+    loadWithVideo({ in: 0, out: 20 });
+    const sent: unknown[] = [];
+    mockFetch((path, method, body) => {
+      if (path.startsWith("/api/projects/") && method === "PUT")
+        return { json: useProjectStore.getState().project };
+      if (path === "/api/ai/analyze/silences") {
+        sent.push(body);
+        return { json: { cuts: [{ start: 1, end: 2, kind: "silence" }], total_removed_s: 1 } };
+      }
+      return undefined;
+    });
+    useSilencesStore.getState().setOptions({ vad: undefined });
+    render(<SilencesDialog />);
+    act(() => useSilencesStore.getState().open("v1"));
+    fireEvent.click(screen.getByRole("button", { name: /Analizar/ }));
+    const hint = await screen.findByTestId("no-fillers-hint");
+    expect(hint.textContent).toContain(
+      "No se detectaron muletillas: Whisper suele omitirlas; probá con VAD desactivado",
+    );
+    expect((sent[0] as { options: { vad?: boolean } }).options.vad).toBeUndefined();
+    fireEvent.click(screen.getByRole("button", { name: "Reanalizar sin VAD" }));
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect((sent[1] as { options: { vad?: boolean } }).options.vad).toBe(false);
+    useSilencesStore.getState().setOptions({ vad: undefined });
+  });
 });
 
 describe("Revisión para redes (project.publish)", () => {
@@ -441,6 +537,17 @@ describe("Revisión para redes (project.publish)", () => {
     expect(useProjectStore.getState().saveState).toBe("dirty");
     persistLocalProject(project);
     expect(projectPublish(loadLocalProject())).toEqual(projectPublish(project));
+  });
+
+  it("shows that the AI label is off when the video is not for social media (decision 4)", () => {
+    render(<SocialReview />);
+    expect(screen.getByTestId("ai-label-off").textContent).toBe(
+      "Etiqueta IA desactivada (solo para redes)",
+    );
+    fireEvent.click(screen.getByRole("checkbox", { name: "Voy a subirlo a redes" }));
+    expect(screen.queryByTestId("ai-label-off")).toBeNull();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Voy a subirlo a redes" }));
+    expect(screen.getByTestId("ai-label-off")).toBeTruthy();
   });
 });
 

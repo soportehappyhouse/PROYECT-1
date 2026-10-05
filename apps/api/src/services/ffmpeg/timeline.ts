@@ -20,7 +20,7 @@ import {
   xfadeTransitionName,
 } from "./builders.js";
 import { escapeFilterPath, escapeOptionValue, quoteFilterArg, sec } from "./escape.js";
-import { presetEncoding } from "./encoders.js";
+import { presetEncoding, segmentSafetyArgs } from "./encoders.js";
 
 /** Resolved media for the compiler (absolute paths; metadata from ffprobe). */
 export interface TimelineAsset {
@@ -632,6 +632,7 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
           "-map",
           "[vout]",
           ...enc.video,
+          ...segmentSafetyArgs(enc.video),
           "-g",
           String(win.gopFrames),
           "-force_key_frames",

@@ -5,6 +5,8 @@ import {
   API_ROUTES,
   DEFAULT_AI_LABEL_TEXT,
   ExportRequestSchema,
+  FEATURE_PACKS,
+  FEATURE_VRAM_MB,
   GpuStatusSchema,
   JobTypeSchema,
   MediaAssetSchema,
@@ -15,6 +17,10 @@ import {
   ProjectSchema,
   PublishSettingsSchema,
   SilenceCutsSchema,
+  SilenceOptionsSchema,
+  TranscribeJobResultSchema,
+  TranscribeRequestSchema,
+  willRunOnCpu,
 } from "../src/index.js";
 
 const now = "2026-10-05T00:00:00.000Z";
@@ -87,6 +93,41 @@ describe("Sprint 1 AI contract", () => {
     ).toBe(false);
   });
 
+  it("estimates VRAM per feature and predicts the CPU fallback (decision 7)", () => {
+    expect(FEATURE_VRAM_MB).toEqual({ transcribe: 2500, rvc: 2000, denoise: 1000 });
+    expect(willRunOnCpu({ mode: "cpu", vram_free_mb: null }, "denoise")).toBe(true);
+    expect(willRunOnCpu({ mode: "gpu", vram_free_mb: 2200 }, "transcribe")).toBe(true);
+    expect(willRunOnCpu({ mode: "gpu", vram_free_mb: 2200 }, "rvc")).toBe(false);
+    expect(willRunOnCpu({ mode: "gpu", vram_free_mb: null }, "transcribe")).toBe(false);
+    expect(willRunOnCpu(undefined, "rvc")).toBe(false);
+  });
+
+  it("packs on demand: rvc-base required, whisper-turbo suggested; vad flags (decision 6)", () => {
+    expect(FEATURE_PACKS.rvc).toBe("rvc-base");
+    expect(FEATURE_PACKS.transcribeGpu).toBe("whisper-turbo");
+    const suggestedPack = { packId: "whisper-turbo", name_es: "Whisper turbo", size_bytes: 1.6e9 };
+    const r = TranscribeJobResultSchema.parse({
+      assetId: "a",
+      path: "renders/j.json",
+      srtPath: "renders/j.srt",
+      assPath: "renders/j.ass",
+      transcript: { language: "es", durationSec: 1, segments: [] },
+      suggestedPack,
+    });
+    expect(r.suggestedPack).toEqual(suggestedPack);
+    expect(TranscribeRequestSchema.parse({ assetId: "a", vad: false }).vad).toBe(false);
+    expect(TranscribeRequestSchema.parse({ assetId: "a" }).vad).toBeUndefined();
+    expect(SilenceOptionsSchema.parse({ vad: false }).vad).toBe(false);
+  });
+
+  it("burns the AI label only when forSocial and aiLabel are both on (decision 4)", () => {
+    const on = PublishSettingsSchema.parse({ forSocial: true, aiLabel: true });
+    expect(aiLabelText(on)).toBe(DEFAULT_AI_LABEL_TEXT);
+    expect(aiLabelText({ ...on, forSocial: false })).toBeUndefined();
+    expect(aiLabelText({ ...on, aiLabel: false })).toBeUndefined();
+    expect(aiLabelText(undefined)).toBeUndefined();
+  });
+
   it("keeps project.publish and asset scenes (additive, optional)", () => {
     const base = { id: "p", name: "P", settings: {}, createdAt: now, updatedAt: now };
     expect(ProjectSchema.parse(base).publish).toBeUndefined();
@@ -97,9 +138,11 @@ describe("Sprint 1 AI contract", () => {
       flags: { aiFace: false, aiVoice: false, aiOther: false, music: false, thirdParty: false },
     });
     expect(aiLabelText(p.publish)).toBe(DEFAULT_AI_LABEL_TEXT);
-    expect(aiLabelText(PublishSettingsSchema.parse({ aiLabel: true, aiLabelText: "  IA  " }))).toBe(
-      "IA",
-    );
+    expect(
+      aiLabelText(
+        PublishSettingsSchema.parse({ forSocial: true, aiLabel: true, aiLabelText: "  IA  " }),
+      ),
+    ).toBe("IA");
     expect(aiLabelText(PublishSettingsSchema.parse({ aiLabel: false }))).toBeUndefined();
     const asset = MediaAssetSchema.parse({
       id: "a",

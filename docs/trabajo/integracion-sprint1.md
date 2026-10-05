@@ -27,6 +27,18 @@ Rama `claude/funny-mccarthy-0bbdt6`. Stack real en el sandbox (Linux, sin GPU): 
 - `ui-smoke.mjs`: **17/17** (paso nuevo: 409 real → «Paquete requerido»).
 - Desde cero: install, build:packages, lint, format:check, typecheck, build y test (101 web + 146 api + 85 paquetes) OK; ruff + pytest (80) OK; los 7 `.ps1` parsean; `ci.yml` válido; búsqueda de secretos vacía.
 
+## Mediciones
+
+Criterio 2 del plan, medido por `run-e2e.mjs` (paso «criterion 2», stack real del sandbox: Linux, 4 CPU, sin GPU, libx264) sobre un video lavfi de 1 min (1280×720, 30 fps, tono con un hueco de 1 s cada 10 s):
+
+| Medida | Valor | Límite del sandbox (holgado) | Meta del plan (RTX 4050) |
+|---|---|---|---|
+| `analyze.silences` por minuto de medio | **0,82 s/min** (silencedetect + muletillas con las palabras de los subtítulos, sin Whisper) | < 30 s/min | < 30 s/min |
+| Export con 1 cambio chico / export completo | **0,42** (27,1 s / 64,3 s; 1 de 6 bloques re-renderizado) | < 0,5 | < 0,2 |
+
+- El 0,42 incluye lo que no se cachea: la mezcla de audio completa, el concat y el muxeo; en el sandbox el bloque re-renderizado es ~1/6 del video pero el resto pesa. Falta medirlo en la PC real (NVENC) contra la meta de 0,2.
+- `--hw` (bloques NVENC/QSV vs una pasada, duración + fotogramas) quedó **SKIP**: el sandbox no tiene encoder por hardware.
+
 ## Pendiente
 
 - Probar en la RTX 4050: GPU real, Whisper turbo, DeepFilterNet y criterio 2 del plan (< 30 s por minuto).

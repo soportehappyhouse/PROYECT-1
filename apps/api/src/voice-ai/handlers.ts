@@ -1,7 +1,9 @@
 import { rm } from "node:fs/promises";
 import {
+  FEATURE_PACKS,
   RvcRequestSchema,
   TranscribeRequestSchema,
+  type SuggestedPack,
   TtsRequestSchema,
   type AudioJobResult,
   type RvcRequest,
@@ -10,9 +12,10 @@ import {
   type TtsRequest,
 } from "@studio/shared";
 import type { AppContext } from "../context.js";
+import { viaPacks } from "../jobs/handlers/ai.js";
 import type { JobContext, JobHandler } from "../jobs/types.js";
 import { resolveStoragePath } from "../services/storage.js";
-import type { WorkerCallOptions } from "../services/workers-client.js";
+import type { WorkerCallOptions, WorkersClient } from "../services/workers-client.js";
 import { registerAudioAsset, requireMediaAsset } from "./media-bridge.js";
 import { extractSpeechWav } from "./proc.js";
 
@@ -25,6 +28,25 @@ function progressOpts(ctx: JobContext, from: number, to: number): WorkerCallOpti
     signal: ctx.signal,
     onProgress: (p, message) => ctx.reportProgress(from + (to - from) * p, message),
   };
+}
+
+/**
+ * Decision 6 (soft): CUDA is available but the `whisper-turbo` pack is missing -> suggest it in the
+ * transcribe result (the web offers the download). Never throws: unknown state = no suggestion.
+ */
+export async function suggestTurboPack(workers: WorkersClient): Promise<SuggestedPack | undefined> {
+  const safe = <T>(fn: () => Promise<T>) =>
+    Promise.resolve()
+      .then(fn)
+      .catch(() => undefined);
+  const [gpu, packs] = await Promise.all([
+    safe(() => workers.gpuStatus()),
+    safe(() => workers.packs()),
+  ]);
+  if (!gpu?.cuda) return undefined;
+  const pack = packs?.find((p) => p.id === FEATURE_PACKS.transcribeGpu);
+  if (!pack || pack.installed) return undefined;
+  return { packId: pack.id, name_es: pack.name_es, size_bytes: pack.size_bytes };
 }
 
 export function createTranscribeHandler(
@@ -52,11 +74,13 @@ export function createTranscribeHandler(
             language: payload.language,
             ...(payload.model && { model: payload.model }),
             wordTimestamps: payload.wordTimestamps,
+            ...(payload.vad !== undefined && { vad: payload.vad }),
             jobId: job.id,
             outputBase: `renders/${job.id}`,
           },
           progressOpts(ctx, 0.08, 0.98),
         );
+        const suggestedPack = payload.model ? undefined : await suggestTurboPack(deps.workers);
         const files = transcript.files ?? {
           jsonPath: `renders/${job.id}.json`,
           srt: `renders/${job.id}.srt`,
@@ -73,6 +97,7 @@ export function createTranscribeHandler(
             segments: transcript.segments,
           },
           ...(transcript.warnings?.length && { warnings: transcript.warnings }),
+          ...(suggestedPack && { suggestedPack }),
         };
       } finally {
         await rm(resolveStoragePath(storage, wavRel), { force: true });
@@ -123,18 +148,21 @@ export function createRvcHandler(deps: VoiceAiDeps): JobHandler<RvcRequest, Audi
         0.02,
         device === "cpu" ? "Convirtiendo voz en CPU (puede tardar)" : "Convirtiendo voz (CUDA)",
       );
-      const res = await deps.workers.rvcConvert(
-        {
-          inputPath: source.path,
-          modelId: payload.modelId,
-          pitchShift: payload.pitchShift,
-          indexRate: payload.indexRate,
-          f0Method: payload.f0Method,
-          device,
-          outputPath: `renders/${job.id}.wav`,
-          jobId: job.id,
-        },
-        progressOpts(ctx, 0.02, 0.97),
+      // 409 PACK_REQUIRED (rvc-base) from the workers -> failed job with the body (dialog).
+      const res = await viaPacks(() =>
+        deps.workers.rvcConvert(
+          {
+            inputPath: source.path,
+            modelId: payload.modelId,
+            pitchShift: payload.pitchShift,
+            indexRate: payload.indexRate,
+            f0Method: payload.f0Method,
+            device,
+            outputPath: `renders/${job.id}.wav`,
+            jobId: job.id,
+          },
+          progressOpts(ctx, 0.02, 0.97),
+        ),
       );
       const asset = await registerAudioAsset(deps, {
         path: res.path,

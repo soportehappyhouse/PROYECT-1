@@ -214,8 +214,11 @@ class GpuBudget:
             if self._resident and self._resident.name == name:
                 self._resident.last_used = time.monotonic()
 
-    def release(self) -> str | None:
+    def release(self, name: str | None = None) -> str | None:
+        """Unload the resident model (only if it is `name`, when given)."""
         with self._lock:
+            if name is not None and (self._resident is None or self._resident.name != name):
+                return None
             return self._unload_locked()
 
     def _unload_locked(self) -> str | None:

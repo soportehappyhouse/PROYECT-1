@@ -2,6 +2,7 @@
 
 import logging
 import os
+import shutil
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -12,7 +13,20 @@ from . import __version__
 from .config import get_settings
 from .errors import register_error_handlers
 from .packs import write_registry
-from .routers import analyze, audio, gpu, health, jobs, models, packs, perf, rvc, transcribe, tts
+from .routers import (
+    analyze,
+    audio,
+    gpu,
+    health,
+    jobs,
+    models,
+    packs,
+    perf,
+    rvc,
+    transcribe,
+    tts,
+    vision,
+)
 from .system_probe import register_cuda_dll_dirs, start_background_probe
 
 log = logging.getLogger("studio_workers")
@@ -31,6 +45,9 @@ def prepare_environment() -> None:
             log.info("CUDA DLL directories: %s", added)
     for sub in ("whisper", "piper", "rvc"):
         (settings.models_root / sub).mkdir(parents=True, exist_ok=True)
+    # SAM sessions live in memory: frames left by a previous run (crash, restart) can never be
+    # used again. (tmp/matte is kept: a re-submitted RVM job resumes from its finished chunks.)
+    shutil.rmtree(settings.storage_root / "tmp" / "sam", ignore_errors=True)
     try:
         write_registry(settings.models_root)  # models/packs.json (static registry)
     except OSError as exc:
@@ -58,6 +75,7 @@ def create_app() -> FastAPI:
     app.include_router(analyze.router)
     app.include_router(audio.router)
     app.include_router(perf.router)
+    app.include_router(vision.router)
     return app
 
 

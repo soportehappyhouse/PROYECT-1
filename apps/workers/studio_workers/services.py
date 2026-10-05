@@ -11,6 +11,8 @@ from .rvc_engine import RvcEngine
 from .stt.engine import WhisperEngine
 from .tasks import TaskQueue
 from .tts.providers import TtsProvider, build_providers
+from .vision.matte import MatteEngine
+from .vision.sam import SamManager
 
 
 @lru_cache
@@ -45,6 +47,22 @@ def perf_queue() -> TaskQueue:
 
 
 @lru_cache
+def matte_engine() -> MatteEngine:
+    return MatteEngine(get_settings(), budget=gpu_budget())
+
+
+@lru_cache
+def sam_manager() -> SamManager:
+    return SamManager(get_settings(), budget=gpu_budget())
+
+
+@lru_cache
+def vision_queue() -> TaskQueue:
+    """Vision jobs (matte, propagate, track, reframe): one at a time (one GPU)."""
+    return TaskQueue("vision")
+
+
+@lru_cache
 def tts_providers() -> dict[str, TtsProvider]:
     return build_providers(get_settings())
 
@@ -58,3 +76,6 @@ def reset() -> None:
     tts_providers.cache_clear()
     pack_queue.cache_clear()
     perf_queue.cache_clear()
+    matte_engine.cache_clear()
+    sam_manager.cache_clear()
+    vision_queue.cache_clear()

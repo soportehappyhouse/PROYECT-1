@@ -35,6 +35,10 @@ def test_registry_matches_contract() -> None:
         "rvc-base",
         "scenes",
         "voz-limpia",
+        "matting",
+        "matting-image",
+        "sam2",
+        "reframe",
     ]
     assert packs.FEATURE_PACKS["analyze.scenes"] == "scenes"
     assert packs.FEATURE_PACKS["audio.denoise"] == "voz-limpia"

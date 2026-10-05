@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     elevenlabs_model: str = "eleven_multilingual_v2"
     # Network timeout (seconds) for model downloads and cloud TTS calls.
     http_timeout_sec: float = 60.0
+    # Sprint 2: GPL-isolated RVM runner. Empty = apps/workers/.venv-gpl. GPL_PYTHON overrides the
+    # interpreter that runs `python -m vision_gpl.rvm` (development/tests).
+    gpl_venv_dir: str = ""
+    gpl_python: str = ""
 
     @property
     def storage_root(self) -> Path:

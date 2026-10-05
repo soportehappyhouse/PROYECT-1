@@ -1,0 +1,8 @@
+# vision_gpl (RobustVideoMatting runner, GPL-3.0) - installed ONLY into apps/workers/.venv-gpl.
+# Created by the workers when the "matting" pack is downloaded (studio_workers/vision/gpl.py) or by
+# scripts\windows\setup.ps1 (-Full, or -Update when .venv-gpl already exists).
+# torch: when the main .venv already has torch (CPU or cu128), .venv-gpl reuses it through a
+# low-priority .pth path (no second 2.5 GB copy) and pip sees it as installed; otherwise pip
+# installs it here (the workers add the cu128 index when USE_CUDA=true).
+numpy>=1.26
+torch>=2.5

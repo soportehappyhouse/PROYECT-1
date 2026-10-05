@@ -256,6 +256,35 @@ if (Test-Path $VenvPython) {
 } else {
     Add-Result 'Paquetes de IA' skip 'requiere apps\workers\.venv'
 }
+# GPL-isolated venv for RobustVideoMatting (pack matting): apps\workers\.venv-gpl
+$gplDir = Join-Path $WorkersDir '.venv-gpl'
+$gplPython = Join-Path $gplDir 'Scripts\python.exe'
+$gplState = 'missing'
+if (Test-Path $VenvPython) {
+    $ErrorActionPreference = 'Continue'
+    Push-Location $WorkersDir
+    try {
+        $gplOut = @(& $VenvPython -m studio_workers.models_cli --gpl-venv status --json 2>$null)
+    } finally { Pop-Location }
+    $ErrorActionPreference = 'Stop'
+    $gplJson = $gplOut | Where-Object { "$_".StartsWith('{') } | Select-Object -Last 1
+    if ($gplJson) { try { $gplState = ($gplJson | ConvertFrom-Json).state } catch { $gplState = 'missing' } }
+} elseif (Test-Path $gplPython) {
+    $gplState = 'ready'
+}
+if ($gplState -eq 'ready' -and (Test-Path $gplPython)) {
+    $ErrorActionPreference = 'Continue'
+    $gplTorch = (& $gplPython -c 'import torch; print(torch.__version__, "cuda" if torch.cuda.is_available() else "cpu")' 2>$null | Select-Object -Last 1)
+    $ErrorActionPreference = 'Stop'
+    if ($gplTorch) { Add-Result 'Entorno GPL (.venv-gpl)' ok ("listo, torch {0}" -f $gplTorch) }
+    else { Add-Result 'Entorno GPL (.venv-gpl)' warn 'existe pero import torch fallo: setup.ps1 -Update -Force o volve a descargar el paquete matting' }
+} elseif ($gplState -eq 'ready') {
+    Add-Result 'Entorno GPL (.venv-gpl)' ok 'GPL_PYTHON definido en .env (interprete propio)'
+} elseif ($gplState -eq 'stale') {
+    Add-Result 'Entorno GPL (.venv-gpl)' warn 'vision_gpl\requirements.txt cambio: setup.ps1 -Update lo actualiza'
+} else {
+    Add-Result 'Entorno GPL (.venv-gpl)' skip 'no creado; se crea al descargar el paquete matting (recorte RVM)'
+}
 if (Test-Cmd 'nvidia-smi') {
     Write-Info 'GPU: si la VRAM se llena, el driver NVIDIA usa RAM compartida (5-10x mas lento) en vez de fallar.'
     Write-Info 'Panel de control NVIDIA > Configuracion 3D > "CUDA - Sysmem Fallback Policy": "Prefer No Sysmem Fallback" falla rapido.'

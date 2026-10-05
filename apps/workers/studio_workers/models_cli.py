@@ -225,6 +225,36 @@ def run_packs(actions: list[str], root: Path, args: argparse.Namespace) -> int:
     return code
 
 
+def run_gpl_venv(action: str, args: argparse.Namespace) -> int:
+    """--gpl-venv status|ensure: setup.ps1 step for .venv-gpl (same code as the matting pack)."""
+    from .packs import _gpl_venv_dir  # noqa: PLC0415
+    from .vision import gpl  # noqa: PLC0415
+
+    settings = get_settings()
+    venv = _gpl_venv_dir()
+    summary: dict[str, Any] = {"mode": f"gpl-venv-{action}", "dir": str(venv)}
+    code = 0
+    if action == "ensure":
+        try:
+            summary["action"] = gpl.ensure_venv(
+                venv, use_cuda=settings.use_cuda, on_line=lambda line: _out("  " + line.rstrip()),
+                force=args.force,
+            )  # fmt: skip
+        except Exception as exc:
+            summary["action"] = "failed"
+            summary["error"] = str(exc)
+            print(f"ERROR: {exc}", file=sys.stderr)
+            code = 1
+    summary.update(gpl.status(venv))
+    _out(f"  .venv-gpl: {summary['state']} ({venv})")
+    if args.report:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        args.report.write_text(json.dumps(summary, ensure_ascii=False, indent=2), "utf-8")
+    if args.json:
+        print(json.dumps(summary, ensure_ascii=False))
+    return code
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Download Studio models into MODELS_DIR")
     parser.add_argument("--piper", nargs="*", default=[], help="Piper voice ids")
@@ -248,7 +278,14 @@ def main(argv: list[str] | None = None) -> int:
         metavar="ACCION",
         help="paquetes de IA: list | download <id>... | all (ver studio_workers/packs.py)",
     )
+    parser.add_argument(
+        "--gpl-venv",
+        choices=("status", "ensure"),
+        help="entorno aislado GPL apps/workers/.venv-gpl (recorte RVM): status | ensure",
+    )
     args = parser.parse_args(argv)
+    if args.gpl_venv:
+        return run_gpl_venv(args.gpl_venv, args)
     if args.packs:
         root = get_settings().models_root
         root.mkdir(parents=True, exist_ok=True)

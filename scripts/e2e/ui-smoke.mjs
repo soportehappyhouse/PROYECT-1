@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* global document */
+/* global document, window */
 // Headless UI smoke test of the Studio dashboard with Playwright (Chromium).
 //
 //   node scripts/e2e/ui-smoke.mjs --web http://127.0.0.1:3000 --api http://127.0.0.1:3001 \
@@ -142,7 +142,20 @@ async function routeVp9(ctx) {
         ]);
         vp9Cache.set(url, await readFile(out));
       }
-      return route.fulfill({ status: 200, contentType: "video/webm", body: vp9Cache.get(url) });
+      // The canvas preview loads media with crossOrigin="anonymous" (keep the CORS header) and
+      // seeks it: answer byte ranges (a 200 without Accept-Ranges is not seekable in Chromium).
+      const body = vp9Cache.get(url);
+      const range = /bytes=(\d*)-(\d*)/.exec(route.request().headers().range ?? "");
+      const headers = { "access-control-allow-origin": "*", "accept-ranges": "bytes" };
+      if (!range) return route.fulfill({ status: 200, contentType: "video/webm", headers, body });
+      const start = range[1] ? Number(range[1]) : 0;
+      const end = range[2] ? Math.min(Number(range[2]), body.length - 1) : body.length - 1;
+      return route.fulfill({
+        status: 206,
+        contentType: "video/webm",
+        headers: { ...headers, "content-range": `bytes ${start}-${end}/${body.length}` },
+        body: body.subarray(start, end + 1),
+      });
     },
   );
 }
@@ -474,6 +487,12 @@ await step("Sprint 2: canvas preview composites 2 layers (video + text, pixel ch
   await page.getByRole("button", { name: "Texto", exact: true }).click(); // text clip at 1 s
   await page.locator(".dv-tab", { hasText: "Vista previa" }).click();
   await previewCanvas().waitFor({ timeout: 10_000 });
+  // the media pool element must have decoded a frame (the --vp9-preview route transcodes first)
+  await page.waitForFunction(
+    () => [...document.querySelectorAll("video")].some((v) => v.readyState >= 2),
+    undefined,
+    { timeout: 60_000 },
+  );
   const all = await canvasShot();
   await trackRow("motion").getByRole("button", { name: "Ocultar pista" }).click();
   const videoText = await canvasShot();
@@ -531,6 +550,471 @@ await step("Sprint 2: «Reencuadrar» panel opens from the preview", async () =>
   await panel.getByRole("button", { name: "Cerrar reencuadre" }).click();
   return { analyze };
 });
+
+// ---- Sprint 2 integration on the real stack (api + workers-with-mocks.py: real OpenCV tracker,
+// SAM 2 with a constant-mask predictor). Media: lavfi clip with a TEXTURED box moving right
+// (x = 80 + 200 t, y = 300, 120×80 on 1280×720, 30 fps, 4 s); 1080p canvas.
+const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../..");
+const shared = await import(
+  pathToFileURL(path.join(REPO, "packages", "shared", "dist", "index.js")).href
+).catch(() => undefined);
+const S2 = {
+  W: 1280,
+  H: 720,
+  fps: 30,
+  dur: 4,
+  box: (t) => ({ x: 80 + 200 * t, y: 300, w: 120, h: 80 }),
+};
+const s2 = {};
+const apiSend = async (method, route, body) => {
+  const res = await fetch(`${API}${route}`, {
+    method,
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json().catch(() => undefined);
+  if (!res.ok) throw new Error(`${method} ${route} -> ${res.status} ${JSON.stringify(json)}`);
+  return json;
+};
+async function waitApiJob(jobId, ms = 300_000) {
+  const end = Date.now() + ms;
+  for (;;) {
+    const j = await apiJson(`/api/jobs/${jobId}`);
+    if (j.status === "succeeded") return j;
+    if (["failed", "canceled"].includes(j.status)) throw new Error(`job ${j.type}: ${j.error}`);
+    if (Date.now() > end) throw new Error(`job ${jobId} timeout`);
+    await sleep(500);
+  }
+}
+async function lavfiUpload(name, graph, extra = []) {
+  const { mkdtemp, readFile } = await import("node:fs/promises");
+  const os = await import("node:os");
+  s2.dir ??= await mkdtemp(path.join(os.tmpdir(), "studio-ui-s2-"));
+  const file = path.join(s2.dir, name);
+  const r = spawnSync("ffmpeg", ["-y", "-v", "error", "-f", "lavfi", "-i", graph, ...extra, file]);
+  if (r.status !== 0) throw new Error(`ffmpeg ${name}: ${r.stderr}`);
+  const fd = new FormData();
+  fd.append("file", new Blob([await readFile(file)]), name);
+  const asset = await (await fetch(`${API}/api/media`, { method: "POST", body: fd })).json();
+  for (let i = 0; i < 240; i++) {
+    const jobs = (await apiJson("/api/jobs?limit=100")).filter(
+      (j) => j.payload?.assetId === asset.id,
+    );
+    if (jobs.length && jobs.every((j) => !["queued", "running"].includes(j.status))) break;
+    await sleep(500);
+  }
+  return { ...asset, file };
+}
+/** Open a saved api project in the dashboard (local copy replaced, then reload). */
+async function openProject(id) {
+  const proj = await apiJson(`/api/projects/${id}`);
+  await page.evaluate((p) => localStorage.setItem("studio.project.v1", JSON.stringify(p)), proj);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+  await page.getByText("Guardado", { exact: true }).waitFor({ timeout: 15_000 });
+  await page.locator(".dv-tab", { hasText: "Vista previa" }).click();
+  await previewCanvas().waitFor({ timeout: 10_000 });
+}
+/** Playhead to frame `n` (deterministic: start + n × «Fotograma siguiente»). */
+async function gotoFrame(n) {
+  const preview = page.locator("section[aria-label='Vista previa']");
+  await preview.getByRole("button", { name: "Ir al inicio" }).click();
+  const next = preview.getByRole("button", { name: "Fotograma siguiente" });
+  for (let i = 0; i < n; i++) await next.click();
+  await sleep(700);
+}
+/** Canvas pixels: bbox center (fractions) of pixels matching `kind` ("white") or the RGB at a point. */
+async function canvasProbe(query) {
+  return page.evaluate((q) => {
+    const c = document.querySelector("[data-testid='preview-canvas']");
+    const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+    if (q.at) {
+      const i =
+        (Math.round(q.at[1] * (c.height - 1)) * c.width + Math.round(q.at[0] * (c.width - 1))) * 4;
+      return [d[i], d[i + 1], d[i + 2]];
+    }
+    let [x0, y0, x1, y1, n] = [c.width, c.height, -1, -1, 0];
+    for (let y = 0; y < c.height; y++)
+      for (let x = 0; x < c.width; x++) {
+        const i = (y * c.width + x) * 4;
+        if (d[i] > 235 && d[i + 1] > 235 && d[i + 2] > 235) {
+          n++;
+          if (x < x0) x0 = x;
+          if (x > x1) x1 = x;
+          if (y < y0) y0 = y;
+          if (y > y1) y1 = y;
+        }
+      }
+    return n ? { cx: (x0 + x1) / 2 / c.width, cy: (y0 + y1) / 2 / c.height, n } : undefined;
+  }, query);
+}
+const close = (a, b, tol) => Math.abs(a - b) <= tol;
+
+await step(
+  "Sprint 2: «Seguir objeto» box on the preview → real tracker → text follows (pixels at 2 times)",
+  async () => {
+    s2.video = await lavfiUpload(
+      "ui-caja-textura.mp4",
+      `color=c=black:s=${S2.W}x${S2.H}:r=${S2.fps}:d=${S2.dur}[b];testsrc2=s=120x80:r=${S2.fps}:d=${S2.dur},lutyuv=y=val*0.6[w];[b][w]overlay=x='80+200*t':y=300`,
+      ["-c:v", "libx264", "-pix_fmt", "yuv420p"],
+    );
+    const p = await apiSend("POST", "/api/projects", { name: "UI sprint 2" });
+    const V = p.tracks.find((t) => t.kind === "video");
+    const T = p.tracks.find((t) => t.kind === "text");
+    V.clips = [{ id: "uivid", trackId: V.id, assetId: s2.video.id, start: 0, in: 0, out: S2.dur }];
+    T.clips = [
+    { id: "uitxt", trackId: T.id, start: 0, in: 0, out: S2.dur, text: "II",
+      textStyle: { fontSize: 72, color: "#ffffff", position: "bottom" } },
+  ]; // prettier-ignore
+    await apiSend("PUT", `/api/projects/${p.id}`, p);
+    s2.project = p.id;
+    await openProject(p.id);
+    await gotoFrame(0);
+    const preview = page.locator("section[aria-label='Vista previa']");
+    await preview.getByRole("button", { name: "Seguir objeto" }).click();
+    const box = await previewCanvas().boundingBox();
+    const b = S2.box(0);
+    const at = (fx, fy) => [box.x + fx * box.width, box.y + fy * box.height];
+    const [ax, ay] = at(b.x / S2.W, b.y / S2.H);
+    const [bx, by] = at((b.x + b.w) / S2.W, (b.y + b.h) / S2.H);
+    await page.mouse.move(ax, ay);
+    await page.mouse.down();
+    await page.mouse.move(bx, by, { steps: 8 });
+    await page.mouse.up();
+    const dialog = page.getByRole("dialog", { name: "Seguir objeto: asignar" });
+    await dialog.waitFor({ timeout: 180_000 });
+    await dialog.getByLabel("Ancla").selectOption("center");
+    await dialog.getByLabel("Desvío Y (%)").fill("0");
+    await dialog.getByRole("button", { name: "Asignar" }).click();
+    await sleep(2_500); // autosave
+    const saved = await apiJson(`/api/projects/${p.id}`);
+    const ref = saved.tracks.flatMap((t) => t.clips).find((c) => c.id === "uitxt")?.trackRef;
+    if (!ref) throw new Error("trackRef not saved on the text clip");
+    s2.trackAssetId = ref.assetId;
+    const checks = [];
+    for (const frame of [30, 90]) {
+      await gotoFrame(frame);
+      const t = frame / S2.fps;
+      const bb = S2.box(t);
+      const exp = { x: (bb.x + bb.w / 2) / S2.W, y: (bb.y + bb.h / 2) / S2.H };
+      const got = await canvasProbe({});
+      if (!got) throw new Error(`no text on the canvas at ${t} s`);
+      if (!close(got.cx, exp.x, 0.012) || !close(got.cy, exp.y, 0.02))
+        throw new Error(
+          `t=${t}: text at ${got.cx.toFixed(3)},${got.cy.toFixed(3)}, box ${exp.x.toFixed(3)},${exp.y.toFixed(3)}`,
+        );
+      checks.push({
+        t,
+        text: [+got.cx.toFixed(4), +got.cy.toFixed(4)],
+        box: [+exp.x.toFixed(4), +exp.y.toFixed(4)],
+      });
+    }
+    await shot(page, "10-seguir-objeto.png");
+    return { checks };
+  },
+);
+
+await step(
+  "Sprint 2: track → keyframes (inspector), K adds one, inspector edit → export = interpolate()",
+  async () => {
+    if (!s2.trackAssetId) throw new Error("needs the «Seguir objeto» step");
+    await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).click();
+    const textClip = page.locator("[data-track-kind='text'] [data-clip-id]").first();
+    await textClip.click();
+    await page.locator(".dv-tab", { hasText: "Propiedades" }).click();
+    const props = page.locator("section[aria-label='Propiedades']");
+    await props.getByRole("button", { name: /Convertir seguimiento a/ }).click();
+    await textClip.locator("[data-keyframe]").first().waitFor({ timeout: 60_000 });
+    const converted = await textClip.locator("[data-keyframe]").count();
+    // the text clip stays selected (preview buttons do not change the selection): K at 3.5 s
+    await gotoFrame(105);
+    await page.keyboard.press("k");
+    await page.waitForFunction(
+      ([sel, n]) => document.querySelectorAll(sel).length > n,
+      ["[data-track-kind='text'] [data-clip-id] [data-keyframe]", converted],
+      { timeout: 5_000 },
+    );
+    await page.locator(".dv-tab", { hasText: "Propiedades" }).click();
+    const rows = props.locator("li", { has: page.getByLabel("Tiempo (s)") });
+    let edited = false;
+    for (let i = 0; i < (await rows.count()); i++) {
+      const row = rows.nth(i);
+      if (Math.abs(Number(await row.getByLabel("Tiempo (s)").inputValue()) - 3.5) > 1e-6) continue;
+      await row.getByLabel("X (%)").fill("80");
+      edited = true;
+    }
+    if (!edited) {
+      const times = [];
+      for (let i = 0; i < (await rows.count()); i++)
+        times.push(await rows.nth(i).getByLabel("Tiempo (s)").inputValue());
+      throw new Error(`no keyframe at 3.5 s in the inspector: ${times.join(", ")}`);
+    }
+    await sleep(2_500); // autosave
+    const saved = await apiJson(`/api/projects/${s2.project}`);
+    const clip = saved.tracks.flatMap((t) => t.clips).find((c) => c.id === "uitxt");
+    const kfs = clip.keyframes?.position ?? [];
+    const k35 = kfs.find((k) => Math.abs(k.t - 3.5) < 1e-6);
+    if (clip.trackRef || !k35 || Math.abs(k35.v.x - 0.8) > 1e-6)
+      throw new Error(`saved keyframes ${JSON.stringify(kfs)}`);
+    if (!shared) throw new Error("packages/shared/dist missing (pnpm build:packages)");
+    // preview at 3.5 s = 0.8; export at 2.75 / 3.5 s = shared interpolate()
+    await gotoFrame(105);
+    const pv = await canvasProbe({});
+    if (!pv || !close(pv.cx, 0.8, 0.012))
+      throw new Error(`preview text at ${pv?.cx} (expected 0.8)`);
+    const ex = await apiSend("POST", `/api/projects/${s2.project}/export`, {
+      presetId: "youtube-1080p",
+      fileName: "ui-keyframes",
+    });
+    const job = await waitApiJob(ex.jobId);
+    const out = path.join(s2.dir, "ui-keyframes.mp4");
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(
+      out,
+      Buffer.from(await (await fetch(`${API}/files/${job.result.path}`)).arrayBuffer()),
+    );
+    const checks = [];
+    for (const t of [2.75, 3.5]) {
+      const v = shared.interpolate(kfs, t);
+      const raw = spawnSync("ffmpeg", ["-v", "error", "-ss", String(t), "-i", out, "-frames:v", "1",
+      "-vf", "scale=960:540,format=gray", "-f", "rawvideo", "pipe:1"], { maxBuffer: 1 << 24 }).stdout; // prettier-ignore
+      let [x0, x1, y0, y1] = [960, -1, 540, -1];
+      for (let y = 0; y < 540; y++)
+        for (let x = 0; x < 960; x++)
+          if (raw[y * 960 + x] > 200)
+            [x0, x1, y0, y1] = [Math.min(x0, x), Math.max(x1, x), Math.min(y0, y), Math.max(y1, y)];
+      const cx = (x0 + x1) / 2 / 960;
+      if (x1 < 0 || !close(cx, v.x, 0.01))
+        throw new Error(`export t=${t}: text ${cx}, interpolate ${v.x}`);
+      checks.push({ t, export: +cx.toFixed(4), interpolate: +v.x.toFixed(4) });
+    }
+    return { converted, keyframes: kfs.length, preview35: +pv.cx.toFixed(4), checks };
+  },
+);
+
+await step(
+  "Sprint 2: Máscara (SAM 2 mock) → Propagar → Quitar fondo color → preview + export",
+  async () => {
+    if (!s2.project) throw new Error("needs the sprint 2 project");
+    await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).click();
+    await page.locator("[data-track-kind='video'] [data-clip-id]").first().click();
+    await gotoFrame(0);
+    const preview = page.locator("section[aria-label='Vista previa']");
+    await preview.getByRole("button", { name: "Máscara (SAM 2)" }).click();
+    const bar = page.getByRole("toolbar", { name: "Herramienta Máscara" });
+    await bar.getByText("Hacé clic sobre el objeto").waitFor({ timeout: 120_000 });
+    const box = await previewCanvas().boundingBox();
+    const b = S2.box(0);
+    const click = { x: (b.x + b.w / 2) / S2.W, y: (b.y + b.h / 2) / S2.H };
+    await page.mouse.click(box.x + click.x * box.width, box.y + click.y * box.height);
+    await page.getByTestId("mask-overlay").waitFor({ timeout: 60_000 });
+    await bar.getByRole("button", { name: "Propagar" }).click();
+    await bar.getByText("Máscara lista.").waitFor({ timeout: 300_000 });
+    await bar.getByRole("button", { name: "Quitar fondo" }).click();
+    const dialog = page.getByRole("dialog", { name: "Quitar fondo" });
+    await dialog.getByRole("button", { name: "Quitar fondo" }).click();
+    await dialog.waitFor({ state: "hidden" });
+    await sleep(2_500);
+    const saved = await apiJson(`/api/projects/${s2.project}`);
+    const matte = saved.tracks.flatMap((t) => t.clips).find((c) => c.id === "uivid")?.matte;
+    if (!matte?.assetId || matte.background?.value !== "#00b140")
+      throw new Error(`matte not saved: ${JSON.stringify(matte)}`);
+    // constant mock mask: 30 % × 40 % box centered on the click (clamped) → x 0..0.3, y 0.272..0.672
+    const inside = [0.05, 0.62];
+    const outside = [0.8, 0.15];
+    await gotoFrame(30);
+    await sleep(1_500); // alpha WebM seek
+    const pin = await canvasProbe({ at: inside });
+    const pout = await canvasProbe({ at: outside });
+    const green = (c) => c[1] > 140 && c[0] < 60 && c[2] < 110;
+    if (green(pin) || !green(pout)) throw new Error(`preview inside ${pin} outside ${pout}`);
+    await shot(page, "11-mascara-quitar-fondo.png");
+    const ex = await apiSend("POST", `/api/projects/${s2.project}/export`, {
+      presetId: "youtube-1080p",
+      fileName: "ui-mascara",
+    });
+    const job = await waitApiJob(ex.jobId);
+    const out = path.join(s2.dir, "ui-mascara.mp4");
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(
+      out,
+      Buffer.from(await (await fetch(`${API}/files/${job.result.path}`)).arrayBuffer()),
+    );
+    const raw = spawnSync("ffmpeg", ["-v", "error", "-ss", "1", "-i", out, "-frames:v", "1", "-vf", "scale=960:540",
+    "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"], { maxBuffer: 1 << 24 }).stdout; // prettier-ignore
+    const px = ([fx, fy]) => {
+      const i = (Math.round(fy * 539) * 960 + Math.round(fx * 959)) * 3;
+      return [raw[i], raw[i + 1], raw[i + 2]];
+    };
+    const ein = px(inside);
+    const eout = px(outside);
+    if (green(ein) || !green(eout)) throw new Error(`export inside ${ein} outside ${eout}`);
+    return { preview: { inside: pin, outside: pout }, export: { inside: ein, outside: eout } };
+  },
+);
+
+await step(
+  "Sprint 2: Reencuadrar 9:16 (objeto seguido) → recorrido en la vista previa → Aplicar → export",
+  async () => {
+    if (!s2.trackAssetId) throw new Error("needs the «Seguir objeto» step");
+    // keep only the video (the matte from the previous step stays: the box is still visible)
+    const preview = page.locator("section[aria-label='Vista previa']");
+    await preview.getByRole("button", { name: "Reencuadrar" }).click();
+    const panel = page.getByRole("region", { name: "Reencuadrar" });
+    await panel.getByLabel("Seguir").selectOption("track");
+    await panel.getByLabel("Seguimiento").selectOption(s2.trackAssetId);
+    await panel.getByRole("button", { name: /Analizar para 9:16/ }).click();
+    await panel.getByText(/Recorrido 9:16/).waitFor({ timeout: 300_000 });
+    await gotoFrame(60);
+    const rect = page.getByTestId("reframe-crop").locator("rect");
+    const svgW = await page
+      .getByTestId("reframe-crop")
+      .evaluate((g) => g.ownerSVGElement.viewBox.baseVal.width);
+    const draftX = Number(await rect.getAttribute("x")) / svgW;
+    await shot(page, "12-reencuadre-recorrido.png");
+    await panel.getByRole("button", { name: "Aplicar" }).click();
+    await sleep(2_500);
+    const saved = await apiJson(`/api/projects/${s2.project}`);
+    if (!saved.reframe?.keyframes?.length) throw new Error("project.reframe not saved");
+    if (!shared) throw new Error("packages/shared/dist missing");
+    const win2 = shared.reframeCropAt(saved.reframe, saved.settings, 2);
+    if (!close(draftX, win2.x, 0.005)) throw new Error(`overlay x ${draftX} vs shared ${win2.x}`);
+    const ex = await apiSend("POST", `/api/projects/${s2.project}/export`, {
+      presetId: "reels-tiktok",
+      fileName: "ui-reencuadre",
+    });
+    const job = await waitApiJob(ex.jobId);
+    const out = path.join(s2.dir, "ui-reencuadre.mp4");
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(
+      out,
+      Buffer.from(await (await fetch(`${API}/files/${job.result.path}`)).arrayBuffer()),
+    );
+    // at 2 s the export shows the canvas window [win.x, win.x + win.w]: the green matte background
+    // left of the mask (x < 0.3) must appear exactly where the preview window puts it
+    const raw = spawnSync("ffmpeg", ["-v", "error", "-ss", "2", "-i", out, "-frames:v", "1", "-vf", "scale=270:480",
+    "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"], { maxBuffer: 1 << 24 }).stdout; // prettier-ignore
+    if (raw.length < 270 * 480 * 3) throw new Error("no frame");
+    const edge = ((0.3 - win2.x) / win2.w) * 270; // mask right edge in the 9:16 output
+    const at = (x, y) => raw.slice((y * 270 + x) * 3, (y * 270 + x) * 3 + 3);
+    // row at y = 0.62 of the canvas: inside the mask's height (0.272..0.672), below the box path
+    const row = Math.round(0.62 * 479);
+    const leftOfEdge = at(Math.max(0, Math.round(edge) - 8), row);
+    const rightOfEdge = at(Math.min(269, Math.round(edge) + 8), row);
+    const isGreen = (c) => c[1] > 140 && c[0] < 60 && c[2] < 110;
+    if (edge > 10 && edge < 260 && (isGreen(leftOfEdge) || !isGreen(rightOfEdge)))
+      throw new Error(
+        `mask edge at ${edge.toFixed(1)} px: left ${[...leftOfEdge]} right ${[...rightOfEdge]}`,
+      );
+    return {
+      keyframes: saved.reframe.keyframes.length,
+      overlayX: +draftX.toFixed(4),
+      sharedX: +win2.x.toFixed(4),
+      maskEdgePx: +edge.toFixed(1),
+      leftOfEdge: [...leftOfEdge],
+      rightOfEdge: [...rightOfEdge],
+    };
+  },
+);
+
+await step(
+  "Sprint 2: preview fps with 3 layers (1080p video + image PiP + text), headless",
+  async () => {
+    const video = await lavfiUpload("ui-1080p.mp4", "testsrc2=s=1920x1080:r=30:d=12", [
+      "-c:v",
+      "libx264",
+      "-pix_fmt",
+      "yuv420p",
+    ]);
+    const image = await lavfiUpload("ui-pip.png", "testsrc=s=640x360", ["-frames:v", "1"]);
+    const p = await apiSend("POST", "/api/projects", { name: "UI fps 3 capas" });
+    const V = p.tracks.find((t) => t.kind === "video");
+    const T = p.tracks.find((t) => t.kind === "text");
+    const V2 = { ...V, id: "uiv2", name: "Video 2", clips: [] };
+    p.tracks.splice(p.tracks.indexOf(V) + 1, 0, V2);
+    V.clips = [{ id: "fpsv", trackId: V.id, assetId: video.id, start: 0, in: 0, out: 12 }];
+    V2.clips = [
+      {
+        id: "fpsi",
+        trackId: V2.id,
+        assetId: image.id,
+        start: 0,
+        in: 0,
+        out: 12,
+        scale: 0.35,
+        position: { x: 0.9, y: 0.1 },
+      },
+    ];
+    T.clips = [
+      {
+        id: "fpst",
+        trackId: T.id,
+        start: 0,
+        in: 0,
+        out: 12,
+        text: "Tres capas",
+        textStyle: { fontSize: 64, color: "#ffffff", position: "bottom" },
+      },
+    ];
+    await apiSend("PUT", `/api/projects/${p.id}`, p);
+    await openProject(p.id);
+    const preview = page.locator("section[aria-label='Vista previa']");
+    await preview.getByRole("button", { name: "Opciones de la vista previa" }).click();
+    await page
+      .getByRole("menuitemcheckbox", { name: /Mostrar rendimiento/ })
+      .or(page.getByRole("menuitem", { name: /Mostrar rendimiento/ }))
+      .click();
+    // Calidad «Original»: measure the 1080p decode (Automática may drop to the 360p proxy)
+    await preview.getByRole("button", { name: "Opciones de la vista previa" }).click();
+    await page
+      .getByRole("menuitemcheckbox", { name: "Original", exact: true })
+      .or(page.getByRole("menuitem", { name: "Original", exact: true }))
+      .click();
+    await gotoFrame(0);
+    await page.waitForFunction(
+      () =>
+        [...document.querySelectorAll("video")].some(
+          (v) => v.videoHeight === 1080 && v.readyState >= 3,
+        ),
+      undefined,
+      { timeout: 120_000 },
+    );
+    await sleep(1_000);
+    await preview.getByRole("button", { name: "Reproducir" }).click();
+    const samples = [];
+    for (let i = 0; i < 8; i++) {
+      await sleep(1_000);
+      samples.push((await page.getByTestId("perf-hud").textContent())?.trim());
+      if (i === 2)
+        await page.evaluate(() => {
+          const q = () =>
+            [...document.querySelectorAll("video")].map((v) => {
+              const p = v.getVideoPlaybackQuality();
+              return { n: p.totalVideoFrames - p.droppedVideoFrames, h: v.videoHeight };
+            });
+          const t0 = performance.now();
+          const q0 = q();
+          window.__s2frames = () => {
+            const dt = (performance.now() - t0) / 1000;
+            return q()
+              .map((x, i) => ({ height: x.h, fps: +((x.n - (q0[i]?.n ?? 0)) / dt).toFixed(1) }))
+              .filter((x) => x.fps > 0);
+          };
+        });
+    }
+    // frames each <video> really presented (decoded - dropped) during the last 5 s of playback
+    const presented = (await page.evaluate(() => window.__s2frames?.())) ?? [];
+    await preview.getByRole("button", { name: "Pausar" }).click();
+    const fps = samples
+      .map((s) => Number(/([\d.]+) fps/.exec(s ?? "")?.[1] ?? NaN))
+      .filter((n) => n > 0);
+    const steady = fps.slice(3).sort((a, b) => a - b);
+    const median = steady[Math.floor(steady.length / 2)] ?? 0;
+    if (!/3 capas/.test(samples.at(-1) ?? "")) throw new Error(`HUD: ${samples.at(-1)}`);
+    s2.fps = +median.toFixed(1);
+    return { drawsPerSecMedian: s2.fps, videoFps: presented, hud: samples.at(-1), samples: fps };
+  },
+);
 
 await browser.close();
 console.log(

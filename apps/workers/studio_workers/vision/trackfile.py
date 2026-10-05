@@ -14,7 +14,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .one_euro import TRACK_PARAMS, smooth
+from .one_euro import TRACK_PARAMS, smooth_zero_lag
 
 LOW_CONF = 0.3
 
@@ -105,7 +105,7 @@ def build_track(
     smoothing: bool = True,
     params: dict[str, float] | None = None,
 ) -> TrackFile:
-    """Pixel boxes per frame -> normalized TrackFile (gaps filled, One-Euro on center and size)."""
+    """Pixel boxes per frame -> normalized TrackFile (gaps filled, zero-lag One-Euro smoothing)."""
     filled = fill_gaps(boxes_px, confs)
     rows = [(t, b, c) for t, b, c in zip(times, filled, confs, strict=True) if b is not None]
     if not rows:
@@ -122,9 +122,10 @@ def build_track(
     hs = [b[3] / height for _, b, _ in rows]
     if smoothing:
         p = {**TRACK_PARAMS, **(params or {})}
-        cx, cy = smooth(ts, cx, **p), smooth(ts, cy, **p)
+        # Offline (whole clip): forward-backward One-Euro, no lag behind the object.
+        cx, cy = smooth_zero_lag(ts, cx, **p), smooth_zero_lag(ts, cy, **p)
         size_p = {**p, "beta": p["beta"] * 0.5}
-        ws, hs = smooth(ts, ws, **size_p), smooth(ts, hs, **size_p)
+        ws, hs = smooth_zero_lag(ts, ws, **size_p), smooth_zero_lag(ts, hs, **size_p)
     frames: list[TrackFrame] = []
     for i, (t, _b, c) in enumerate(rows):
         w = min(1.0, max(0.0, ws[i]))

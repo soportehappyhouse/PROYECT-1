@@ -19,6 +19,7 @@ import { errorMessage, isNotImplemented, ApiRequestError } from "@/lib/api";
 import { findClip } from "@/lib/timeline";
 import { cachedTrack, defaultTrackRef, loadTrack, visionApi } from "@/lib/vision-api";
 import { JobFailedError } from "@/lib/job-runner";
+import { trackMethodLabel } from "@/lib/vision-types";
 import { runVisionJob } from "@/lib/vision-jobs";
 import { addBreadcrumb } from "./breadcrumbs-store";
 import { useMediaStore } from "./media-store";
@@ -168,8 +169,12 @@ export const useVisionStore = create<VisionState>()((set, get) => ({
       if (!result?.assetId) return;
       const asset = await useMediaStore.getState().ensure(result.assetId);
       void loadTrack(asset);
-      toast.success("Seguimiento listo", {
-        description: "Elegí qué texto o motion sigue al objeto.",
+      const method = trackMethodLabel(result.method);
+      toast.success(method ? `Seguimiento listo (${method})` : "Seguimiento listo", {
+        description:
+          result.method === "template"
+            ? "Sin CSRT en este OpenCV: se usó template matching. Elegí qué texto o motion sigue al objeto."
+            : "Elegí qué texto o motion sigue al objeto.",
       });
       set({ trackAssign: { trackAssetId: result.assetId, sourceClipId: clipId } });
     } catch (err) {
@@ -273,6 +278,9 @@ export const useVisionStore = create<VisionState>()((set, get) => ({
         return false;
       }
       usePreviewStore.getState().setReframeDraft({ target, keyframes });
+      toast.success(`Reencuadre ${target} analizado`, {
+        description: "Revisá el recorrido del recorte en la vista previa y tocá Aplicar.",
+      });
       return true;
     } catch (err) {
       fail("No se pudo analizar el reencuadre", err);

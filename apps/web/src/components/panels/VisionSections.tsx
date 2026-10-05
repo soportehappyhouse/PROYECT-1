@@ -10,11 +10,13 @@ import { Input, Select } from "@/components/ui/input";
 import { Section, Tabs } from "@/components/ui/misc";
 import { cropFraction } from "@/lib/interpolate";
 import { keyframeProps, keyframesOf } from "@/lib/keyframes";
+import { cachedTrack } from "@/lib/vision-api";
 import {
   EASE_LABELS,
   EASES,
   PROP_COLORS,
   PROP_LABELS,
+  trackMethodLabel,
   type CropBox,
   type Ease,
   type Keyframe,
@@ -298,6 +300,7 @@ export function TrackingSection({ clip, track }: { clip: Clip; track: Track }) {
   const busy = useVisionStore((s) => !!s.busy.toKeyframes);
   const tracks = useMemo(() => Object.values(assets).filter((a) => a.kind === "track"), [assets]);
   const ref = clip.trackRef;
+  const method = ref ? trackMethodLabel(cachedTrack(ref.assetId)?.source.method) : undefined;
   const update = (patch: Partial<Clip>) => useProjectStore.getState().updateClip(clip.id, patch);
   if (track.kind !== "text" && track.kind !== "motion") return null;
   return (
@@ -306,6 +309,7 @@ export function TrackingSection({ clip, track }: { clip: Clip; track: Track }) {
         <>
           <p className="text-xs">
             Sigue a «{assets[ref.assetId]?.name ?? ref.assetId}».
+            {method ? ` Método: ${method}.` : ""}
             {rendersOwnTrack(clip)
               ? " La plantilla se posiciona sola: volvé a renderizar el motion para verlo."
               : ""}

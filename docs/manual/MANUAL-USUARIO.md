@@ -1225,7 +1225,10 @@ cambiando solo.
   en otro clip a partir del cursor.
 - Con keyframes, el valor fijo de esa propiedad se ignora. Todo se deshace con `Ctrl+Z` (un
   arrastre es un solo paso).
-- `K` mientras se reproduce sigue siendo **pausa** (J/K/L).
+- `K` mientras se reproduce sigue siendo **pausa** (J/K/L): detené primero y después `K` agrega.
+- **Fotograma anterior / siguiente** caen siempre en un cuadro exacto (30 clics a 30 fps = 1 s).
+- En **Motion graphics** no aparecen los campos de seguimiento de las plantillas (`track`, ancla,
+  desvío): los completa Studio con el **Seguir objeto** del clip.
 
 ### 18.3 Máscara por clic (SAM 2)
 
@@ -1236,6 +1239,8 @@ cambiando solo.
 3. **Propagar** sigue la máscara por todo el clip (con barra de progreso).
 4. Al terminar: **Quitar fondo** (usa ese recorte, ver 18.4) o **Seguir este objeto** (ver
    18.5). Las máscaras y seguimientos quedan en **Media** como _Máscara_ y _Seguimiento_.
+5. **Cerrar** la herramienta (✕) libera la sesión: se borran los cuadros temporales y las vistas
+   de cada clic. Lo que produjo **Propagar** (máscara, recorte, seguimiento) queda en Media.
 
 ### 18.4 Quitar fondo
 
@@ -1253,9 +1258,11 @@ cambiando solo.
 
 1. Elegí el clip de video y tocá **Seguir objeto** (mira) en la Vista previa.
 2. **Dibujá un rectángulo** alrededor del objeto arrastrando sobre el video.
-3. Cuando termina, elegí qué **texto o motion** lo sigue (o **Crear un texto**), el **Ancla**
+3. Cuando termina, el aviso dice qué método usó: _CSRT_ o, si el OpenCV instalado no lo trae,
+   _template matching_ (sigue bien objetos con textura; si se pierde, dibujá una caja más
+   ajustada). Elegí qué **texto o motion** lo sigue (o **Crear un texto**), el **Ancla**
    (centro, arriba o debajo del objeto) y el **Desvío** en % del lienzo. **Asignar**.
-4. En **Propiedades → Seguimiento** cambiás ancla y desvío, **Dejar de seguir** o **Convertir
+4. En **Propiedades → Seguimiento** se ve el método, cambiás ancla y desvío, **Dejar de seguir** o **Convertir
    seguimiento a keyframes** (crea keyframes de posición que podés retocar a mano).
 
 ### 18.6 Reencuadrar a 9:16 / 1:1 / 4:5

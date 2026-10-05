@@ -1,7 +1,7 @@
 import { toast } from "sonner";
 import { saveProjectNow } from "@/hooks/use-project-sync";
 import type { ShortcutActionId } from "@/lib/shortcuts";
-import { projectDuration } from "@/lib/timeline";
+import { projectDuration, stepFrame } from "@/lib/timeline";
 import { keyOrPause, REFRAME_OWNER, useKeyframeStore } from "@/stores/keyframe-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -11,7 +11,7 @@ import { showPanel } from "./dock-controller";
 export function runAction(id: ShortcutActionId): void {
   const p = useProjectStore.getState();
   const s = useSettingsStore.getState();
-  const frame = 1 / (p.project.settings.fps || 30);
+  const fps = p.project.settings.fps || 30;
   switch (id) {
     case "playback.toggle":
       p.togglePlaying();
@@ -34,10 +34,10 @@ export function runAction(id: ShortcutActionId): void {
       p.shuttleForward();
       break;
     case "playback.frameBack":
-      p.setPlayhead(p.playhead - frame);
+      p.setPlayhead(stepFrame(p.playhead, fps, -1));
       break;
     case "playback.frameForward":
-      p.setPlayhead(p.playhead + frame);
+      p.setPlayhead(stepFrame(p.playhead, fps, 1));
       break;
     case "timeline.split":
       if (!p.splitAt()) toast.message("No hay clip bajo el cursor para dividir");

@@ -1,3 +1,4 @@
+import { rm } from "node:fs/promises";
 import {
   API_ROUTES,
   FEATURE_PACKS,
@@ -16,7 +17,8 @@ import type { FastifyPluginAsync, FastifyReply } from "fastify";
 import { requirePack, toPackRequired } from "../jobs/handlers/ai.js";
 import { reframeSourceClip } from "../jobs/handlers/vision.js";
 import { errorBody, HttpError } from "../lib/errors.js";
-import { copyIntoMasks } from "../services/vision-assets.js";
+import { resolveStoragePath } from "../services/storage.js";
+import { copyIntoMasks, MASKS_SUBDIR, safeSegment } from "../services/vision-assets.js";
 import { WorkersError } from "../services/workers-client.js";
 import { requireMediaAsset } from "../voice-ai/media-bridge.js";
 
@@ -145,10 +147,28 @@ export const visionRoutes: FastifyPluginAsync = async (app) => {
     });
   });
 
+  /**
+   * Close a SAM session. Workers: frees the extracted frames (storage/tmp/sam/<id>) and the model;
+   * what propagate produced stays (alpha WebM in renders/sam/<id>, masks copied to masks/<job>,
+   * track.json in renders/) because those are assets. Here: the per-click preview masks
+   * (masks/<session>/) are removed. Idempotent: an unknown / expired session answers
+   * `{deleted: false}` (the web closes sessions on unmount and may race the 30-min expiry).
+   */
   app.delete<{ Params: { id: string } }>(API_ROUTES.aiVisionSamSessionItem, async (req) => {
-    await proxy(() => workers.samDelete(req.params.id));
-    samSessions.delete(req.params.id);
-    return { deleted: true };
+    const id = req.params.id;
+    let deleted = true;
+    try {
+      await proxy(() => workers.samDelete(id));
+    } catch (err) {
+      if (!(err instanceof HttpError && err.statusCode === 404)) throw err;
+      deleted = false;
+    }
+    samSessions.delete(id);
+    await rm(resolveStoragePath(config.storageDir, `${MASKS_SUBDIR}/${safeSegment(id)}`), {
+      recursive: true,
+      force: true,
+    });
+    return { deleted };
   });
 
   app.post(API_ROUTES.aiVisionTrack, async (req, reply) => {

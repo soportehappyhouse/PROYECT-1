@@ -19,6 +19,15 @@ export function clipDuration(clip: Pick<Clip, "in" | "out" | "speed">): number {
   return Math.max(0, (clip.out - clip.in) / (clip.speed || 1));
 }
 
+/**
+ * Playhead one frame before/after `time`, snapped to the frame grid. The playhead is rounded to
+ * ms, so adding 1/fps repeatedly drifted (30 × «Fotograma siguiente» = 0.99 s at 30 fps).
+ */
+export function stepFrame(time: number, fps: number, direction: 1 | -1): number {
+  const f = fps > 0 ? fps : 30;
+  return Math.max(0, (Math.round(time * f) + direction) / f);
+}
+
 export function clipEnd(clip: Pick<Clip, "start" | "in" | "out" | "speed">): number {
   return clip.start + clipDuration(clip);
 }

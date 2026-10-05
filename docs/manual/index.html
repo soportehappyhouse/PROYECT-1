@@ -3735,7 +3735,19 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
             Con keyframes, el valor fijo de esa propiedad se ignora. Todo se deshace con
             <code>Ctrl+Z</code> (un arrastre es un solo paso).
           </li>
-          <li><code>K</code> mientras se reproduce sigue siendo <strong>pausa</strong> (J/K/L).</li>
+          <li>
+            <code>K</code> mientras se reproduce sigue siendo <strong>pausa</strong> (J/K/L): detené
+            primero y después <code>K</code> agrega.
+          </li>
+          <li>
+            <strong>Fotograma anterior / siguiente</strong> caen siempre en un cuadro exacto (30
+            clics a 30 fps = 1 s).
+          </li>
+          <li>
+            En <strong>Motion graphics</strong> no aparecen los campos de seguimiento de las
+            plantillas (<code>track</code>, ancla, desvío): los completa Studio con el
+            <strong>Seguir objeto</strong> del clip.
+          </li>
         </ul>
         <h3 id="183-máscara-por-clic-sam-2">18.3 Máscara por clic (SAM 2)</h3>
         <ol>
@@ -3756,6 +3768,11 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
             Al terminar: <strong>Quitar fondo</strong> (usa ese recorte, ver 18.4) o
             <strong>Seguir este objeto</strong> (ver 18.5). Las máscaras y seguimientos quedan en
             <strong>Media</strong> como <em>Máscara</em> y <em>Seguimiento</em>.
+          </li>
+          <li>
+            <strong>Cerrar</strong> la herramienta (✕) libera la sesión: se borran los cuadros
+            temporales y las vistas de cada clic. Lo que produjo <strong>Propagar</strong> (máscara,
+            recorte, seguimiento) queda en Media.
           </li>
         </ol>
         <h3 id="184-quitar-fondo">18.4 Quitar fondo</h3>
@@ -3790,12 +3807,14 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
             <strong>Dibujá un rectángulo</strong> alrededor del objeto arrastrando sobre el video.
           </li>
           <li>
-            Cuando termina, elegí qué <strong>texto o motion</strong> lo sigue (o
+            Cuando termina, el aviso dice qué método usó: <em>CSRT</em> o, si el OpenCV instalado no
+            lo trae, <em>template matching</em> (sigue bien objetos con textura; si se pierde,
+            dibujá una caja más ajustada). Elegí qué <strong>texto o motion</strong> lo sigue (o
             <strong>Crear un texto</strong>), el <strong>Ancla</strong> (centro, arriba o debajo del
             objeto) y el <strong>Desvío</strong> en % del lienzo. <strong>Asignar</strong>.
           </li>
           <li>
-            En <strong>Propiedades → Seguimiento</strong> cambiás ancla y desvío,
+            En <strong>Propiedades → Seguimiento</strong> se ve el método, cambiás ancla y desvío,
             <strong>Dejar de seguir</strong> o
             <strong>Convertir seguimiento a keyframes</strong> (crea keyframes de posición que podés
             retocar a mano).

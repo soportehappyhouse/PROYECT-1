@@ -321,6 +321,19 @@ describe("vision routes and jobs (mocked workers)", () => {
       url: buildRoute(API_ROUTES.aiVisionSamSessionItem, { id: "s1" }),
     });
     expect(del.json()).toEqual({ deleted: true });
+    // click previews removed with the session; propagate outputs (assets) stay
+    expect((await app.inject({ method: "GET", url: mask.maskUrl })).statusCode).toBe(404);
+    const kept = await app.inject({
+      method: "GET",
+      url: `/files/${app.ctx.repos.media.get(r.maskAssetId!)!.path}/00001.png`,
+    });
+    expect(kept.statusCode).toBe(200);
+    const again = await app.inject({
+      method: "DELETE",
+      url: buildRoute(API_ROUTES.aiVisionSamSessionItem, { id: "expired" }),
+    });
+    expect(again.statusCode).toBe(200);
+    expect(again.json()).toEqual({ deleted: false });
   });
 
   it("vision.track: track asset (source rewritten) + trackRef; PACK_REQUIRED from the workers fails the job", async () => {
@@ -341,6 +354,7 @@ describe("vision routes and jobs (mocked workers)", () => {
       bbox: { x: 0.1, y: 0.4, w: 0.1, h: 0.2 },
     });
     expect(r.frames).toBe(41);
+    expect(r.method).toBe("csrt"); // TrackFile.source.method ("template" on headless OpenCV)
     const tf = TrackFileSchema.parse(
       JSON.parse((await app.inject({ method: "GET", url: `/files/${r.path}` })).body),
     );

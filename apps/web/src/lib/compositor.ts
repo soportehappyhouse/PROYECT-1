@@ -1,7 +1,7 @@
 import {
   effectiveBurnSubtitles,
   fitRect,
-  reframeAspect,
+  reframeCropAt as sharedReframeCropAt,
   rendersOwnTrack,
   subtitlesToBurn,
   trackPointAt,
@@ -393,8 +393,8 @@ export function driverSource(comp: Composition): (LayerSource & { clipId: string
 
 /**
  * Reframe crop (fractions of the canvas) at `t` (absolute timeline seconds), from a draft or the
- * applied project.reframe: a rect of the target aspect, as large as the canvas allows, whose
- * center follows the keyframes (the export keeps the target size and moves the center).
+ * applied project.reframe: the shared `reframeCropAt` (same window as the export crop: target
+ * aspect, as large as the canvas allows, center following the keyframes).
  */
 export function reframeCropAt(
   project: Project,
@@ -403,18 +403,7 @@ export function reframeCropAt(
 ): CropBox | undefined {
   const r = draft ?? project.reframe;
   if (!r || r.keyframes.length === 0) return undefined;
-  const v = interpolate(r.keyframes as Keyframe<CropBox>[], t);
-  if (!v) return undefined;
-  const c = cropFraction(v);
-  const { width: W, height: H } = project.settings;
-  const target = reframeAspect(r.target);
-  let w = 1;
-  let h = 1;
-  if (W / H > target) w = (target * H) / W;
-  else h = W / (target * H);
-  const cx = c.x + c.w / 2;
-  const cy = c.y + c.h / 2;
-  return { x: clamp(cx - w / 2, 0, 1 - w), y: clamp(cy - h / 2, 0, 1 - h), w, h };
+  return sharedReframeCropAt(r, project.settings, t);
 }
 
 /** Canvas point (px) -> normalized source point of a layer (for SAM clicks / tracking boxes). */

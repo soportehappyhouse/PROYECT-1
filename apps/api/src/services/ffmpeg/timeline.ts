@@ -4,7 +4,7 @@ import {
   fitRect,
   hasKeyframes,
   normalizeCropRect,
-  reframeAspect,
+  reframeWindow,
   rendersOwnTrack,
   resolveTrackRefs,
   subtitlesToBurn,
@@ -425,7 +425,12 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
    */
   const headChain = (clip: Clip, speed: number, lead: number): string[] => {
     const chain: string[] = [];
-    const cropKf = hasKeyframes(clip.keyframes, "crop") ? clip.keyframes.crop! : undefined;
+    // Crop keyframes in fractions of the source (percent accepted, like the preview).
+    const cropKf = hasKeyframes(clip.keyframes, "crop")
+      ? clip.keyframes.crop!.map((k) =>
+          typeof k.v === "object" && "w" in k.v ? { ...k, v: normalizeCropRect(k.v) } : k,
+        )
+      : undefined;
     if (!cropKf && clip.crop) {
       const c = clip.crop;
       chain.push(
@@ -856,9 +861,9 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
       // Sprint 2 reframe: crop of the target aspect whose center follows project.reframe
       // (absolute timeline seconds: local t + window / range start), fitted to the preset.
       const rf = project.reframe!;
-      const ta = reframeAspect(rf.target);
-      const cw = W / H > ta ? even(H * ta) : W;
-      const ch = W / H > ta ? H : even(W / ta);
+      const win = reframeWindow({ width: W, height: H }, rf.target);
+      const cw = win.w < 1 ? even(W * win.w) : W;
+      const ch = win.h < 1 ? even(H * win.h) : H;
       const off = offset + rs;
       const tv = off > EPS ? `(t+${sec(off)})` : "t";
       const rects = rf.keyframes.map((k) =>

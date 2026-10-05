@@ -7,7 +7,14 @@ import random
 import pytest
 
 from studio_workers.vision import one_euro
-from studio_workers.vision.one_euro import OneEuroFilter, deadzone, limit_speed, rdp, smooth
+from studio_workers.vision.one_euro import (
+    OneEuroFilter,
+    deadzone,
+    limit_speed,
+    rdp,
+    smooth,
+    smooth_zero_lag,
+)
 from studio_workers.vision.reframe import MAX_PAN_PER_S, crop_size, plan_reframe
 from studio_workers.vision.trackfile import TrackFile, build_track, fill_gaps
 
@@ -38,6 +45,25 @@ def test_one_euro_reduces_jitter() -> None:
 
     assert jitter(out) < jitter(noisy) / 3
     assert abs(sum(out[50:]) / len(out[50:]) - 0.5) < 0.005
+
+
+def test_zero_lag_one_euro_follows_constant_motion_and_keeps_jitter_low() -> None:
+    # Sprint 2 integration: a text following a tracked box trailed it by ~10 px (causal filter).
+    ts = [i / 30 for i in range(120)]
+    ramp = [0.0625 + 0.15625 * t for t in ts]  # 200 px/s on 1280 px
+    causal = smooth(ts, ramp, **one_euro.TRACK_PARAMS)
+    both = smooth_zero_lag(ts, ramp, **one_euro.TRACK_PARAMS)
+    mid = slice(10, 110)
+    assert max(abs(a - b) for a, b in zip(causal[mid], ramp[mid], strict=True)) * 1280 > 5
+    # no lag anywhere, ends included (odd-reflection padding)
+    assert max(abs(a - b) for a, b in zip(both, ramp, strict=True)) * 1280 < 0.5
+    noisy = [0.5 + (0.004 if i % 2 else -0.004) for i in range(120)]
+    out = smooth_zero_lag(ts, noisy, **one_euro.TRACK_PARAMS)
+
+    def jitter(xs: list[float]) -> float:
+        return sum(abs(b - a) for a, b in zip(xs, xs[1:], strict=False))
+
+    assert jitter(out) < jitter(noisy) / 3
 
 
 def test_one_euro_beta_reduces_lag_on_fast_motion() -> None:

@@ -41,3 +41,12 @@ Endpoints (prefijo interno):
 
 ## Criterios (plan v2, sprint 2)
 Recorte RVM ≥ 15 fps 1080p en la 4050; reencuadre sin saltos (One-Euro, cortes por escena); texto siguiendo un objeto exportado correctamente (test de píxeles); preview multicapa ≥ 24 fps con 3 capas.
+
+## Cambios en integración (2026-10-05)
+- **Coordenadas, una sola regla**: TrackFile = esquina sup. izq. en fracciones 0..1 de la fuente; `position` = **centro** en fracciones del lienzo; recortes de clip = fracciones de la fuente (el % se acepta en los tres lados vía `normalizeCropRect`: el export ahora también normaliza los keyframes `crop`); `Project.reframe` = fracciones del **lienzo**, `t` absoluto (los % de `/vision/reframe` los convierte la api). Nuevo helper compartido `reframeWindow` / `reframeCropAt` (shared `vision.ts`, test `reframe.test.ts`): la preview lo usa tal cual y el compilador toma de ahí el tamaño de la ventana; e2e y UI comparan export ↔ ventana de la preview.
+- **Seguimiento sin retraso**: el One-Euro de `/vision/track` y de SAM (`build_track`) pasa a **ida y vuelta** (`smooth_zero_lag`, con reflexión en los extremos): el filtro causal dejaba el texto ~10 px detrás de una caja a 200 px/s. Reencuadre sin cambios (paneo con inercia).
+- `VisionTrackResult.method` (`csrt` | `template` | `sam2`): la web muestra «Seguimiento listo (template matching)» y el método en Propiedades → Seguimiento.
+- `DELETE /api/ai/vision/sam/session/:id` → `{deleted: boolean}`: idempotente (sesión vencida = `false`), borra las vistas de cada clic (`masks/<sesión>/`); workers borran solo los cuadros (`tmp/sam/<id>`); lo propagado (alfa, máscaras, track) son assets y quedan.
+- Remotion: `track`, `trackAnchor`, `trackOffset` llevan `x-internal: true` en el JSON Schema (`INTERNAL_PROP`); el formulario de Motion graphics los oculta.
+- Web: toasts de los 5 jobs (máscara propagada y reencuadre analizado agregados), `K` documentado (pausa reproduciendo, keyframe detenido); «Fotograma siguiente/anterior» se ajustan a la grilla de cuadros (antes 30 pasos = 0,99 s); keyframe de reencuadre por defecto en fracciones.
+- `workers-with-mocks.py`: mocks de visión (RVM `--mock-model` alfa 200, BiRefNet alfa 200, SAM con máscara constante 30 %×40 %); `STUDIO_MOCK_DENOISE=0` / `STUDIO_MOCK_VISION=0`. CI: ffmpeg en el job de workers (apt / choco).

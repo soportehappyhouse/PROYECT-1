@@ -64,7 +64,7 @@ export const API_ROUTES = {
   aiVisionSamSession: "/api/ai/vision/sam/session", // POST SamSessionRequest -> SamSessionResponse
   aiVisionSamPoints: "/api/ai/vision/sam/session/:id/points", // POST SamPointsRequest -> SamPointsResponse
   aiVisionSamPropagate: "/api/ai/vision/sam/session/:id/propagate", // POST SamPropagateRequest -> JobAccepted (vision.mask)
-  aiVisionSamSessionItem: "/api/ai/vision/sam/session/:id", // DELETE -> {deleted: true}
+  aiVisionSamSessionItem: "/api/ai/vision/sam/session/:id", // DELETE -> {deleted: boolean} (false: unknown/expired)
   aiVisionTrack: "/api/ai/vision/track", // POST VisionTrackRequest -> JobAccepted (vision.track)
   aiVisionReframe: "/api/ai/vision/reframe", // POST VisionReframeRequest -> JobAccepted (vision.reframe)
   aiTrackToKeyframes: "/api/ai/timeline/track-to-keyframes", // POST TrackToKeyframesRequest -> JobAccepted

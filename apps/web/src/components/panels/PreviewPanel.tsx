@@ -22,7 +22,7 @@ import { MaskToolbar, startTool, TrackBoxBanner } from "@/components/preview/Vis
 import { Button } from "@/components/ui/button";
 import { Menu, MenuItem, MenuLabel, MenuSeparator } from "@/components/ui/menu";
 import { formatTime } from "@/lib/format";
-import { findClip, projectDuration } from "@/lib/timeline";
+import { findClip, projectDuration, stepFrame } from "@/lib/timeline";
 import { useMaskStore } from "@/stores/mask-store";
 import { usePreviewStore, type PreviewQuality } from "@/stores/preview-store";
 import { useProjectStore } from "@/stores/project-store";
@@ -171,7 +171,7 @@ export function PreviewPanel() {
         size="icon-sm"
         aria-label="Fotograma anterior"
         shortcut="playback.frameBack"
-        onClick={() => store().setPlayhead(playhead - 1 / fps)}
+        onClick={() => store().setPlayhead(stepFrame(playhead, fps, -1))}
       >
         <StepBack />
       </Button>
@@ -188,7 +188,7 @@ export function PreviewPanel() {
         size="icon-sm"
         aria-label="Fotograma siguiente"
         shortcut="playback.frameForward"
-        onClick={() => store().setPlayhead(playhead + 1 / fps)}
+        onClick={() => store().setPlayhead(stepFrame(playhead, fps, 1))}
       >
         <StepForward />
       </Button>

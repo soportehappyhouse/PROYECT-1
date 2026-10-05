@@ -13,6 +13,7 @@
 //   --skip-motion      skip the Remotion renders (no Chrome Headless Shell installed)
 //   --timeout <sec>    max wait per job (default 900)
 //   --download-models  also download a real model pack (core, ~0.26 GB from Hugging Face)
+//   --only <regex>     run only the steps whose name matches (e.g. --only sprint2)
 //   --hw               also export the 1-min project with the api's hardware encoder (HW_ENCODER=auto)
 //                      in blocks and in one pass, and compare duration + frame count (NVENC
 //                      -bf 0 -forced-idr 1); SKIP with the reason when there is no hw encoder
@@ -25,7 +26,7 @@ import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 // ---------------------------------------------------------------- args
 const argv = process.argv.slice(2);
@@ -45,6 +46,7 @@ const SKIP_MOTION = flag("skip-motion");
 const DOWNLOAD_MODELS = flag("download-models");
 const HW = flag("hw");
 const JOB_TIMEOUT_MS = Number(opt("timeout", "900")) * 1000;
+const ONLY = opt("only") ? new RegExp(opt("only"), "i") : undefined;
 
 // ---------------------------------------------------------------- helpers
 const results = [];
@@ -59,6 +61,7 @@ function assert(cond, msg) {
 
 /** Run a named step; `kind`: "required" | "optional" | "expected-fail". */
 async function step(name, fn, kind = "required") {
+  if (ONLY && !ONLY.test(name)) return undefined;
   const start = Date.now();
   process.stdout.write(`… ${name}\n`);
   try {
@@ -80,6 +83,7 @@ async function step(name, fn, kind = "required") {
 
 /** Record a step that was not run, with the reason (only for real model downloads). */
 function skip(name, reason) {
+  if (ONLY && !ONLY.test(name)) return;
   results.push({ name, status: "SKIP", ms: 0, kind: "optional", detail: reason });
   console.log(`… ${name}\n  SKIP  ${reason}`);
 }
@@ -1684,23 +1688,353 @@ await step(
   },
 );
 
+// ---- Sprint 2 integration: real OpenCV tracker, track -> keyframes, keyframe parity, SAM 2
+// (mocked predictor, scripts/e2e/workers-with-mocks.py) -> matte export, RVM mock matte, reframe.
+
+/** RGB frame at `at` scaled to `w` px wide: {w, h, px(x, y) -> [r, g, b]}. */
+async function frameRgb(file, at, w = 960) {
+  const v = (await ffprobe(file)).streams.find((s) => s.codec_type === "video");
+  const h = Math.round((v.height * w) / v.width / 2) * 2;
+  const raw = await new Promise((resolve, reject) => {
+    const p = spawn(
+      FFMPEG,
+      ["-v", "error", "-ss", String(at), "-i", file, "-frames:v", "1", "-vf", `scale=${w}:${h}`,
+        "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"], // prettier-ignore
+      { windowsHide: true },
+    );
+    const chunks = [];
+    p.stdout.on("data", (d) => chunks.push(d));
+    p.on("error", reject);
+    p.on("close", () => resolve(Buffer.concat(chunks)));
+  });
+  assert(raw.length >= w * h * 3, `frame at ${at}: ${raw.length} bytes`);
+  const px = (x, y) => {
+    const i = (Math.round(y) * w + Math.round(x)) * 3;
+    return [raw[i], raw[i + 1], raw[i + 2]];
+  };
+  return { w, h, px };
+}
+
+/** @studio/shared (built): the SAME interpolate() the export and the preview use. */
+async function sharedLib() {
+  const dist = path.join(REPO, "packages", "shared", "dist", "index.js");
+  assert(existsSync(dist), "packages/shared/dist missing (pnpm build:packages)");
+  return import(pathToFileURL(dist).href);
+}
+
+// A TEXTURED box (testsrc2, dimmed below the text-check threshold) moving right on black:
+// trackable by a real OpenCV tracker (a flat box has no texture for CSRT / template matching).
+async function sprint2TexturedMedia() {
+  if (ctx.s2tex) return ctx.s2tex;
+  const src = path.join(WORK, "e2e-caja-textura.mp4");
+  await run(FFMPEG, [
+    "-y", "-v", "error", "-f", "lavfi", "-i",
+    `color=c=black:s=${S2.W}x${S2.H}:r=${S2.fps}:d=${S2.dur}[b];testsrc2=s=120x80:r=${S2.fps}:d=${S2.dur},lutyuv=y=val*0.6[w];[b][w]overlay=x='80+200*t':y=300`,
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", src,
+  ]); // prettier-ignore
+  const video = await upload(src, "video/mp4");
+  await waitAssetJobs(video.id, ["media.probe"]);
+  ctx.s2tex = { video };
+  return ctx.s2tex;
+}
+
+/** Project: the video clip on V1 (0..dur) + one text clip on T1. */
+async function sprint2Project(name, video, text) {
+  const p = await ok("POST", "/api/projects", { name }, [201]);
+  const V = p.tracks.find((t) => t.kind === "video");
+  const T = p.tracks.find((t) => t.kind === "text");
+  V.clips = [{ id: id("c"), trackId: V.id, assetId: video.id, start: 0, in: 0, out: S2.dur }];
+  T.clips = text
+    ? [
+        {
+          id: id("t"),
+          trackId: T.id,
+          start: 0,
+          in: 0,
+          out: S2.dur,
+          text: "II",
+          textStyle: { fontSize: 72, color: "#ffffff", position: "bottom" },
+          ...text,
+        },
+      ]
+    : [];
+  return ok("PUT", `/api/projects/${p.id}`, p);
+}
+
+/** Export youtube-1080p and check the text center (960-px frame) at each [t, x, y]. */
+async function exportTextAt(projectId, name, expected, tol = 10) {
+  const { jobId } = await ok("POST", `/api/projects/${projectId}/export`, {
+    presetId: "youtube-1080p",
+    fileName: name,
+  });
+  const job = await waitOk(jobId);
+  const file = await download(job.result.path, `${name}.mp4`);
+  const checks = [];
+  for (const [t, ex, ey] of expected) {
+    const b = await brightBox(file, t, { w: 960, min: 200 });
+    assert(b, `${name}: no text at t=${t}`);
+    assert(
+      near(b.cx, ex, tol) && near(b.cy, ey, tol),
+      `${name} t=${t}: text at ${b.cx},${b.cy}, expected ${ex.toFixed(1)},${ey.toFixed(1)}`,
+    );
+    checks.push({ t, text: [b.cx, b.cy], expected: [+ex.toFixed(1), +ey.toFixed(1)] });
+  }
+  return { file, checks };
+}
+
 await step(
-  "sprint2: vision.track (csrt) on the moving box -> track asset",
+  "sprint2: vision.track real OpenCV tracker -> trackRef on a text clip -> export pixel check",
   async () => {
-    const { video } = await sprint2Media();
-    const b = S2.box(0);
-    const res = await api("POST", "/api/ai/vision/track", {
+    const { video } = await sprint2TexturedMedia();
+    const p = await sprint2Project("E2E seguimiento real", video);
+    const T = p.tracks.find((t) => t.kind === "text");
+    T.clips = [
+      {
+        id: id("t"),
+        trackId: T.id,
+        start: 0,
+        in: 0,
+        out: S2.dur,
+        text: "II",
+        textStyle: { fontSize: 72, color: "#ffffff", position: "bottom" },
+      },
+    ];
+    await ok("PUT", `/api/projects/${p.id}`, p);
+    const b0 = S2.box(0);
+    const res = await ok("POST", "/api/ai/vision/track", {
       assetId: video.id,
       method: "csrt",
-      bbox: { x: b.x / S2.W, y: b.y / S2.H, w: b.w / S2.W, h: b.h / S2.H },
+      bbox: { x: b0.x / S2.W, y: b0.y / S2.H, w: b0.w / S2.W, h: b0.h / S2.H },
+      target: { projectId: p.id, clipId: T.clips[0].id, anchor: "center", offset: { x: 0, y: 0 } },
     });
-    if (res.status === 409) return { packRequired: res.json };
-    assert(res.status === 202, `HTTP ${res.status} ${JSON.stringify(res.json)}`);
-    const job = await waitJob(res.json.jobId, { timeoutMs: 300_000 });
-    assert(job.status === "succeeded", `job ${job.status}: ${job.error}`);
-    return { frames: job.result.frames, assetId: job.result.assetId };
+    const job = await waitOk(res.jobId, { timeoutMs: 300_000 });
+    const r = job.result;
+    assert(["csrt", "template"].includes(r.method), `method ${r.method}`);
+    assert(r.linkedClip?.clipId === T.clips[0].id, "trackRef not set on the text clip");
+    // the TrackFile: top-left boxes in source fractions, close to the real box
+    const tf = JSON.parse(await readFile(await download(r.path, "seguimiento-real.json"), "utf8"));
+    assert(tf.source.assetId === video.id, `source ${JSON.stringify(tf.source)}`);
+    let worst = 0;
+    for (const f of tf.frames) {
+      const b = S2.box(f.t);
+      worst = Math.max(worst, Math.abs(f.x * S2.W - b.x), Math.abs(f.y * S2.H - b.y));
+    }
+    assert(worst <= 6, `tracked box drifts ${worst.toFixed(1)} px from the real one`);
+    ctx.s2track = { project: p.id, clipId: T.clips[0].id, trackAssetId: r.assetId };
+    const saved = await ok("GET", `/api/projects/${p.id}`);
+    assert(
+      saved.tracks.flatMap((t) => t.clips).find((c) => c.id === T.clips[0].id)?.trackRef,
+      "saved project without trackRef",
+    );
+    // 1280×720 source fitted to 1920×1080 (×1.5), sampled at 960 px (×0.5)
+    const k = (1920 / S2.W) * 0.5;
+    const exp = [0.5, 2, 3.5].map((t) => {
+      const b = S2.box(t);
+      return [t, (b.x + b.w / 2) * k, (b.y + b.h / 2) * k];
+    });
+    const { checks } = await exportTextAt(p.id, "seguimiento-real", exp, 10);
+    return { method: r.method, frames: r.frames, driftPx: +worst.toFixed(2), checks };
   },
-  "optional",
+);
+
+await step(
+  "sprint2: track -> keyframes (timeline.track-to-keyframes, ≤ 2/s) -> same export",
+  async () => {
+    assert(ctx.s2track, "needs the real tracking step");
+    const { project, clipId } = ctx.s2track;
+    const res = await ok("POST", "/api/ai/timeline/track-to-keyframes", {
+      projectId: project,
+      clipId,
+    });
+    const job = await waitOk(res.jobId);
+    const clip = job.result.project.tracks.flatMap((t) => t.clips).find((c) => c.id === clipId);
+    assert(clip && !clip.trackRef, "trackRef still set");
+    const kfs = clip.keyframes?.position ?? [];
+    assert(kfs.length >= 2 && kfs.length <= 2 * S2.dur + 1, `${kfs.length} keyframes`);
+    const { interpolate } = await sharedLib();
+    let worst = 0;
+    for (const t of [0.5, 1.5, 2.5, 3.5]) {
+      const v = interpolate(kfs, t);
+      const b = S2.box(t);
+      worst = Math.max(
+        worst,
+        Math.abs(v.x * 1920 - (b.x + b.w / 2) * 1.5),
+        Math.abs(v.y * 1080 - (b.y + b.h / 2) * 1.5),
+      );
+    }
+    assert(worst <= 12, `keyframes ${worst.toFixed(1)} canvas px from the box center`);
+    const exp = [1, 3].map((t) => {
+      const v = interpolate(kfs, t);
+      return [t, v.x * 960, v.y * 540];
+    });
+    const { checks } = await exportTextAt(project, "seguimiento-keyframes", exp, 8);
+    return { keyframes: kfs.length, maxErrCanvasPx: +worst.toFixed(1), checks };
+  },
+);
+
+await step(
+  "sprint2: keyframes easeInOut/easeOut export = shared interpolate() (pixel parity)",
+  async () => {
+    const { video } = await sprint2Media();
+    const position = [
+      { t: 0, v: { x: 0.15, y: 0.3 }, ease: "easeInOut" },
+      { t: 2, v: { x: 0.85, y: 0.3 }, ease: "easeOut" },
+      { t: 4, v: { x: 0.5, y: 0.75 }, ease: "linear" },
+    ];
+    const p = await sprint2Project("E2E keyframes", video, { keyframes: { position } });
+    const { interpolate } = await sharedLib();
+    const exp = [0.5, 1, 1.5, 2.6, 3.4].map((t) => {
+      const v = interpolate(position, t);
+      return [t, v.x * 960, v.y * 540];
+    });
+    const { checks } = await exportTextAt(p.id, "keyframes-paridad", exp, 8);
+    return { checks };
+  },
+);
+
+await step(
+  "sprint2: SAM 2 session (mock predictor) -> points -> propagate -> matte (color) export",
+  async () => {
+    const { video } = await sprint2Media();
+    const s = await api("POST", "/api/ai/vision/sam/session", { assetId: video.id });
+    assert(s.status === 201, `session -> ${s.status} ${JSON.stringify(s.json)}`);
+    const { sessionId, frames, fps } = s.json;
+    assert(frames === S2.dur * S2.fps && near(fps, S2.fps, 0.01), `frames ${frames} fps ${fps}`);
+    const b = S2.box(0);
+    const click = { x: (b.x + b.w / 2) / S2.W, y: (b.y + b.h / 2) / S2.H };
+    const pts = await ok("POST", `/api/ai/vision/sam/session/${sessionId}/points`, {
+      frame: 0,
+      points: [{ ...click, label: 1 }],
+    });
+    const png = await fetch(`${API}${pts.maskUrl}`);
+    assert(
+      png.ok && (png.headers.get("content-type") ?? "").includes("png"),
+      "mask PNG not served",
+    );
+    // mock mask: 30 % × 40 % box centered on the click (clamped inside the frame)
+    const mw = 0.3;
+    const mh = 0.4;
+    const mx = Math.min(Math.max(0, click.x - mw / 2), 1 - mw);
+    const my = Math.min(Math.max(0, click.y - mh / 2), 1 - mh);
+    assert(
+      near(pts.bbox.x, mx, 0.01) && near(pts.bbox.y, my, 0.01) && near(pts.bbox.w, mw, 0.01),
+      `bbox ${JSON.stringify(pts.bbox)}`,
+    );
+    const prop = await ok("POST", `/api/ai/vision/sam/session/${sessionId}/propagate`, {});
+    const job = await waitOk(prop.jobId, { timeoutMs: 300_000 });
+    const r = job.result;
+    assert(r.trackAssetId && r.maskAssetId && r.alphaAssetId, `assets ${JSON.stringify(r)}`);
+    const del = await ok("DELETE", `/api/ai/vision/sam/session/${sessionId}`);
+    assert(del.deleted === true, `delete ${JSON.stringify(del)}`);
+    const gone = await fetch(`${API}${pts.maskUrl}`);
+    assert(gone.status === 404, `click mask still served after DELETE (${gone.status})`);
+    const again = await ok("DELETE", `/api/ai/vision/sam/session/${sessionId}`);
+    assert(again.deleted === false, "second DELETE should answer deleted:false");
+    await waitAssetJobs(r.alphaAssetId, ["media.probe"]);
+    // clip.matte = SAM alpha over a green background -> export -> inside mask = source, outside green
+    const p = await sprint2Project("E2E máscara SAM", video);
+    p.tracks.find((t) => t.kind === "video").clips[0].matte = {
+      assetId: r.alphaAssetId,
+      background: { type: "color", value: "#00ff00" },
+    };
+    await ok("PUT", `/api/projects/${p.id}`, p);
+    const ex = await ok("POST", `/api/projects/${p.id}/export`, {
+      presetId: "youtube-1080p",
+      fileName: "mascara-sam",
+    });
+    const file = await download((await waitOk(ex.jobId)).result.path, "mascara-sam.mp4");
+    const f = await frameRgb(file, 1, 960);
+    const inside = f.px((mx + mw / 2) * 960, (my + 0.05) * 540);
+    const outside = f.px(0.8 * 960, 0.2 * 540);
+    const green = (c) => c[1] > 180 && c[0] < 80 && c[2] < 80;
+    assert(!green(inside) && inside[1] < 90, `inside the mask ${inside} (expected the source)`);
+    assert(green(outside), `outside the mask ${outside} (expected green)`);
+    ctx.s2sam = { alphaAssetId: r.alphaAssetId };
+    return {
+      sessionId,
+      frames,
+      inside,
+      outside,
+      assets: Object.keys(r).filter((k) => k.endsWith("Id")),
+    };
+  },
+);
+
+await step(
+  "sprint2: «Quitar fondo» vision.matte (RVM, mocked alpha 200) with color background -> export",
+  async () => {
+    const { video } = await sprint2Media();
+    const p = await sprint2Project("E2E quitar fondo", video);
+    const clipId = p.tracks.find((t) => t.kind === "video").clips[0].id;
+    const res = await ok("POST", "/api/ai/vision/matte", {
+      assetId: video.id,
+      model: "rvm",
+      background: { type: "color", value: "#00ff00" },
+      target: { projectId: p.id, clipId },
+    });
+    const job = await waitOk(res.jobId, { timeoutMs: 300_000 });
+    assert(job.result.linkedClip?.clipId === clipId, "clip.matte not linked");
+    await waitAssetJobs(job.result.assetId, ["media.probe"]);
+    const saved = await ok("GET", `/api/projects/${p.id}`);
+    const matte = saved.tracks.flatMap((t) => t.clips).find((c) => c.id === clipId)?.matte;
+    assert(matte?.background?.value === "#00ff00", `matte ${JSON.stringify(matte)}`);
+    const ex = await ok("POST", `/api/projects/${p.id}/export`, {
+      presetId: "youtube-1080p",
+      fileName: "quitar-fondo",
+    });
+    const file = await download((await waitOk(ex.jobId)).result.path, "quitar-fondo.mp4");
+    const f = await frameRgb(file, 1, 960);
+    // black source with alpha 200/255 over green: G ≈ 255 × 55/255 = 55
+    const c = f.px(0.8 * 960, 0.2 * 540);
+    assert(c[1] >= 35 && c[1] <= 80 && c[0] < 30 && c[2] < 30, `background pixel ${c}`);
+    return { pixel: c, warnings: job.result.warnings ?? [] };
+  },
+);
+
+await step(
+  "sprint2: vision.reframe 9:16 (subject: track) -> project.reframe -> reels export follows the box",
+  async () => {
+    assert(ctx.s2track, "needs the real tracking step");
+    const { video } = await sprint2TexturedMedia();
+    const p = await sprint2Project("E2E reencuadre auto", video);
+    const res = await ok("POST", "/api/ai/vision/reframe", {
+      projectId: p.id,
+      target: "9:16",
+      subject: "track",
+      trackAssetId: ctx.s2track.trackAssetId,
+    });
+    const job = await waitOk(res.jobId, { timeoutMs: 300_000 });
+    const kfs = job.result.reframe.keyframes;
+    assert(kfs.length >= 2, `${kfs.length} reframe keyframes`);
+    for (const k of kfs)
+      assert(
+        k.v.w > 0 && k.v.w <= 1 && k.v.h <= 1,
+        `keyframe not in canvas fractions ${JSON.stringify(k.v)}`,
+      );
+    const saved = await ok("GET", `/api/projects/${p.id}`);
+    assert(saved.reframe?.keyframes?.length === kfs.length, "project.reframe not saved");
+    const { reframeCropAt } = await sharedLib();
+    const ex = await ok("POST", `/api/projects/${p.id}/export`, {
+      presetId: "reels-tiktok",
+      fileName: "reencuadre-auto",
+    });
+    const file = await download((await waitOk(ex.jobId)).result.path, "reencuadre-auto.mp4");
+    const v = (await ffprobe(file)).streams.find((s) => s.codec_type === "video");
+    assert(v.width === 1080 && v.height === 1920, `size ${v.width}x${v.height}`);
+    const checks = [];
+    for (const t of [0.5, 2, 3.5]) {
+      const b = await brightBox(file, t, { w: 270, min: 25 });
+      assert(b, `no box at t=${t}`);
+      // expected: the box seen through the SAME window the preview draws (shared reframeCropAt)
+      const win = reframeCropAt(saved.reframe, saved.settings, t);
+      const box = S2.box(t);
+      const ex = ((((box.x + box.w / 2) * 1.5) / 1920 - win.x) / win.w) * 270;
+      assert(near(b.cx, ex, 8), `t=${t}: box at ${b.cx}, preview window predicts ${ex.toFixed(1)}`);
+      assert(b.cx > 30 && b.cx < 240, `t=${t}: box at ${b.cx} near the edge (no follow)`);
+      checks.push({ t, cx: b.cx, expected: +ex.toFixed(1) });
+    }
+    return { keyframes: kfs.length, checks };
+  },
 );
 
 await step(

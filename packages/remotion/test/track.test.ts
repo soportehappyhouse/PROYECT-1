@@ -2,6 +2,8 @@ import { MotionSpecSchema, trackPointAt } from "@studio/shared";
 import { describe, expect, it } from "vitest";
 import { trackPoint } from "../src/lib/track.js";
 import { buildInputProps } from "../src/props.js";
+import { INTERNAL_PROP } from "../src/schemas/common.js";
+import { REMOTION_TEMPLATES } from "../src/templates.js";
 
 const opts = { storageDir: "/data/storage", mediaBaseUrl: "http://127.0.0.1:3001/files/" };
 const track = {
@@ -57,5 +59,17 @@ describe("Sprint 2: templates following a track", () => {
       props: { track: { fps: 10, frames: [{ t: 0 }] } },
     });
     await expect(buildInputProps(spec, opts)).rejects.toThrow(/track\.frames/);
+  });
+
+  it("marks track / trackAnchor / trackOffset as internal in the JSON schema (hidden by forms)", () => {
+    for (const id of ["lower-third", "animated-captions"]) {
+      const schema = REMOTION_TEMPLATES.find((t) => t.id === id)!.propsSchema as {
+        properties: Record<string, Record<string, unknown>>;
+      };
+      const props = schema.properties;
+      for (const key of ["track", "trackAnchor", "trackOffset"])
+        expect(props[key]?.[INTERNAL_PROP], `${id}.${key}`).toBe(true);
+      expect(Object.values(props).filter((p) => p[INTERNAL_PROP]).length).toBe(3);
+    }
   });
 });

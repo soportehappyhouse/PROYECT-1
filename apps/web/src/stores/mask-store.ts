@@ -1,4 +1,5 @@
 import type { SamPoint, VisionMaskResult } from "@studio/shared";
+import { toast } from "sonner";
 import { create } from "zustand";
 import { errorMessage } from "@/lib/api";
 import { warnIfCpu } from "@/lib/gpu-preflight";
@@ -161,6 +162,9 @@ export const useMaskStore = create<MaskState>()((set, get) => {
         // New mask/alpha/track assets: refresh Media so they can be used right away.
         await useMediaStore.getState().refresh();
         set({ status: "done", result });
+        toast.success("Máscara propagada", {
+          description: "Elegí «Quitar fondo» o «Seguir este objeto» en la barra de la máscara.",
+        });
         return result;
       } catch (err) {
         set({ status: "error", error: errorMessage(err) });

@@ -167,7 +167,7 @@ export const useKeyframeStore = create<KeyframeState>()((set, get) => ({
     const reframe = projectReframe(store.project);
     if (!reframe) return false;
     const t = Math.round(store.playhead * 1000) / 1000;
-    const v = interpolate(reframe.keyframes, t) ?? { x: 0, y: 0, w: 100, h: 100 };
+    const v = interpolate(reframe.keyframes, t) ?? { x: 0, y: 0, w: 1, h: 1 };
     const keyframes = sortKeyframes([
       ...reframe.keyframes.filter((k) => Math.abs(k.t - t) >= 1 / 120),
       { t, v, ease: "linear" as Ease },

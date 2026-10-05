@@ -343,6 +343,7 @@ export function createVisionTrackHandler(
         path: asset.path,
         frames: track.frames.length,
         smoothed: track.smoothed || result.smoothed,
+        method: track.source.method,
         ...(linkedClip && { linkedClip }),
       };
     },

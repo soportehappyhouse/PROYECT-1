@@ -62,6 +62,36 @@ def smooth(
     return [f(t, x) for t, x in zip(ts, xs, strict=True)]
 
 
+def smooth_zero_lag(
+    ts: Sequence[float],
+    xs: Sequence[float],
+    min_cutoff: float = 1.0,
+    beta: float = 0.007,
+    d_cutoff: float = 1.0,
+) -> list[float]:
+    """Offline One-Euro: mean of a forward and a time-reversed pass (forward-backward).
+
+    A causal filter trails a moving object (TRACK_PARAMS: ~1.6 frames at 200 px/s on 1280 px,
+    which a following text shows as an offset). On a whole recorded series the two passes lag in
+    opposite directions, so constant-velocity motion comes out without lag while the jitter
+    reduction stays. Both ends are padded with an odd reflection (as scipy's filtfilt) so the
+    first / last frames are not pulled by the start-up of either pass.
+    """
+    n = len(ts)
+    if n < 3:
+        return list(xs)
+    k = min(15, n - 1)
+    t0, x0, t1, x1 = ts[0], xs[0], ts[-1], xs[-1]
+    pt = [2 * t0 - ts[i] for i in range(k, 0, -1)] + list(ts)
+    pt += [2 * t1 - ts[n - 1 - i] for i in range(1, k + 1)]
+    px = [2 * x0 - xs[i] for i in range(k, 0, -1)] + list(xs)
+    px += [2 * x1 - xs[n - 1 - i] for i in range(1, k + 1)]
+    fwd = smooth(pt, px, min_cutoff, beta, d_cutoff)
+    rev = smooth([-t for t in reversed(pt)], list(reversed(px)), min_cutoff, beta, d_cutoff)
+    both = [(a + b) / 2 for a, b in zip(fwd, reversed(rev), strict=True)]
+    return both[k : k + n]
+
+
 def deadzone(xs: Sequence[float], zone: float) -> list[float]:
     """Hold the value until it moves more than `zone` from the held one (reframe stability)."""
     out: list[float] = []

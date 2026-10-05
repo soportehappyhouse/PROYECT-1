@@ -73,3 +73,17 @@ export const PROP_COLORS: Record<KeyframeProperty, string> = {
   opacity: "#facc15",
   crop: "#fb7185",
 };
+
+/**
+ * Tracker that ran (TrackFile.source.method / VisionTrackResult.method). "template" = fallback of
+ * the workers when OpenCV has no CSRT (headless build): normalized template matching.
+ */
+export const TRACK_METHOD_LABELS: Record<string, string> = {
+  csrt: "CSRT",
+  template: "template matching",
+  sam2: "SAM 2",
+};
+
+export function trackMethodLabel(method: string | undefined): string | undefined {
+  return method ? (TRACK_METHOD_LABELS[method] ?? method) : undefined;
+}

@@ -1,6 +1,13 @@
 import { z } from "zod";
 import { IdSchema, SecondsSchema } from "./common.js";
-import { KeyframeSchema, Vec2Schema } from "./keyframes.js";
+import {
+  interpolate,
+  KeyframeSchema,
+  normalizeCropRect,
+  Vec2Schema,
+  type CropRect,
+  type Keyframe,
+} from "./keyframes.js";
 import type { Project } from "./timeline.js";
 
 /**
@@ -93,6 +100,45 @@ export const ProjectReframeSchema = z.object({
   mode: z.enum(["auto", "manual"]).default("auto"),
 });
 export type ProjectReframe = z.infer<typeof ProjectReframeSchema>;
+
+/**
+ * Size of the reframe window in fractions of the canvas: the largest rect of the target aspect
+ * that fits the canvas (16:9 canvas -> 9:16 window = full height, 0.316 of the width).
+ */
+export function reframeWindow(
+  canvas: { width: number; height: number },
+  target: ReframeTarget,
+): { w: number; h: number } {
+  const ta = reframeAspect(target);
+  const ca = canvas.width / canvas.height;
+  return ca > ta ? { w: ta / ca, h: 1 } : { w: 1, h: ca / ta };
+}
+
+/**
+ * Reframe crop (fractions of the CANVAS) at `t` (absolute timeline seconds), the same window the
+ * export crops: target-aspect window of `reframeWindow` size whose CENTER follows the center of
+ * the interpolated keyframe rects (fractions or percent, see normalizeCropRect), clamped inside
+ * the canvas. Shared by the export compiler (crop expressions) and the web preview.
+ */
+export function reframeCropAt(
+  reframe: { target: ReframeTarget; keyframes: readonly Keyframe[] },
+  canvas: { width: number; height: number },
+  t: number,
+): CropRect | undefined {
+  const rects = reframe.keyframes
+    .filter((k) => typeof k.v === "object" && "w" in k.v)
+    .map((k) => ({ ...k, v: normalizeCropRect(k.v as CropRect) }));
+  const v = interpolate(rects, t);
+  if (!v) return undefined;
+  const { w, h } = reframeWindow(canvas, reframe.target);
+  const clamp = (x: number, hi: number) => Math.min(Math.max(0, x), Math.max(0, hi));
+  return {
+    x: clamp(v.x + v.w / 2 - w / 2, 1 - w),
+    y: clamp(v.y + v.h / 2 - h / 2, 1 - h),
+    w,
+    h,
+  };
+}
 
 /** Motion templates that position themselves on a track (the api passes `props.track`). */
 export const TRACK_AWARE_TEMPLATES = ["animated-captions", "lower-third"] as const;
@@ -272,6 +318,11 @@ export interface VisionTrackResult {
   path: string;
   frames: number;
   smoothed: boolean;
+  /**
+   * Tracker that really ran (`TrackFile.source.method`): "csrt", "sam2", or "template" when
+   * OpenCV has no CSRT (headless build) and the workers fell back to template matching.
+   */
+  method?: string;
   linkedClip?: ClipTarget;
 }
 

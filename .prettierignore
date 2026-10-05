@@ -1,0 +1,15 @@
+node_modules
+dist
+.next
+coverage
+pnpm-lock.yaml
+storage
+models
+apps/workers/.venv
+**/*.py
+# Planning/research docs are written by other agents; do not reformat them.
+docs/00-PLAN-BASE.md
+docs/trabajo
+docs/DEVOLUCION-*.md
+**/next-env.d.ts
+*.tsbuildinfo

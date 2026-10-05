@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Cómo reportar un error (guía)
+    url: https://github.com/soportehappyhouse/PROYECT-1/blob/HEAD/docs/REPORTAR-ERRORES.md
+    about: Las 3 formas de generar el reporte (botón, script, issue), qué contiene el .zip y cómo pegarlo a Claude.

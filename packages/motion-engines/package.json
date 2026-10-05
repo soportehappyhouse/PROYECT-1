@@ -1,0 +1,32 @@
+{
+  "name": "@studio/motion-engines",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pluggable motion-graphics engines: MotionEngine interface, registry and adapters (remotion, motion-canvas, ffmpeg-lottie)",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@studio/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@studio/shared": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "~6.0.3",
+    "vitest": "^4.1.11"
+  }
+}

@@ -1,0 +1,18 @@
+# Studio workers - full runtime, NVIDIA CUDA 12.8 profile (Windows x64, Python 3.11.9).
+# Used by: scripts\windows\setup.ps1 -WithCuda   (needs a recent NVIDIA driver, branch 570+;
+# RTX 50xx requires cu128 or newer). The torch cu128 wheels bundle the CUDA runtime, cuBLAS and
+# cuDNN 9 DLLs; the workers add torch\lib to the DLL search path so faster-whisper
+# (CTranslate2: cuBLAS 12 + cuDNN 9) can use them too.
+#   .venv\Scripts\python.exe -m pip install -r requirements-cuda.txt
+--index-url https://download.pytorch.org/whl/cu128
+--extra-index-url https://pypi.org/simple
+
+-r requirements.txt
+
+torch==2.7.1+cu128
+torchaudio==2.7.1+cu128
+torchvision==0.22.1+cu128
+
+# Fallback if CTranslate2 still cannot find cublas64_12.dll / cudnn*64_9.dll (about 1.3 GB):
+# nvidia-cublas-cu12
+# nvidia-cudnn-cu12

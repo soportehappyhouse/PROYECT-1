@@ -1,0 +1,47 @@
+[project]
+name = "studio-workers"
+version = "0.1.0"
+description = "Studio Python workers: faster-whisper transcription, Piper TTS, RVC voice conversion (FastAPI)"
+readme = { text = "See docs/ARQUITECTURA.md in the monorepo root.", content-type = "text/plain" }
+requires-python = ">=3.11,<3.13"
+license = { text = "MIT" }
+dependencies = [
+  "fastapi>=0.142.2,<1",
+  "uvicorn[standard]>=0.54.0,<1",
+  "pydantic>=2.13,<3",
+  "pydantic-settings>=2.15,<3",
+  "python-multipart>=0.0.32",
+  "httpx>=0.28.1,<1",
+]
+
+[project.optional-dependencies]
+# Speech-to-text (CPU int8 by default; CUDA if USE_CUDA=true and NVIDIA libs present)
+whisper = ["faster-whisper==1.2.1"]
+# Local neural TTS (Spanish voices downloaded to models/piper)
+tts = ["piper-tts==1.8.0"]
+# RVC voice conversion (inference only).
+# infer-rvc-python (MIT, no fairseq; see docs/trabajo/fuentes-audio.md). torch from PyPI is
+# CPU-only on Windows; CUDA builds come from requirements-cuda.txt (cu128 index).
+rvc = ["infer-rvc-python==1.3.1", "torch==2.7.1", "torchaudio==2.7.1", "torchvision==0.22.1"]
+all = ["studio-workers[whisper,tts,rvc]"]
+dev = ["pytest>=9.1,<10", "ruff>=0.16,<1"]
+
+[project.scripts]
+studio-workers = "studio_workers.__main__:main"
+
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["studio_workers*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

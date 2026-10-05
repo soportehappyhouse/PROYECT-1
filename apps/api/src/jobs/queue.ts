@@ -247,6 +247,9 @@ export class JobQueue extends EventEmitter<{ job: [JobEvent] }> {
       const payload = handler.parse(job.payload);
       const result = await runWithDiagnostics(diagnostics, () => handler.run(payload, ctx, job));
       clearTimeout(timer);
+      // Trailing edge of the throttle: a job that finishes inside the window must still publish
+      // its last progress step (e.g. "3/3 bloques (3 en caché)") before "Completado".
+      flush();
       if (controller.signal.aborted)
         throw Object.assign(new Error("Cancelado"), { name: "AbortError" });
       this.#transition(this.options.store.get(job.id)!, "succeeded", {

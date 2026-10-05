@@ -256,10 +256,19 @@ def test_cuda_swap_failure_is_reported(tmp_path: Path, monkeypatch: pytest.Monke
         packs.install_pack("matting-image", tmp_path, pip_runner=lambda a, _l: 1, use_cuda=True)
 
 
-def test_pip_uninstall_command() -> None:
+def test_pip_uninstall_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Both branches, independent of whether the test venv has pip (CI) or only uv (local).
+    monkeypatch.setattr(packs, "module_present", lambda m: m == "pip")
     cmd = packs.pip_command(["uninstall", "onnxruntime"])
-    assert cmd[-3:] == ["-y", "onnxruntime"] if cmd[1] == "-m" else cmd[-1] == "onnxruntime"
-    assert "uninstall" in cmd and "install" not in cmd
+    assert cmd[1:] == ["-m", "pip", "uninstall", "-y", "onnxruntime"]
+    monkeypatch.setattr(packs, "module_present", lambda _m: False)
+    monkeypatch.setattr(packs.shutil, "which", lambda name: "/bin/uv" if name == "uv" else None)
+    cmd = packs.pip_command(["uninstall", "onnxruntime"])
+    assert cmd[:3] == ["/bin/uv", "pip", "uninstall"] and cmd[-1] == "onnxruntime"
+    assert "install" not in cmd
+    monkeypatch.setattr(packs.shutil, "which", lambda _name: None)
+    with pytest.raises(RuntimeError, match="pip no esta disponible"):
+        packs.pip_command(["uninstall", "onnxruntime"])
 
 
 def test_onnxruntime_provider_in_health_and_gpu_status(

@@ -377,9 +377,19 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
     }
     const AW = even(m.width ?? a.width ?? W);
     const AH = even(m.height ?? a.height ?? H);
-    const alphaIdx = mediaInput({ ...m, hasAlpha: true }, srcStart, segDur, speed);
+    // Split matte (RVM `alpha_codec: "split"`): one .mkv, colour in v:0 + alpha as full-range
+    // luma in v:1 (NVENC H.264), merged back losslessly. Otherwise a VP9 yuva420p WebM.
+    const split = /\.mkv$/i.test(m.absPath);
+    const alphaIdx = mediaInput(split ? m : { ...m, hasAlpha: true }, srcStart, segDur, speed);
+    let alphaSrc = `${alphaIdx}:v`;
+    if (split) {
+      const [sa, sm] = [g.label("sa"), g.label("sm")];
+      vadd(`[${alphaIdx}:v:1]extractplanes=y[${sa}]`);
+      vadd(`[${alphaIdx}:v:0][${sa}]alphamerge[${sm}]`);
+      alphaSrc = sm;
+    }
     const al = g.label("al");
-    vadd(`[${alphaIdx}:v]scale=${AW}:${AH},setsar=1,fps=${FPS},format=yuva420p[${al}]`);
+    vadd(`[${alphaSrc}]scale=${AW}:${AH},setsar=1,fps=${FPS},format=yuva420p[${al}]`);
     const bgSpec = clip.matte.background;
     const bgDur = sec(segDur * speed + 1);
     const cover = `scale=${AW}:${AH}:force_original_aspect_ratio=increase,crop=${AW}:${AH},setsar=1,fps=${FPS},format=yuva420p`;

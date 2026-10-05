@@ -196,6 +196,30 @@ describe.skipIf(!hasFfmpeg)(
         "8",
         f("person-alpha.webm"),
       ]);
+      // Split matte (RVM alpha_codec "split"): white colour stream + alpha box as full-range luma.
+      gen([
+        "-f",
+        "lavfi",
+        "-i",
+        `color=c=white:s=${W}x${H}:r=${FPS}:d=4`,
+        "-f",
+        "lavfi",
+        "-i",
+        `color=c=black:s=${W}x${H}:r=${FPS}:d=4,drawbox=x=200:y=100:w=100:h=100:color=white:t=fill`,
+        "-filter_complex",
+        "[0:v]format=yuv420p[c];[1:v]format=gray,scale=in_range=full:out_range=full,format=yuv420p,setparams=range=pc[a]",
+        "-map",
+        "[c]",
+        "-map",
+        "[a]",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-qp",
+        "0",
+        f("person-alpha.mkv"),
+      ]);
       const video = (id: string, file: string, dur: number): TimelineAsset => ({
         id,
         absPath: f(file),
@@ -215,6 +239,7 @@ describe.skipIf(!hasFfmpeg)(
         hasAlpha: true,
         ...(alpha.videoCodec && { videoCodec: alpha.videoCodec }),
       });
+      assets.set("alpha-split", { ...video("alpha-split", "person-alpha.mkv", 4), hasAlpha: true });
     });
 
     it("a text clip following a moving-box track lands on the box at 3 timestamps", async () => {
@@ -270,6 +295,24 @@ describe.skipIf(!hasFfmpeg)(
       expect(outside[1]).toBeGreaterThan(200); // green background
       expect(outside[0]).toBeLessThan(60);
       expect(outside[2]).toBeLessThan(60);
+    });
+
+    it("draws a split matte (colour + alpha-as-luma streams) like the WebM one", async () => {
+      const clip = {
+        id: "v",
+        trackId: "tv",
+        assetId: "person",
+        start: 0,
+        in: 0,
+        out: 3,
+        matte: { assetId: "alpha-split", background: { type: "color", value: "#00ff00" } },
+      } satisfies ClipInput;
+      const { out } = await run(make([videoTrack([clip])]));
+      const raw = frameAt(out, 1, "rgb24");
+      expect(Math.min(...rgbAt(raw, W, 250, 150))).toBeGreaterThan(200); // white colour stream
+      const [r, g, b] = rgbAt(raw, W, 50, 50); // alpha 0 -> green background
+      expect(g).toBeGreaterThan(200);
+      expect(Math.max(r, b)).toBeLessThan(60);
     });
 
     it("reframes to 9:16 with a crop that follows its keyframes", async () => {

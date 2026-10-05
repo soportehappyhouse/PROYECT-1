@@ -24,6 +24,8 @@ const EnvSchema = z.object({
   USE_CUDA: boolish,
   /** Hardware H.264 encoder: auto-detect (nvenc/qsv/amf) or force libx264 with "off". */
   HW_ENCODER: z.enum(["auto", "off"]).default("auto"),
+  /** Segment cache of the block render (storage/cache/segments), LRU-trimmed to this size. */
+  SEGMENT_CACHE_MAX_GB: z.coerce.number().min(0).default(10),
   QUEUE_FFMPEG_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(2),
   QUEUE_MOTION_CONCURRENCY: z.coerce.number().int().min(1).max(4).default(1),
   QUEUE_WORKERS_CONCURRENCY: z.coerce.number().int().min(1).max(4).default(1),
@@ -56,6 +58,8 @@ export interface ApiConfig {
   ffprobePath: string;
   useCuda: boolean;
   hwEncoder: "auto" | "off";
+  /** Max bytes kept in storage/cache/segments (0 = keep nothing after each export). */
+  segmentCacheMaxBytes: number;
   /** Max concurrent jobs per queue lane. */
   queue: { ffmpeg: number; motion: number; workers: number };
   /** Remotion renderer overrides (only keys set in .env; see RemotionRendererSettings). */
@@ -97,6 +101,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     ffprobePath: e.FFPROBE_PATH ?? "ffprobe",
     useCuda: e.USE_CUDA,
     hwEncoder: e.HW_ENCODER,
+    segmentCacheMaxBytes: Math.round(e.SEGMENT_CACHE_MAX_GB * 1024 ** 3),
     queue: {
       ffmpeg: e.QUEUE_FFMPEG_CONCURRENCY,
       motion: e.QUEUE_MOTION_CONCURRENCY,

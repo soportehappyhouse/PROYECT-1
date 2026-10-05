@@ -706,6 +706,38 @@ await step("export Reels 9:16 preset (reels-tiktok, blurred reframe)", () =>
   exportWith("reels-tiktok", { w: 1080, h: 1920, sec: 6, fps: 30 }),
 );
 
+// Sprint 1 «render por bloques»: exporting the same project twice must take every block from
+// storage/cache/segments (job result `segments: {total, cached, rendered}`).
+await step("export twice with the segment cache: 2nd run all blocks cached", async () => {
+  const runOnce = async () => {
+    const { jobId } = await ok("POST", `/api/projects/${ctx.project.id}/export`, {
+      presetId: "youtube-1080p",
+      fileName: "bloques",
+    });
+    const t = Date.now();
+    const job = await waitOk(jobId);
+    return { job, ms: Date.now() - t, messages: sseFor(jobId).map((e) => e.message ?? "") };
+  };
+  const first = await runOnce();
+  const second = await runOnce();
+  const s1 = first.job.result?.segments;
+  const s2 = second.job.result?.segments;
+  assert(first.job.result?.mode === "segments", `1st mode ${first.job.result?.mode}`);
+  assert(s1 && s1.total >= 1, `1st segments ${JSON.stringify(s1)}`);
+  assert(
+    s2 && s2.total === s1.total && s2.cached === s2.total && s2.rendered === 0,
+    `2nd segments ${JSON.stringify(s2)}`,
+  );
+  assert(
+    second.messages.some((m) => m.includes(`bloques (${s2.total} en caché)`)),
+    `no "N/M bloques (K en caché)" progress: ${second.messages.join(" | ")}`,
+  );
+  const local = await download(second.job.result.path, "bloques-2.mp4");
+  const f = await ffprobe(local);
+  assert(near(+f.format.duration, 6, 0.15), `2nd duration ${f.format.duration}`);
+  return { first: s1, second: s2, wall1: fmt(first.ms), wall2: fmt(second.ms) };
+});
+
 /** Pixels of a frame region brighter than `min` (gray, scaled to `w` px wide). */
 async function brightPixels(file, at, { w = 320, min = 170, region } = {}) {
   const probe = await ffprobe(file);

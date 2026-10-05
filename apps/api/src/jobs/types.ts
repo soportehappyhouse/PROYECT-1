@@ -58,8 +58,8 @@ export interface JobStore {
   recoverInterrupted(maxAttempts?: number): number;
 }
 
-/** Execution lanes; each lane has its own concurrency limit. */
-export type JobLane = "ffmpeg" | "motion" | "workers";
+/** Execution lanes; each lane has its own concurrency limit ("edit": quick project edits). */
+export type JobLane = "ffmpeg" | "motion" | "workers" | "edit";
 
 export interface JobContext {
   jobId: string;

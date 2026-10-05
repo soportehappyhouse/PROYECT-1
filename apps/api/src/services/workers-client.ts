@@ -1,6 +1,21 @@
 import {
   buildRoute,
+  GpuStatusSchema,
   ModelDownloadResultSchema,
+  PACK_REQUIRED,
+  PackSchema,
+  PackTaskSchema,
+  SceneListSchema,
+  SilenceCutsSchema,
+  WORKER_AI_ROUTES,
+  WorkerTaskAcceptedSchema,
+  type GpuStatus,
+  type Pack,
+  type PackRequiredBody,
+  type PackTask,
+  type SceneList,
+  type SilenceCuts,
+  type WorkerTaskAccepted,
   RvcModelSchema,
   TranscriptWithFilesSchema,
   TtsProviderInfoSchema,
@@ -46,6 +61,21 @@ const TtsResultSchema = z.object({
   wavPath: z.string().nullish(),
   sampleRate: z.number().int().nullish(),
 });
+const DenoiseResultSchema = z.object({
+  path: z.string(),
+  warnings: z.array(z.string()).optional(),
+});
+
+/** Workers POST /analyze/silences body (snake_case, contract). Times in source seconds. */
+export interface WorkerSilencesRequest {
+  path: string;
+  min_silence_ms?: number;
+  noise_db?: number;
+  padding_ms?: number;
+  fillers?: boolean;
+  transcript?: { words: { w: string; s: number; e: number }[] };
+}
+
 const RvcResultSchema = z.object({
   path: z.string(),
   durationSec: z.number().nonnegative().nullish(),
@@ -64,6 +94,54 @@ export interface WorkersClient {
   rvcConvert(req: RvcCall, opts?: WorkerCallOptions): Promise<z.infer<typeof RvcResultSchema>>;
   downloadModel(req: ModelDownloadRequest, opts?: WorkerCallOptions): Promise<ModelDownloadResult>;
   jobProgress(jobId: string): Promise<WorkerJobProgress | undefined>;
+  // ---- Sprint 1 (WORKER_AI_ROUTES) ----
+  gpuStatus(): Promise<GpuStatus>;
+  gpuRelease(): Promise<unknown>;
+  packs(): Promise<Pack[]>;
+  packDownload(packId: string): Promise<WorkerTaskAccepted>;
+  packTask(taskId: string, signal?: AbortSignal): Promise<PackTask>;
+  analyzeScenes(
+    req: { path: string; threshold?: number; min_scene_len_s?: number },
+    opts?: WorkerCallOptions,
+  ): Promise<SceneList>;
+  analyzeSilences(req: WorkerSilencesRequest, opts?: WorkerCallOptions): Promise<SilenceCuts>;
+  audioDenoise(
+    req: { path: string; output_base: string },
+    opts?: WorkerCallOptions,
+  ): Promise<z.infer<typeof DenoiseResultSchema>>;
+  perfRun(): Promise<WorkerTaskAccepted>;
+}
+
+/**
+ * Find a PACK_REQUIRED payload in a workers error body: top level, in FastAPI's `detail`, or in an
+ * `error` object; `code` or `error` may carry the marker and ids may be camel or snake case.
+ */
+export function packRequiredFromBody(json: unknown): PackRequiredBody | undefined {
+  const candidates: unknown[] = [json];
+  if (json && typeof json === "object") {
+    const o = json as Record<string, unknown>;
+    candidates.push(o.detail, o.error, (o.error as Record<string, unknown> | undefined)?.details);
+  }
+  for (const c of candidates) {
+    if (!c || typeof c !== "object") continue;
+    const o = c as Record<string, unknown>;
+    if (o.error !== PACK_REQUIRED && o.code !== PACK_REQUIRED) continue;
+    const details = (o.details && typeof o.details === "object" ? o.details : o) as Record<
+      string,
+      unknown
+    >;
+    const packId = details.packId ?? details.pack_id ?? o.packId ?? o.pack_id;
+    if (typeof packId !== "string") continue;
+    const name = details.name_es ?? details.nameEs ?? o.name_es;
+    const size = Number(details.size_bytes ?? details.sizeBytes ?? o.size_bytes ?? 0);
+    return {
+      error: PACK_REQUIRED,
+      packId,
+      name_es: typeof name === "string" ? name : packId,
+      size_bytes: Number.isFinite(size) ? size : 0,
+    };
+  }
+  return undefined;
 }
 
 /** Non-2xx answer (or network failure) from the workers service. */
@@ -72,6 +150,8 @@ export class WorkersError extends Error {
     message: string,
     readonly statusCode: number,
     readonly code: string,
+    /** Set when the workers answered PACK_REQUIRED (code is then "PACK_REQUIRED"). */
+    readonly packRequired?: PackRequiredBody,
   ) {
     super(message);
     this.name = "WorkersError";
@@ -199,6 +279,8 @@ export function createWorkersClient(baseUrl: string): WorkersClient {
           : detail.detail !== undefined
             ? JSON.stringify(detail.detail)
             : res.text.slice(0, 300) || `HTTP ${res.status}`;
+      const pack = packRequiredFromBody(json);
+      if (pack) throw new WorkersError(message, res.status, PACK_REQUIRED, pack);
       throw new WorkersError(message, res.status, detail.code ?? `WORKERS_HTTP_${res.status}`);
     }
     return schema.parse(stripNulls(json));
@@ -267,6 +349,31 @@ export function createWorkersClient(baseUrl: string): WorkersClient {
         opts?.signal,
         true,
       ),
+    gpuStatus: () => call("GET", WORKER_AI_ROUTES.gpuStatus, GpuStatusSchema),
+    gpuRelease: () => call("POST", WORKER_AI_ROUTES.gpuRelease, z.unknown()),
+    packs: () => call("GET", WORKER_AI_ROUTES.packs, z.array(PackSchema)),
+    packDownload: (packId) =>
+      call(
+        "POST",
+        buildRoute(WORKER_AI_ROUTES.packDownload, { id: packId }),
+        WorkerTaskAcceptedSchema,
+        {},
+      ),
+    packTask: (taskId, signal) =>
+      call(
+        "GET",
+        buildRoute(WORKER_AI_ROUTES.packTask, { id: taskId }),
+        PackTaskSchema,
+        undefined,
+        signal ? AbortSignal.any([signal, AbortSignal.timeout(SHORT_TIMEOUT_MS)]) : undefined,
+      ),
+    analyzeScenes: (req, opts) =>
+      call("POST", WORKER_AI_ROUTES.analyzeScenes, SceneListSchema, req, opts?.signal, true),
+    analyzeSilences: (req, opts) =>
+      call("POST", WORKER_AI_ROUTES.analyzeSilences, SilenceCutsSchema, req, opts?.signal, true),
+    audioDenoise: (req, opts) =>
+      call("POST", WORKER_AI_ROUTES.audioDenoise, DenoiseResultSchema, req, opts?.signal, true),
+    perfRun: () => call("POST", WORKER_AI_ROUTES.perfRun, WorkerTaskAcceptedSchema, {}),
     async jobProgress(jobId) {
       try {
         return await call(

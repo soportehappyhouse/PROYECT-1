@@ -39,6 +39,12 @@ export const JOB_TYPE_LABELS_ES: Record<Job["type"], string> = {
   "voice.rvc": "Conversión RVC",
   "subtitles.transcribe": "Transcripción",
   "project.export": "Exportación",
+  "packs.download": "Descarga de paquete IA",
+  "analyze.scenes": "Detección de escenas",
+  "analyze.silences": "Análisis de silencios",
+  "timeline.apply-cuts": "Aplicar cortes",
+  "audio.denoise": "Limpieza de voz",
+  "perf.run": "Test de rendimiento IA",
 };
 
 const PROMPT_JOBS = 3;

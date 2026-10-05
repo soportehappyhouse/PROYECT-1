@@ -50,6 +50,16 @@ export const API_ROUTES = {
   jobDiagnostics: "/api/jobs/:id/diagnostics", // GET JobDiagnostics (commands, stderr tail, timings)
   reports: "/api/reports", // GET ReportSummary[] | POST CreateReportRequest -> CreateReportResponse
   reportDownload: "/api/reports/:id/download", // GET the report .zip
+  aiGpu: "/api/ai/gpu", // GET GpuStatus (proxy of workers /gpu/status)
+  aiGpuRelease: "/api/ai/gpu/release", // POST -> GpuStatus after releasing the resident model
+  aiPacks: "/api/ai/packs", // GET Pack[]
+  aiPackDownload: "/api/ai/packs/:id/download", // POST -> JobAccepted (job packs.download)
+  aiAnalyzeScenes: "/api/ai/analyze/scenes", // POST AnalyzeScenesRequest -> JobAccepted
+  aiAnalyzeSilences: "/api/ai/analyze/silences", // POST AnalyzeSilencesRequest -> JobAccepted
+  aiApplyCuts: "/api/ai/timeline/apply-cuts", // POST ApplyCutsRequest -> JobAccepted
+  aiDenoise: "/api/ai/audio/denoise", // POST DenoiseRequest -> JobAccepted
+  aiPerf: "/api/ai/perf", // GET last PerfResult (404 = never ran) | POST -> JobAccepted (perf.run)
+  aiPerfRun: "/api/ai/perf/run", // POST -> JobAccepted (perf.run), alias of POST aiPerf
   files: "/files/*", // GET static files from STORAGE_DIR (renders/exports/proxies)
 } as const;
 export type ApiRouteKey = keyof typeof API_ROUTES;

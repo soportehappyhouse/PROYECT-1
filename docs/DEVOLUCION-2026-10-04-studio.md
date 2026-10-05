@@ -84,3 +84,13 @@
 
 ## Pendiente para la PC real
 Whisper turbo, DeepFilterNet, NVENC por bloques y los tiempos reales. Primera corrida: `actualizar.cmd` (cambia a CUDA solo, ~2,5 GB una vez) → `doctor.cmd` → Ajustes → Paquetes de IA → Test de rendimiento.
+
+## Medido en la PC del usuario (RTX 4050 Laptop, 2026-10-05 14:59)
+| Métrica | Valor | Estimación |
+|---|---|---|
+| Whisper large-v3-turbo (GPU) | 5,65 s por minuto de audio | 10 min ≈ 57 s |
+| Piper (CPU) | 7,38 s por 100 caracteres | 1000 caracteres ≈ 1 min 14 s |
+| Detección de escenas | 330 fps | 10 min a 30 fps ≈ 55 s |
+| Respaldo en CPU | Funciona | — |
+| Paquetes | 6/6 instalados (2,5 GB) | `actualizar.cmd` cambió a CUDA correctamente |
+RVC sin medir: no hay modelos de voz en `models/rvc/`. Criterio 2a (silencios < 30 s/min) ✅ con margen amplio.

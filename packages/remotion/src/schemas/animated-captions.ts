@@ -1,5 +1,13 @@
 import { z } from "zod";
-import { color, fontFamily, fontWeight, mediaSrc, SafeAreaSchema, background } from "./common.js";
+import {
+  color,
+  fontFamily,
+  fontWeight,
+  mediaSrc,
+  SafeAreaSchema,
+  background,
+  trackProps,
+} from "./common.js";
 
 /** x/y/width/height in % of the composition. */
 export const VideoRectSchema = z
@@ -108,5 +116,7 @@ export const animatedCaptionsSchema = z.object({
   videoRect: VideoRectSchema.optional(),
   videoSrc: mediaSrc("Video de fondo"),
   background: background("transparent"),
+  /** Sprint 2: follow a track (each caption page is centered on the anchor point + offset). */
+  ...trackProps,
 });
 export type AnimatedCaptionsProps = z.infer<typeof animatedCaptionsSchema>;

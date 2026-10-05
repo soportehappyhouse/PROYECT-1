@@ -113,6 +113,21 @@ function inferFromValue(key: string, value: unknown): FormField {
   return { ...base, kind: "json" };
 }
 
+/**
+ * Props the api fills (packages/remotion INTERNAL_PROP = "x-internal", e.g. `track`,
+ * `trackAnchor`, `trackOffset` from the clip's trackRef) are not form fields. Their values in
+ * the clip's props are kept untouched.
+ */
+export function isInternalProp(schema: unknown): boolean {
+  const s = schema as (JsonSchemaLike & { "x-internal"?: unknown }) | undefined;
+  return (
+    s?.["x-internal"] === true ||
+    (s?.anyOf ?? s?.oneOf ?? []).some(
+      (v) => (v as { "x-internal"?: unknown })["x-internal"] === true,
+    )
+  );
+}
+
 /** Fields from the JSON Schema when present, otherwise inferred from the default props. */
 export function fieldsFromSchema(
   propsSchema: unknown,
@@ -121,9 +136,9 @@ export function fieldsFromSchema(
   if (isObject(propsSchema) && isObject(propsSchema.properties)) {
     const schema = propsSchema as JsonSchemaLike;
     const required = new Set(schema.required ?? []);
-    return Object.entries(schema.properties ?? {}).map(([key, s]) =>
-      fieldFor(key, s, required.has(key), defaultProps[key]),
-    );
+    return Object.entries(schema.properties ?? {})
+      .filter(([, s]) => !isInternalProp(s))
+      .map(([key, s]) => fieldFor(key, s, required.has(key), defaultProps[key]));
   }
   return Object.entries(defaultProps).map(([key, value]) => inferFromValue(key, value));
 }

@@ -7,6 +7,8 @@ from .downloads import DownloadError
 from .media import FfmpegNotFoundError
 from .packs import PackRequiredError
 from .tts.providers import ProviderNotConfiguredError, VoiceNotInstalledError
+from .vision.gpl import GplProcessError
+from .vision.sam import SessionBusyError
 
 
 class NotFoundError(LookupError):
@@ -24,6 +26,8 @@ _MAP: list[tuple[type[Exception], int, str]] = [
     (ProviderNotConfiguredError, 409, "PROVIDER_NOT_CONFIGURED"),
     (DependencyMissingError, 503, "DEPENDENCY_MISSING"),
     (FfmpegNotFoundError, 503, "FFMPEG_NOT_FOUND"),
+    (SessionBusyError, 409, "SESSION_BUSY"),
+    (GplProcessError, 500, "GPL_PROCESS_FAILED"),
     (DownloadError, 502, "DOWNLOAD_FAILED"),
     (ValueError, 400, "BAD_REQUEST"),
 ]

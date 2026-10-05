@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { color, fontFamily, text } from "./common.js";
+import { color, fontFamily, text, trackProps } from "./common.js";
 
 export const LOWER_THIRD_STYLES = ["bar", "box", "underline", "split"] as const;
 export const LOWER_THIRD_POSITIONS = [
@@ -28,5 +28,7 @@ export const lowerThirdSchema = z.object({
   textColor: color("Color del nombre").default("#ffffff"),
   roleColor: color("Color del cargo").default("#e4e4e7"),
   boxColor: color("Color de la caja").default("rgba(0,0,0,0.75)"),
+  /** Sprint 2: follow a track (the card's center goes to the anchor point + offset). */
+  ...trackProps,
 });
 export type LowerThirdProps = z.infer<typeof lowerThirdSchema>;

@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runAction } from "@/components/dashboard/actions";
 import { MediaPanel } from "@/components/panels/MediaPanel";
 import { PreviewPanel } from "@/components/panels/PreviewPanel";
+import { composeAt } from "@/lib/compositor";
+import { usePreviewStore } from "@/stores/preview-store";
 import { VoicePanel } from "@/components/panels/VoicePanel";
 import { Button } from "@/components/ui/button";
 import { api, ApiRequestError } from "@/lib/api";
@@ -141,6 +143,16 @@ describe("feedback 2/4: preview subtitles", () => {
   it("draws the segment once, inside the pillarboxed video", () => {
     withSubs(false);
     useProjectStore.getState().setPlayhead(1);
+    // Sprint 2: the multilayer preview draws captions on the canvas (same rect, checked through
+    // composeAt); the DOM check runs on the «Vista previa clásica».
+    const comp = composeAt({
+      project: useProjectStore.getState().project,
+      assets: useMediaStore.getState().assets,
+      time: 1,
+    });
+    expect((comp.subtitle!.rect.x / 1920) * 100).toBeCloseTo(34.2, 0);
+    expect((comp.subtitle!.rect.width / 1920) * 100).toBeCloseTo(31.6, 0);
+    usePreviewStore.setState({ classic: true });
     render(<PreviewPanel />);
     const text = screen.getByText("Hola desde WhatsApp");
     const box = text.closest("div")!;
@@ -152,6 +164,13 @@ describe("feedback 2/4: preview subtitles", () => {
   it("does not draw it under an animated-captions clip (no duplicates)", () => {
     withSubs(true);
     useProjectStore.getState().setPlayhead(1);
+    const comp = composeAt({
+      project: useProjectStore.getState().project,
+      assets: useMediaStore.getState().assets,
+      time: 1,
+    });
+    expect(comp.subtitle).toBeUndefined();
+    usePreviewStore.setState({ classic: true });
     render(<PreviewPanel />);
     expect(screen.queryByText("Hola desde WhatsApp")).toBeNull();
     // even when «Quemar subtítulos» is forced on, like the export

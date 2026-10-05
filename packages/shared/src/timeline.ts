@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { PublishSettingsSchema } from "./ai.js";
+import { ClipKeyframesSchema } from "./keyframes.js";
 import { IdSchema, SecondsSchema, TimestampSchema } from "./common.js";
 import { MotionSpecSchema } from "./motion.js";
 import { CaptionStyleSchema, SubtitleSegmentSchema } from "./subtitles.js";
+import { ClipMatteSchema, ProjectReframeSchema, TrackRefSchema } from "./vision.js";
 import { VoiceEffectSchema } from "./voice.js";
 
 export const TrackKindSchema = z.enum(["video", "audio", "text", "motion"]);
@@ -71,6 +73,15 @@ export const ClipSchema = z.object({
   renderedAssetId: IdSchema.optional(),
   /** Audio effects chain applied on export. */
   voiceEffects: z.array(VoiceEffectSchema).default([]),
+  /**
+   * Sprint 2: animated properties (see keyframes.ts). When a property has keyframes they win over
+   * the fixed `position` / `scale` / `opacity` / `crop`.
+   */
+  keyframes: ClipKeyframesSchema.optional(),
+  /** Sprint 2: follow a track (asset kind "track"); derived at export/preview time. */
+  trackRef: TrackRefSchema.optional(),
+  /** Sprint 2: cut-out (alpha WebM of the same source) drawn over `matte.background`. */
+  matte: ClipMatteSchema.optional(),
 });
 export type Clip = z.infer<typeof ClipSchema>;
 export type ClipInput = z.input<typeof ClipSchema>;
@@ -110,6 +121,8 @@ export const ProjectSchema = z.object({
   burnSubtitles: z.boolean().optional(),
   /** "Revisión para redes" + optional burned AI label (Sprint 1). */
   publish: PublishSettingsSchema.optional(),
+  /** Sprint 2: crop keyframes for vertical/square exports (replaces the blurred background). */
+  reframe: ProjectReframeSchema.optional(),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
 });

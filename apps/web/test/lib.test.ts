@@ -167,6 +167,19 @@ describe("motion template form", () => {
     expect(fields[2]).toMatchObject({ min: 10, max: 200, step: 1 });
   });
 
+  it("hides props the api fills (x-internal: track, trackAnchor, trackOffset)", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        track: { type: "object", "x-internal": true },
+        trackAnchor: { type: "string", enum: ["center"], "x-internal": true },
+        trackOffset: { anyOf: [{ type: "object", "x-internal": true }, { type: "null" }] },
+      },
+    };
+    expect(fieldsFromSchema(schema).map((f) => f.key)).toEqual(["title"]);
+  });
+
   it("falls back to inferring from default props", () => {
     const fields = fieldsFromSchema(undefined, {
       text: "Hola",

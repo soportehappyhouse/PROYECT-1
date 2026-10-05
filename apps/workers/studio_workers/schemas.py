@@ -65,6 +65,8 @@ class WorkerHealth(CamelModel):
     # Sprint 1: GET /gpu/status payload (snake_case) and {packId: installed|partial|missing}.
     gpu: dict[str, Any] | None = None
     packs: dict[str, str] | None = None
+    # Sprint 2: {"gpl_venv": ready|stale|missing, "packs": {matting, matting-image, sam2, reframe}}
+    vision: dict[str, Any] | None = None
 
 
 # ---------------------------------------------------------------- jobs / progress
@@ -278,3 +280,78 @@ class DenoiseRequest(SnakeModel):
     path: str
     output_base: str
     format: Literal["wav", "mp3"] | None = None
+
+
+# ---------------------------------------------------------------- sprint 2 (vision, snake_case)
+# Coordinates (bbox, points): pixels of the source frame, or normalized 0..1 when every value is
+# <= 1 (or `normalized: true`). frame / frame_range: frame indexes of the source, inclusive.
+
+
+class BBox(SnakeModel):
+    x: float = Field(ge=0)
+    y: float = Field(ge=0)
+    w: float = Field(gt=0)
+    h: float = Field(gt=0)
+
+
+class MatteRequest(SnakeModel):
+    path: str
+    model: Literal["rvm", "birefnet"] = "rvm"
+    output_base: str
+    downsample: float | None = Field(default=None, ge=0.25, le=1.0)
+    chunk_frames: int = Field(default=300, ge=10, le=3000)
+
+
+class MatteImageRequest(SnakeModel):
+    path: str
+    output_base: str
+
+
+class SamSessionRequest(SnakeModel):
+    path: str
+    frame_range: tuple[int, int] | None = None
+    asset_id: str = ""
+
+
+class SamPoint(SnakeModel):
+    x: float
+    y: float
+    label: Literal[0, 1] = 1
+
+
+class SamPointsRequest(SnakeModel):
+    frame: int = Field(ge=0)
+    points: list[SamPoint] = Field(min_length=1)
+    obj_id: int = Field(default=1, ge=0)
+    normalized: bool | None = None
+    # additive: true = these points replace the previous clicks of this frame/object
+    replace: bool = False
+
+
+class SamPropagateRequest(SnakeModel):
+    chunk_frames: int = Field(default=200, ge=10, le=600)
+    alpha: bool = True
+
+
+class TrackRequest(SnakeModel):
+    path: str
+    bbox: BBox | None = None
+    mask_png: str | None = None
+    method: Literal["sam2", "csrt"] = "csrt"
+    frame_range: tuple[int, int] | None = None
+    asset_id: str = ""
+    smoothing: bool = True
+    output_base: str | None = None
+
+
+class SceneSpan(SnakeModel):
+    start: float = Field(ge=0)
+    end: float = Field(gt=0)
+
+
+class ReframeRequest(SnakeModel):
+    path: str
+    target: Literal["9:16", "1:1", "4:5"] = "9:16"
+    scenes: list[SceneSpan] | None = None
+    subject: Literal["face", "track"] = "face"
+    track_path: str | None = None

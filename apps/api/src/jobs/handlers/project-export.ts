@@ -13,6 +13,7 @@ import { presetEncoding } from "../../services/ffmpeg/encoders.js";
 import { exportBlockersMessage, findExportBlockers } from "../../services/ffmpeg/timeline.js";
 import type { TimelineAsset } from "../../services/ffmpeg.js";
 import { fileStamp, slugify } from "../../services/media-files.js";
+import { loadTrackFiles } from "../../services/vision-assets.js";
 import { storageRelative } from "../../services/storage.js";
 import type { JobHandler } from "../types.js";
 import { absPath, checkAborted, jobTmpDir } from "./util.js";
@@ -58,15 +59,25 @@ export function createProjectExportHandler(
       if (blocked) throw new Error(blocked);
       ctx.reportProgress(0.01, "Preparando exportación");
       const ids = new Set<string>();
+      const trackIds = new Set<string>();
       for (const t of project.tracks)
         for (const c of t.clips) {
           if (c.assetId) ids.add(c.assetId);
           if (c.renderedAssetId) ids.add(c.renderedAssetId);
+          // Sprint 2: cut-out alpha + its background media, tracks followed by the clip.
+          if (c.matte) {
+            ids.add(c.matte.assetId);
+            const bg = c.matte.background;
+            if (bg?.value && (bg.type === "image" || bg.type === "video")) ids.add(bg.value);
+          }
+          if (c.trackRef) trackIds.add(c.trackRef.assetId);
         }
+      const tracks = await loadTrackFiles(app, trackIds, (w) => ctx.log(`AVISO: ${w}`));
+      for (const tf of tracks.values()) ids.add(tf.source.assetId); // media size for the mapping
       const assets = new Map<string, TimelineAsset>();
       for (const id of ids) {
         let a = app.repos.media.get(id);
-        if (!a) continue;
+        if (!a || a.kind === "track" || a.kind === "mask") continue;
         if (a.hasVideo === undefined || a.hasAudio === undefined) {
           const info = await app.ffmpeg.probe(absPath(app, a.path), ctx.signal);
           a = app.repos.media.update(id, {
@@ -116,6 +127,7 @@ export function createProjectExportHandler(
             workDir: tmp.dir,
             encoder,
             ...(req.range && { range: req.range }),
+            ...(tracks.size > 0 && { tracks }),
             ...(req.burnSubtitles !== undefined && { burnSubtitles: req.burnSubtitles }),
             ...(req.useSegmentCache !== false && {
               segmentCache: {

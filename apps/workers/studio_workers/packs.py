@@ -15,16 +15,19 @@ Sizes marked approximate come from the research doc [S]; exact sizes are verifie
 
 from __future__ import annotations
 
+import contextlib
 import importlib
 import json
 import logging
+import os
 import shutil
 import subprocess
 import sys
 import threading
 import zipfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from importlib import metadata
 from importlib.util import find_spec
 from pathlib import Path
 from typing import Any
@@ -94,6 +97,15 @@ class PipReq:
     size: int  # wheel size (win_amd64 cp311 on PyPI [V]) or estimate
     no_deps: bool = False
     only_if_missing: bool = False  # e.g. torch: skip when the venv already has it
+    cuda_spec: str | None = None  # installed instead of `spec` when USE_CUDA=true
+    extra_args: tuple[str, ...] = ()  # e.g. --no-build-isolation
+    env: tuple[tuple[str, str], ...] = ()  # environment for that pip run (SAM2_BUILD_CUDA=0)
+    # Distribution names (importlib.metadata) behind `module` for the CPU / CUDA builds: both
+    # onnxruntime and onnxruntime-gpu install the module `onnxruntime`, so "importable" does not
+    # say which one is there (piper-tts / faster-whisper pull the CPU build).
+    cpu_dist: str | None = None
+    cuda_dist: str | None = None
+    needs_git: bool = False  # `git+https://...` spec: pip needs git on PATH
 
 
 @dataclass(frozen=True)
@@ -110,6 +122,10 @@ class Pack:
     post_install: Callable[[Path], None] | None = None
     installed_check: Callable[[Path], bool] | None = None
     notes: str = ""
+    # Sprint 2: extra environment set up after the files (matting -> .venv-gpl), with log lines,
+    # and the status rows it contributes to GET /packs.
+    post_install_env: Callable[[Path, Callable[[str], None]], None] | None = None
+    extra_status: Callable[[Path], list[dict[str, Any]]] | None = None
 
     def build_items(
         self, root: Path, catalog: dict | None = None, downloader: WhisperDownloader | None = None
@@ -194,6 +210,139 @@ def _deepfilter_ready(root: Path) -> bool:
     return (d / "config.ini").is_file() or (
         root / "deepfilter" / f"{DEEPFILTER_MODEL}.zip"
     ).is_file()
+
+
+# ----------------------------------------------------------------------- sprint 2 vision packs
+# RVM, BiRefNet and YuNet: exact size + sha256 [V] (measured 2026-10-05). SAM 2.1 (fbaipublicfiles,
+# blocked in the build sandbox) keeps min_bytes; its first download records size + sha256 in
+# models/manifest.json and later checks compare against them (pack_integrity: "first-download").
+
+RVM_RELEASE = "https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0"
+RVM_FILES = {  # name -> exact size [V] (github release v1.0.0, measured 2026-10-05)
+    "rvm_mobilenetv3_fp16.torchscript": 7_952_067,
+    "rvm_mobilenetv3_fp32.torchscript": 15_501_891,
+}
+RVM_SHA256 = {  # [V] sha256 of the release assets, measured 2026-10-05
+    "rvm_mobilenetv3_fp16.torchscript": (
+        "847a8b5139498afbf7abde9cc347b41030540f6498db593a0e3d9dde1eccdd96"
+    ),
+    "rvm_mobilenetv3_fp32.torchscript": (
+        "f01e0c9338b9a6a31b881ea6d4360d70c1e549701b3792e14c9ed88d6196c5a1"
+    ),
+}
+BIREFNET_URL = (
+    "https://github.com/danielgatis/rembg/releases/download/v0.0.0/"
+    "BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx"
+)
+# BiRefNet-general-lite (backbone swin_v1_tiny) exported to ONNX and re-hosted by rembg (the
+# official ZhengPeng7/BiRefNet releases publish .pth weights): size + sha256 [V] 2026-10-05.
+BIREFNET_SIZE = 224_005_088
+BIREFNET_SHA256 = "5600024376f572a557870a5eb0afb1e5961636bef4e1e22132025467d0f03333"
+SAM2_BASE = "https://dl.fbaipublicfiles.com/segment_anything_2/092824"
+# [S] sizes; dl.fbaipublicfiles.com is blocked in the build sandbox (403): no published sha256, so
+# the first download records size + sha256 in models/manifest.json (trust on first download) and
+# later checks compare against it; doctor shows "verificacion pendiente de primera descarga".
+SAM2_FILES = {"sam2.1_hiera_tiny.pt": 156_000_000, "sam2.1_hiera_small.pt": 184_000_000}
+# facebookresearch/sam2 has no release tags: pin the main HEAD commit [V git ls-remote 2026-10-05]
+# (2024-12-15, setup.py VERSION 1.0, SAM 2.1 code + 12/11/2024 SAM2VideoPredictor update).
+SAM2_COMMIT = "2b90b9f5ceec907a1c18123530e92e794ad901a4"
+SAM2_GIT = f"SAM-2 @ git+https://github.com/facebookresearch/sam2.git@{SAM2_COMMIT}"
+GIT_MISSING_ES = (
+    "Falta Git para instalar SAM 2 desde GitHub. Instalá Git (winget install Git.Git) y reintentá"
+)
+ORT_VERSION = "1.24.4"  # CUDA 12.x + cuDNN 9 build on PyPI (docs/INVESTIGACION-IA-LOCAL.md)
+YUNET_URL = (
+    "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/"
+    "face_detection_yunet/face_detection_yunet_2023mar.onnx"
+)
+YUNET_SIZE = 232_589  # [V] measured 2026-10-05 (git LFS object)
+YUNET_SHA256 = "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"
+OPENCV_HEADLESS = PipReq("opencv-python-headless==4.11.0.86", "cv2", 39_402_386)
+NUMPY = PipReq("numpy", "numpy", 12_000_000, only_if_missing=True)
+GPL_VENV_SHARED_SIZE = 25_000_000  # numpy + pip metadata when torch is shared with .venv
+GPL_VENV_TORCH_SIZE = 220_000_000  # torch CPU wheel when the main .venv has no torch
+
+
+def _rvm_items(root: Path, _catalog: dict | None) -> list[Item]:
+    return [
+        FileItem(
+            "matting:rvm",
+            name,
+            f"matting/{name}",
+            f"{RVM_RELEASE}/{name}",
+            Expected(size_bytes=size, sha256=RVM_SHA256[name]),
+        )
+        for name, size in RVM_FILES.items()
+    ]
+
+
+def _birefnet_items(root: Path, _catalog: dict | None) -> list[Item]:
+    name = BIREFNET_URL.rsplit("/", 1)[-1]
+    return [
+        FileItem(
+            "matting-image:birefnet-lite",
+            name,
+            f"birefnet/{name}",
+            BIREFNET_URL,
+            Expected(size_bytes=BIREFNET_SIZE, sha256=BIREFNET_SHA256),
+        )
+    ]
+
+
+def _sam2_items(root: Path, _catalog: dict | None) -> list[Item]:
+    return [
+        FileItem(
+            "sam2:checkpoints",
+            name,
+            f"sam2/{name}",
+            f"{SAM2_BASE}/{name}",
+            Expected(min_bytes=100_000_000),
+        )  # fmt: skip
+        for name in SAM2_FILES
+    ]
+
+
+def _yunet_items(root: Path, _catalog: dict | None) -> list[Item]:
+    name = YUNET_URL.rsplit("/", 1)[-1]
+    return [
+        FileItem(
+            "reframe:yunet",
+            name,
+            f"yunet/{name}",
+            YUNET_URL,
+            Expected(size_bytes=YUNET_SIZE, sha256=YUNET_SHA256),
+        )
+    ]
+
+
+def _gpl_venv_dir() -> Path:
+    from .config import get_settings  # noqa: PLC0415
+    from .vision.gpl import default_venv_dir  # noqa: PLC0415
+
+    custom = get_settings().gpl_venv_dir
+    return Path(custom) if custom else default_venv_dir()
+
+
+def _gpl_status_rows(_root: Path) -> list[dict[str, Any]]:
+    from .config import get_settings  # noqa: PLC0415
+    from .vision.gpl import status  # noqa: PLC0415
+
+    st = status(_gpl_venv_dir(), get_settings().gpl_python)
+    size = GPL_VENV_SHARED_SIZE if module_present("torch") else GPL_VENV_TORCH_SIZE
+    return [
+        {"name": "venv:.venv-gpl (torch, numpy)", "size": size, "present": st["state"] == "ready"}
+    ]
+
+
+def _gpl_setup(_root: Path, say: Callable[[str], None]) -> None:
+    from .config import get_settings  # noqa: PLC0415
+    from .vision.gpl import ensure_venv  # noqa: PLC0415
+
+    settings = get_settings()
+    if settings.gpl_python:
+        say(f"GPL_PYTHON={settings.gpl_python}: no se crea .venv-gpl")
+        return
+    ensure_venv(_gpl_venv_dir(), use_cuda=settings.use_cuda, on_line=say)
 
 
 # ------------------------------------------------------------------------------------ registry
@@ -296,6 +445,106 @@ PACKS: dict[str, Pack] = {
             installed_check=_deepfilter_ready,
             notes="Pesos DeepFilterNet3.zip del repo oficial (tamaño y sha256 verificados)",
         ),
+        Pack(
+            id="matting",
+            name_es="Recorte de personas en video (RobustVideoMatting)",
+            description_es=(
+                "Quita el fondo de personas en video con memoria temporal (sin parpadeo). Corre en "
+                "un proceso y entorno aparte (.venv-gpl) por su licencia GPL-3."
+            ),
+            group="vision",
+            license="GPL-3.0 (RobustVideoMatting; aislado en .venv-gpl, proceso aparte)",
+            required_by=("vision.matte.rvm",),
+            approx_size=sum(RVM_FILES.values()) + GPL_VENV_SHARED_SIZE,
+            items=_rvm_items,
+            post_install_env=_gpl_setup,
+            extra_status=_gpl_status_rows,
+            notes="TorchScript mobilenetv3 fp16 (GPU) + fp32 (CPU), release v1.0.0 [V sha256]",
+        ),
+        Pack(
+            id="matting-image",
+            name_es="Quitar fondo de imágenes (BiRefNet-lite)",
+            description_es=(
+                "Recorte de alta calidad para fotos y miniaturas (pelo, bordes). En video procesa "
+                "cuadro a cuadro (puede parpadear: para personas usá el recorte de video)."
+            ),
+            group="vision",
+            license="MIT (BiRefNet) + MIT (onnxruntime) + Apache-2.0 (OpenCV)",
+            required_by=("vision.matte.birefnet", "vision.matte-image"),
+            pip=(
+                NUMPY,
+                OPENCV_HEADLESS,
+                PipReq(
+                    f"onnxruntime=={ORT_VERSION}",
+                    "onnxruntime",
+                    12_594_863,
+                    cuda_spec=f"onnxruntime-gpu=={ORT_VERSION}",
+                    cpu_dist="onnxruntime",
+                    cuda_dist="onnxruntime-gpu",
+                ),
+            ),
+            approx_size=BIREFNET_SIZE + 12_594_863 + OPENCV_HEADLESS.size,
+            items=_birefnet_items,
+            notes=(
+                "BiRefNet-general-lite swin_v1_tiny ONNX re-host de rembg (tamano y sha256 "
+                "verificados); GPU: onnxruntime-gpu 1.24.4 (CUDA 12) reemplaza a onnxruntime"
+            ),
+        ),
+        Pack(
+            id="sam2",
+            name_es="Máscara por clic en video (SAM 2.1 tiny + small)",
+            description_es=(
+                "Clic sobre cualquier objeto y su máscara se propaga por el video (por tramos de "
+                "200 cuadros). tiny por defecto; small si la GPU tiene más de 3 GB libres."
+            ),
+            group="vision",
+            license="Apache-2.0 (SAM 2.1 código y pesos)",
+            required_by=("vision.sam", "vision.track.sam2"),
+            pip=(
+                PipReq("torch==2.7.1", "torch", 220_000_000, only_if_missing=True),
+                PipReq("torchvision==0.22.1", "torchvision", 1_700_000, only_if_missing=True),
+                NUMPY,
+                PipReq("hydra-core>=1.3.2", "hydra", 168_790),
+                PipReq("iopath>=0.1.10", "iopath", 42_226),
+                PipReq("pillow>=9.4.0", "PIL", 2_700_000),
+                PipReq("tqdm", "tqdm", 80_199),
+                # --no-build-isolation builds with the venv's own setuptools/wheel (+ torch).
+                PipReq("setuptools>=61,<=80.6.0", "setuptools", 1_200_000, only_if_missing=True),
+                PipReq("wheel", "wheel", 72_000, only_if_missing=True),
+                # Official repo (the PyPI "sam2" is not Meta's); no CUDA extension (only a minor
+                # hole-filling post-process is lost) and torch from the venv (no isolated build).
+                PipReq(
+                    SAM2_GIT,
+                    "sam2",
+                    1_500_000,
+                    no_deps=True,
+                    extra_args=("--no-build-isolation",),
+                    env=(("SAM2_BUILD_CUDA", "0"),),
+                    needs_git=True,
+                ),
+            ),
+            approx_size=sum(SAM2_FILES.values()) + 1_500_000 + 168_790 + 42_226 + 2_700_000,
+            items=_sam2_items,
+            notes=(
+                f"Checkpoints 092824 de dl.fbaipublicfiles.com [S tamaños, sha256 en la primera "
+                f"descarga]; sam2 @ {SAM2_COMMIT[:12]}; requiere Git"
+            ),
+        ),
+        Pack(
+            id="reframe",
+            name_es="Reencuadre automático y seguimiento (YuNet + OpenCV)",
+            description_es=(
+                "Detecta caras (YuNet, CPU) para reencuadrar a 9:16/1:1/4:5 y seguir objetos con "
+                "OpenCV. Liviano: funciona bien sin GPU."
+            ),
+            group="vision",
+            license="MIT (YuNet, OpenCV Zoo) + Apache-2.0 (OpenCV)",
+            required_by=("vision.reframe", "vision.track.csrt"),
+            pip=(NUMPY, OPENCV_HEADLESS),
+            approx_size=YUNET_SIZE + OPENCV_HEADLESS.size,
+            items=_yunet_items,
+            notes="face_detection_yunet_2023mar.onnx (tamaño y sha256 verificados)",
+        ),
     )
 }
 
@@ -310,6 +559,61 @@ def module_present(module: str) -> bool:
         return find_spec(module) is not None
     except (ImportError, ValueError):
         return False
+
+
+def dist_installed(name: str) -> bool:
+    """A pip distribution is installed (importlib.metadata: onnxruntime vs onnxruntime-gpu)."""
+    try:
+        metadata.distribution(name)
+    except metadata.PackageNotFoundError:
+        return False
+    return True
+
+
+def dist_version(name: str) -> str | None:
+    try:
+        return metadata.version(name)
+    except metadata.PackageNotFoundError:
+        return None
+
+
+def _use_cuda_setting() -> bool:
+    try:
+        from .config import get_settings  # noqa: PLC0415
+
+        return bool(get_settings().use_cuda)
+    except Exception:  # settings unreadable: CPU semantics
+        return False
+
+
+def cuda_swap_needed(req: PipReq, use_cuda: bool) -> bool:
+    """USE_CUDA=true and the CUDA build of `req` is not the one installed (or the CPU build is
+    installed next to it and shadows its files): uninstall the CPU build, install the CUDA one."""
+    if not (use_cuda and req.cuda_dist):
+        return False
+    if not dist_installed(req.cuda_dist):
+        return True
+    return bool(req.cpu_dist and dist_installed(req.cpu_dist))
+
+
+def git_available() -> bool:
+    return shutil.which("git") is not None
+
+
+def pack_integrity(pack: Pack, root: Path, manifest: Manifest, catalog: dict | None = None) -> str:
+    """How the pack's model files are verified: "pinned" (published size + hash), "first-download"
+    (no published hash: size + sha256 recorded in models/manifest.json at the first download and
+    compared from then on), "pending" (no published hash and not downloaded yet), "none" (no files).
+    """
+    files = [i for i in pack.build_items(root, catalog) if isinstance(i, FileItem)]
+    if not files:
+        return "none"
+    unpinned = [i for i in files if not (i.expected.sha256 or i.expected.md5)]
+    if not unpinned:
+        return "pinned"
+    if all((manifest.get(i.rel) or {}).get("sha256") for i in unpinned):
+        return "first-download"
+    return "pending"
 
 
 def _approx_item_size(item: Item, catalog: dict | None) -> int:
@@ -373,7 +677,16 @@ def _catalog_offline(root: Path) -> dict | None:
     return cached_voices_json(root)
 
 
-def pack_status(pack: Pack, root: Path, catalog: dict | None = None) -> dict[str, Any]:
+def pack_status(
+    pack: Pack,
+    root: Path,
+    catalog: dict | None = None,
+    *,
+    use_cuda: bool | None = None,
+    manifest: Manifest | None = None,
+) -> dict[str, Any]:
+    if use_cuda is None:
+        use_cuda = _use_cuda_setting()
     files: list[dict[str, Any]] = []
     partial = False
     model_files: list[bool] = []
@@ -384,10 +697,16 @@ def pack_status(pack: Pack, root: Path, catalog: dict | None = None) -> dict[str
         files.append({"name": st["name"], "size": st["size"], "present": st["present"]})
     for req in pack.pip:
         present = module_present(req.module)
+        spec = req.spec
+        if use_cuda and req.cuda_spec:  # CUDA machine: only the -gpu build counts as installed
+            spec = req.cuda_spec
+            present = present and not cuda_swap_needed(req, use_cuda)
         if req.only_if_missing and not present:
-            files.append({"name": f"pip:{req.spec}", "size": req.size, "present": False})
+            files.append({"name": f"pip:{spec}", "size": req.size, "present": False})
         elif not req.only_if_missing:
-            files.append({"name": f"pip:{req.spec}", "size": req.size, "present": present})
+            files.append({"name": f"pip:{spec}", "size": req.size, "present": present})
+    if pack.extra_status is not None:
+        files.extend(pack.extra_status(root))
     installed = all(f["present"] for f in files) if files else False
     if installed and pack.installed_check is not None:
         installed = pack.installed_check(root)
@@ -408,12 +727,18 @@ def pack_status(pack: Pack, root: Path, catalog: dict | None = None) -> dict[str
         "required_by": list(pack.required_by),
         "license": pack.license,
         "group": pack.group,
+        # additive: "pinned" | "first-download" | "pending" | "none" (doctor.ps1)
+        "integrity": pack_integrity(pack, root, manifest or Manifest.load(root), catalog),
     }
 
 
 def list_packs(root: Path) -> list[dict[str, Any]]:
     catalog = _catalog_offline(root)
-    return [pack_status(p, root, catalog) for p in PACKS.values()]
+    use_cuda = _use_cuda_setting()
+    manifest = Manifest.load(root)
+    return [
+        pack_status(p, root, catalog, use_cuda=use_cuda, manifest=manifest) for p in PACKS.values()
+    ]
 
 
 def is_installed(pack_id: str, root: Path) -> bool:
@@ -491,7 +816,17 @@ PipRunner = Callable[[list[str], LineFn], int]
 
 
 def pip_command(args: list[str]) -> list[str]:
-    """pip of the running interpreter (the workers .venv); uv when the venv has no pip."""
+    """pip of the running interpreter (the workers .venv); uv when the venv has no pip.
+
+    ``args`` are install arguments, or ``["uninstall", <dist>...]`` for an uninstall.
+    """
+    if args[:1] == ["uninstall"]:
+        if module_present("pip"):
+            return [sys.executable, "-m", "pip", "uninstall", "-y", *args[1:]]
+        uv = shutil.which("uv")
+        if uv:
+            return [uv, "pip", "uninstall", "--python", sys.executable, *args[1:]]
+        raise RuntimeError("pip no esta disponible en el entorno de los workers (setup.ps1)")
     base = ["install", "--disable-pip-version-check", "--progress-bar", "off", *args]
     if module_present("pip"):
         return [sys.executable, "-m", "pip", *base]
@@ -516,6 +851,20 @@ def default_pip_runner(args: list[str], on_line: LineFn) -> int:
     for line in proc.stdout:
         on_line(line)
     return proc.wait()
+
+
+@contextlib.contextmanager
+def _pip_env(pairs: tuple[tuple[str, str], ...]) -> Iterator[None]:
+    old = {k: os.environ.get(k) for k, _ in pairs}
+    os.environ.update(dict(pairs))
+    try:
+        yield
+    finally:
+        for k, v in old.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 
 @dataclass
@@ -563,6 +912,7 @@ def install_pack(
     catalog: dict | None = None,
     whisper_downloader: WhisperDownloader | None = None,
     force: bool = False,
+    use_cuda: bool | None = None,
 ) -> InstallReport:
     """Download every missing file of the pack, then pip-install what is missing (sequential)."""
     pack = PACKS.get(pack_id)
@@ -584,9 +934,20 @@ def install_pack(
             say(f"ya descargado, se omite: {st.name}")
         else:
             todo.append(item)
+    if use_cuda is None:
+        from .config import get_settings  # noqa: PLC0415
+
+        use_cuda = get_settings().use_cuda
     pip_todo = [
-        r for r in pack.pip if not module_present(r.module) or (force and not r.only_if_missing)
+        r
+        for r in pack.pip
+        if not module_present(r.module)
+        or (force and not r.only_if_missing)
+        or cuda_swap_needed(r, use_cuda)
     ]
+    if any(r.needs_git for r in pip_todo) and not git_available():
+        # Before any download: pip would fail later with an obscure "git not found".
+        raise RuntimeError(GIT_MISSING_ES)
     total = sum(_approx_item_size(i, catalog) for i in todo) + sum(r.size for r in pip_todo)
     done = 0
     progress(0, total, None)
@@ -611,12 +972,23 @@ def install_pack(
         progress(done, max(total, done), name)
 
     for req in pip_todo:
-        args = (["--no-deps"] if req.no_deps else []) + [req.spec]
+        spec = req.cuda_spec if (use_cuda and req.cuda_spec) else req.spec
+        if cuda_swap_needed(req, use_cuda):
+            # piper-tts / faster-whisper pulled the CPU onnxruntime: both builds share the module
+            # folder, so the CPU one goes first (and a half-shadowed -gpu is reinstalled clean).
+            stale = [d for d in (req.cpu_dist, req.cuda_dist) if d and dist_installed(d)]
+            if stale:
+                say(f"{', '.join(stale)} instalado: se reemplaza por {spec} (CUDA)")
+                code = runner(["uninstall", *stale], say)
+                if code != 0:
+                    raise RuntimeError(f"pip uninstall {' '.join(stale)} fallo (codigo {code})")
+        args = (["--no-deps"] if req.no_deps else []) + list(req.extra_args) + [spec]
         say(f"pip install {' '.join(args)}")
         progress(done, total, f"pip:{req.spec}")
-        code = runner(args, say)
+        with _pip_env(req.env):
+            code = runner(args, say)
         if code != 0:
-            raise RuntimeError(f"pip install {req.spec} fallo (codigo {code})")
+            raise RuntimeError(f"pip install {spec} fallo (codigo {code})")
         done += req.size
         report.pip.append(req.spec)
         progress(done, max(total, done), f"pip:{req.spec}")
@@ -624,7 +996,13 @@ def install_pack(
 
     if pack.post_install is not None:
         pack.post_install(root)
-    missing = [r.spec for r in pack.pip if not module_present(r.module)]
+    if pack.post_install_env is not None:
+        pack.post_install_env(root, say)
+    missing = [
+        r.spec
+        for r in pack.pip
+        if not module_present(r.module) or cuda_swap_needed(r, bool(use_cuda))
+    ]
     if missing:
         raise RuntimeError("Paquetes Python no importables tras instalar: " + ", ".join(missing))
     manifest.packs[pack_id] = {

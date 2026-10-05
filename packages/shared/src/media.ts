@@ -2,7 +2,17 @@ import { z } from "zod";
 import { SceneSchema } from "./ai.js";
 import { IdSchema, SecondsSchema, TimestampSchema } from "./common.js";
 
-export const MediaKindSchema = z.enum(["video", "audio", "image", "subtitle", "lottie"]);
+export const MediaKindSchema = z.enum([
+  "video",
+  "audio",
+  "image",
+  "subtitle",
+  "lottie",
+  /** Sprint 2: track.json (TrackFile). */
+  "track",
+  /** Sprint 2: SAM mask (folder of PNGs under storage/masks/<id>/, or one PNG). */
+  "mask",
+]);
 export type MediaKind = z.infer<typeof MediaKindSchema>;
 
 /** Sprite sheet for timeline scrubbing (tiles left-to-right, top-to-bottom). */

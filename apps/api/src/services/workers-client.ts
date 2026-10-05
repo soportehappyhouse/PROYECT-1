@@ -9,6 +9,13 @@ import {
   SilenceCutsSchema,
   WORKER_AI_ROUTES,
   WorkerTaskAcceptedSchema,
+  VisionTaskSchema,
+  WorkerSamPointsResultSchema,
+  WorkerSamSessionSchema,
+  type BBox,
+  type SamPoint,
+  type VisionTask,
+  type WorkerSamSession,
   type GpuStatus,
   type Pack,
   type PackRequiredBody,
@@ -86,6 +93,38 @@ const RvcResultSchema = z.object({
   warnings: z.array(z.string()).nullish(),
 });
 
+const MatteImageResultSchema = z.object({
+  path: z.string(),
+  warnings: z.array(z.string()).optional(),
+});
+
+/** Workers POST /vision/matte body (snake_case contract, paths relative to STORAGE_DIR). */
+export interface WorkerMatteRequest {
+  path: string;
+  model: "rvm" | "birefnet";
+  output_base: string;
+  downsample?: number;
+  chunk_frames?: number;
+}
+
+/** Workers POST /vision/track body: `bbox` (fractions of the source) or `mask_png` (path). */
+export interface WorkerTrackRequest {
+  path: string;
+  bbox?: BBox;
+  mask_png?: string;
+  method: "sam2" | "csrt";
+  frame_range?: [number, number];
+}
+
+/** Workers POST /vision/reframe body. `scenes` in source seconds. */
+export interface WorkerReframeRequest {
+  path: string;
+  target: "9:16" | "1:1" | "4:5";
+  subject: "face" | "track";
+  scenes?: { start: number; end: number }[];
+  track_path?: string;
+}
+
 /** HTTP client for apps/workers (FastAPI). All paths are relative to STORAGE_DIR. */
 export interface WorkersClient {
   health(): Promise<WorkerHealth | undefined>;
@@ -115,6 +154,27 @@ export interface WorkersClient {
     opts?: WorkerCallOptions,
   ): Promise<z.infer<typeof DenoiseResultSchema>>;
   perfRun(): Promise<WorkerTaskAccepted>;
+  // ---- Sprint 2 (vision) ----
+  visionMatte(req: WorkerMatteRequest): Promise<WorkerTaskAccepted>;
+  visionMatteImage(
+    req: { path: string; output_base: string },
+    opts?: WorkerCallOptions,
+  ): Promise<z.infer<typeof MatteImageResultSchema>>;
+  /** GET /vision/tasks/{id}. */
+  visionTask(taskId: string, signal?: AbortSignal): Promise<VisionTask>;
+  samSession(
+    req: { path: string; frame_range?: [number, number] },
+    opts?: WorkerCallOptions,
+  ): Promise<WorkerSamSession>;
+  samPoints(
+    sessionId: string,
+    req: { frame: number; points: SamPoint[]; obj_id: number },
+    opts?: WorkerCallOptions,
+  ): Promise<z.infer<typeof WorkerSamPointsResultSchema>>;
+  samPropagate(sessionId: string, req: { chunk_frames?: number }): Promise<WorkerTaskAccepted>;
+  samDelete(sessionId: string): Promise<unknown>;
+  visionTrack(req: WorkerTrackRequest): Promise<WorkerTaskAccepted>;
+  visionReframe(req: WorkerReframeRequest): Promise<WorkerTaskAccepted>;
 }
 
 /**
@@ -232,7 +292,7 @@ export function createWorkersClient(baseUrl: string): WorkersClient {
   const url = (route: string) => new URL(route, baseUrl).toString();
 
   async function call<T>(
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "DELETE",
     route: string,
     schema: z.ZodType<T>,
     body?: unknown,
@@ -241,7 +301,7 @@ export function createWorkersClient(baseUrl: string): WorkersClient {
   ): Promise<T> {
     let res: { status: number; text: string };
     // Only POST calls are recorded: GET progress polling would flood the job diagnostics.
-    const diag = method === "POST" ? currentDiagnostics() : undefined;
+    const diag = method !== "GET" ? currentDiagnostics() : undefined;
     const record = diag?.command(
       "http",
       `${method} ${url(route)}${body === undefined ? "" : ` ${JSON.stringify(body).slice(0, 2000)}`}`,
@@ -387,6 +447,51 @@ export function createWorkersClient(baseUrl: string): WorkersClient {
     audioDenoise: (req, opts) =>
       call("POST", WORKER_AI_ROUTES.audioDenoise, DenoiseResultSchema, req, opts?.signal, true),
     perfRun: () => call("POST", WORKER_AI_ROUTES.perfRun, WorkerTaskAcceptedSchema, {}),
+    visionMatte: (req) =>
+      call("POST", WORKER_AI_ROUTES.visionMatte, WorkerTaskAcceptedSchema, req, undefined, true),
+    visionMatteImage: (req, opts) =>
+      call(
+        "POST",
+        WORKER_AI_ROUTES.visionMatteImage,
+        MatteImageResultSchema,
+        req,
+        opts?.signal,
+        true,
+      ),
+    visionTask: (taskId, signal) =>
+      call(
+        "GET",
+        buildRoute(WORKER_AI_ROUTES.visionTask, { id: taskId }),
+        VisionTaskSchema,
+        undefined,
+        signal ? AbortSignal.any([signal, AbortSignal.timeout(SHORT_TIMEOUT_MS)]) : undefined,
+      ),
+    samSession: (req, opts) =>
+      call("POST", WORKER_AI_ROUTES.samSession, WorkerSamSessionSchema, req, opts?.signal, true),
+    samPoints: (sessionId, req, opts) =>
+      call(
+        "POST",
+        buildRoute(WORKER_AI_ROUTES.samPoints, { id: sessionId }),
+        WorkerSamPointsResultSchema,
+        req,
+        opts?.signal,
+        true,
+      ),
+    samPropagate: (sessionId, req) =>
+      call(
+        "POST",
+        buildRoute(WORKER_AI_ROUTES.samPropagate, { id: sessionId }),
+        WorkerTaskAcceptedSchema,
+        req,
+        undefined,
+        true,
+      ),
+    samDelete: (sessionId) =>
+      call("DELETE", buildRoute(WORKER_AI_ROUTES.samSessionItem, { id: sessionId }), z.unknown()),
+    visionTrack: (req) =>
+      call("POST", WORKER_AI_ROUTES.visionTrack, WorkerTaskAcceptedSchema, req, undefined, true),
+    visionReframe: (req) =>
+      call("POST", WORKER_AI_ROUTES.visionReframe, WorkerTaskAcceptedSchema, req, undefined, true),
     async jobProgress(jobId) {
       try {
         return await call(

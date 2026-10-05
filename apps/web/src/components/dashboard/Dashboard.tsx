@@ -45,6 +45,7 @@ import { DockLayout } from "./DockLayout";
 import { Hotkeys } from "./Hotkeys";
 import { SilencesDialog } from "@/components/edit/SilencesDialog";
 import { GpuIndicator } from "./GpuIndicator";
+import { VisionDialogs } from "@/components/vision/VisionDialogs";
 import { PackRequiredDialog } from "./PackRequiredDialog";
 import { SettingsDialog } from "./SettingsDialog";
 
@@ -294,6 +295,7 @@ export function Dashboard() {
       <SettingsDialog />
       <SilencesDialog />
       <PackRequiredDialog />
+      <VisionDialogs />
       <Toaster theme={resolvedTheme} position="bottom-right" richColors closeButton />
     </DndContext>
   );

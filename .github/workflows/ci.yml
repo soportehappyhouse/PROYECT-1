@@ -66,6 +66,16 @@ jobs:
           python-version: "3.11.9"
           cache: pip
           cache-dependency-path: apps/workers/requirements-dev.txt
+      # ffmpeg/ffprobe on PATH: the Sprint 2 vision tests (lavfi clips, alpha WebM, OpenCV
+      # tracking) run instead of being skipped.
+      - name: Install ffmpeg (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install ffmpeg (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install ffmpeg -y --no-progress
+      - run: ffmpeg -version | head -n 1
       - run: python -m pip install -r requirements-dev.txt
       - run: python -m ruff check .
       - run: python -m ruff format --check .

@@ -88,3 +88,53 @@ export interface RenderMetaProps {
   /** "system" skips Google Fonts downloads (offline PCs). */
   __fontMode?: "google" | "system";
 }
+
+/**
+ * JSON Schema keyword of props filled by the api, never by the user: forms (web Motion panel)
+ * must not render them. Kept by z.toJSONSchema (metadata is copied to the output).
+ */
+export const INTERNAL_PROP = "x-internal";
+
+/**
+ * Sprint 2: object track in COMPOSITION space (the api maps the TrackFile through the video clip:
+ * `t` = seconds from frame 0, boxes in fractions 0..1 of the composition, x,y = top-left). Mirrors
+ * @studio/shared TrackFileSchema; filled by the api (motion.render with a clip `trackRef`).
+ */
+export const TrackPropSchema = z
+  .object({
+    version: z.literal(1).default(1),
+    fps: z.number().positive(),
+    frames: z.array(
+      z.object({
+        t: z.number(),
+        x: z.number(),
+        y: z.number(),
+        w: z.number(),
+        h: z.number(),
+        conf: z.number().optional(),
+      }),
+    ),
+    smoothed: z.boolean().optional(),
+    source: z.object({ assetId: z.string(), method: z.string() }).optional(),
+  })
+  .meta({ title: "Seguimiento (lo completa la api)", [INTERNAL_PROP]: true });
+export type TrackProp = z.infer<typeof TrackPropSchema>;
+
+export const TRACK_ANCHORS = ["center", "top", "bottom"] as const;
+
+/**
+ * Optional follow-a-track props shared by lower-third and animated-captions. All three are filled
+ * by the api from the clip's `trackRef` (motion.render), so they are marked internal: the web
+ * motion form hides them (anchor/offset are edited in the inspector «Seguimiento»).
+ */
+export const trackProps = {
+  track: TrackPropSchema.optional(),
+  trackAnchor: z
+    .enum(TRACK_ANCHORS)
+    .meta({ title: "Ancla del seguimiento", [INTERNAL_PROP]: true })
+    .optional(),
+  trackOffset: z
+    .object({ x: z.number(), y: z.number() })
+    .meta({ title: "Desplazamiento (fracción del cuadro)", [INTERNAL_PROP]: true })
+    .optional(),
+};

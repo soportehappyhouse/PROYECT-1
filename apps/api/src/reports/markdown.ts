@@ -45,6 +45,11 @@ export const JOB_TYPE_LABELS_ES: Record<Job["type"], string> = {
   "timeline.apply-cuts": "Aplicar cortes",
   "audio.denoise": "Limpieza de voz",
   "perf.run": "Test de rendimiento IA",
+  "vision.matte": "Quitar fondo",
+  "vision.mask": "Máscara por clic",
+  "vision.track": "Seguir objeto",
+  "vision.reframe": "Reencuadre",
+  "timeline.track-to-keyframes": "Seguimiento a keyframes",
 };
 
 const PROMPT_JOBS = 3;

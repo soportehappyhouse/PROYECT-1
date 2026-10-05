@@ -25,6 +25,7 @@
 15. [Limitaciones conocidas](#15-limitaciones-conocidas)
 16. [Glosario](#16-glosario)
 17. [IA local: paquetes, GPU, silencios, escenas y redes](#17-ia-local-paquetes-gpu-silencios-escenas-y-redes)
+18. [Vista previa multicapa, keyframes y visión (IA)](#18-vista-previa-multicapa-keyframes-y-visión-ia)
 
 ---
 
@@ -155,18 +156,18 @@ De izquierda a derecha:
 
 ### 4.2 Los 10 paneles
 
-| Panel               | Para qué sirve                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Media**           | Importar archivos (botón **Importar** o arrastrar y soltar), ver miniatura y datos (duración, resolución, fps, tamaño), **+** para agregar a la línea de tiempo, varita para **Generar proxy**, tacho para borrar (si el medio está en uso ofrece **Quitar del timeline y borrar**), filtro por nombre. Los renders de motion llevan la etiqueta **Render** (no necesitan proxy).                                                          |
-| **Biblioteca**      | Buscar efectos de sonido y música (_Efectos_, _Música_, _Ambiente_), escucharlos, **+** para agregarlos a la línea de tiempo, **Re-escanear** la carpeta de la biblioteca y **subir** sonidos propios.                                                                                                                                                                                                                                     |
-| **Vista previa**    | Reproductor sincronizado con el cursor de la línea de tiempo: ir al inicio, fotograma anterior/siguiente, reproducir/pausar. Muestra el clip bajo el cursor (usa el proxy si existe), el audio, los textos, los subtítulos (dentro del video, como en la exportación) y **todos** los motion renderizados bajo el cursor, en su posición y escala.                                                                                         |
-| **Línea de tiempo** | Pistas y clips. Barra: **Pista** (agregar pista de video, audio, texto o motion), **Texto** (clip de texto en el cursor), deshacer/rehacer, tijera (**dividir** en el cursor), tacho, onda (**Quitar silencios y muletillas**), menú **Escenas** (_Detectar escenas_, _Cortar en escenas_, _Mostrar marcadores de escena_), **imán**, tiempo actual / total y zoom.                                                                        |
-| **Propiedades**     | Sin clip seleccionado: nombre y tamaño del proyecto (ancho, alto, FPS y botones _16:9 1080p_, _9:16 vertical_, _1:1_) y datos del medio seleccionado. Con un clip: tiempo (inicio, entrada, salida, velocidad), imagen (opacidad, **escala y posición X/Y en %** con **anclas** arriba/centro/abajo y esquinas —también para motion graphics—, transiciones), audio (volumen, efectos guardados), texto (fuente, tamaño, color, posición). |
-| **Motion graphics** | Elegir plantilla, editar parámetros, duración y formato; **Renderizar y añadir**, **Añadir sin render** o **Actualizar clip y renderizar**. Arriba se ve qué motores están disponibles (en verde); las plantillas de un motor no disponible no se pueden elegir.                                                                                                                                                                           |
-| **Voz y audio**     | Tres pestañas: **Texto a voz**, **Efectos** (arriba, **Limpiar voz (IA)**) y **RVC**.                                                                                                                                                                                                                                                                                                                                                      |
-| **Subtítulos**      | **Transcribir (Whisper)** el clip seleccionado (idioma y modelo), **Quitar silencios y muletillas…** (con revisión) o _Corte rápido_, editar segmentos, **Descargar SRT**, elegir **estilo** y **Renderizar subtítulos como motion**.                                                                                                                                                                                                      |
-| **Exportar**        | Elegir preset (arranca en _YouTube 1080p_), duplicarlo y editarlo (incluida la casilla **Transparencia**), **Revisión para redes** (casilla _Voy a subirlo a redes_, avisos y etiqueta de IA), nombre del archivo, exportar un rango, **Quemar subtítulos en el video** y la lista de **Exportaciones recientes** con **Descargar**.                                                                                                       |
-| **Trabajos**        | Todo lo que tarda (análisis, proxies, renders, voz, transcripción, exportación) con su progreso. Permite cancelar, abrir el resultado, filtrar _Todos/Activos_, limpiar terminados y, en los que fallan, **Reportar**. Arriba indica la conexión: _En vivo_, _Consulta periódica_ o _Sin conexión_.                                                                                                                                        |
+| Panel               | Para qué sirve                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Media**           | Importar archivos (botón **Importar** o arrastrar y soltar), ver miniatura y datos (duración, resolución, fps, tamaño), **+** para agregar a la línea de tiempo, varita para **Generar proxy**, tacho para borrar (si el medio está en uso ofrece **Quitar del timeline y borrar**), filtro por nombre. Los renders de motion llevan la etiqueta **Render** (no necesitan proxy).                                                                                                                                  |
+| **Biblioteca**      | Buscar efectos de sonido y música (_Efectos_, _Música_, _Ambiente_), escucharlos, **+** para agregarlos a la línea de tiempo, **Re-escanear** la carpeta de la biblioteca y **subir** sonidos propios.                                                                                                                                                                                                                                                                                                             |
+| **Vista previa**    | Reproductor sincronizado con el cursor: ir al inicio, fotograma anterior/siguiente, reproducir/pausar. Dibuja **todas las capas** bajo el cursor como la exportación (videos, imágenes, textos, motion con transparencia, recortes de fondo, PiP, subtítulos y keyframes) y suena el audio. Herramientas **Máscara**, **Quitar fondo**, **Seguir objeto** y **Reencuadrar**; engranaje con guías de zona segura, calidad y **Vista previa clásica** (ver [§18](#18-vista-previa-multicapa-keyframes-y-visión-ia)). |
+| **Línea de tiempo** | Pistas y clips. Barra: **Pista** (agregar pista de video, audio, texto o motion), **Texto** (clip de texto en el cursor), deshacer/rehacer, tijera (**dividir** en el cursor), tacho, onda (**Quitar silencios y muletillas**), menú **Escenas** (_Detectar escenas_, _Cortar en escenas_, _Mostrar marcadores de escena_), **imán**, tiempo actual / total y zoom.                                                                                                                                                |
+| **Propiedades**     | Sin clip seleccionado: nombre y tamaño del proyecto (ancho, alto, FPS y botones _16:9 1080p_, _9:16 vertical_, _1:1_) y datos del medio seleccionado. Con un clip: tiempo (inicio, entrada, salida, velocidad), imagen (opacidad, **escala y posición X/Y en %** con **anclas** arriba/centro/abajo y esquinas —también para motion graphics—, transiciones), audio (volumen, efectos guardados), texto (fuente, tamaño, color, posición).                                                                         |
+| **Motion graphics** | Elegir plantilla, editar parámetros, duración y formato; **Renderizar y añadir**, **Añadir sin render** o **Actualizar clip y renderizar**. Arriba se ve qué motores están disponibles (en verde); las plantillas de un motor no disponible no se pueden elegir.                                                                                                                                                                                                                                                   |
+| **Voz y audio**     | Tres pestañas: **Texto a voz**, **Efectos** (arriba, **Limpiar voz (IA)**) y **RVC**.                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| **Subtítulos**      | **Transcribir (Whisper)** el clip seleccionado (idioma y modelo), **Quitar silencios y muletillas…** (con revisión) o _Corte rápido_, editar segmentos, **Descargar SRT**, elegir **estilo** y **Renderizar subtítulos como motion**.                                                                                                                                                                                                                                                                              |
+| **Exportar**        | Elegir preset (arranca en _YouTube 1080p_), duplicarlo y editarlo (incluida la casilla **Transparencia**), **Revisión para redes** (casilla _Voy a subirlo a redes_, avisos y etiqueta de IA), nombre del archivo, exportar un rango, **Quemar subtítulos en el video** y la lista de **Exportaciones recientes** con **Descargar**.                                                                                                                                                                               |
+| **Trabajos**        | Todo lo que tarda (análisis, proxies, renders, voz, transcripción, exportación) con su progreso. Permite cancelar, abrir el resultado, filtrar _Todos/Activos_, limpiar terminados y, en los que fallan, **Reportar**. Arriba indica la conexión: _En vivo_, _Consulta periódica_ o _Sin conexión_.                                                                                                                                                                                                                |
 
 Cómo se trabaja en la **línea de tiempo**:
 
@@ -717,12 +718,12 @@ aparece qué hace y su atajo, por ejemplo _Cortar en el cursor (S)_.
 | Ir al inicio                  | `Inicio`               | Reproducción    |
 | Ir al final                   | `Fin`                  | Reproducción    |
 | Reproducir hacia atrás        | `J` (otra vez: 2×, 4×) | Reproducción    |
-| Pausa                         | `K`                    | Reproducción    |
+| Pausa (detenido: keyframe)    | `K`                    | Reproducción    |
 | Reproducir hacia adelante     | `L` (otra vez: 2×, 4×) | Reproducción    |
 | Fotograma anterior            | `←`                    | Reproducción    |
 | Fotograma siguiente           | `→`                    | Reproducción    |
 | Cortar (dividir) en el cursor | `S`                    | Línea de tiempo |
-| Eliminar clip seleccionado    | `Supr`                 | Línea de tiempo |
+| Eliminar clip (o keyframe)    | `Supr`                 | Línea de tiempo |
 | Acercar                       | `=`                    | Línea de tiempo |
 | Alejar                        | `-`                    | Línea de tiempo |
 | Activar / desactivar imán     | `N`                    | Línea de tiempo |
@@ -777,35 +778,35 @@ si cada servicio responde. No cambia nada. También podés abrir
 y los workers responden; `"degraded"` indica cuál no (`ffmpeg.available` o `workers.reachable`
 en `false`).
 
-| Síntoma                                                                                        | Causa probable                                                                                             | Qué hacer                                                                                                                                                                  |
-| ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| El encabezado dice **Guardado local** o Trabajos dice **Sin conexión**                         | La API (3001) no está corriendo.                                                                           | Mirá la ventana "api". Corré `stop.ps1` y `start.ps1`. Revisá `doctor.ps1`.                                                                                                |
-| Un panel dice **Módulo en desarrollo**                                                         | La API respondió "no implementado" (versión vieja de la API).                                              | Actualizá el proyecto y corré `setup.ps1` otra vez.                                                                                                                        |
-| Pantalla en blanco o el navegador no abre                                                      | La web no terminó de arrancar o se compiló con otra URL.                                                   | Abrí <http://localhost:3000> a mano; mirá la ventana "web" o `storage\logs\web.log` (con `-SingleConsole`).                                                                |
-| **Tipo de archivo no soportado** al importar                                                   | La extensión no está en la lista de [§6.1](#61-entrada-lo-que-podés-importar-en-media).                    | Convertí el archivo (por ejemplo a MP4) o renombrá la extensión si está mal.                                                                                               |
-| **El archivo supera el límite**                                                                | Más de 20 GB.                                                                                              | Cortalo o recomprimilo antes de importarlo.                                                                                                                                |
-| La vista previa dice **El navegador no puede reproducir…**                                     | Códec que el navegador no soporta (por ejemplo HEVC, ProRes).                                              | En Media tocá **Generar proxy** (varita). Usá Chrome o Edge.                                                                                                               |
-| El medio dice **Sin proxy** por mucho tiempo                                                   | El trabajo _Generar proxy_ falló o sigue en cola.                                                          | Mirá **Trabajos**; volvé a tocar **Generar proxy**.                                                                                                                        |
-| **Sin voces instaladas** (los workers no responden) o todas las voces dicen **(no instalada)** | Workers caídos, o no se descargó ninguna voz Piper.                                                        | Revisá la ventana "workers" y `doctor.ps1`; para bajar la voz: `apps\workers\.venv\Scripts\python.exe -m studio_workers.models_cli --piper es_AR-daniela-high` y reiniciá. |
-| **Sin modelos en models/rvc**                                                                  | No hay carpetas con `.pth` en `models\rvc\`.                                                               | Copiá el modelo como en [§9.3](#93-rvc-conversión-de-voz) y recargá la página.                                                                                             |
-| **Usar GPU (CUDA) — no disponible**                                                            | `USE_CUDA=false`.                                                                                          | Reinstalá con `setup.ps1 -WithCuda` (pone `USE_CUDA=true`).                                                                                                                |
-| ElevenLabs/OpenAI dicen **(sin API key)**                                                      | Falta la clave en `.env`.                                                                                  | Poné la clave y reiniciá con `stop.ps1` + `start.ps1`.                                                                                                                     |
-| Motor de motion en gris o plantilla **(no disponible)**                                        | Falta el Chrome Headless Shell de Remotion; el motor _motion-canvas_ siempre figura así (es un esqueleto). | Pasá el mouse sobre el motor para ver el motivo; para Remotion, desde la carpeta del proyecto: `pnpm --filter @studio/remotion browser:ensure`.                            |
-| **Parámetros inválidos** o error al renderizar motion                                          | Un valor fuera de rango, un color inválido o JSON mal escrito.                                             | Leé el mensaje (dice el campo). Para colores usá `#rrggbb`, `rgba(...)` o `transparent`.                                                                                   |
-| Los subtítulos salen **dos veces** (versiones anteriores)                                      | Quedaba marcada **Quemar subtítulos en el video** además del clip de subtítulos animados.                  | Corregido: los tramos cubiertos por subtítulos animados ya no se queman ni se dibujan en la vista previa.                                                                  |
-| La exportación no arranca y dice que hay clips motion sin renderizar o medios borrados         | Un clip motion está _Sin renderizar_, o un clip usa un medio que ya no existe.                             | Leé el mensaje (lista los clips): renderizalos (**Actualizar clip y renderizar**) o quitá esos clips.                                                                      |
-| No puedo borrar un medio: dice que **se usa en el proyecto …**                                 | El medio tiene clips en la línea de tiempo de ese proyecto.                                                | Quitá sus clips del timeline y volvé a borrarlo.                                                                                                                           |
-| Un video tapa a otro                                                                           | Orden de pistas: la de más abajo en la lista queda encima.                                                 | Mové los clips a la pista correcta o usá Escala/Posición (PiP).                                                                                                            |
-| **El proyecto no tiene contenido para exportar en ese rango**                                  | Línea de tiempo vacía o rango fuera del contenido.                                                         | Revisá _Desde_/_Hasta_ o desmarcá _Exportar solo un rango_.                                                                                                                |
-| La exportación falla con la GPU                                                                | El codificador por hardware no funciona en tu PC.                                                          | Studio reintenta con `libx264` y lo recuerda. Si sigue, poné `HW_ENCODER=off`.                                                                                             |
-| Transcribir es muy lento                                                                       | Modelo grande en CPU.                                                                                      | Elegí `base` o `small` en _Modelo_. Con GPU: `-WithCuda`.                                                                                                                  |
-| Subtítulos con GPU dicen "CUDA no disponible, usando CPU"                                      | Driver o librerías CUDA.                                                                                   | Actualizá el driver NVIDIA (570+). Ver [Instalación §8](../INSTALACION-WINDOWS.md#8-solución-de-problemas).                                                                |
-| Falla la transcripción con un modelo nuevo sin internet                                        | El modelo se descarga la primera vez que se usa.                                                           | Conectate o usá el modelo instalado (_Por defecto_).                                                                                                                       |
-| RVC tarda muchísimo                                                                            | Normal en CPU.                                                                                             | Clips cortos, _Método F0_ **pm**, o `-WithCuda`.                                                                                                                           |
-| El cambio de tono suena raro                                                                   | FFmpeg sin `rubberband` (método de respaldo).                                                              | `winget install -e --id Gyan.FFmpeg` y reiniciá.                                                                                                                           |
-| **El puerto 3000/3001/8001 está ocupado**                                                      | Otra copia de Studio u otro programa.                                                                      | `stop.ps1`; si sigue, cambiá el puerto en `.env`.                                                                                                                          |
-| Un trabajo quedó **Falló** después de cerrar Studio                                            | Se cortó a mitad y ya usó sus 2 intentos.                                                                  | Volvé a lanzarlo desde el panel correspondiente.                                                                                                                           |
-| Perdí el proyecto anterior al tocar _Nuevo proyecto_                                           | No hay lista de proyectos en la interfaz.                                                                  | Sigue guardado en la API, pero no se puede reabrir desde el dashboard. Exportá antes de crear otro.                                                                        |
+| Síntoma                                                                                               | Causa probable                                                                                             | Qué hacer                                                                                                                                                                  |
+| ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| El encabezado dice **Guardado local** o Trabajos dice **Sin conexión**                                | La API (3001) no está corriendo.                                                                           | Mirá la ventana "api". Corré `stop.ps1` y `start.ps1`. Revisá `doctor.ps1`.                                                                                                |
+| Un panel dice **Módulo en desarrollo**                                                                | La API respondió "no implementado" (versión vieja de la API).                                              | Actualizá el proyecto y corré `setup.ps1` otra vez.                                                                                                                        |
+| Pantalla en blanco o el navegador no abre                                                             | La web no terminó de arrancar o se compiló con otra URL.                                                   | Abrí <http://localhost:3000> a mano; mirá la ventana "web" o `storage\logs\web.log` (con `-SingleConsole`).                                                                |
+| **Tipo de archivo no soportado** al importar                                                          | La extensión no está en la lista de [§6.1](#61-entrada-lo-que-podés-importar-en-media).                    | Convertí el archivo (por ejemplo a MP4) o renombrá la extensión si está mal.                                                                                               |
+| **El archivo supera el límite**                                                                       | Más de 20 GB.                                                                                              | Cortalo o recomprimilo antes de importarlo.                                                                                                                                |
+| La vista previa dice **El navegador no puede reproducir…** o **La vista previa no puede reproducir…** | Códec que el navegador no soporta (por ejemplo HEVC, ProRes).                                              | En Media tocá **Generar proxy** (varita). Usá Chrome o Edge.                                                                                                               |
+| El medio dice **Sin proxy** por mucho tiempo                                                          | El trabajo _Generar proxy_ falló o sigue en cola.                                                          | Mirá **Trabajos**; volvé a tocar **Generar proxy**.                                                                                                                        |
+| **Sin voces instaladas** (los workers no responden) o todas las voces dicen **(no instalada)**        | Workers caídos, o no se descargó ninguna voz Piper.                                                        | Revisá la ventana "workers" y `doctor.ps1`; para bajar la voz: `apps\workers\.venv\Scripts\python.exe -m studio_workers.models_cli --piper es_AR-daniela-high` y reiniciá. |
+| **Sin modelos en models/rvc**                                                                         | No hay carpetas con `.pth` en `models\rvc\`.                                                               | Copiá el modelo como en [§9.3](#93-rvc-conversión-de-voz) y recargá la página.                                                                                             |
+| **Usar GPU (CUDA) — no disponible**                                                                   | `USE_CUDA=false`.                                                                                          | Reinstalá con `setup.ps1 -WithCuda` (pone `USE_CUDA=true`).                                                                                                                |
+| ElevenLabs/OpenAI dicen **(sin API key)**                                                             | Falta la clave en `.env`.                                                                                  | Poné la clave y reiniciá con `stop.ps1` + `start.ps1`.                                                                                                                     |
+| Motor de motion en gris o plantilla **(no disponible)**                                               | Falta el Chrome Headless Shell de Remotion; el motor _motion-canvas_ siempre figura así (es un esqueleto). | Pasá el mouse sobre el motor para ver el motivo; para Remotion, desde la carpeta del proyecto: `pnpm --filter @studio/remotion browser:ensure`.                            |
+| **Parámetros inválidos** o error al renderizar motion                                                 | Un valor fuera de rango, un color inválido o JSON mal escrito.                                             | Leé el mensaje (dice el campo). Para colores usá `#rrggbb`, `rgba(...)` o `transparent`.                                                                                   |
+| Los subtítulos salen **dos veces** (versiones anteriores)                                             | Quedaba marcada **Quemar subtítulos en el video** además del clip de subtítulos animados.                  | Corregido: los tramos cubiertos por subtítulos animados ya no se queman ni se dibujan en la vista previa.                                                                  |
+| La exportación no arranca y dice que hay clips motion sin renderizar o medios borrados                | Un clip motion está _Sin renderizar_, o un clip usa un medio que ya no existe.                             | Leé el mensaje (lista los clips): renderizalos (**Actualizar clip y renderizar**) o quitá esos clips.                                                                      |
+| No puedo borrar un medio: dice que **se usa en el proyecto …**                                        | El medio tiene clips en la línea de tiempo de ese proyecto.                                                | Quitá sus clips del timeline y volvé a borrarlo.                                                                                                                           |
+| Un video tapa a otro                                                                                  | Orden de pistas: la de más abajo en la lista queda encima.                                                 | Mové los clips a la pista correcta o usá Escala/Posición (PiP).                                                                                                            |
+| **El proyecto no tiene contenido para exportar en ese rango**                                         | Línea de tiempo vacía o rango fuera del contenido.                                                         | Revisá _Desde_/_Hasta_ o desmarcá _Exportar solo un rango_.                                                                                                                |
+| La exportación falla con la GPU                                                                       | El codificador por hardware no funciona en tu PC.                                                          | Studio reintenta con `libx264` y lo recuerda. Si sigue, poné `HW_ENCODER=off`.                                                                                             |
+| Transcribir es muy lento                                                                              | Modelo grande en CPU.                                                                                      | Elegí `base` o `small` en _Modelo_. Con GPU: `-WithCuda`.                                                                                                                  |
+| Subtítulos con GPU dicen "CUDA no disponible, usando CPU"                                             | Driver o librerías CUDA.                                                                                   | Actualizá el driver NVIDIA (570+). Ver [Instalación §8](../INSTALACION-WINDOWS.md#8-solución-de-problemas).                                                                |
+| Falla la transcripción con un modelo nuevo sin internet                                               | El modelo se descarga la primera vez que se usa.                                                           | Conectate o usá el modelo instalado (_Por defecto_).                                                                                                                       |
+| RVC tarda muchísimo                                                                                   | Normal en CPU.                                                                                             | Clips cortos, _Método F0_ **pm**, o `-WithCuda`.                                                                                                                           |
+| El cambio de tono suena raro                                                                          | FFmpeg sin `rubberband` (método de respaldo).                                                              | `winget install -e --id Gyan.FFmpeg` y reiniciá.                                                                                                                           |
+| **El puerto 3000/3001/8001 está ocupado**                                                             | Otra copia de Studio u otro programa.                                                                      | `stop.ps1`; si sigue, cambiá el puerto en `.env`.                                                                                                                          |
+| Un trabajo quedó **Falló** después de cerrar Studio                                                   | Se cortó a mitad y ya usó sus 2 intentos.                                                                  | Volvé a lanzarlo desde el panel correspondiente.                                                                                                                           |
+| Perdí el proyecto anterior al tocar _Nuevo proyecto_                                                  | No hay lista de proyectos en la interfaz.                                                                  | Sigue guardado en la API, pero no se puede reabrir desde el dashboard. Exportá antes de crear otro.                                                                        |
 
 Problemas de instalación (scripts bloqueados, `winget` faltante, rutas largas, Python abre la
 Microsoft Store, `VCRUNTIME140.dll`, etc.): ver
@@ -1019,9 +1020,10 @@ Comprobadas en el código; están para que no pierdas tiempo:
 - **Archivos `.srt`/`.vtt`/`.ass` importados** no se cargan como segmentos ni se queman.
 - **Lottie importado** (`.json`) puesto directamente en la línea de tiempo no se exporta: usá la
   plantilla **Animación Lottie** con la URL del archivo.
-- **Vista previa**: muestra un solo clip de video a la vez (el de la primera pista de video de la
-  lista que tenga algo bajo el cursor) en su posición/escala; los motion renderizados sí se apilan
-  todos. La vista previa de motion en su panel es aproximada hasta que renderizás.
+- **Vista previa**: los barridos, deslizamientos y zoom de las transiciones se ven como fundido,
+  y una plantilla de motion que sigue un objeto se ve en su lugar recién al volver a renderizarla.
+  La _Vista previa clásica_ muestra un solo clip de video a la vez. La vista previa de motion en
+  su panel es aproximada hasta que renderizás.
 - **Quitar silencios y muletillas**: después de aplicar hay que volver a renderizar los
   subtítulos animados (no se recalculan solos). _Corte rápido_ usa solo las marcas de tiempo de
   Whisper y no quita muletillas. `J` (hacia atrás) mueve el cursor pero el video se ve a saltos (el navegador no
@@ -1088,6 +1090,10 @@ solo el paquete **core**; `setup.ps1 -Full` baja todos en secuencia.
 | **rvc-base**      | hubert_base + rmvpe            | 0,4 GB        | RVC                       |
 | **scenes**        | PySceneDetect                  | 0,05 GB       | Detectar escenas          |
 | **voz-limpia**    | DeepFilterNet                  | 0,2 GB        | Limpiar voz (IA)          |
+| **matting**       | RobustVideoMatting             | 0,01 GB       | Quitar fondo (video)      |
+| **matting-image** | BiRefNet-lite (swin_v1_tiny)   | 0,28 GB       | Quitar fondo (imagen)     |
+| **sam2**          | SAM 2.1 tiny + small           | 0,2 GB        | Máscara, seguir objeto    |
+| **reframe**       | YuNet (caras)                  | < 0,01 GB     | Reencuadrar               |
 
 - **Paquete requerido**: si tocás una función cuyo paquete falta, aparece una ventana con el
   nombre, el tamaño y la licencia. **Descargar** muestra el progreso; al terminar, Studio
@@ -1114,9 +1120,11 @@ El chip del encabezado consulta la API cada 10 s:
 ### 17.3 Test de rendimiento IA
 
 En **Ajustes → Paquetes de IA → Test de rendimiento IA** Studio mide en tu PC (un par de minutos)
-Whisper, Piper, RVC y la detección de escenas, y guarda el resultado. La tabla muestra cada
-velocidad y al lado los **tiempos estimados**, por ejemplo _Transcribir 10 min de audio ≈ 25 s_ o
-_Detectar escenas en 10 min a 30 fps ≈ 1 min_. Volvé a correrlo si cambiás de placa o de driver.
+Whisper, Piper, RVC, la detección de escenas y, con el paquete **matting**, el recorte de personas,
+y guarda el resultado. La tabla muestra cada velocidad y al lado los **tiempos estimados**, por
+ejemplo _Transcribir 10 min de audio ≈ 25 s_ o _Detectar escenas en 10 min a 30 fps ≈ 1 min_. La
+fila **Recorte de personas ≈ X fps (meta 15)** mide un clip 1080p de 5 s y dice la precisión (fp16
+en GPU, fp32 en CPU) y la reducción interna usada. Volvé a correrlo si cambiás de placa o de driver.
 
 ### 17.4 Quitar silencios y muletillas
 
@@ -1176,3 +1184,111 @@ video. Cada casilla muestra qué puede pasar en YouTube, TikTok o Instagram:
 | El indicador dice **CPU** teniendo una NVIDIA | Reinstalá con `setup.ps1 -WithCuda`; si la VRAM está llena, **Liberar GPU** o cerrá otros programas. |
 | **IA —** en el encabezado                     | Los workers no corren: mirá la ventana "workers" y `doctor.ps1`.                                     |
 | _Módulo en desarrollo_ al analizar            | La API es de una versión anterior: actualizá y corré `setup.ps1 -Update`.                            |
+
+## 18. Vista previa multicapa, keyframes y visión (IA)
+
+Desde esta versión la **Vista previa** dibuja **todas las capas** del proyecto como la
+exportación y suma herramientas de IA de visión: máscara por clic, quitar fondo, seguir un objeto
+y reencuadrar a vertical. Todo corre en tu PC.
+
+### 18.1 Vista previa multicapa
+
+- **Qué muestra**: todos los clips visibles bajo el cursor, apilados como en la exportación (la
+  primera pista de la lista al fondo, las siguientes encima): videos, imágenes, textos, motion
+  graphics con transparencia, recortes de fondo, PiP y subtítulos. Los **keyframes** de
+  posición, escala, opacidad y recorte se ven animados; el **audio** de las pistas suena con el
+  volumen de cada clip.
+- **Fluidez**: el reloj sigue al video de más abajo. Si la vista previa baja de **24 fps**, pasa
+  sola a los **proxies** y avisa (_Vista previa: pasé a proxies…_). En desarrollo hay un
+  contador abajo a la izquierda (fps, ms por cuadro, capas).
+- **Opciones** (engranaje de la barra): **Guías de zona segura** (rectángulos al 90 % y 80 %),
+  **Calidad** (_Automática_, _Original_, _Proxy_), **Mostrar rendimiento** y **Vista previa
+  clásica** (el reproductor anterior, de un solo clip: usalo si algo se ve raro y avisanos).
+- El clip elegido se marca con un recuadro punteado (violeta si sigue a un objeto).
+
+### 18.2 Keyframes
+
+Un **keyframe** fija el valor de una propiedad en un momento; entre dos keyframes el valor va
+cambiando solo.
+
+1. Elegí el clip (video, motion o texto) y en **Propiedades → Keyframes** elegí la propiedad:
+   **Posición** (centro del clip en % del lienzo), **Escala**, **Opacidad** o **Recorte**.
+2. Poné el cursor donde querés el keyframe y, **con el video detenido**, tocá `K` (o
+   **Agregar en el cursor**). Guarda el valor que tiene el clip en ese momento.
+3. Mové el cursor, agregá otro y cambiá su valor en la lista.
+4. **Curva** de cada keyframe (cómo llega al siguiente): _Lineal_, _Acelerar_, _Frenar_,
+   _Suave_ o _Mantener_ (salta de golpe al siguiente).
+
+- En la **línea de tiempo** los keyframes son **rombos** de colores en la parte de abajo del clip
+  (celeste posición, verde escala, amarillo opacidad, rosa recorte). Clic: lo elige y lleva el
+  cursor ahí. **Arrastrar**: lo mueve en el tiempo. `Supr` borra el keyframe elegido (si no hay
+  ninguno elegido, borra el clip).
+- **Copiar** / **Pegar** (íconos de la sección) copian todos los keyframes del clip y los pegan
+  en otro clip a partir del cursor.
+- Con keyframes, el valor fijo de esa propiedad se ignora. Todo se deshace con `Ctrl+Z` (un
+  arrastre es un solo paso).
+- `K` mientras se reproduce sigue siendo **pausa** (J/K/L): detené primero y después `K` agrega.
+- **Fotograma anterior / siguiente** caen siempre en un cuadro exacto (30 clics a 30 fps = 1 s).
+- En **Motion graphics** no aparecen los campos de seguimiento de las plantillas (`track`, ancla,
+  desvío): los completa Studio con el **Seguir objeto** del clip.
+
+### 18.3 Máscara por clic (SAM 2)
+
+1. Elegí un clip de video, poné el cursor en un cuadro donde se vea bien el objeto y tocá
+   **Máscara** (ícono de recuadro) en la Vista previa. La primera vez pide el paquete **sam2**.
+2. **Incluir (+)**: clic sobre el objeto. **Excluir (−)**: clic en lo que no va (también clic
+   derecho o `Alt`+clic). La máscara aparece en verde encima del video.
+3. **Propagar** sigue la máscara por todo el clip (con barra de progreso).
+4. Al terminar: **Quitar fondo** (usa ese recorte, ver 18.4) o **Seguir este objeto** (ver
+   18.5). Las máscaras y seguimientos quedan en **Media** como _Máscara_ y _Seguimiento_.
+5. **Cerrar** la herramienta (✕) libera la sesión: se borran los cuadros temporales y las vistas
+   de cada clic. Lo que produjo **Propagar** (máscara, recorte, seguimiento) queda en Media.
+
+### 18.4 Quitar fondo
+
+1. Elegí el clip de video o imagen y tocá **Quitar fondo** (goma en la Vista previa o
+   **Propiedades → Quitar fondo…**).
+2. Elegí el **fondo**: _Color_, _Imagen_ o _Video_ de Media, _Desenfoque del propio video_ o
+   _Transparente_ (se ven las pistas de abajo).
+3. Studio recorta a la persona (RobustVideoMatting en videos, paquete **matting**; BiRefNet en
+   imágenes, paquete **matting-image**: la variante liviana BiRefNet-lite, backbone
+   **swin_v1_tiny**). En la RTX 4050 va a unos 15 cuadros por segundo o más; sin GPU avisa _Va a
+   correr en CPU (más lento)_. En imágenes también avisa si la PC tiene GPU pero onnxruntime quedó
+   en su versión CPU (volvé a descargar **matting-image** para pasarla a la de GPU).
+4. Al terminar la Vista previa ya muestra el recorte. El fondo se cambia después en
+   **Propiedades → Quitar fondo**; **Volver al video original** lo deshace.
+
+### 18.5 Seguir objeto
+
+1. Elegí el clip de video y tocá **Seguir objeto** (mira) en la Vista previa.
+2. **Método** (en la barra violeta): _Automático_ (usa **SAM 2** si su paquete está instalado; si
+   no, el rápido), _SAM 2_ (más preciso, pide el paquete **sam2**) o _Rápido_ (OpenCV).
+   **Dibujá un rectángulo** alrededor del objeto arrastrando sobre el video.
+3. Cuando termina, el aviso dice qué método usó: _SAM 2_, _CSRT_ o, si el OpenCV instalado no lo trae,
+   _template matching_ (sigue bien objetos con textura; si se pierde, dibujá una caja más
+   ajustada). Elegí qué **texto o motion** lo sigue (o **Crear un texto**), el **Ancla**
+   (centro, arriba o debajo del objeto) y el **Desvío** en % del lienzo. **Asignar**.
+4. En **Propiedades → Seguimiento** se ve el método, cambiás ancla y desvío, **Dejar de seguir** o **Convertir
+   seguimiento a keyframes** (crea keyframes de posición que podés retocar a mano).
+
+### 18.6 Reencuadrar a 9:16 / 1:1 / 4:5
+
+1. Tocá **Reencuadrar** (ícono de recorte) en la Vista previa.
+2. Elegí el formato y qué seguir: **Caras** (automático, paquete **reframe**) o **Un objeto
+   seguido**. **Analizar para 9:16**.
+3. Reproducí: el **recuadro naranja** muestra lo que quedaría en el video vertical (lo de afuera
+   se oscurece). **Aplicar** lo guarda en el proyecto (el recuadro pasa a celeste) o
+   **Descartar**.
+4. Al exportar en ese formato se usa ese recorte en vez del fondo desenfocado. Los keyframes de
+   recorte se editan en **Propiedades** (sin clip elegido → **Reencuadre**): mover, cambiar la
+   curva, **Agregar en el cursor**, borrar o **Quitar** el reencuadre.
+
+### 18.7 Problemas frecuentes
+
+| Síntoma                                     | Qué hacer                                                                                                    |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| La vista previa se ve negra o con cortes    | Generá el **proxy** del video en Media o elegí _Calidad → Proxy_; si sigue, probá la _Vista previa clásica_. |
+| Aparece _pasé a proxies_ y se ve borroso    | Es normal en equipos lentos: la exportación usa siempre el original.                                         |
+| `K` no agrega el keyframe                   | Detené la reproducción, elegí el clip y poné el cursor **sobre** el clip.                                    |
+| La máscara toma de más                      | Agregá puntos **Excluir (−)** sobre lo que sobra, en el mismo cuadro.                                        |
+| _Paquete requerido_ al usar una herramienta | Descargalo desde la ventana; la acción se repite sola al terminar.                                           |

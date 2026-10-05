@@ -1,23 +1,37 @@
 "use client";
 
 import { useEffect } from "react";
+import { masterClock } from "@/lib/master-clock";
 import { projectDuration } from "@/lib/timeline";
 import { useProjectStore } from "@/stores/project-store";
 
-/** Advances the playhead in real time while `playing` (the preview media follows it). */
+/**
+ * Advances the playhead while `playing`, reading the preview's master clock (driven by the
+ * bottom-most video when the multilayer preview runs; monotonic otherwise). A seek made while
+ * playing (ruler click, frame step) re-bases the clock.
+ */
 export function usePlaybackClock(): void {
   const playing = useProjectStore((s) => s.playing);
   useEffect(() => {
-    if (!playing) return;
+    const start = useProjectStore.getState();
+    if (!playing) {
+      masterClock.pause(start.playhead);
+      return;
+    }
+    masterClock.play(start.playhead, start.playbackRate);
+    let lastSet = start.playhead;
+    let rate = start.playbackRate;
     let raf = 0;
-    let last = performance.now();
-    const tick = (now: number) => {
+    const tick = () => {
       const store = useProjectStore.getState();
-      const dt = (now - last) / 1000;
-      last = now;
+      if (Math.abs(store.playhead - lastSet) > 1e-3) masterClock.seek(store.playhead);
+      if (store.playbackRate !== rate) {
+        rate = store.playbackRate;
+        masterClock.setRate(rate);
+      }
       const end = projectDuration(store.project);
-      const next = store.playhead + dt * store.playbackRate;
-      if (next <= 0 && store.playbackRate < 0) {
+      const next = masterClock.now();
+      if (next <= 0 && rate < 0) {
         store.setPlayhead(0);
         store.setPlaying(false);
         return;
@@ -28,9 +42,13 @@ export function usePlaybackClock(): void {
         return;
       }
       store.setPlayhead(next);
+      lastSet = useProjectStore.getState().playhead;
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      masterClock.pause(useProjectStore.getState().playhead);
+    };
   }, [playing]);
 }

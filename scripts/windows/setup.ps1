@@ -14,9 +14,14 @@
   5. Modelos: models_cli --check muestra la tabla presentes/faltantes y despues se baja solo lo que
      falta (descargas reanudables, verificadas, registradas en models\manifest.json). RVC base
      (hubert + rmvpe) solo con -Full; si no, se pide al usar RVC (paquete rvc-base).
+  5b. Entorno aislado GPL apps\workers\.venv-gpl (recorte de personas RVM, licencia GPL-3): solo
+     con -Full o si ya existe (se actualiza si cambio vision_gpl\requirements.txt). Sin -Full lo
+     crean los workers al descargar el paquete "matting" desde Ajustes (python -m venv + pip).
+     Reutiliza el torch del .venv principal (no baja otra copia de ~2.5 GB).
   6. Paquetes de IA (models\packs.json): por defecto solo "core" (Whisper base + voz Daniela);
-     con -Full todos en secuencia (whisper-turbo, voces-es, rvc-base, scenes, voz-limpia). Lo que
-     ya esta se omite; el resto se baja bajo demanda desde Ajustes > Paquetes de IA.
+     con -Full todos en secuencia (whisper-turbo, voces-es, rvc-base, scenes, voz-limpia, matting,
+     matting-image, sam2, reframe). Lo que ya esta se omite; el resto se baja bajo demanda desde
+     Ajustes > Paquetes de IA.
   7. pnpm build (se omite si el build coincide con el hash del codigo y de .env).
   Al final: tabla con segundos por paso, "N pasos omitidos, M ejecutados" y el tiempo total
   (tambien en storage\run\setup-last.json).
@@ -28,9 +33,10 @@
 .PARAMETER Force
   Ignora los sellos: rehace pnpm install, pip install, el build y vuelve a descargar los modelos.
 .PARAMETER Full
-  Descarga TODOS los paquetes de IA en secuencia (~3,5 GB: Whisper large-v3-turbo, 7 voces Piper,
-  RVC base, PySceneDetect, DeepFilterNet). Sin -Full solo se instala "core" y el resto se pide al
-  usar cada funcion. Se puede repetir: lo ya descargado se omite y lo parcial se reanuda.
+  Descarga TODOS los paquetes de IA en secuencia (~4,1 GB: Whisper large-v3-turbo, 7 voces Piper,
+  RVC base, PySceneDetect, DeepFilterNet, RVM + .venv-gpl, BiRefNet-lite, SAM 2.1, YuNet). Sin
+  -Full solo se instala "core" y el resto se pide al usar cada funcion. Se puede repetir: lo ya
+  descargado se omite y lo parcial se reanuda.
 .PARAMETER WithCuda
   Instala torch CUDA 12.8 (cu128) y pone USE_CUDA=true en .env. Requiere GPU NVIDIA + driver 570+.
   No hace falta: si se detecta una GPU NVIDIA (nvidia-smi o el nombre del adaptador de video) CUDA
@@ -508,6 +514,32 @@ if ($SkipModels) {
         }
     } catch {
         Add-Result 'Modelos' fail ("{0} - reintenta setup.ps1 (las descargas se reanudan)" -f $_.Exception.Message) -Seconds (Stop-StepClock)
+    }
+}
+
+# ============================================================================ 5b. GPL venv (RVM)
+# Decision 2 (plan v2): GPL code runs in its own venv/process. Created only when the matting pack
+# is wanted (-Full) or already exists (incremental update); otherwise the workers create it when
+# the pack is downloaded from the app. Same code path: models_cli --gpl-venv ensure.
+Write-Step 'Entorno aislado GPL (apps\workers\.venv-gpl, recorte de personas RVM)'
+$gplPython = Join-Path $WorkersDir '.venv-gpl\Scripts\python.exe'
+if (-not $venvOk) {
+    Add-Result 'Entorno GPL (.venv-gpl)' skip 'requiere el .venv de workers'
+} elseif (-not ($Full -or (Test-Path $gplPython))) {
+    Add-Result 'Entorno GPL (.venv-gpl)' skip 'se crea al descargar el paquete matting (o con -Full)'
+} else {
+    Start-StepClock
+    $gplReport = Join-Path (Get-RunDir) 'gpl-venv.json'
+    $gplArgs = @('-m', 'studio_workers.models_cli', '--gpl-venv', 'ensure', '--report', $gplReport)
+    if ($Force) { $gplArgs += '--force' }
+    try {
+        Invoke-Native $VenvPython $gplArgs $WorkersDir
+        $gv = Get-Content -Raw -Encoding UTF8 $gplReport | ConvertFrom-Json
+        $gplAction = 'ejecutado'
+        if ($gv.action -eq 'omitido') { $gplAction = 'omitido'; Write-Omit 'entorno GPL (.venv-gpl): requirements sin cambios' }
+        Add-Result 'Entorno GPL (.venv-gpl)' ok ("{0} - {1}" -f $gv.state, $gv.dir) -Action $gplAction -Seconds (Stop-StepClock)
+    } catch {
+        Add-Result 'Entorno GPL (.venv-gpl)' fail ("{0} - reintenta setup.ps1 o descarga el paquete matting desde Ajustes" -f $_.Exception.Message) -Seconds (Stop-StepClock)
     }
 }
 

@@ -448,6 +448,22 @@
           <li class="d3"><a href="#176-limpiar-voz-ia">17.6 Limpiar voz (IA)</a></li>
           <li class="d3"><a href="#177-revisión-para-redes">17.7 Revisión para redes</a></li>
           <li class="d3"><a href="#178-problemas-frecuentes">17.8 Problemas frecuentes</a></li>
+          <li class="d2">
+            <a href="#18-vista-previa-multicapa-keyframes-y-visión-ia"
+              >18. Vista previa multicapa, keyframes y visión (IA)</a
+            >
+          </li>
+          <li class="d3"><a href="#181-vista-previa-multicapa">18.1 Vista previa multicapa</a></li>
+          <li class="d3"><a href="#182-keyframes">18.2 Keyframes</a></li>
+          <li class="d3">
+            <a href="#183-máscara-por-clic-sam-2">18.3 Máscara por clic (SAM 2)</a>
+          </li>
+          <li class="d3"><a href="#184-quitar-fondo">18.4 Quitar fondo</a></li>
+          <li class="d3"><a href="#185-seguir-objeto">18.5 Seguir objeto</a></li>
+          <li class="d3">
+            <a href="#186-reencuadrar-a-916--11--45">18.6 Reencuadrar a 9:16 / 1:1 / 4:5</a>
+          </li>
+          <li class="d3"><a href="#187-problemas-frecuentes">18.7 Problemas frecuentes</a></li>
         </ol>
       </nav>
       <main>
@@ -813,11 +829,15 @@
               <tr>
                 <td><strong>Vista previa</strong></td>
                 <td>
-                  Reproductor sincronizado con el cursor de la línea de tiempo: ir al inicio,
-                  fotograma anterior/siguiente, reproducir/pausar. Muestra el clip bajo el cursor
-                  (usa el proxy si existe), el audio, los textos, los subtítulos (dentro del video,
-                  como en la exportación) y <strong>todos</strong> los motion renderizados bajo el
-                  cursor, en su posición y escala.
+                  Reproductor sincronizado con el cursor: ir al inicio, fotograma
+                  anterior/siguiente, reproducir/pausar. Dibuja
+                  <strong>todas las capas</strong> bajo el cursor como la exportación (videos,
+                  imágenes, textos, motion con transparencia, recortes de fondo, PiP, subtítulos y
+                  keyframes) y suena el audio. Herramientas <strong>Máscara</strong>,
+                  <strong>Quitar fondo</strong>, <strong>Seguir objeto</strong> y
+                  <strong>Reencuadrar</strong>; engranaje con guías de zona segura, calidad y
+                  <strong>Vista previa clásica</strong> (ver
+                  <a href="#18-vista-previa-multicapa-keyframes-y-visión-ia">§18</a>).
                 </td>
               </tr>
               <tr>
@@ -2291,7 +2311,7 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
                 <td>Reproducción</td>
               </tr>
               <tr>
-                <td>Pausa</td>
+                <td>Pausa (detenido: keyframe)</td>
                 <td><code>K</code></td>
                 <td>Reproducción</td>
               </tr>
@@ -2316,7 +2336,7 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
                 <td>Línea de tiempo</td>
               </tr>
               <tr>
-                <td>Eliminar clip seleccionado</td>
+                <td>Eliminar clip (o keyframe)</td>
                 <td><code>Supr</code></td>
                 <td>Línea de tiempo</td>
               </tr>
@@ -2623,7 +2643,10 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
                 <td>Cortalo o recomprimilo antes de importarlo.</td>
               </tr>
               <tr>
-                <td>La vista previa dice <strong>El navegador no puede reproducir…</strong></td>
+                <td>
+                  La vista previa dice <strong>El navegador no puede reproducir…</strong> o
+                  <strong>La vista previa no puede reproducir…</strong>
+                </td>
                 <td>Códec que el navegador no soporta (por ejemplo HEVC, ProRes).</td>
                 <td>En Media tocá <strong>Generar proxy</strong> (varita). Usá Chrome o Edge.</td>
               </tr>
@@ -3175,10 +3198,11 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
             del archivo.
           </li>
           <li>
-            <strong>Vista previa</strong>: muestra un solo clip de video a la vez (el de la primera
-            pista de video de la lista que tenga algo bajo el cursor) en su posición/escala; los
-            motion renderizados sí se apilan todos. La vista previa de motion en su panel es
-            aproximada hasta que renderizás.
+            <strong>Vista previa</strong>: los barridos, deslizamientos y zoom de las transiciones
+            se ven como fundido, y una plantilla de motion que sigue un objeto se ve en su lugar
+            recién al volver a renderizarla. La <em>Vista previa clásica</em> muestra un solo clip
+            de video a la vez. La vista previa de motion en su panel es aproximada hasta que
+            renderizás.
           </li>
           <li>
             <strong>Quitar silencios y muletillas</strong>: después de aplicar hay que volver a
@@ -3423,6 +3447,30 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
                 <td>0,2 GB</td>
                 <td>Limpiar voz (IA)</td>
               </tr>
+              <tr>
+                <td><strong>matting</strong></td>
+                <td>RobustVideoMatting</td>
+                <td>0,01 GB</td>
+                <td>Quitar fondo (video)</td>
+              </tr>
+              <tr>
+                <td><strong>matting-image</strong></td>
+                <td>BiRefNet-lite (swin_v1_tiny)</td>
+                <td>0,28 GB</td>
+                <td>Quitar fondo (imagen)</td>
+              </tr>
+              <tr>
+                <td><strong>sam2</strong></td>
+                <td>SAM 2.1 tiny + small</td>
+                <td>0,2 GB</td>
+                <td>Máscara, seguir objeto</td>
+              </tr>
+              <tr>
+                <td><strong>reframe</strong></td>
+                <td>YuNet (caras)</td>
+                <td>&lt; 0,01 GB</td>
+                <td>Reencuadrar</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -3470,11 +3518,14 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
         <h3 id="173-test-de-rendimiento-ia">17.3 Test de rendimiento IA</h3>
         <p>
           En <strong>Ajustes → Paquetes de IA → Test de rendimiento IA</strong> Studio mide en tu PC
-          (un par de minutos) Whisper, Piper, RVC y la detección de escenas, y guarda el resultado.
-          La tabla muestra cada velocidad y al lado los <strong>tiempos estimados</strong>, por
-          ejemplo <em>Transcribir 10 min de audio ≈ 25 s</em> o
-          <em>Detectar escenas en 10 min a 30 fps ≈ 1 min</em>. Volvé a correrlo si cambiás de placa
-          o de driver.
+          (un par de minutos) Whisper, Piper, RVC, la detección de escenas y, con el paquete
+          <strong>matting</strong>, el recorte de personas, y guarda el resultado. La tabla muestra
+          cada velocidad y al lado los <strong>tiempos estimados</strong>, por ejemplo
+          <em>Transcribir 10 min de audio ≈ 25 s</em> o
+          <em>Detectar escenas en 10 min a 30 fps ≈ 1 min</em>. La fila
+          <strong>Recorte de personas ≈ X fps (meta 15)</strong> mide un clip 1080p de 5 s y dice la
+          precisión (fp16 en GPU, fp32 en CPU) y la reducción interna usada. Volvé a correrlo si
+          cambiás de placa o de driver.
         </p>
         <h3 id="174-quitar-silencios-y-muletillas">17.4 Quitar silencios y muletillas</h3>
         <ol>
@@ -3610,6 +3661,233 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
                   La API es de una versión anterior: actualizá y corré
                   <code>setup.ps1 -Update</code>.
                 </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <h2 id="18-vista-previa-multicapa-keyframes-y-visión-ia">
+          18. Vista previa multicapa, keyframes y visión (IA)
+        </h2>
+        <p>
+          Desde esta versión la <strong>Vista previa</strong> dibuja
+          <strong>todas las capas</strong> del proyecto como la exportación y suma herramientas de
+          IA de visión: máscara por clic, quitar fondo, seguir un objeto y reencuadrar a vertical.
+          Todo corre en tu PC.
+        </p>
+        <h3 id="181-vista-previa-multicapa">18.1 Vista previa multicapa</h3>
+        <ul>
+          <li>
+            <strong>Qué muestra</strong>: todos los clips visibles bajo el cursor, apilados como en
+            la exportación (la primera pista de la lista al fondo, las siguientes encima): videos,
+            imágenes, textos, motion graphics con transparencia, recortes de fondo, PiP y
+            subtítulos. Los <strong>keyframes</strong> de posición, escala, opacidad y recorte se
+            ven animados; el <strong>audio</strong> de las pistas suena con el volumen de cada clip.
+          </li>
+          <li>
+            <strong>Fluidez</strong>: el reloj sigue al video de más abajo. Si la vista previa baja
+            de <strong>24 fps</strong>, pasa sola a los <strong>proxies</strong> y avisa (<em
+              >Vista previa: pasé a proxies…</em
+            >). En desarrollo hay un contador abajo a la izquierda (fps, ms por cuadro, capas).
+          </li>
+          <li>
+            <strong>Opciones</strong> (engranaje de la barra):
+            <strong>Guías de zona segura</strong> (rectángulos al 90 % y 80 %),
+            <strong>Calidad</strong> (<em>Automática</em>, <em>Original</em>, <em>Proxy</em>),
+            <strong>Mostrar rendimiento</strong> y <strong>Vista previa clásica</strong> (el
+            reproductor anterior, de un solo clip: usalo si algo se ve raro y avisanos).
+          </li>
+          <li>El clip elegido se marca con un recuadro punteado (violeta si sigue a un objeto).</li>
+        </ul>
+        <h3 id="182-keyframes">18.2 Keyframes</h3>
+        <p>
+          Un <strong>keyframe</strong> fija el valor de una propiedad en un momento; entre dos
+          keyframes el valor va cambiando solo.
+        </p>
+        <ol>
+          <li>
+            Elegí el clip (video, motion o texto) y en
+            <strong>Propiedades → Keyframes</strong> elegí la propiedad:
+            <strong>Posición</strong> (centro del clip en % del lienzo), <strong>Escala</strong>,
+            <strong>Opacidad</strong> o <strong>Recorte</strong>.
+          </li>
+          <li>
+            Poné el cursor donde querés el keyframe y, <strong>con el video detenido</strong>, tocá
+            <code>K</code> (o <strong>Agregar en el cursor</strong>). Guarda el valor que tiene el
+            clip en ese momento.
+          </li>
+          <li>Mové el cursor, agregá otro y cambiá su valor en la lista.</li>
+          <li>
+            <strong>Curva</strong> de cada keyframe (cómo llega al siguiente): <em>Lineal</em>,
+            <em>Acelerar</em>, <em>Frenar</em>, <em>Suave</em> o <em>Mantener</em> (salta de golpe
+            al siguiente).
+          </li>
+        </ol>
+        <ul>
+          <li>
+            En la <strong>línea de tiempo</strong> los keyframes son <strong>rombos</strong> de
+            colores en la parte de abajo del clip (celeste posición, verde escala, amarillo
+            opacidad, rosa recorte). Clic: lo elige y lleva el cursor ahí.
+            <strong>Arrastrar</strong>: lo mueve en el tiempo. <code>Supr</code> borra el keyframe
+            elegido (si no hay ninguno elegido, borra el clip).
+          </li>
+          <li>
+            <strong>Copiar</strong> / <strong>Pegar</strong> (íconos de la sección) copian todos los
+            keyframes del clip y los pegan en otro clip a partir del cursor.
+          </li>
+          <li>
+            Con keyframes, el valor fijo de esa propiedad se ignora. Todo se deshace con
+            <code>Ctrl+Z</code> (un arrastre es un solo paso).
+          </li>
+          <li>
+            <code>K</code> mientras se reproduce sigue siendo <strong>pausa</strong> (J/K/L): detené
+            primero y después <code>K</code> agrega.
+          </li>
+          <li>
+            <strong>Fotograma anterior / siguiente</strong> caen siempre en un cuadro exacto (30
+            clics a 30 fps = 1 s).
+          </li>
+          <li>
+            En <strong>Motion graphics</strong> no aparecen los campos de seguimiento de las
+            plantillas (<code>track</code>, ancla, desvío): los completa Studio con el
+            <strong>Seguir objeto</strong> del clip.
+          </li>
+        </ul>
+        <h3 id="183-máscara-por-clic-sam-2">18.3 Máscara por clic (SAM 2)</h3>
+        <ol>
+          <li>
+            Elegí un clip de video, poné el cursor en un cuadro donde se vea bien el objeto y tocá
+            <strong>Máscara</strong> (ícono de recuadro) en la Vista previa. La primera vez pide el
+            paquete <strong>sam2</strong>.
+          </li>
+          <li>
+            <strong>Incluir (+)</strong>: clic sobre el objeto. <strong>Excluir (−)</strong>: clic
+            en lo que no va (también clic derecho o <code>Alt</code>+clic). La máscara aparece en
+            verde encima del video.
+          </li>
+          <li>
+            <strong>Propagar</strong> sigue la máscara por todo el clip (con barra de progreso).
+          </li>
+          <li>
+            Al terminar: <strong>Quitar fondo</strong> (usa ese recorte, ver 18.4) o
+            <strong>Seguir este objeto</strong> (ver 18.5). Las máscaras y seguimientos quedan en
+            <strong>Media</strong> como <em>Máscara</em> y <em>Seguimiento</em>.
+          </li>
+          <li>
+            <strong>Cerrar</strong> la herramienta (✕) libera la sesión: se borran los cuadros
+            temporales y las vistas de cada clic. Lo que produjo <strong>Propagar</strong> (máscara,
+            recorte, seguimiento) queda en Media.
+          </li>
+        </ol>
+        <h3 id="184-quitar-fondo">18.4 Quitar fondo</h3>
+        <ol>
+          <li>
+            Elegí el clip de video o imagen y tocá <strong>Quitar fondo</strong> (goma en la Vista
+            previa o <strong>Propiedades → Quitar fondo…</strong>).
+          </li>
+          <li>
+            Elegí el <strong>fondo</strong>: <em>Color</em>, <em>Imagen</em> o <em>Video</em> de
+            Media, <em>Desenfoque del propio video</em> o <em>Transparente</em> (se ven las pistas
+            de abajo).
+          </li>
+          <li>
+            Studio recorta a la persona (RobustVideoMatting en videos, paquete
+            <strong>matting</strong>; BiRefNet en imágenes, paquete <strong>matting-image</strong>:
+            la variante liviana BiRefNet-lite, backbone <strong>swin_v1_tiny</strong>). En la RTX
+            4050 va a unos 15 cuadros por segundo o más; sin GPU avisa
+            <em>Va a correr en CPU (más lento)</em>. En imágenes también avisa si la PC tiene GPU
+            pero onnxruntime quedó en su versión CPU (volvé a descargar
+            <strong>matting-image</strong> para pasarla a la de GPU).
+          </li>
+          <li>
+            Al terminar la Vista previa ya muestra el recorte. El fondo se cambia después en
+            <strong>Propiedades → Quitar fondo</strong>;
+            <strong>Volver al video original</strong> lo deshace.
+          </li>
+        </ol>
+        <h3 id="185-seguir-objeto">18.5 Seguir objeto</h3>
+        <ol>
+          <li>
+            Elegí el clip de video y tocá <strong>Seguir objeto</strong> (mira) en la Vista previa.
+          </li>
+          <li>
+            <strong>Método</strong> (en la barra violeta): <em>Automático</em> (usa
+            <strong>SAM 2</strong> si su paquete está instalado; si no, el rápido),
+            <em>SAM 2</em> (más preciso, pide el paquete <strong>sam2</strong>) o
+            <em>Rápido</em> (OpenCV). <strong>Dibujá un rectángulo</strong> alrededor del objeto
+            arrastrando sobre el video.
+          </li>
+          <li>
+            Cuando termina, el aviso dice qué método usó: <em>SAM 2</em>, <em>CSRT</em> o, si el
+            OpenCV instalado no lo trae, <em>template matching</em> (sigue bien objetos con textura;
+            si se pierde, dibujá una caja más ajustada). Elegí qué
+            <strong>texto o motion</strong> lo sigue (o <strong>Crear un texto</strong>), el
+            <strong>Ancla</strong> (centro, arriba o debajo del objeto) y el
+            <strong>Desvío</strong> en % del lienzo. <strong>Asignar</strong>.
+          </li>
+          <li>
+            En <strong>Propiedades → Seguimiento</strong> se ve el método, cambiás ancla y desvío,
+            <strong>Dejar de seguir</strong> o
+            <strong>Convertir seguimiento a keyframes</strong> (crea keyframes de posición que podés
+            retocar a mano).
+          </li>
+        </ol>
+        <h3 id="186-reencuadrar-a-916--11--45">18.6 Reencuadrar a 9:16 / 1:1 / 4:5</h3>
+        <ol>
+          <li>Tocá <strong>Reencuadrar</strong> (ícono de recorte) en la Vista previa.</li>
+          <li>
+            Elegí el formato y qué seguir: <strong>Caras</strong> (automático, paquete
+            <strong>reframe</strong>) o <strong>Un objeto seguido</strong>.
+            <strong>Analizar para 9:16</strong>.
+          </li>
+          <li>
+            Reproducí: el <strong>recuadro naranja</strong> muestra lo que quedaría en el video
+            vertical (lo de afuera se oscurece). <strong>Aplicar</strong> lo guarda en el proyecto
+            (el recuadro pasa a celeste) o <strong>Descartar</strong>.
+          </li>
+          <li>
+            Al exportar en ese formato se usa ese recorte en vez del fondo desenfocado. Los
+            keyframes de recorte se editan en <strong>Propiedades</strong> (sin clip elegido →
+            <strong>Reencuadre</strong>): mover, cambiar la curva,
+            <strong>Agregar en el cursor</strong>, borrar o <strong>Quitar</strong> el reencuadre.
+          </li>
+        </ol>
+        <h3 id="187-problemas-frecuentes">18.7 Problemas frecuentes</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Síntoma</th>
+                <th>Qué hacer</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>La vista previa se ve negra o con cortes</td>
+                <td>
+                  Generá el <strong>proxy</strong> del video en Media o elegí
+                  <em>Calidad → Proxy</em>; si sigue, probá la <em>Vista previa clásica</em>.
+                </td>
+              </tr>
+              <tr>
+                <td>Aparece <em>pasé a proxies</em> y se ve borroso</td>
+                <td>Es normal en equipos lentos: la exportación usa siempre el original.</td>
+              </tr>
+              <tr>
+                <td><code>K</code> no agrega el keyframe</td>
+                <td>
+                  Detené la reproducción, elegí el clip y poné el cursor <strong>sobre</strong> el
+                  clip.
+                </td>
+              </tr>
+              <tr>
+                <td>La máscara toma de más</td>
+                <td>
+                  Agregá puntos <strong>Excluir (−)</strong> sobre lo que sobra, en el mismo cuadro.
+                </td>
+              </tr>
+              <tr>
+                <td><em>Paquete requerido</em> al usar una herramienta</td>
+                <td>Descargalo desde la ventana; la acción se repite sola al terminar.</td>
               </tr>
             </tbody>
           </table>

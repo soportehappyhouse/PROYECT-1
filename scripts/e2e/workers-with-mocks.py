@@ -4,10 +4,17 @@
 
 - DeepFilterNet (pack voz-limpia): the backend is replaced by FFmpeg `afftdn` and the pack is
   reported as installed, so audio.denoise runs end to end (real api + real workers routes).
+  STUDIO_MOCK_DENOISE=0 keeps the real (missing) pack, e.g. for the UI smoke 409 step.
 - STUDIO_MOCK_GPU_FALLBACK=1: denoise answers `warnings: ["gpu_fallback_cpu"]` (what the GPU
   manager returns when there is no free VRAM), to check the api/web propagation.
+- Sprint 2 vision (STUDIO_MOCK_VISION=0 turns it off): packs matting / matting-image / sam2 are
+  reported as installed; RVM runs the real GPL subprocess protocol with `--mock-model` (constant
+  alpha 200, foreground = source) on this interpreter; BiRefNet = constant alpha 200; the SAM 2
+  predictor returns a CONSTANT mask (a box of 30 % x 40 % of the frame centered on the mean of the
+  positive clicks, the same on every frame), so propagate -> masks + track + alpha WebM are real.
 
-Everything else (scenes, silences, packs, gpu, perf) is the real code. Never used by setup/start.
+Everything else (scenes, silences, packs, gpu, perf, vision.track with OpenCV, vision.reframe with
+a track) is the real code. Never used by setup/start.
 """
 
 from __future__ import annotations
@@ -18,6 +25,11 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "apps" / "workers"))
+MOCK_VISION = os.environ.get("STUDIO_MOCK_VISION", "1") != "0"
+MOCK_DENOISE = os.environ.get("STUDIO_MOCK_DENOISE", "1") != "0"
+if MOCK_VISION:
+    # RVM subprocess (vision_gpl.rvm --mock-model) on this interpreter: no .venv-gpl / torch.
+    os.environ.setdefault("GPL_PYTHON", sys.executable)
 
 import uvicorn
 from studio_workers import packs, services
@@ -47,17 +59,71 @@ def afftdn(src: Path, dst: Path, _device: str) -> None:
 _status = packs.pack_status
 
 
-def pack_status(pack, root, catalog=None):  # type: ignore[no-untyped-def]
-    row = _status(pack, root, catalog)
-    if pack.id == "voz-limpia":
+def pack_status(pack, root, catalog=None, **kw):  # type: ignore[no-untyped-def]
+    row = _status(pack, root, catalog, **kw)
+    if (MOCK_DENOISE and pack.id == "voz-limpia") or (MOCK_VISION and pack.id in VISION_PACKS):
         row.update(installed=True, partial=False)
     return row
 
 
+VISION_PACKS = {"matting", "matting-image", "sam2"}
+
+
+class ConstMaskSam:
+    """SAM 2 double: constant box mask (30 % x 40 % of the frame) at the positive clicks."""
+
+    device = "cpu"
+
+    def init_state(self, frames_dir: Path) -> dict:
+        from studio_workers.vision import frames  # noqa: PLC0415
+
+        jpgs = sorted(frames_dir.glob("*.jpg"))
+        info = frames.probe(jpgs[0])
+        return {"n": len(jpgs), "w": info.width, "h": info.height, "objs": {}}
+
+    @staticmethod
+    def _box(st: dict, cx: float, cy: float):
+        import numpy as np  # noqa: PLC0415
+
+        w, h = st["w"], st["h"]
+        bw, bh = int(w * 0.3), int(h * 0.4)
+        x0 = int(min(max(0, cx - bw / 2), w - bw))
+        y0 = int(min(max(0, cy - bh / 2), h - bh))
+        m = np.zeros((h, w), dtype=bool)
+        m[y0 : y0 + bh, x0 : x0 + bw] = True
+        return m
+
+    def add_points(self, st, idx, obj, points, labels):  # type: ignore[no-untyped-def]
+        pos = [p for p, lab in zip(points, labels, strict=True) if lab == 1] or points
+        cx = sum(p[0] for p in pos) / len(pos)
+        cy = sum(p[1] for p in pos) / len(pos)
+        st["objs"][obj] = self._box(st, cx, cy)
+        return st["objs"][obj]
+
+    def add_box(self, st, idx, obj, box):  # type: ignore[no-untyped-def]
+        st["objs"][obj] = self._box(st, (box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
+        return st["objs"][obj]
+
+    def add_mask(self, st, idx, obj, mask):  # type: ignore[no-untyped-def]
+        st["objs"][obj] = mask
+
+    def propagate(self, st, start, reverse):  # type: ignore[no-untyped-def]
+        order = range(start, -1, -1) if reverse else range(start, st["n"])
+        for k in order:
+            yield k, dict(st["objs"])
+
+    def reset(self, st) -> None:  # type: ignore[no-untyped-def]
+        return None
+
+    def unload(self) -> None:
+        return None
+
+
 packs.pack_status = pack_status
 engine = services.denoise_engine()
-engine._backend = afftdn
-if os.environ.get("STUDIO_MOCK_GPU_FALLBACK") == "1":
+if MOCK_DENOISE:
+    engine._backend = afftdn
+if MOCK_DENOISE and os.environ.get("STUDIO_MOCK_GPU_FALLBACK") == "1":
     _denoise = engine.denoise
 
     def denoise(src: Path, out: Path):  # type: ignore[no-untyped-def]
@@ -65,6 +131,14 @@ if os.environ.get("STUDIO_MOCK_GPU_FALLBACK") == "1":
         return path, device, [*warnings, GPU_FALLBACK_CPU]
 
     engine.denoise = denoise  # type: ignore[method-assign]
+
+if MOCK_VISION:
+    import numpy as np
+
+    matte = services.matte_engine()
+    matte.rvm_extra_args = ["--mock-model"]
+    matte.alpha_factory = lambda _device: lambda rgb: np.full(rgb.shape[:2], 200, dtype=np.uint8)
+    services.sam_manager().backend_factory = lambda _size, _device: ConstMaskSam()
 
 settings = get_settings()
 uvicorn.run(

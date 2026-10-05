@@ -11,6 +11,7 @@ import type { ApiConfig } from "./config.js";
 import type { AppContext } from "./context.js";
 import { openDatabase } from "./db/database.js";
 import { registerAiHandlers } from "./jobs/handlers/ai.js";
+import { registerVisionHandlers } from "./jobs/handlers/vision.js";
 import { registerModuleBHandlers } from "./jobs/handlers/index.js";
 import { createMotionRenderHandler } from "./jobs/handlers/motion-render.js";
 import { JobQueue } from "./jobs/queue.js";
@@ -60,6 +61,7 @@ export async function buildApp({
   registerModuleBHandlers(ctx); // media.probe, media.proxy, voice.effect, project.export
   registerVoiceAiHandlers(ctx); // module d: voice.tts, voice.rvc, subtitles.transcribe
   registerAiHandlers(ctx); // Sprint 1: packs.download, analyze.*, timeline.apply-cuts, audio.denoise, perf.run
+  registerVisionHandlers(ctx); // Sprint 2: vision.matte/mask/track/reframe, timeline.track-to-keyframes
   queue.register(createMotionRenderHandler(ctx)); // module c: motion.render
 
   // stdout + storage/logs/api-YYYY-MM-DD.log (7 days, secrets redacted). Tests use logger: false.

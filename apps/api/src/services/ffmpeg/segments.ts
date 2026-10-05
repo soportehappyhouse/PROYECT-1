@@ -11,7 +11,12 @@ import {
   type VideoEncoderId,
 } from "@studio/shared";
 import { presetEncoding, segmentSafetyArgs } from "./encoders.js";
-import { clipDuration, sliceClipsToWindow, type TimelineAsset } from "./timeline.js";
+import {
+  clipDuration,
+  reframeApplies,
+  sliceClipsToWindow,
+  type TimelineAsset,
+} from "./timeline.js";
 
 /**
  * Segment cache render (Sprint 1, "render por bloques"): the export is split into windows at clip
@@ -175,7 +180,10 @@ export interface SegmentHashInput {
  * sha1 of everything that changes the pixels of a window: sliced visual clips (asset ids + file
  * mtime/size + trim + speed + opacity + crop + position/scale + transitions), text overlays and
  * burned subtitles relative to the window, caption style, AI label, canvas, preset video params,
- * encoder, ffmpeg version and COMPILER_VERSION. Audio-only fields (volume, voice effects, muted,
+ * encoder, ffmpeg version and COMPILER_VERSION. Sprint 2: keyframes (rebased to the window; the
+ * caller resolves trackRef to keyframes first, so the track content is hashed through them), matte
+ * (+ alpha / background asset stamps) and project.reframe with the window start when it applies.
+ * Audio-only fields (volume, voice effects, muted,
  * audio tracks) are left out: audio is rendered separately.
  */
 export function segmentHash(h: SegmentHashInput): string {
@@ -199,6 +207,7 @@ export function segmentHash(h: SegmentHashInput): string {
               opacity: c.opacity,
               tin: c.transitionIn,
               tout: c.transitionOut,
+              keyframes: c.keyframes,
             })),
         };
       return {
@@ -206,6 +215,11 @@ export function segmentHash(h: SegmentHashInput): string {
         clips: sliceClipsToWindow(t.clips, win).map((c) => {
           const id = t.kind === "motion" ? (c.renderedAssetId ?? c.assetId) : c.assetId;
           if (id) used.add(id);
+          if (c.matte) {
+            used.add(c.matte.assetId);
+            const bg = c.matte.background;
+            if (bg?.value && (bg.type === "image" || bg.type === "video")) used.add(bg.value);
+          }
           return {
             id,
             start: c.start,
@@ -218,6 +232,11 @@ export function segmentHash(h: SegmentHashInput): string {
             position: c.position,
             tin: c.transitionIn,
             tout: c.transitionOut,
+            // Sprint 2 (rebased to the piece by sliceClipsToWindow; trackRef already resolved).
+            keyframes: c.keyframes,
+            trackRef: c.trackRef,
+            matte: c.matte,
+            motion: c.trackRef ? c.motion?.template : undefined,
           };
         }),
       };
@@ -272,6 +291,10 @@ export function segmentHash(h: SegmentHashInput): string {
         subs,
         subsContext: subs.length
           ? { first: first && { s: first.start, e: first.end }, style: project.captionStyle }
+          : undefined,
+        // Reframe crop: absolute keyframes evaluated from the window start.
+        reframe: reframeApplies(project, h.preset)
+          ? { r: project.reframe, at: win.start }
           : undefined,
         label: aiLabelText(project.publish),
         labelStyle: aiLabelText(project.publish) ? project.captionStyle : undefined,

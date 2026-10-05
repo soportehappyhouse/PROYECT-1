@@ -11,6 +11,7 @@ import {
   snapPoints,
   snapTime,
   splitClip,
+  stepFrame,
   trimClipEnd,
   trimClipStart,
 } from "@/lib/timeline";
@@ -170,5 +171,16 @@ describe("snapping", () => {
     expect(snapClipStart(5.1, 2, [5, 20], 0.2)).toBe(5);
     // end near 20 -> start = 18
     expect(snapClipStart(17.9, 2, [5, 20], 0.2)).toBe(18);
+  });
+});
+
+describe("frame stepping", () => {
+  it("snaps to the frame grid (no drift from the ms-rounded playhead)", () => {
+    let t = 0;
+    for (let i = 0; i < 105; i++) t = Math.round(stepFrame(t, 30, 1) * 1000) / 1000;
+    expect(t).toBe(3.5);
+    expect(stepFrame(3.5, 30, -1)).toBeCloseTo(104 / 30, 9);
+    expect(stepFrame(0, 30, -1)).toBe(0);
+    expect(stepFrame(1.01, 25, 1)).toBeCloseTo(26 / 25, 9);
   });
 });

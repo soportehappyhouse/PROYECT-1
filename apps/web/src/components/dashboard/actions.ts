@@ -1,7 +1,8 @@
 import { toast } from "sonner";
 import { saveProjectNow } from "@/hooks/use-project-sync";
 import type { ShortcutActionId } from "@/lib/shortcuts";
-import { projectDuration } from "@/lib/timeline";
+import { projectDuration, stepFrame } from "@/lib/timeline";
+import { keyOrPause, REFRAME_OWNER, useKeyframeStore } from "@/stores/keyframe-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { showPanel } from "./dock-controller";
@@ -10,7 +11,7 @@ import { showPanel } from "./dock-controller";
 export function runAction(id: ShortcutActionId): void {
   const p = useProjectStore.getState();
   const s = useSettingsStore.getState();
-  const frame = 1 / (p.project.settings.fps || 30);
+  const fps = p.project.settings.fps || 30;
   switch (id) {
     case "playback.toggle":
       p.togglePlaying();
@@ -26,23 +27,30 @@ export function runAction(id: ShortcutActionId): void {
       p.shuttleBackward();
       break;
     case "playback.pause":
-      p.shuttleStop();
+      // Sprint 2: stopped with a clip selected, K adds a keyframe (see keyOrPause).
+      keyOrPause();
       break;
     case "playback.shuttleForward":
       p.shuttleForward();
       break;
     case "playback.frameBack":
-      p.setPlayhead(p.playhead - frame);
+      p.setPlayhead(stepFrame(p.playhead, fps, -1));
       break;
     case "playback.frameForward":
-      p.setPlayhead(p.playhead + frame);
+      p.setPlayhead(stepFrame(p.playhead, fps, 1));
       break;
     case "timeline.split":
       if (!p.splitAt()) toast.message("No hay clip bajo el cursor para dividir");
       break;
-    case "timeline.delete":
-      p.deleteClip();
+    case "timeline.delete": {
+      // Sprint 2: with a keyframe selected (diamond / inspector) Supr deletes the keyframe.
+      const kf = useKeyframeStore.getState();
+      const sel = kf.selected;
+      if (sel && sel.clipId === REFRAME_OWNER) kf.removeReframe(sel.index);
+      else if (sel && sel.clipId === p.selectedClipId) kf.remove(sel.clipId, sel.prop, sel.index);
+      else p.deleteClip();
       break;
+    }
     case "timeline.zoomIn":
       p.zoomBy(1.25);
       break;

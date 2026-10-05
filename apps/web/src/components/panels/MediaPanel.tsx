@@ -3,11 +3,13 @@
 import { useDraggable } from "@dnd-kit/core";
 import type { MediaAsset } from "@studio/shared";
 import {
+  Crosshair,
   FileAudio,
   FileVideo,
   Image as ImageIcon,
   Plus,
   RefreshCw,
+  Scan,
   Trash2,
   Upload,
   Wand2,
@@ -67,6 +69,8 @@ export async function uploadFiles(files: FileList | File[]): Promise<void> {
 
 function KindIcon({ kind }: { kind: MediaAsset["kind"] }) {
   if (kind === "audio") return <FileAudio className="size-6 text-emerald-500" />;
+  if (kind === "track") return <Crosshair className="size-6 text-violet-500" />;
+  if (kind === "mask") return <Scan className="size-6 text-violet-500" />;
   if (kind === "image") return <ImageIcon className="size-6 text-sky-500" />;
   return <FileVideo className="size-6 text-sky-500" />;
 }
@@ -85,9 +89,12 @@ export function assetMeta(a: MediaAsset): string {
 
 function MediaItem({ asset, selected }: { asset: MediaAsset; selected: boolean }) {
   const data: AssetDragData = { type: "asset", asset };
+  // Sprint 2: tracks (track.json) and SAM masks are data, not timeline media.
+  const dataOnly = asset.kind === "track" || asset.kind === "mask";
   const { setNodeRef, attributes, listeners, isDragging } = useDraggable({
     id: `asset:${asset.id}`,
     data,
+    disabled: dataOnly,
   });
   const thumb = asset.thumbnailPath ? fileUrl(asset.thumbnailPath) : undefined;
   const select = () => useProjectStore.getState().selectAsset(asset.id);
@@ -156,6 +163,11 @@ function MediaItem({ asset, selected }: { asset: MediaAsset; selected: boolean }
           {asset.name}
         </p>
         <p className="truncate text-[11px] text-muted-foreground">{assetMeta(asset)}</p>
+        {dataOnly ? (
+          <Badge tone="muted">
+            {asset.kind === "track" ? "Seguimiento (para texto o motion)" : "Máscara (SAM 2)"}
+          </Badge>
+        ) : null}
         {motionRender ? (
           <Badge title="Render de motion graphics (overlay con alfa): no necesita proxy">
             Render{asset.hasAlpha ? " · alfa" : ""}
@@ -170,19 +182,21 @@ function MediaItem({ asset, selected }: { asset: MediaAsset; selected: boolean }
         ) : null}
       </div>
       <div className="flex flex-col gap-0.5 opacity-70 group-hover:opacity-100">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label={`Añadir ${asset.name} a la línea de tiempo`}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            useProjectStore.getState().addAssetClip(asset);
-            suggestCanvasFit(asset);
-          }}
-        >
-          <Plus />
-        </Button>
+        {!dataOnly ? (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Añadir ${asset.name} a la línea de tiempo`}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              useProjectStore.getState().addAssetClip(asset);
+              suggestCanvasFit(asset);
+            }}
+          >
+            <Plus />
+          </Button>
+        ) : null}
         {proxyApplies ? (
           <Button
             variant="ghost"

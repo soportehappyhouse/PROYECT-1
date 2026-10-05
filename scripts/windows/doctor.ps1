@@ -246,6 +246,14 @@ if (Test-Path $VenvPython) {
                 elseif ($p.partial) { Add-Result ("  pack {0}" -f $p.id) warn ("parcial: setup.ps1 -Full o Ajustes > Paquetes de IA lo reanuda ({0})" -f $size) }
                 elseif ($p.id -eq 'core') { Add-Result ("  pack {0}" -f $p.id) fail ("falta ({0}): setup.ps1" -f $size) }
                 else { Add-Result ("  pack {0}" -f $p.id) skip ("no descargado ({0}); se pide al usar la funcion" -f $size) }
+                # Files without a published sha256 (SAM 2.1): size + sha256 are recorded in
+                # models\manifest.json at the first download and compared from then on.
+                if ($p.integrity -eq 'pending') {
+                    # ASCII-only script (Windows PowerShell 5.1 reads it as ANSI): o-acute via [char].
+                    Add-Result ("    integridad {0}" -f $p.id) warn ("verificaci{0}n pendiente de primera descarga (sin sha256 publicado: se registra en models\manifest.json al bajar)" -f [char]0x00F3)
+                } elseif ($p.integrity -eq 'first-download') {
+                    Write-Info ("    {0}: sha256 registrado en la primera descarga (models\manifest.json)" -f $p.id)
+                }
             }
         } catch {
             Add-Result 'Paquetes de IA' warn ("salida ilegible: {0}" -f $_.Exception.Message)
@@ -255,6 +263,35 @@ if (Test-Path $VenvPython) {
     }
 } else {
     Add-Result 'Paquetes de IA' skip 'requiere apps\workers\.venv'
+}
+# GPL-isolated venv for RobustVideoMatting (pack matting): apps\workers\.venv-gpl
+$gplDir = Join-Path $WorkersDir '.venv-gpl'
+$gplPython = Join-Path $gplDir 'Scripts\python.exe'
+$gplState = 'missing'
+if (Test-Path $VenvPython) {
+    $ErrorActionPreference = 'Continue'
+    Push-Location $WorkersDir
+    try {
+        $gplOut = @(& $VenvPython -m studio_workers.models_cli --gpl-venv status --json 2>$null)
+    } finally { Pop-Location }
+    $ErrorActionPreference = 'Stop'
+    $gplJson = $gplOut | Where-Object { "$_".StartsWith('{') } | Select-Object -Last 1
+    if ($gplJson) { try { $gplState = ($gplJson | ConvertFrom-Json).state } catch { $gplState = 'missing' } }
+} elseif (Test-Path $gplPython) {
+    $gplState = 'ready'
+}
+if ($gplState -eq 'ready' -and (Test-Path $gplPython)) {
+    $ErrorActionPreference = 'Continue'
+    $gplTorch = (& $gplPython -c 'import torch; print(torch.__version__, "cuda" if torch.cuda.is_available() else "cpu")' 2>$null | Select-Object -Last 1)
+    $ErrorActionPreference = 'Stop'
+    if ($gplTorch) { Add-Result 'Entorno GPL (.venv-gpl)' ok ("listo, torch {0}" -f $gplTorch) }
+    else { Add-Result 'Entorno GPL (.venv-gpl)' warn 'existe pero import torch fallo: setup.ps1 -Update -Force o volve a descargar el paquete matting' }
+} elseif ($gplState -eq 'ready') {
+    Add-Result 'Entorno GPL (.venv-gpl)' ok 'GPL_PYTHON definido en .env (interprete propio)'
+} elseif ($gplState -eq 'stale') {
+    Add-Result 'Entorno GPL (.venv-gpl)' warn 'vision_gpl\requirements.txt cambio: setup.ps1 -Update lo actualiza'
+} else {
+    Add-Result 'Entorno GPL (.venv-gpl)' skip 'no creado; se crea al descargar el paquete matting (recorte RVM)'
 }
 if (Test-Cmd 'nvidia-smi') {
     Write-Info 'GPU: si la VRAM se llena, el driver NVIDIA usa RAM compartida (5-10x mas lento) en vez de fallar.'

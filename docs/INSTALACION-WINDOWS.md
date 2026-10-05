@@ -107,16 +107,44 @@ Re-ejecutarlo con todo instalado: alrededor de un minuto (verificaciones, sin de
 
 Por defecto `setup.ps1` instala solo el paquete **core** (Whisper base + voz Daniela). Los demás se
 descargan al usar cada función (Ajustes → Paquetes de IA, con barra de progreso). Con `-Full` se
-bajan todos ahora, uno por uno (~3,5 GB; repetirlo omite lo que ya está y reanuda lo parcial):
+bajan todos ahora, uno por uno (~4,3 GB; repetirlo omite lo que ya está y reanuda lo parcial):
 
-| Paquete         | Contenido                               | Tamaño aprox. | Lo usa                                   |
-| --------------- | --------------------------------------- | ------------- | ---------------------------------------- |
-| `core`          | Whisper base + Piper es_AR-daniela-high | 0,3 GB        | subtítulos, locución                     |
-| `whisper-turbo` | Whisper large-v3-turbo (float16 en GPU) | 1,6 GB        | subtítulos (por defecto con `-WithCuda`) |
-| `voces-es`      | 7 voces Piper más (México, España)      | 0,5 GB        | locución                                 |
-| `rvc-base`      | hubert + rmvpe                          | 0,4 GB        | conversión de voz (RVC)                  |
-| `scenes`        | PySceneDetect + OpenCV (pip)            | 0,04 GB       | detectar escenas                         |
-| `voz-limpia`    | DeepFilterNet 3 (pip + pesos)           | 0,01–0,25 GB  | limpiar voz                              |
+| Paquete         | Contenido                                                             | Tamaño aprox.                                  | Lo usa                                   |
+| --------------- | --------------------------------------------------------------------- | ---------------------------------------------- | ---------------------------------------- |
+| `core`          | Whisper base + Piper es_AR-daniela-high                               | 0,3 GB                                         | subtítulos, locución                     |
+| `whisper-turbo` | Whisper large-v3-turbo (float16 en GPU)                               | 1,6 GB                                         | subtítulos (por defecto con `-WithCuda`) |
+| `voces-es`      | 7 voces Piper más (México, España)                                    | 0,5 GB                                         | locución                                 |
+| `rvc-base`      | hubert + rmvpe                                                        | 0,4 GB                                         | conversión de voz (RVC)                  |
+| `scenes`        | PySceneDetect + OpenCV (pip)                                          | 0,04 GB                                        | detectar escenas                         |
+| `voz-limpia`    | DeepFilterNet 3 (pip + pesos)                                         | 0,01–0,25 GB                                   | limpiar voz                              |
+| `matting`       | RobustVideoMatting fp16 + fp32 + `.venv-gpl`                          | 0,05 GB (0,25 GB si el `.venv` no tiene torch) | quitar fondo en video                    |
+| `matting-image` | BiRefNet-lite **swin_v1_tiny** (ONNX) + onnxruntime + OpenCV          | 0,28 GB (+0,2 GB `onnxruntime-gpu` con CUDA)   | quitar fondo en imágenes                 |
+| `sam2`          | SAM 2.1 tiny + small + código `sam2` (desde GitHub, **requiere Git**) | 0,34 GB                                        | máscara por clic, seguir objeto (SAM 2)  |
+| `reframe`       | YuNet (caras) + OpenCV                                                | 0,04 GB                                        | reencuadrar, seguir objeto (rápido)      |
+
+Notas de los paquetes de visión:
+
+- **`.venv-gpl`**: RobustVideoMatting es GPL-3, así que corre en un proceso aparte con su propio
+  entorno `apps\workers\.venv-gpl` (reusa el torch del `.venv`, no baja otra copia). Lo crean
+  los workers al bajar `matting` o `setup.ps1` (paso «Entorno aislado GPL», con `-Full` o si ya
+  existe). `doctor.ps1` muestra «Entorno GPL (.venv-gpl)» con la versión de torch. Si lo borrás,
+  se vuelve a crear al descargar `matting`.
+- **Git** es obligatorio para `sam2` (el código oficial se instala con
+  `pip install git+https://github.com/facebookresearch/sam2@<commit fijo>`). Sin Git el paquete falla
+  con «Instalá Git (winget install Git.Git) y reintentá».
+- **GPU**: con CUDA, `matting-image` reemplaza el `onnxruntime` (CPU) que traen Piper/Whisper por
+  `onnxruntime-gpu` 1.24.4 (CUDA 12). `GET /health` → `vision.onnxruntime.provider` dice cuál quedó
+  activo (`CUDAExecutionProvider` o `CPUExecutionProvider`). Si dice CPU en una PC con GPU, volvé a
+  descargar «Quitar fondo de imágenes».
+- **Integridad**: RVM, BiRefNet y YuNet se verifican por tamaño y sha256 publicados. Los pesos de
+  SAM 2.1 no publican sha256: la primera descarga registra tamaño y sha256 en
+  `models\manifest.json` y desde ahí se comparan; hasta entonces `doctor.ps1` avisa «verificación
+  pendiente de primera descarga».
+
+**Primer uso recomendado** (después de instalar con GPU): Ajustes → Paquetes de IA →
+**Test de rendimiento IA** (mide Whisper, Piper, RVC, escenas y, si está `matting`, el recorte de
+personas: «Recorte de personas ≈ X fps (meta 15)»), y después **Quitar fondo** sobre un clip de
+**10 s** para confirmar que el recorte corre en la GPU antes de usarlo en un video largo.
 
 Estado: `scripts\windows\doctor.ps1` (sección "Paquetes de IA") o, a mano,
 `apps\workers\.venv\Scripts\python.exe -m studio_workers.models_cli --packs list`.
@@ -245,7 +273,7 @@ apps\workers\.venv\Scripts\python.exe -m studio_workers.models_cli --check --upd
 | Opción      | Qué hace                                                                                                                                                                                                                                                                     |
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `-Update`   | Incremental tras bajar una versión nueva; conserva el perfil anterior (con o sin RVC). Si la instalación estaba en CPU y ahora se detecta una GPU NVIDIA, **cambia a CUDA sola** (torch CUDA, ~2,5 GB una vez, y `USE_CUDA=true` en `.env`, sin tocar el resto del archivo). |
-| `-Full`     | Baja **todos** los paquetes de IA ahora, en secuencia (~3,5 GB). Sin `-Full` solo se instala `core`.                                                                                                                                                                         |
+| `-Full`     | Baja **todos** los paquetes de IA ahora, en secuencia (~4,3 GB). Sin `-Full` solo se instala `core`.                                                                                                                                                                         |
 | `-WithCuda` | Perfil GPU: torch CUDA 12.8 y `USE_CUDA=true`. No hace falta pasarlo: es **automático** si se detecta una GPU NVIDIA (`nvidia-smi` o el nombre del adaptador de video contiene «NVIDIA»), en la primera instalación y en `-Update`.                                          |
 | `-NoCuda`   | Perfil CPU aunque haya GPU NVIDIA (`USE_CUDA=false`). La elección queda registrada en `apps\workers\.venv\.studio-install`: los `-Update` siguientes no vuelven a cambiar a CUDA (para volver: `-WithCuda`).                                                                 |
 
@@ -265,6 +293,10 @@ Qué se descarga y cuándo:
 | `rvc-base`      | no (aunque instales RVC) | Conversión RVC → «Paquete requerido»                                    | sí          |
 | `scenes`        | no                       | Detectar escenas → «Paquete requerido»                                  | sí          |
 | `voz-limpia`    | no                       | Limpiar voz → «Paquete requerido»                                       | sí          |
+| `matting`       | no                       | Quitar fondo (video) → «Paquete requerido» (crea `.venv-gpl`)           | sí          |
+| `matting-image` | no                       | Quitar fondo (imagen) → «Paquete requerido»                             | sí          |
+| `sam2`          | no                       | Máscara / Seguir objeto con SAM 2 → «Paquete requerido» (requiere Git)  | sí          |
+| `reframe`       | no                       | Reencuadrar / Seguir objeto rápido → «Paquete requerido»                | sí          |
 
 **No borres** al actualizar (ahí está lo que ya descargaste o creaste):
 

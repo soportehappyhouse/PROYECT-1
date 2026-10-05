@@ -91,6 +91,10 @@ def run_perf(settings: Settings, step: Step | None = None) -> dict[str, Any]:
         "piper_s_per_100chars": None,
         "rvc_s_per_min": None,
         "scenes_fps": None,
+        # sprint 2 (vision): None + skipped[...] when the pack is missing
+        "rvm_fps": None,
+        "sam2_fps": None,
+        "yunet_fps": None,
         "cpu_fallback_ok": None,
         "ran_at": None,
         "skipped": {},
@@ -201,6 +205,15 @@ def run_perf(settings: Settings, step: Step | None = None) -> dict[str, Any]:
                 result["scenes_fps"] = round(res["frames"] / elapsed, 1) if elapsed else None
             except Exception as exc:
                 errors["scenes"] = str(exc)
+
+        # ------------------------------------------------------------------ vision (sprint 2)
+        notify(0.9, "Vision (RVM, SAM 2, YuNet)")
+        try:
+            from .vision.bench import run_vision_bench  # noqa: PLC0415
+
+            run_vision_bench(settings, work, result)
+        except Exception as exc:
+            errors["vision"] = str(exc)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -211,7 +224,9 @@ def run_perf(settings: Settings, step: Step | None = None) -> dict[str, Any]:
     if result["cpu_fallback_ok"] is None:
         # Whisper CPU path not measured: CPU-only components that ran prove the CPU path works.
         result["cpu_fallback_ok"] = bool(
-            result["piper_s_per_100chars"] is not None or result["scenes_fps"] is not None
+            result["piper_s_per_100chars"] is not None
+            or result["scenes_fps"] is not None
+            or result["yunet_fps"] is not None
         )
     result["ran_at"] = datetime.now(UTC).replace(microsecond=0).isoformat()
     out = perf_path(settings)

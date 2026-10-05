@@ -1,181 +1,116 @@
 "use client";
 
 import {
-  effectiveBurnSubtitles,
-  fitRect,
-  subtitlesToBurn,
-  videoRectAt,
-  type CaptionStyle as SharedCaptionStyle,
-  type Clip,
-  type MediaAsset,
-  type Rect,
-  type SubtitleSegment,
-  type Track,
-} from "@studio/shared";
-import { Pause, Play, SkipBack, SkipForward, StepBack, StepForward } from "lucide-react";
-import type { CSSProperties } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+  Crop,
+  Crosshair,
+  Eraser,
+  Pause,
+  Play,
+  Scan,
+  Settings2,
+  SkipBack,
+  SkipForward,
+  StepBack,
+  StepForward,
+} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ClassicStage } from "@/components/preview/ClassicStage";
+import { CompositorStage } from "@/components/preview/CompositorStage";
+import { PreviewOverlay } from "@/components/preview/PreviewOverlay";
+import { ReframePanel } from "@/components/preview/ReframePanel";
+import { MaskToolbar, startTool, TrackBoxBanner } from "@/components/preview/VisionTools";
 import { Button } from "@/components/ui/button";
-import { assetPreviewUrl } from "@/lib/api";
+import { Menu, MenuItem, MenuLabel, MenuSeparator } from "@/components/ui/menu";
 import { formatTime } from "@/lib/format";
-import { clipAt, clipsAt, projectDuration, sourceTimeAt } from "@/lib/timeline";
-import { useCaptionStyleStore, type CaptionStyle } from "@/stores/caption-style-store";
-import { useMediaStore } from "@/stores/media-store";
+import { findClip, projectDuration, stepFrame } from "@/lib/timeline";
+import { useMaskStore } from "@/stores/mask-store";
+import { usePreviewStore, type PreviewQuality } from "@/stores/preview-store";
 import { useProjectStore } from "@/stores/project-store";
+import { useVisionStore } from "@/stores/vision-store";
 import { Panel } from "./Panel";
 
-const DRIFT_TOLERANCE = 0.25;
+const QUALITY_LABELS: Record<PreviewQuality, string> = {
+  auto: "Automática (baja a proxy si va lenta)",
+  original: "Original",
+  proxy: "Proxy (más fluida)",
+};
 
-/** A <video>/<audio> element kept in sync with the timeline playhead. */
-function SyncedMedia({
-  kind,
-  clip,
-  track,
-  asset,
-  className,
-  style,
-}: {
-  kind: "video" | "audio";
-  clip: Clip;
-  track: Track;
-  asset: MediaAsset;
-  className?: string;
-  style?: CSSProperties;
-}) {
-  const ref = useRef<HTMLVideoElement & HTMLAudioElement>(null);
-  const [failed, setFailed] = useState(false);
-  const playhead = useProjectStore((s) => s.playhead);
-  // J (backwards) cannot use <video> playback: the element stays paused and follows the playhead.
-  const playing = useProjectStore((s) => s.playing && s.playbackRate > 0);
-  const rate = useProjectStore((s) => Math.abs(s.playbackRate));
-  const target = Math.max(0, sourceTimeAt(clip, playhead));
+const DEV = process.env.NODE_ENV !== "production";
 
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.playbackRate = clip.speed * rate;
-    el.volume = Math.min(1, Math.max(0, clip.volume));
-    el.muted = track.muted;
-  }, [clip.speed, clip.volume, track.muted, rate]);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    if (playing) {
-      if (Math.abs(el.currentTime - target) > DRIFT_TOLERANCE) el.currentTime = target;
-      if (el.paused) void el.play().catch(() => undefined);
-    } else {
-      if (!el.paused) el.pause();
-      if (Math.abs(el.currentTime - target) > 0.01) el.currentTime = target;
-    }
-  }, [playing, target]);
-
-  const src = assetPreviewUrl(asset);
-  return kind === "video" ? (
-    <>
-      <video
-        ref={ref}
-        src={src}
-        className={className}
-        preload="auto"
-        playsInline
-        style={{ ...style, opacity: clip.opacity }}
-        onError={() => setFailed(true)}
-        onLoadedData={() => setFailed(false)}
-      />
-      {failed ? (
-        <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-xs text-neutral-400">
-          El navegador no puede reproducir «{asset.name}». Genera un proxy desde el panel Media.
-        </div>
-      ) : null}
-    </>
-  ) : (
-    <audio ref={ref} src={src} preload="auto" />
+function PerfHud() {
+  const perf = usePreviewStore((s) => s.perf);
+  return (
+    <div
+      data-testid="perf-hud"
+      className="pointer-events-none absolute bottom-1 left-1 rounded bg-black/70 px-1.5 py-0.5 font-mono text-[10px] text-lime-300"
+    >
+      {perf.fps.toFixed(1)} fps · {perf.drawMs.toFixed(1)} ms · {perf.layers} capas ·{" "}
+      {perf.clock === "driver" ? "reloj: video" : "reloj: rAF"}
+      {perf.usingProxy ? " · proxy" : ""}
+    </div>
   );
 }
 
-function positionClass(position: "top" | "center" | "bottom"): string {
-  return position === "top"
-    ? "items-start pt-[6%]"
-    : position === "center"
-      ? "items-center"
-      : "items-end pb-[6%]";
-}
-
-/** CSS box (% of the stage) of a rect in canvas pixels. */
-function rectStyle(r: Rect, width: number, height: number): CSSProperties {
-  return {
-    left: `${(r.x / width) * 100}%`,
-    top: `${(r.y / height) * 100}%`,
-    width: `${(r.width / width) * 100}%`,
-    height: `${(r.height / height) * 100}%`,
-  };
-}
-
-/**
- * Feedback 7: where a video/motion clip lands (Clip.scale / Clip.position, same math as the
- * export's PiP builder). Full-frame clips keep the old object-contain layout.
- */
-function placementStyle(
-  clip: Clip,
-  asset: MediaAsset | undefined,
-  width: number,
-  height: number,
-): CSSProperties | undefined {
-  if (clip.scale === undefined && !clip.position) return undefined;
-  const media =
-    asset?.width && asset.height ? { width: asset.width, height: asset.height } : undefined;
-  const r = fitRect({ width, height }, media, clip);
-  return { ...rectStyle(r, width, height), objectFit: "fill" };
-}
-
-function SubtitleOverlay({
-  segment,
-  style,
-  scale,
-  playhead,
-  box,
-}: {
-  segment: SubtitleSegment;
-  style: CaptionStyle | SharedCaptionStyle;
-  /** Pixels on screen per canvas pixel × caption unit of the video rect. */
-  scale: number;
-  playhead: number;
-  /** Video rect (feedback 4: captions fit the video, like the export). */
-  box: CSSProperties;
-}) {
-  const words = segment.words;
+function OptionsMenu() {
+  const s = usePreviewStore();
   return (
-    <div
-      className={`pointer-events-none absolute flex justify-center px-[5%] ${positionClass(style.position)}`}
-      style={box}
+    <Menu
+      label="Opciones de la vista previa"
+      trigger={(p) => (
+        <Button variant="ghost" size="icon-sm" aria-label="Opciones de la vista previa" {...p}>
+          <Settings2 />
+        </Button>
+      )}
     >
-      <span
-        className="rounded px-2 py-1 text-center leading-tight font-bold"
-        style={{
-          fontFamily: style.fontFamily,
-          fontSize: style.fontSize * scale,
-          color: style.color,
-          background: style.background || undefined,
-          textTransform: style.uppercase ? "uppercase" : undefined,
-          textShadow: style.background ? undefined : "0 2px 6px rgba(0,0,0,.8)",
-        }}
-      >
-        {words && words.length > 0 && style.animation !== "none"
-          ? words.map((w, i) => (
-              <span
-                key={i}
-                style={{
-                  color: playhead >= w.start && playhead < w.end ? style.highlightColor : undefined,
-                }}
-              >
-                {w.word}
-                {i < words.length - 1 && !/^\s/.test(words[i + 1]!.word) ? " " : ""}
-              </span>
-            ))
-          : segment.text}
-      </span>
-    </div>
+      {(close) => (
+        <>
+          <MenuItem
+            checked={s.safeGuides}
+            onSelect={() => {
+              s.set({ safeGuides: !s.safeGuides });
+              close();
+            }}
+          >
+            Guías de zona segura
+          </MenuItem>
+          <MenuItem
+            checked={s.classic}
+            hint="sin capas"
+            onSelect={() => {
+              s.set({ classic: !s.classic });
+              close();
+            }}
+          >
+            Vista previa clásica
+          </MenuItem>
+          <MenuItem
+            checked={s.hud || DEV}
+            disabled={DEV}
+            onSelect={() => {
+              s.set({ hud: !s.hud });
+              close();
+            }}
+          >
+            Mostrar rendimiento (fps)
+          </MenuItem>
+          <MenuSeparator />
+          <MenuLabel>Calidad</MenuLabel>
+          {(Object.keys(QUALITY_LABELS) as PreviewQuality[]).map((q) => (
+            <MenuItem
+              key={q}
+              checked={s.quality === q}
+              hint={q === "auto" && s.autoProxy ? "en proxy" : undefined}
+              onSelect={() => {
+                s.set({ quality: q });
+                close();
+              }}
+            >
+              {QUALITY_LABELS[q]}
+            </MenuItem>
+          ))}
+        </>
+      )}
+    </Menu>
   );
 }
 
@@ -183,10 +118,13 @@ export function PreviewPanel() {
   const project = useProjectStore((s) => s.project);
   const playhead = useProjectStore((s) => s.playhead);
   const playing = useProjectStore((s) => s.playing);
-  const assets = useMediaStore((s) => s.assets);
-  const localCaptionStyle = useCaptionStyleStore((s) => s.style);
-  const captionStyle = project.captionStyle ?? localCaptionStyle;
   const playbackRate = useProjectStore((s) => s.playbackRate);
+  const selectedClipId = useProjectStore((s) => s.selectedClipId);
+  const classic = usePreviewStore((s) => s.classic);
+  const hud = usePreviewStore((s) => s.hud);
+  const tool = usePreviewStore((s) => s.tool);
+  const reframeOpen = usePreviewStore((s) => s.reframeOpen);
+  const matteBusy = useVisionStore((s) => !!s.busy.matte);
   const boxRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 640, h: 360 });
   const { width, height, fps } = project.settings;
@@ -206,33 +144,16 @@ export function PreviewPanel() {
     return () => ro.disconnect();
   }, []);
 
-  const video = clipAt(project, playhead, ["video"]);
-  const videoAsset = video?.clip.assetId ? assets[video.clip.assetId] : undefined;
-  // Every motion clip under the playhead, bottom track first (feedback 1/5: overlapping overlays
-  // live on separate tracks). Renders added from Media use assetId, linked ones renderedAssetId.
-  const motions = clipsAt(project, playhead, ["motion"])
-    .map((m) => {
-      const id = m.clip.renderedAssetId ?? m.clip.assetId;
-      return { ...m, asset: id ? assets[id] : undefined };
-    })
-    .reverse();
-  const texts = clipsAt(project, playhead, ["text"]);
-  const audios = clipsAt(project, playhead, ["audio"]).filter(
-    (a) => a.clip.assetId && assets[a.clip.assetId],
-  );
-  // Feedback 2: same rule as the export (burn choice + no segment under animated captions).
-  const burned = useMemo(
-    () => subtitlesToBurn(project, effectiveBurnSubtitles(project)),
-    [project],
-  );
-  const subtitle = burned.find((s) => playhead >= s.start && playhead < s.end);
-  const mediaSize = (id: string) => {
-    const a = assets[id];
-    return a?.width && a.height ? { width: a.width, height: a.height } : undefined;
-  };
-  const captionRect = subtitle ? videoRectAt(project, mediaSize, playhead) : undefined;
+  // Leaving the multilayer preview closes its tools (the SAM session too).
+  useEffect(() => {
+    if (!classic) return;
+    usePreviewStore.getState().setTool("none");
+    void useMaskStore.getState().close();
+  }, [classic]);
+
   const duration = projectDuration(project);
   const store = useProjectStore.getState;
+  const selected = selectedClipId ? findClip(project, selectedClipId) : undefined;
 
   const toolbar = (
     <>
@@ -250,7 +171,7 @@ export function PreviewPanel() {
         size="icon-sm"
         aria-label="Fotograma anterior"
         shortcut="playback.frameBack"
-        onClick={() => store().setPlayhead(playhead - 1 / fps)}
+        onClick={() => store().setPlayhead(stepFrame(playhead, fps, -1))}
       >
         <StepBack />
       </Button>
@@ -267,7 +188,7 @@ export function PreviewPanel() {
         size="icon-sm"
         aria-label="Fotograma siguiente"
         shortcut="playback.frameForward"
-        onClick={() => store().setPlayhead(playhead + 1 / fps)}
+        onClick={() => store().setPlayhead(stepFrame(playhead, fps, 1))}
       >
         <StepForward />
       </Button>
@@ -288,99 +209,97 @@ export function PreviewPanel() {
           {playbackRate > 0 ? "▶" : "◀"} {Math.abs(playbackRate)}×
         </span>
       ) : null}
+      {!classic ? (
+        <>
+          <span className="mx-1 h-4 w-px bg-border" />
+          <Button
+            variant={tool === "mask" ? "secondary" : "ghost"}
+            size="icon-sm"
+            aria-label="Máscara (SAM 2)"
+            aria-pressed={tool === "mask"}
+            tooltip="Máscara: clic + / − sobre el objeto del cuadro actual"
+            onClick={() => {
+              if (tool === "mask") {
+                void useMaskStore.getState().close();
+                usePreviewStore.getState().setTool("none");
+              } else startTool("mask");
+            }}
+          >
+            <Scan />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Quitar fondo"
+            disabled={!selected || selected.track.kind !== "video" || matteBusy}
+            tooltip={
+              selected?.track.kind === "video"
+                ? "Quitar fondo del clip elegido"
+                : "Elegí un clip de video o imagen"
+            }
+            onClick={() =>
+              selected && useVisionStore.getState().openMatte({ clipId: selected.clip.id })
+            }
+          >
+            <Eraser />
+          </Button>
+          <Button
+            variant={tool === "track-box" ? "secondary" : "ghost"}
+            size="icon-sm"
+            aria-label="Seguir objeto"
+            aria-pressed={tool === "track-box"}
+            tooltip="Seguir objeto: dibujá una caja sobre el video"
+            onClick={() =>
+              tool === "track-box"
+                ? usePreviewStore.getState().setTool("none")
+                : startTool("track-box")
+            }
+          >
+            <Crosshair />
+          </Button>
+          <Button
+            variant={reframeOpen ? "secondary" : "ghost"}
+            size="icon-sm"
+            aria-label="Reencuadrar"
+            aria-pressed={reframeOpen}
+            tooltip="Reencuadrar a 9:16 / 1:1 / 4:5"
+            onClick={() => usePreviewStore.getState().setReframeOpen(!reframeOpen)}
+          >
+            <Crop />
+          </Button>
+        </>
+      ) : null}
       <span className="ml-auto font-mono text-xs tabular-nums text-muted-foreground">
         {formatTime(playhead)} / {formatTime(duration)} · {width}×{height} · {fps} fps
       </span>
+      <OptionsMenu />
     </>
   );
 
   return (
     <Panel title="Vista previa" toolbar={toolbar} bare>
-      <div className="min-h-0 flex-1 bg-neutral-950 p-2">
+      {!classic && tool === "mask" ? <MaskToolbar /> : null}
+      {!classic && tool === "track-box" ? <TrackBoxBanner /> : null}
+      <div className="relative min-h-0 flex-1 bg-neutral-950 p-2">
         <div ref={boxRef} className="flex size-full items-center justify-center">
           <div
             data-testid="preview-stage"
+            data-renderer={classic ? "classic" : "compositor"}
             className="relative shrink-0 overflow-hidden bg-black"
             style={{ width: stageW, height: stageH }}
           >
-            {video && videoAsset ? (
-              <SyncedMedia
-                key={video.clip.id}
-                kind="video"
-                clip={video.clip}
-                track={video.track}
-                asset={videoAsset}
-                className="absolute inset-0 size-full object-contain"
-                style={placementStyle(video.clip, videoAsset, width, height)}
-              />
+            {classic ? (
+              <ClassicStage scale={scale} />
             ) : (
-              <div className="absolute inset-0 flex items-center justify-center text-xs text-neutral-500">
-                {video ? "El medio del clip no está disponible" : "Sin video en el cursor"}
-              </div>
+              <>
+                <CompositorStage width={stageW} height={stageH} />
+                <PreviewOverlay />
+                {hud || DEV ? <PerfHud /> : null}
+              </>
             )}
-            {motions.map(({ clip, track, asset }) =>
-              asset ? (
-                <SyncedMedia
-                  key={clip.id}
-                  kind="video"
-                  clip={clip}
-                  track={track}
-                  asset={asset}
-                  className="pointer-events-none absolute inset-0 size-full object-contain"
-                  style={placementStyle(clip, asset, width, height)}
-                />
-              ) : (
-                <div
-                  key={clip.id}
-                  className="pointer-events-none absolute inset-x-[10%] top-[10%] rounded border border-dashed border-fuchsia-400 bg-fuchsia-500/20 p-2 text-center text-xs text-white"
-                >
-                  Motion «{clip.motion?.template ?? "?"}» — pendiente de render
-                </div>
-              ),
-            )}
-            {texts.map(({ clip }) => {
-              const ts = clip.textStyle;
-              return (
-                <div
-                  key={clip.id}
-                  className={`pointer-events-none absolute inset-0 flex justify-center px-[5%] ${positionClass(ts?.position ?? "bottom")}`}
-                  style={{ opacity: clip.opacity }}
-                >
-                  <span
-                    className="rounded px-2 text-center font-semibold whitespace-pre-wrap"
-                    style={{
-                      fontFamily: ts?.fontFamily,
-                      fontSize: (ts?.fontSize ?? 64) * scale,
-                      color: ts?.color ?? "#fff",
-                      background: ts?.background,
-                      textShadow: ts?.background ? undefined : "0 2px 6px rgba(0,0,0,.8)",
-                    }}
-                  >
-                    {clip.text}
-                  </span>
-                </div>
-              );
-            })}
-            {subtitle && captionRect ? (
-              <SubtitleOverlay
-                segment={subtitle}
-                style={captionStyle}
-                scale={(scale * Math.min(captionRect.width, captionRect.height)) / 1080}
-                playhead={playhead}
-                box={rectStyle(captionRect, width, height)}
-              />
-            ) : null}
-            {audios.map(({ clip, track }) => (
-              <SyncedMedia
-                key={clip.id}
-                kind="audio"
-                clip={clip}
-                track={track}
-                asset={assets[clip.assetId!]!}
-              />
-            ))}
           </div>
         </div>
+        {!classic && reframeOpen ? <ReframePanel /> : null}
       </div>
     </Panel>
   );

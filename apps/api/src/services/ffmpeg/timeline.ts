@@ -1,9 +1,18 @@
 import {
   aiLabelText,
   effectiveBurnSubtitles,
+  fitRect,
+  hasKeyframes,
+  normalizeCropRect,
+  reframeWindow,
+  rendersOwnTrack,
+  resolveTrackRefs,
   subtitlesToBurn,
   videoRectAt,
   type Clip,
+  type CropRect,
+  type Keyframe,
+  type TrackFile,
   type ExportPreset,
   type MediaKind,
   type Project,
@@ -21,6 +30,12 @@ import {
 } from "./builders.js";
 import { escapeFilterPath, escapeOptionValue, quoteFilterArg, sec } from "./escape.js";
 import { presetEncoding, segmentSafetyArgs } from "./encoders.js";
+import {
+  componentExpr,
+  numberKeyframesExpr,
+  numberRange,
+  shiftKeyframes,
+} from "./keyframe-expr.js";
 
 /** Resolved media for the compiler (absolute paths; metadata from ffprobe). */
 export interface TimelineAsset {
@@ -63,6 +78,11 @@ export interface CompileExportOptions {
   window?: { start: number; end: number; timelineEnd: number; gopFrames: number; frames: number };
   /** Render only the audio mix ([aout]) of the whole timeline (segment render: muxed later). */
   audioOnly?: boolean;
+  /**
+   * Sprint 2: track files (asset id -> TrackFile) of the clips' `trackRef`; each trackRef is
+   * resolved to position keyframes before compiling (resolveTrackRefs). Absent = already resolved.
+   */
+  tracks?: ReadonlyMap<string, TrackFile>;
 }
 
 export interface CompiledExport {
@@ -175,6 +195,13 @@ interface Seg {
   dur: number;
 }
 
+/** A floating clip stream (Sprint 2) and its overlay x/y expressions. */
+interface FloatSeg {
+  label: string;
+  x: string;
+  y: string;
+}
+
 /**
  * Compile a Project into one FFmpeg filter_complex invocation:
  *  - canvas = project.settings (w×h), fps = preset.fps; black (or transparent) base of length T;
@@ -186,8 +213,15 @@ interface Seg {
  *    background when the aspect ratio differs) and preset encoding (GIF via palettegen).
  */
 export function compileExport(o: CompileExportOptions): CompiledExport {
-  const { project, preset } = o;
+  const { preset } = o;
   const g = new GraphBuilder();
+  const project = o.tracks ? resolveExportProject(o.project, o.assets, o.tracks) : o.project;
+  for (const t of project.tracks)
+    for (const c of t.clips)
+      if (c.trackRef && !rendersOwnTrack(c) && t.kind !== "audio")
+        g.warnings.push(
+          `Seguimiento ${c.trackRef.assetId} no disponible: el clip ${c.id} queda fijo`,
+        );
   const win = o.window;
   const audioOnly = !win && o.audioOnly === true;
   /** Video graph parts are skipped in audioOnly mode (no decoding of unused video). */
@@ -293,6 +327,231 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
     return lanes.map((l) => l.clips);
   };
 
+  const wantsAudio = (track: Track, a: TimelineAsset) =>
+    track.kind === "video" && !track.muted && a.hasAudio && a.kind !== "image";
+
+  /** Input of a clip's media (image loop or -ss/-t video). */
+  const mediaInput = (a: TimelineAsset, srcStart: number, segDur: number, speed: number) => {
+    if (a.kind === "image")
+      return g.input([
+        "-loop",
+        "1",
+        "-framerate",
+        String(FPS),
+        "-t",
+        sec(segDur + frame),
+        "-i",
+        a.absPath,
+      ]);
+    const vp9Alpha = a.videoCodec === "vp9" && (a.hasAlpha ?? true) && /\.webm$/i.test(a.absPath);
+    return g.input([
+      "-ss",
+      sec(srcStart),
+      "-t",
+      sec(segDur * speed + 0.5),
+      ...(vp9Alpha ? ["-c:v", "libvpx-vp9"] : []),
+      "-i",
+      a.absPath,
+    ]);
+  };
+
+  /**
+   * Video source of a clip: its media, or (Sprint 2 `clip.matte`) the alpha video of the cut-out
+   * over its background (colour / image / video / blurred original) at the source size, so the
+   * placement, crop and keyframes that follow apply to the composite like to the original.
+   */
+  const sourceInput = (
+    track: Track,
+    clip: Clip,
+    a: TimelineAsset,
+    srcStart: number,
+    segDur: number,
+    speed: number,
+  ): { video: string; audioIdx?: number } => {
+    const m = clip.matte ? asset(clip.matte.assetId) : undefined;
+    if (clip.matte && !m)
+      g.warnings.push(`Recorte ${clip.matte.assetId} no encontrado: se usa el clip original`);
+    if (!m || !clip.matte) {
+      const idx = mediaInput(a, srcStart, segDur, speed);
+      return { video: `${idx}:v`, ...(wantsAudio(track, a) && { audioIdx: idx }) };
+    }
+    const AW = even(m.width ?? a.width ?? W);
+    const AH = even(m.height ?? a.height ?? H);
+    const alphaIdx = mediaInput({ ...m, hasAlpha: true }, srcStart, segDur, speed);
+    const al = g.label("al");
+    vadd(`[${alphaIdx}:v]scale=${AW}:${AH},setsar=1,fps=${FPS},format=yuva420p[${al}]`);
+    const bgSpec = clip.matte.background;
+    const bgDur = sec(segDur * speed + 1);
+    const cover = `scale=${AW}:${AH}:force_original_aspect_ratio=increase,crop=${AW}:${AH},setsar=1,fps=${FPS},format=yuva420p`;
+    let bg: string | undefined;
+    let audioIdx: number | undefined;
+    if (bgSpec?.type === "color") {
+      bg = g.label("bg");
+      vadd(
+        `color=c=${ffmpegColor(bgSpec.value, "black")}:s=${AW}x${AH}:r=${FPS}:d=${bgDur},format=yuva420p[${bg}]`,
+      );
+    } else if (bgSpec?.type === "image" || bgSpec?.type === "video") {
+      const b = asset(bgSpec.value);
+      if (!b) g.warnings.push(`Fondo ${bgSpec.value ?? "?"} no encontrado: fondo transparente`);
+      else {
+        const idx =
+          b.kind === "image"
+            ? g.input(["-loop", "1", "-framerate", String(FPS), "-t", bgDur, "-i", b.absPath])
+            : g.input(["-stream_loop", "-1", "-t", bgDur, "-i", b.absPath]);
+        bg = g.label("bg");
+        vadd(`[${idx}:v]${cover}[${bg}]`);
+      }
+    } else if (bgSpec?.type === "blur") {
+      const idx = mediaInput(a, srcStart, segDur, speed);
+      if (wantsAudio(track, a)) audioIdx = idx;
+      const sigma = Math.min(200, Math.max(1, Number(bgSpec.value) || 25));
+      bg = g.label("bg");
+      vadd(
+        `[${idx}:v]scale=${AW}:${AH},setsar=1,fps=${FPS},gblur=sigma=${sigma},format=yuva420p[${bg}]`,
+      );
+    }
+    if (audioIdx === undefined && wantsAudio(track, a))
+      audioIdx = mediaInput(a, srcStart, segDur, speed);
+    const tail = audioIdx !== undefined ? { audioIdx } : {};
+    if (!bg) return { video: al, ...tail };
+    const mt = g.label("mt");
+    vadd(`[${bg}][${al}]overlay=0:0:shortest=1:format=auto,format=yuva420p[${mt}]`);
+    return { video: mt, ...tail };
+  };
+
+  /**
+   * Start of a clip chain: crop (fixed, or Sprint 2 crop keyframes: size of the first keyframe,
+   * x/y moving), timestamps from 0 and speed. `lead` = segment-local minus clip-local time.
+   */
+  const headChain = (clip: Clip, speed: number, lead: number): string[] => {
+    const chain: string[] = [];
+    // Crop keyframes in fractions of the source (percent accepted, like the preview).
+    const cropKf = hasKeyframes(clip.keyframes, "crop")
+      ? clip.keyframes.crop!.map((k) =>
+          typeof k.v === "object" && "w" in k.v ? { ...k, v: normalizeCropRect(k.v) } : k,
+        )
+      : undefined;
+    if (!cropKf && clip.crop) {
+      const c = clip.crop;
+      chain.push(
+        `crop=${Math.round(c.width)}:${Math.round(c.height)}:${Math.round(c.x)}:${Math.round(c.y)}`,
+      );
+    }
+    chain.push("setpts=PTS-STARTPTS");
+    if (Math.abs(speed - 1) > EPS) chain.push(`setpts=PTS/${+speed.toFixed(6)}`);
+    if (cropKf) {
+      const first = cropKf.find((k) => typeof k.v === "object" && "w" in k.v)?.v as
+        CropRect | undefined;
+      if (first) {
+        const tv = lead > 0 ? `(t-${sec(lead)})` : "t";
+        const x = componentExpr(cropKf, (v) => v.x, tv);
+        const y = componentExpr(cropKf, (v) => v.y, tv);
+        chain.push(
+          `crop=w=${quoteFilterArg(`iw*${sec(first.w)}`)}:h=${quoteFilterArg(`ih*${sec(first.h)}`)}:x=${quoteFilterArg(`iw*(${x})`)}:y=${quoteFilterArg(`ih*(${y})`)}`,
+        );
+      }
+    }
+    chain.push("format=yuva420p");
+    return chain;
+  };
+
+  /** Fixed opacity (colorchannelmixer) or Sprint 2 opacity keyframes (geq on the alpha plane). */
+  const opacityFilters = (clip: Clip, lead: number): string[] => {
+    if (hasKeyframes(clip.keyframes, "opacity")) {
+      const tv = lead > 0 ? `(T-${sec(lead)})` : "T";
+      const e = numberKeyframesExpr(clip.keyframes.opacity!, tv);
+      return [
+        `geq=lum=${quoteFilterArg("lum(X,Y)")}:cb=${quoteFilterArg("cb(X,Y)")}:cr=${quoteFilterArg("cr(X,Y)")}:a=${quoteFilterArg(`alpha(X,Y)*clip(${e},0,1)`)}`,
+      ];
+    }
+    return clip.opacity < 1 ? [`colorchannelmixer=aa=${+clip.opacity.toFixed(3)}`] : [];
+  };
+
+  /**
+   * Sprint 2: a clip with position/scale keyframes is overlaid on its own: fitted to the canvas,
+   * scaled per frame (scale eval=frame) inside a fixed box (pad eval=frame), opacity/fades in
+   * clip-local time, delayed to its start and placed with overlay x/y expressions (its center).
+   * Transitions become alpha fades (no xfade with neighbours).
+   */
+  const floatingClip = (track: Track, clip: Clip): FloatSeg | undefined => {
+    const a = asset(
+      track.kind === "motion" ? (clip.renderedAssetId ?? clip.assetId) : clip.assetId,
+    )!;
+    const speed = clip.speed || 1;
+    const start = clip.start;
+    if (start >= T - EPS) return undefined;
+    const dur = Math.min(clipDuration(clip), T - start);
+    if (dur <= EPS) return undefined;
+    const fadeIn = clip.transitionIn ? Math.min(clip.transitionIn.durationSec, dur / 2) : 0;
+    const fadeOut = clip.transitionOut ? Math.min(clip.transitionOut.durationSec, dur / 2) : 0;
+    const src = sourceInput(track, clip, a, clip.in, dur, speed);
+    const chain = headChain(clip, speed, 0);
+    chain.push(
+      `scale=${W}:${H}:force_original_aspect_ratio=decrease`,
+      `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black@0`,
+      "setsar=1",
+      `fps=${FPS}`,
+    );
+    if (a.kind !== "image") chain.push(`tpad=stop_mode=clone:stop_duration=${sec(dur)}`);
+    chain.push(`trim=duration=${sec(dur)}`, "setpts=PTS-STARTPTS");
+    // Box = canvas × max scale; the fitted media stays centered in it.
+    const scaleKf = hasKeyframes(clip.keyframes, "scale") ? clip.keyframes.scale! : undefined;
+    const s0 = clip.scale ?? 1;
+    let BW = W;
+    let BH = H;
+    if (scaleKf) {
+      const smax = Math.max(0.01, numberRange(scaleKf).max);
+      BW = even(Math.ceil(W * smax));
+      BH = even(Math.ceil(H * smax));
+      const S = `max(0.001,${numberKeyframesExpr(scaleKf, "t")})`;
+      chain.push(
+        `scale=w=${quoteFilterArg(`max(2,2*trunc(${W}*${S}/2))`)}:h=${quoteFilterArg(`max(2,2*trunc(${H}*${S}/2))`)}:eval=frame`,
+        `pad=w=${BW}:h=${BH}:x=(ow-iw)/2:y=(oh-ih)/2:eval=frame:color=black@0`,
+      );
+    } else if (Math.abs(s0 - 1) > EPS) {
+      BW = even(W * s0);
+      BH = even(H * s0);
+      chain.push(`scale=${BW}:${BH}`);
+    }
+    chain.push(...opacityFilters(clip, 0));
+    if (fadeIn > 0) chain.push(`fade=t=in:st=0:d=${sec(fadeIn)}:alpha=1`);
+    if (fadeOut > 0) chain.push(`fade=t=out:st=${sec(dur - fadeOut)}:d=${sec(fadeOut)}:alpha=1`);
+    chain.push("settb=AVTB", `setpts=PTS+${sec(start)}/TB`);
+    const fl = g.label("fl");
+    vadd(`[${src.video}]${chain.join(",")}[${fl}]`);
+    if (src.audioIdx !== undefined) addAudio(src.audioIdx, clip, start, dur, 0, fadeIn, fadeOut);
+
+    // Center of the clip in canvas fractions -> top-left of the box.
+    const posKf = hasKeyframes(clip.keyframes, "position") ? clip.keyframes.position! : undefined;
+    const tv = `(t-${sec(start)})`;
+    let x: string;
+    let y: string;
+    if (posKf) {
+      x = componentExpr(
+        posKf,
+        (v) => v.x,
+        tv,
+        (v) => v * W - BW / 2,
+      );
+      y = componentExpr(
+        posKf,
+        (v) => v.y,
+        tv,
+        (v) => v * H - BH / 2,
+      );
+    } else {
+      const media = a.width && a.height ? { width: a.width, height: a.height } : undefined;
+      const r = fitRect({ width: W, height: H }, media, {
+        scale: Math.min(1, s0),
+        ...(clip.position && { position: clip.position }),
+      });
+      const fitted = fitRect({ width: W, height: H }, media, { scale: Math.min(1, s0) });
+      x = sec(r.x - fitted.x + (W - BW) / 2);
+      y = sec(r.y - fitted.y + (H - BH) / 2);
+    }
+    return { label: fl, x, y };
+  };
+
   const visualTrack = (track: Track, clips: readonly Clip[]): Seg | undefined => {
     if (clips.length === 0) return undefined;
 
@@ -360,41 +619,9 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
 
       const segDur = dur + xfade;
       const srcStart = Math.max(0, inSrc - xfade * speed);
-      let idx: number;
-      if (a.kind === "image") {
-        idx = g.input([
-          "-loop",
-          "1",
-          "-framerate",
-          String(FPS),
-          "-t",
-          sec(segDur + frame),
-          "-i",
-          a.absPath,
-        ]);
-      } else {
-        const vp9Alpha =
-          a.videoCodec === "vp9" && (a.hasAlpha ?? true) && /\.webm$/i.test(a.absPath);
-        idx = g.input([
-          "-ss",
-          sec(srcStart),
-          "-t",
-          sec(segDur * speed + 0.5),
-          ...(vp9Alpha ? ["-c:v", "libvpx-vp9"] : []),
-          "-i",
-          a.absPath,
-        ]);
-      }
-      const chain: string[] = [];
-      if (clip.crop) {
-        const c = clip.crop;
-        chain.push(
-          `crop=${Math.round(c.width)}:${Math.round(c.height)}:${Math.round(c.x)}:${Math.round(c.y)}`,
-        );
-      }
-      chain.push("setpts=PTS-STARTPTS");
-      if (Math.abs(speed - 1) > EPS) chain.push(`setpts=PTS/${+speed.toFixed(6)}`);
-      chain.push("format=yuva420p");
+      const src = sourceInput(track, clip, a, srcStart, segDur, speed);
+      // Segment-local time = clip-local time + xfade (the segment starts xfade earlier).
+      const chain = headChain(clip, speed, xfade);
       if (clip.scale !== undefined || clip.position)
         chain.push(
           ...pipPlacementFilters({
@@ -409,7 +636,7 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
           `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black@0`,
         );
       chain.push("setsar=1", `fps=${FPS}`);
-      if (clip.opacity < 1) chain.push(`colorchannelmixer=aa=${+clip.opacity.toFixed(3)}`);
+      chain.push(...opacityFilters(clip, xfade));
       if (a.kind !== "image") chain.push(`tpad=stop_mode=clone:stop_duration=${sec(segDur)}`);
       chain.push(`trim=duration=${sec(segDur)}`, "setpts=PTS-STARTPTS");
       if (fadeIn > 0) chain.push(`fade=t=in:st=0:d=${sec(fadeIn)}:alpha=1`);
@@ -417,7 +644,7 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
         chain.push(`fade=t=out:st=${sec(segDur - fadeOut)}:d=${sec(fadeOut)}:alpha=1`);
       chain.push("settb=AVTB");
       const sl = g.label("seg");
-      vadd(`[${idx}:v]${chain.join(",")}[${sl}]`);
+      vadd(`[${src.video}]${chain.join(",")}[${sl}]`);
 
       if (xfade > 0 && tr) {
         flush();
@@ -429,9 +656,8 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
         acc = { label: xl, dur: base.dur + segDur - xfade };
       } else segs.push({ label: sl, dur: segDur });
 
-      if (track.kind === "video" && !track.muted && a.hasAudio && a.kind !== "image") {
-        addAudio(idx, clip, start, dur, xfade * speed, fadeIn, fadeOut);
-      }
+      if (src.audioIdx !== undefined)
+        addAudio(src.audioIdx, clip, start, dur, xfade * speed, fadeIn, fadeOut);
       cursor = start + dur;
       prev = { clip, dur };
     });
@@ -462,25 +688,55 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
       const font = o.fontFile
         ? `fontfile=${escapeFilterPath(o.fontFile)}`
         : `font=${quoteFilterArg(escapeOptionValue(style.fontFamily ?? "Inter"))}`;
+      // Sprint 2 keyframes: drawtext evaluates x/y/fontsize/alpha per frame (t = timeline time).
+      const kf = clip.keyframes;
+      const tv = `(t-${sec(start)})`;
+      const pos = hasKeyframes(kf, "position") ? kf.position! : undefined;
+      const xExpr = pos
+        ? quoteFilterArg(
+            `${componentExpr(
+              pos,
+              (v) => v.x,
+              tv,
+              (v) => v * W,
+            )}-text_w/2`,
+          )
+        : "(w-text_w)/2";
+      const yExpr = pos
+        ? quoteFilterArg(
+            `${componentExpr(
+              pos,
+              (v) => v.y,
+              tv,
+              (v) => v * H,
+            )}-text_h/2`,
+          )
+        : y;
+      const fontSize = hasKeyframes(kf, "scale")
+        ? quoteFilterArg(`max(1,${size}*(${numberKeyframesExpr(kf.scale!, tv)}))`)
+        : String(size);
       const parts = [
         `drawtext=${font}`,
         `textfile=${file}`,
         "expansion=none",
-        `fontsize=${size}`,
+        `fontsize=${fontSize}`,
         `fontcolor=${ffmpegColor(style.color)}`,
         ...(style.background
           ? ["box=1", `boxcolor=${ffmpegColor(style.background, "black@0.5")}`, "boxborderw=12"]
           : []),
-        "x=(w-text_w)/2",
-        `y=${y}`,
+        `x=${xExpr}`,
+        `y=${yExpr}`,
         enableBetween(start, end),
       ];
       const fi = clip.transitionIn ? Math.min(clip.transitionIn.durationSec, (end - start) / 2) : 0;
       const fo = clip.transitionOut
         ? Math.min(clip.transitionOut.durationSec, (end - start) / 2)
         : 0;
-      const op = +clip.opacity.toFixed(3);
-      if (fi > 0 || fo > 0 || op < 1) {
+      const opKf = hasKeyframes(kf, "opacity") ? kf.opacity! : undefined;
+      const op = opKf
+        ? `clip(${numberKeyframesExpr(opKf, tv)},0,1)`
+        : String(+clip.opacity.toFixed(3));
+      if (fi > 0 || fo > 0 || opKf || clip.opacity < 1) {
         const inExpr = fi > 0 ? `if(lt(t,${sec(start + fi)}),(t-${sec(start)})/${sec(fi)},1)` : "1";
         const outExpr = fo > 0 ? `if(gt(t,${sec(end - fo)}),(${sec(end)}-t)/${sec(fo)},1)` : "1";
         parts.push(`alpha=${quoteFilterArg(`${op}*min(${inExpr},${outExpr})`)}`);
@@ -525,9 +781,10 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
       }
       continue;
     }
-    const lanes = lanesOf(
-      playableClips(win ? { ...track, clips: sliceClipsToWindow(track.clips, win) } : track),
+    const playable = playableClips(
+      win ? { ...track, clips: sliceClipsToWindow(track.clips, win) } : track,
     );
+    const lanes = lanesOf(playable.filter((c) => !isFloatingClip(c)));
     if (lanes.length > 1)
       g.warnings.push(
         `Clips solapados en «${track.name}»: se apilan en ${lanes.length} capas (el último encima)`,
@@ -537,6 +794,15 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
       if (!stream) continue;
       const next = g.label("c");
       vadd(`[${cur}][${stream.label}]overlay=0:0:eof_action=pass[${next}]`);
+      cur = next;
+    }
+    for (const clip of playable.filter(isFloatingClip)) {
+      const fl = floatingClip(track, clip);
+      if (!fl) continue;
+      const next = g.label("c");
+      vadd(
+        `[${cur}][${fl.label}]overlay=x=${quoteFilterArg(fl.x)}:y=${quoteFilterArg(fl.y)}:eof_action=pass[${next}]`,
+      );
       cur = next;
     }
   }
@@ -591,7 +857,38 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
       g.add(`[${cur}]${post.join(",")}[${next}]`);
       cur = next;
     }
-    if (sameAspect || alpha) {
+    if (!sameAspect && reframeApplies(project, preset)) {
+      // Sprint 2 reframe: crop of the target aspect whose center follows project.reframe
+      // (absolute timeline seconds: local t + window / range start), fitted to the preset.
+      const rf = project.reframe!;
+      const win = reframeWindow({ width: W, height: H }, rf.target);
+      const cw = win.w < 1 ? even(W * win.w) : W;
+      const ch = win.h < 1 ? even(H * win.h) : H;
+      const off = offset + rs;
+      const tv = off > EPS ? `(t+${sec(off)})` : "t";
+      const rects = rf.keyframes.map((k) =>
+        typeof k.v === "object" && "w" in k.v ? { ...k, v: normalizeCropRect(k.v) } : k,
+      ) as Keyframe<CropRect>[];
+      const cx = componentExpr(
+        rects,
+        (v) => v.x + (v.w ?? 0) / 2,
+        tv,
+        (v) => v * W - cw / 2,
+      );
+      const cy = componentExpr(
+        rects,
+        (v) => v.y + (v.h ?? 0) / 2,
+        tv,
+        (v) => v * H - ch / 2,
+      );
+      const fit =
+        Math.abs(cw / ch - PW / PH) < 0.01
+          ? `scale=${PW}:${PH}`
+          : `scale=${PW}:${PH}:force_original_aspect_ratio=decrease,pad=${PW}:${PH}:(ow-iw)/2:(oh-ih)/2:color=black`;
+      g.add(
+        `[${cur}]crop=w=${cw}:h=${ch}:x=${quoteFilterArg(`clip(${cx},0,${W - cw})`)}:y=${quoteFilterArg(`clip(${cy},0,${H - ch})`)},${fit},setsar=1,format=${enc.pixFmt}[vout]`,
+      );
+    } else if (sameAspect || alpha) {
       const fit =
         W === PW && H === PH
           ? "null"
@@ -661,6 +958,48 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
   return { args, graph, files: g.files, durationSec: outDur, warnings: g.warnings };
 }
 
+/** Media display size from the resolved assets (track geometry). */
+export function assetSizeOf(
+  assets: ReadonlyMap<string, TimelineAsset>,
+): (id: string) => { width: number; height: number } | undefined {
+  return (id) => {
+    const a = assets.get(id);
+    return a?.width && a.height ? { width: a.width, height: a.height } : undefined;
+  };
+}
+
+/**
+ * Sprint 2: project as compiled — every `trackRef` (except motion templates that render the track
+ * themselves) replaced by position keyframes (≤ 30 per second). The segment hash uses the same.
+ */
+export function resolveExportProject(
+  project: Project,
+  assets: ReadonlyMap<string, TimelineAsset>,
+  tracks: ReadonlyMap<string, TrackFile>,
+): Project {
+  return resolveTrackRefs(project, tracks, assetSizeOf(assets), 30);
+}
+
+/**
+ * True when `project.reframe` replaces the blurred background: keyframes present, preset aspect
+ * different from the canvas, not GIF and not an alpha export.
+ */
+export function reframeApplies(
+  project: Pick<Project, "reframe" | "settings">,
+  preset: Pick<ExportPreset, "width" | "height" | "alpha" | "container" | "videoCodec">,
+): boolean {
+  if (!project.reframe?.keyframes.length) return false;
+  if (preset.alpha || preset.container === "gif" || preset.videoCodec === "gif") return false;
+  const W = even(project.settings.width);
+  const H = even(project.settings.height);
+  return Math.abs(W / H - even(preset.width) / even(preset.height)) >= 0.01;
+}
+
+/** True when a visual clip moves or zooms (overlaid on its own with x/y expressions). */
+export function isFloatingClip(c: Pick<Clip, "keyframes">): boolean {
+  return hasKeyframes(c.keyframes, "position") || hasKeyframes(c.keyframes, "scale");
+}
+
 /**
  * Visual clips of the timeline window [start, end) in window-local time: clips are cut at the
  * window edges (in/out moved, start rebased to 0) and lose the transition of a side that was cut.
@@ -685,6 +1024,11 @@ export function sliceClipsToWindow(
     };
     if (ns > c.start + EPS) delete piece.transitionIn;
     if (ne < end - EPS) delete piece.transitionOut;
+    // Keyframes are clip-relative: rebase them to the piece (expressions stay exact per block).
+    if (c.keyframes && ns > c.start)
+      piece.keyframes = Object.fromEntries(
+        Object.entries(c.keyframes).map(([k, v]) => [k, v && shiftKeyframes(v, ns - c.start)]),
+      );
     out.push(piece);
   }
   return out;

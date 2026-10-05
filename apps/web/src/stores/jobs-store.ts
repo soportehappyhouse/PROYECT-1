@@ -27,6 +27,11 @@ export const JOB_TYPE_LABELS: Record<AnyJobType, string> = {
   "timeline.apply-cuts": "Aplicar cortes",
   "audio.denoise": "Limpiar voz (IA)",
   "perf.run": "Test de rendimiento IA",
+  "vision.matte": "Quitar fondo",
+  "vision.mask": "Máscara (propagar)",
+  "vision.track": "Seguir objeto",
+  "vision.reframe": "Reencuadre",
+  "timeline.track-to-keyframes": "Seguimiento a keyframes",
 };
 
 /** Label of any job type (unknown future types show their id). */

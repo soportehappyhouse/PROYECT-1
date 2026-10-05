@@ -16,3 +16,6 @@ export * from "./api-ext.js";
 export * from "./voice-ai.js";
 export * from "./report.js";
 export * from "./ai.js";
+export * from "./keyframes.js";
+export * from "./vision.js";
+export * from "./track.js";

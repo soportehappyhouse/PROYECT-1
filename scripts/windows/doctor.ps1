@@ -308,6 +308,25 @@ foreach ($sub in @('media', 'proxies', 'renders', 'exports', 'library', 'tmp', '
     if (Test-Path $p) { Write-Info ("  storage\{0,-10} {1,10}" -f $sub, (Format-Bytes (Get-FolderBytes $p))) }
 }
 
+# ------------------------------------------------------------------ Ollama (Asistente local)
+Write-Step 'Asistente local (Ollama)'
+$agentModel = Get-EnvSetting 'AGENT_MODEL' 'qwen3:8b'
+$ollamaExe = Find-OllamaExe
+$ollamaVer = Get-OllamaVersion
+if ($ollamaVer) {
+    Add-Result 'Ollama' ok ("{0} en {1}" -f $ollamaVer, (Get-OllamaUrl))
+    $tags = @(Get-OllamaTags)
+    if ($tags.Count) { Write-Info ("modelos en Ollama: {0}" -f ($tags -join ', ')) }
+    $want = $agentModel
+    if ($want -notmatch ':') { $want = "${want}:latest" }
+    if ($tags -contains $want) { Add-Result ("  modelo {0}" -f $agentModel) ok 'descargado (AGENT_MODEL)' }
+    else { Add-Result ("  modelo {0}" -f $agentModel) skip 'no descargado: Ajustes > Asistente local (paquete agent-llm) o ollama pull' }
+} elseif ($ollamaExe) {
+    Add-Result 'Ollama' warn ("instalado ({0}) pero no responde en {1}: abri Ollama desde el menu Inicio" -f $ollamaExe, (Get-OllamaUrl))
+} else {
+    Add-Result 'Ollama' skip 'no instalado (setup.ps1 o winget install -e --id Ollama.Ollama); Asistente local deshabilitado'
+}
+
 # ------------------------------------------------------------------ ports / services
 Write-Step 'Puertos y servicios'
 $ports = Get-Ports

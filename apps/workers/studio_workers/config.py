@@ -37,6 +37,14 @@ class Settings(BaseSettings):
     # interpreter that runs `python -m vision_gpl.rvm` (development/tests).
     gpl_venv_dir: str = ""
     gpl_python: str = ""
+    # Sprint 3: local edit agent (Ollama). AGENT_MODEL picks the pack's model (qwen3:8b default,
+    # hermes3:8b alternative, qwen3:0.6b for CI/sandbox); OLLAMA_URL is the local service.
+    ollama_url: str = "http://127.0.0.1:11434"
+    agent_model: str = "qwen3:8b"
+    agent_keep_alive: str = "5m"
+    agent_num_ctx: int = 8192
+    # Seconds for one /api/chat call (an 8B model partly on CPU can take ~30 s per plan).
+    agent_timeout_sec: float = 120.0
 
     @property
     def storage_root(self) -> Path:

@@ -21,6 +21,7 @@ import subprocess
 import sys
 import sysconfig
 import threading
+import time
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -163,6 +164,10 @@ class RvmRun:
     proc_fps: float = 0.0
     precision: str = ""  # fp16 (CUDA) | fp32 (CPU)
     downsample: float | None = None
+    alpha_codec: str = "vp9"  # vp9 (WebM yuva420p) | split (MKV: NVENC colour + alpha streams)
+    # per-stage ms/frame, bottleneck, load/first-batch/process/concat seconds (vision_gpl.rvm)
+    # + startup_s (spawn -> start event: interpreter, torch import, model load) and total_s
+    timings: dict[str, Any] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
 
@@ -186,12 +191,13 @@ def run_rvm(
     on_start: Callable[[subprocess.Popen[str]], None] | None = None,
     extra_args: list[str] | None = None,
     timeout: float | None = None,
+    alpha_codec: str = "vp9",
 ) -> RvmRun:
     cmd = [
         python, "-m", "vision_gpl.rvm", "--input", str(src), "--output", str(out),
         "--downsample", "auto" if downsample is None else str(downsample),
         "--chunk", str(chunk), "--device", device, "--model-dir", str(model_dir),
-        "--work-dir", str(work_dir),
+        "--work-dir", str(work_dir), "--alpha-codec", alpha_codec,
     ]  # fmt: skip
     if ffmpeg:
         cmd += ["--ffmpeg", ffmpeg]
@@ -201,6 +207,8 @@ def run_rvm(
     env["PYTHONPATH"] = str(WORKERS_DIR)  # vision_gpl is not pip-installed: run from apps/workers
     if vram_budget_mb is not None:
         env["STUDIO_VRAM_BUDGET_MB"] = str(int(vram_budget_mb))
+    t_spawn = time.perf_counter()
+    started: float | None = None
     proc = subprocess.Popen(  # noqa: S603 - fixed argv
         cmd,
         stdout=subprocess.PIPE,
@@ -238,6 +246,8 @@ def run_rvm(
         if not isinstance(event, dict):
             continue
         kind = event.get("event")
+        if kind == "start" and started is None:
+            started = time.perf_counter() - t_spawn
         if kind == "done":
             result = event
         elif kind == "error":
@@ -252,6 +262,10 @@ def run_rvm(
     if code != 0 or result is None:
         detail = error or stderr.strip()[-500:] or f"codigo {code}"
         raise GplProcessError(f"Recorte RVM fallo: {detail}")
+    timings = dict(result.get("timings") or {})
+    if started is not None:
+        timings["startup_s"] = round(started, 3)
+    timings["total_s"] = round(time.perf_counter() - t_spawn, 3)
     return RvmRun(
         output=Path(result.get("output") or out),
         frames=int(result.get("frames") or 0),
@@ -260,5 +274,7 @@ def run_rvm(
         proc_fps=float(result.get("proc_fps") or 0.0),
         precision=str(result.get("precision") or ""),
         downsample=float(result["downsample"]) if result.get("downsample") else None,
+        alpha_codec=str(result.get("alpha_codec") or "vp9"),
+        timings=timings,
         warnings=list(dict.fromkeys([*warnings, *(result.get("warnings") or [])])),
     )

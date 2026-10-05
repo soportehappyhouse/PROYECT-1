@@ -55,6 +55,9 @@
   Sin dependencias de RVC en el .venv (torch / infer-rvc-python; instalacion mas liviana, RVC queda
   deshabilitado). Se conserva en los re-run; -SkipRvc:$false instala RVC. Los modelos RVC base
   (paquete rvc-base) nunca se bajan por defecto: solo con -Full o al usar RVC.
+.PARAMETER SkipOllama
+  No instala ni inicia Ollama (winget Ollama.Ollama): el Asistente local (paquete agent-llm) queda
+  deshabilitado. El modelo (qwen3:8b, ~5 GB) no se baja aca: se descarga desde Ajustes o con -Full.
 .PARAMETER SkipModels
   No descarga modelos (whisper / piper / rvc).
 .PARAMETER SkipBrowser
@@ -83,6 +86,7 @@ param(
     [switch]$Force,
     [switch]$SkipWinget,
     [switch]$SkipRvc,
+    [switch]$SkipOllama,
     [switch]$SkipModels,
     [switch]$SkipBrowser,
     [switch]$SkipBuild,
@@ -295,6 +299,43 @@ if (-not $vc) {
 }
 if ($vc) { Add-Result 'VC++ Redistributable x64' ok $vc -Action $vcAction -Seconds (Stop-StepClock) }
 else { Add-Result 'VC++ Redistributable x64' warn 'no detectado (winget install -e --id Microsoft.VCRedist.2015+.x64)' -Seconds (Stop-StepClock) }
+
+# --- Ollama (sprint 3: Asistente local; MIT). Optional: a failure here is a warning, not an error.
+Start-StepClock
+if ($SkipOllama) {
+    Add-Result 'Ollama' skip '-SkipOllama (Asistente local deshabilitado)' -Seconds (Stop-StepClock)
+} else {
+    $ollamaAction = 'omitido'
+    $ollamaExe = Find-OllamaExe
+    if (-not $ollamaExe) {
+        Write-Info 'Instalando Ollama (servicio local para el Asistente; ~1 GB)...'
+        $ollamaAction = ''
+        if (Install-WingetPackage 'Ollama.Ollama') { $ollamaAction = 'ejecutado' }
+        $ollamaExe = Find-OllamaExe
+    }
+    if ($ollamaExe) {
+        $ollamaVer = Get-OllamaVersion
+        if (-not $ollamaVer) {
+            Write-Info 'Iniciando el servicio de Ollama...'
+            if (Start-OllamaService $ollamaExe) {
+                $ollamaVer = Get-OllamaVersion
+                if ($ollamaAction -eq 'omitido') { $ollamaAction = 'ejecutado' }
+            }
+        } elseif ($ollamaAction -eq 'omitido') {
+            Write-Omit "Ollama $ollamaVer (servicio corriendo)"
+        }
+        if ($ollamaVer) {
+            $models = @(Get-OllamaTags)
+            $modelText = 'sin modelos (descarga el Asistente local en Ajustes)'
+            if ($models.Count) { $modelText = 'modelos: ' + ($models -join ', ') }
+            Add-Result 'Ollama' ok ("{0} - {1}" -f $ollamaVer, $modelText) -Action $ollamaAction -Seconds (Stop-StepClock)
+        } else {
+            Add-Result 'Ollama' warn ("instalado ({0}) pero el servicio no responde en {1}: abri Ollama desde el menu Inicio" -f $ollamaExe, (Get-OllamaUrl)) -Action $ollamaAction -Seconds (Stop-StepClock)
+        }
+    } else {
+        Add-Result 'Ollama' warn 'no instalado (winget install -e --id Ollama.Ollama); el Asistente local queda deshabilitado' -Seconds (Stop-StepClock)
+    }
+}
 
 # ============================================================================ 2. config + folders
 Write-Step 'Configuracion (.env) y carpetas'

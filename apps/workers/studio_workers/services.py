@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from .agent.ollama_client import OllamaClient
 from .config import get_settings
 from .denoise import DenoiseEngine
 from .gpu import GpuBudget
@@ -63,6 +64,18 @@ def vision_queue() -> TaskQueue:
 
 
 @lru_cache
+def agent_queue() -> TaskQueue:
+    """Agent evaluations (one at a time: they share Ollama and the GPU)."""
+    return TaskQueue("agent")
+
+
+@lru_cache
+def ollama_client() -> OllamaClient:
+    settings = get_settings()
+    return OllamaClient(settings.ollama_url, timeout=settings.agent_timeout_sec)
+
+
+@lru_cache
 def tts_providers() -> dict[str, TtsProvider]:
     return build_providers(get_settings())
 
@@ -79,3 +92,6 @@ def reset() -> None:
     matte_engine.cache_clear()
     sam_manager.cache_clear()
     vision_queue.cache_clear()
+    agent_queue.cache_clear()
+    # tests may monkeypatch ollama_client with a plain factory (fake Ollama transport)
+    getattr(ollama_client, "cache_clear", lambda: None)()

@@ -126,6 +126,8 @@ class Pack:
     # and the status rows it contributes to GET /packs.
     post_install_env: Callable[[Path, Callable[[str], None]], None] | None = None
     extra_status: Callable[[Path], list[dict[str, Any]]] | None = None
+    # Sprint 3: models pulled through the local Ollama service (/api/pull), not our downloader.
+    ollama_models: Callable[[], tuple[str, ...]] | None = None
 
     def build_items(
         self, root: Path, catalog: dict | None = None, downloader: WhisperDownloader | None = None
@@ -345,6 +347,103 @@ def _gpl_setup(_root: Path, say: Callable[[str], None]) -> None:
     ensure_venv(_gpl_venv_dir(), use_cuda=settings.use_cuda, on_line=say)
 
 
+# ----------------------------------------------------------------------- sprint 3 agent pack
+
+AGENT_PACK_ID = "agent-llm"
+
+
+def _agent_settings() -> tuple[str, str]:
+    from .config import get_settings  # noqa: PLC0415
+
+    st = get_settings()
+    return st.agent_model, st.ollama_url
+
+
+def _agent_models() -> tuple[str, ...]:
+    """The model the agent uses (AGENT_MODEL: qwen3:8b by default, hermes3:8b, qwen3:0.6b)."""
+    return (_agent_settings()[0],)
+
+
+def ollama_installed_models() -> list[str] | None:
+    """/api/tags of the local Ollama (None: service not running). Short timeout: GET /packs."""
+    from .agent.ollama_client import installed_models_sync  # noqa: PLC0415
+
+    return installed_models_sync(_agent_settings()[1], timeout=1.0)
+
+
+def _ollama_status_rows(pack: Pack) -> list[dict[str, Any]]:
+    from .agent.ollama_client import model_in, model_size  # noqa: PLC0415
+
+    assert pack.ollama_models is not None
+    installed = ollama_installed_models()
+    service = {"name": "servicio Ollama", "size": 0, "present": installed is not None}
+    rows = [service]
+    for model in pack.ollama_models():
+        present = installed is not None and model_in(model, installed)
+        rows.append({"name": f"ollama:{model}", "size": model_size(model), "present": present})
+    return rows
+
+
+def _install_ollama_pack(
+    pack: Pack,
+    root: Path,
+    manifest: Manifest,
+    progress: Callable[[int, int, str | None], None],
+    say: LineFn,
+    report: InstallReport,
+    force: bool,
+) -> None:
+    import asyncio  # noqa: PLC0415
+
+    from .agent.ollama_client import (  # noqa: PLC0415
+        OllamaClient,
+        OllamaUnavailableError,
+        PullProgress,
+        model_in,
+        model_size,
+    )
+
+    assert pack.ollama_models is not None
+    url = _agent_settings()[1]
+    installed = ollama_installed_models()
+    if installed is None:
+        raise RuntimeError(str(OllamaUnavailableError(url)))
+    models = list(pack.ollama_models())
+    todo = [m for m in models if force or not model_in(m, installed)]
+    for m in models:
+        if m not in todo:
+            report.skipped.append(f"ollama:{m}")
+            say(f"ya descargado en Ollama, se omite: {m}")
+    total = sum(model_size(m) for m in todo)
+    done = 0
+    progress(0, total, None)
+    client = OllamaClient(url)
+    for model in todo:
+        say(f"ollama pull {model}")
+        base = done
+        seen: set[str] = set()
+
+        def on_progress(
+            p: PullProgress, base: int = base, model: str = model, seen: set[str] = seen
+        ) -> None:
+            if p.status not in seen:  # one log line per phase, not per chunk
+                seen.add(p.status)
+                say(f"{model}: {p.status}")
+            if p.total:
+                progress(base + p.completed, max(total, base + p.total), f"ollama:{model}")
+
+        asyncio.run(client.pull(model, on_progress))
+        done = base + model_size(model)
+        report.downloaded.append(f"ollama:{model}")
+        progress(done, max(total, done), f"ollama:{model}")
+    after = ollama_installed_models() or []
+    missing = [m for m in models if not model_in(m, after)]
+    if missing:
+        raise RuntimeError("Ollama no lista los modelos tras descargarlos: " + ", ".join(missing))
+    manifest.packs[pack.id] = {"date": now_iso(), "ollama_models": models, "ollama_url": url}
+    manifest.save()
+
+
 # ------------------------------------------------------------------------------------ registry
 
 PACKS: dict[str, Pack] = {
@@ -545,6 +644,24 @@ PACKS: dict[str, Pack] = {
             items=_yunet_items,
             notes="face_detection_yunet_2023mar.onnx (tamaño y sha256 verificados)",
         ),
+        Pack(
+            id=AGENT_PACK_ID,
+            name_es="Asistente local (Ollama + Qwen3 8B)",
+            description_es=(
+                "Modelo de lenguaje local que convierte pedidos en español en planes de edición "
+                "(nada sale de tu PC). Necesita el servicio Ollama (lo instala setup.ps1); el "
+                "modelo se descarga con Ollama (~5 GB)."
+            ),
+            group="agent",
+            license="MIT (Ollama) + Apache-2.0 (Qwen3) / Llama 3.1 Community (hermes3)",
+            required_by=("agent.plan", "agent.eval", "agent.bugreport"),
+            approx_size=5_225_000_000,
+            ollama_models=_agent_models,
+            notes=(
+                "AGENT_MODEL elige el modelo: qwen3:8b (defecto), hermes3:8b o qwen3:0.6b "
+                "(CI); Ollama verifica los digests de cada capa"
+            ),
+        ),
     )
 }
 
@@ -707,6 +824,8 @@ def pack_status(
             files.append({"name": f"pip:{spec}", "size": req.size, "present": present})
     if pack.extra_status is not None:
         files.extend(pack.extra_status(root))
+    if pack.ollama_models is not None:
+        files.extend(_ollama_status_rows(pack))
     installed = all(f["present"] for f in files) if files else False
     if installed and pack.installed_check is not None:
         installed = pack.installed_check(root)
@@ -783,6 +902,17 @@ def write_registry(root: Path) -> Path:
                         "approx_size": _approx_item_size(item, None),
                     }
                 )
+        for model in p.ollama_models() if p.ollama_models else ():
+            from .agent.ollama_client import model_size  # noqa: PLC0415
+
+            files.append(
+                {
+                    "name": f"ollama {model}",
+                    "source": f"ollama pull {model} (registry.ollama.ai)",
+                    "dest": "Ollama (%USERPROFILE%\\.ollama\\models)",
+                    "approx_size": model_size(model),
+                }
+            )
         data.append(
             {
                 "id": p.id,
@@ -924,6 +1054,9 @@ def install_pack(
     report = InstallReport(pack_id)
     root.mkdir(parents=True, exist_ok=True)
     manifest = Manifest.load(root)
+    if pack.ollama_models is not None:
+        _install_ollama_pack(pack, root, manifest, progress, say, report, force)
+        return report
     items = pack.build_items(root, catalog, whisper_downloader)
 
     todo: list[Item] = []

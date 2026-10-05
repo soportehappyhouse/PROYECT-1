@@ -101,13 +101,14 @@ Re-ejecutarlo con todo instalado: alrededor de un minuto (verificaciones, sin de
 | `-SkipRvc` / `-SkipRvc:$false`                | Sin dependencias de RVC en el `.venv` (torch/RVC; se recuerda) / volver a instalarlas       |
 | `-SkipModels` / `-SkipBuild` / `-SkipBrowser` | Saltear pasos                                                                               |
 | `-SkipWinget`                                 | No usa winget: Git, Node 22, Python 3.11 y FFmpeg ya deben estar en el PATH                 |
+| `-SkipOllama`                                 | No instala ni inicia Ollama (el Asistente local queda deshabilitado)                        |
 | `-Full`                                       | Descarga todos los paquetes de IA en secuencia (ver abajo)                                  |
 
 ### Paquetes de IA (`-Full`)
 
 Por defecto `setup.ps1` instala solo el paquete **core** (Whisper base + voz Daniela). Los demás se
 descargan al usar cada función (Ajustes → Paquetes de IA, con barra de progreso). Con `-Full` se
-bajan todos ahora, uno por uno (~4,3 GB; repetirlo omite lo que ya está y reanuda lo parcial):
+bajan todos ahora, uno por uno (~4,3 GB + 5,2 GB del Asistente si Ollama está instalado; repetirlo omite lo que ya está y reanuda lo parcial):
 
 | Paquete         | Contenido                                                             | Tamaño aprox.                                  | Lo usa                                   |
 | --------------- | --------------------------------------------------------------------- | ---------------------------------------------- | ---------------------------------------- |
@@ -121,6 +122,7 @@ bajan todos ahora, uno por uno (~4,3 GB; repetirlo omite lo que ya está y reanu
 | `matting-image` | BiRefNet-lite **swin_v1_tiny** (ONNX) + onnxruntime + OpenCV          | 0,28 GB (+0,2 GB `onnxruntime-gpu` con CUDA)   | quitar fondo en imágenes                 |
 | `sam2`          | SAM 2.1 tiny + small + código `sam2` (desde GitHub, **requiere Git**) | 0,34 GB                                        | máscara por clic, seguir objeto (SAM 2)  |
 | `reframe`       | YuNet (caras) + OpenCV                                                | 0,04 GB                                        | reencuadrar, seguir objeto (rápido)      |
+| `agent-llm`     | Modelo del Asistente local vía Ollama (`qwen3:8b`, Q4)                | 5,2 GB                                         | Asistente (comandos en español), reporte |
 
 Notas de los paquetes de visión:
 
@@ -145,6 +147,22 @@ Notas de los paquetes de visión:
 **Test de rendimiento IA** (mide Whisper, Piper, RVC, escenas y, si está `matting`, el recorte de
 personas: «Recorte de personas ≈ X fps (meta 15)»), y después **Quitar fondo** sobre un clip de
 **10 s** para confirmar que el recorte corre en la GPU antes de usarlo en un video largo.
+
+### Asistente local (Ollama)
+
+El Asistente (panel con `Ctrl+Shift+A`) convierte pedidos como «cortá los silencios y exportá para
+Reels» en un plan de edición que confirmás antes de aplicar. Todo corre en tu PC, sin API key:
+
+- `setup.ps1` instala **Ollama** con winget (`Ollama.Ollama`, MIT) y lo inicia si no está corriendo
+  (`http://127.0.0.1:11434`). Si ya está, se omite. `-SkipOllama` saltea el paso.
+- El modelo **no** se baja en el setup normal (~5 GB): Ajustes → Paquetes de IA → «Asistente local»
+  (o `setup.ps1 -Full`, o `ollama pull qwen3:8b`). Alternativa: `AGENT_MODEL=hermes3:8b` en `.env`.
+- Los comandos simples («exportá para reels», «transcribí», «reencuadrá a 9:16») funcionan aunque
+  el modelo no esté descargado: no pasan por la IA.
+- `doctor.ps1` muestra la sección «Asistente local (Ollama)»: versión, modelos y si falta el de
+  `AGENT_MODEL`. Si dice que no responde, abrí Ollama desde el menú Inicio.
+- Antes de cada consulta los workers liberan Whisper/visión de la GPU si quedan menos de 5,5 GB
+  libres; Ollama libera su modelo a los 5 minutos sin uso.
 
 Estado: `scripts\windows\doctor.ps1` (sección "Paquetes de IA") o, a mano,
 `apps\workers\.venv\Scripts\python.exe -m studio_workers.models_cli --packs list`.
@@ -273,7 +291,7 @@ apps\workers\.venv\Scripts\python.exe -m studio_workers.models_cli --check --upd
 | Opción      | Qué hace                                                                                                                                                                                                                                                                     |
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `-Update`   | Incremental tras bajar una versión nueva; conserva el perfil anterior (con o sin RVC). Si la instalación estaba en CPU y ahora se detecta una GPU NVIDIA, **cambia a CUDA sola** (torch CUDA, ~2,5 GB una vez, y `USE_CUDA=true` en `.env`, sin tocar el resto del archivo). |
-| `-Full`     | Baja **todos** los paquetes de IA ahora, en secuencia (~4,3 GB). Sin `-Full` solo se instala `core`.                                                                                                                                                                         |
+| `-Full`     | Baja **todos** los paquetes de IA ahora, en secuencia (~4,3 GB + 5,2 GB del Asistente). Sin `-Full` solo se instala `core`.                                                                                                                                                  |
 | `-WithCuda` | Perfil GPU: torch CUDA 12.8 y `USE_CUDA=true`. No hace falta pasarlo: es **automático** si se detecta una GPU NVIDIA (`nvidia-smi` o el nombre del adaptador de video contiene «NVIDIA»), en la primera instalación y en `-Update`.                                          |
 | `-NoCuda`   | Perfil CPU aunque haya GPU NVIDIA (`USE_CUDA=false`). La elección queda registrada en `apps\workers\.venv\.studio-install`: los `-Update` siguientes no vuelven a cambiar a CUDA (para volver: `-WithCuda`).                                                                 |
 

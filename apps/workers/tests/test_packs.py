@@ -39,6 +39,7 @@ def test_registry_matches_contract() -> None:
         "matting-image",
         "sam2",
         "reframe",
+        "agent-llm",  # sprint 3: models pulled through Ollama
     ]
     assert packs.FEATURE_PACKS["analyze.scenes"] == "scenes"
     assert packs.FEATURE_PACKS["audio.denoise"] == "voz-limpia"

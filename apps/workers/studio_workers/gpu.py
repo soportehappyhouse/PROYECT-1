@@ -221,6 +221,18 @@ class GpuBudget:
                 return None
             return self._unload_locked()
 
+    def make_room(self, need_mb: int) -> str | None:
+        """Before an external GPU user (Ollama): unload the resident model when free VRAM is
+        under `need_mb` (unknown VRAM counts as not enough). Returns the released model name, or
+        None when nothing had to be done."""
+        with self._lock:
+            if not self.use_cuda or self._resident is None:
+                return None
+            info = self.vram(fresh=True)
+            if info is not None and info.free_mb >= need_mb:
+                return None
+            return self._unload_locked()
+
     def _unload_locked(self) -> str | None:
         res = self._resident
         if res is None:

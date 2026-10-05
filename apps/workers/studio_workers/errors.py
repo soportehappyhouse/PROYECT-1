@@ -3,6 +3,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from .agent.ollama_client import OllamaError, OllamaTimeoutError, OllamaUnavailableError
 from .downloads import DownloadError
 from .media import FfmpegNotFoundError
 from .packs import PackRequiredError
@@ -29,6 +30,9 @@ _MAP: list[tuple[type[Exception], int, str]] = [
     (SessionBusyError, 409, "SESSION_BUSY"),
     (GplProcessError, 500, "GPL_PROCESS_FAILED"),
     (DownloadError, 502, "DOWNLOAD_FAILED"),
+    (OllamaUnavailableError, 503, "OLLAMA_UNAVAILABLE"),
+    (OllamaTimeoutError, 504, "OLLAMA_TIMEOUT"),
+    (OllamaError, 502, "OLLAMA_ERROR"),
     (ValueError, 400, "BAD_REQUEST"),
 ]
 

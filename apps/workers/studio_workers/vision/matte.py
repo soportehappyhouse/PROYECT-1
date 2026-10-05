@@ -2,7 +2,11 @@
 matting-image, MIT, in-process ONNX) for images (and video frame by frame, no temporal memory).
 
 Output: WebM VP9 ``yuva420p`` (foreground RGB + alpha) written in chunks, a RGBA PNG preview and
-the source fps. GPU: BiRefNet goes through the GPU budget (one resident model); before RVM the
+the source fps. RVM can instead write the "split" format (``STUDIO_MATTE_ALPHA_CODEC=split|auto``):
+one ``.mkv`` with two NVENC H.264 streams, colour (v:0) + alpha as luma (v:1), rebuilt with
+``SPLIT_MERGE``. Off by default until the api export and the web preview read it
+(docs/trabajo/perf-rvm.md); ``alpha_codec`` in the result says which one was written.
+GPU: BiRefNet goes through the GPU budget (one resident model); before RVM the
 budget unloads the resident model and the subprocess gets the VRAM left as
 ``STUDIO_VRAM_BUDGET_MB`` (it falls back to CPU itself and reports ``gpu_fallback_cpu``).
 """
@@ -11,9 +15,11 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import shutil
 import subprocess
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -39,6 +45,9 @@ BIREFNET_VRAM_MB = 1800  # lite fp32 at 1024 [S, docs §10.1: 1.5-2 GB]
 RVM_FILES = ("rvm_mobilenetv3_fp16.torchscript", "rvm_mobilenetv3_fp32.torchscript")
 RVM_VRAM_MB = 900
 CPU_SLOW = "cpu_slow"
+ALPHA_CODEC_ENV = "STUDIO_MATTE_ALPHA_CODEC"  # vp9 (default) | split | auto (split if NVENC works)
+ALPHA_CODECS = ("vp9", "split", "auto")
+SPLIT_MERGE = "[0:v:1]extractplanes=y[a];[0:v:0][a]alphamerge"
 BIREFNET_FLICKER = "birefnet_video_flicker"
 
 AlphaFn = Callable[[Any], Any]  # uint8 HxWx3 RGB -> uint8 HxW alpha
@@ -51,6 +60,20 @@ def birefnet_path(root: Path) -> Path:
 
 def rvm_dir(root: Path) -> Path:
     return root / "matting"
+
+
+def split_preview_png(mkv: Path, out: Path, at: float = 0.0) -> Path:
+    """RGBA PNG of one frame of a split matte (colour stream + alpha-as-luma stream)."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    proc = subprocess.run(
+        [ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{max(0.0, at):.3f}",
+         "-i", str(mkv), "-filter_complex", f"{SPLIT_MERGE},format=rgba", "-frames:v", "1",
+         "-update", "1", str(out)],
+        capture_output=True, text=True, timeout=600,
+    )  # fmt: skip
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffmpeg fallo: {proc.stderr.strip()[-500:]}")
+    return out
 
 
 class BiRefNetOnnx:
@@ -103,6 +126,8 @@ class MatteEngine:
         self.budget = budget
         self.alpha_factory = alpha_factory
         self.rvm_extra_args: list[str] = []  # tests: ["--mock-model"]
+        codec = os.environ.get(ALPHA_CODEC_ENV, "").strip().lower()
+        self.rvm_alpha_codec = codec if codec in ALPHA_CODECS else "vp9"
         self._model: AlphaFn | None = None
         self._device: str | None = None
         self._lock = threading.RLock()
@@ -216,6 +241,7 @@ class MatteEngine:
             / hashlib.sha1(key.encode()).hexdigest()[:16]
         )
         work.mkdir(parents=True, exist_ok=True)
+        t0 = time.perf_counter()
         info = probe(src)
         if model == "rvm":
             res = self._rvm(src, out, work, downsample, chunk, notify)
@@ -223,9 +249,19 @@ class MatteEngine:
             res = self._birefnet_video(src, out, work, chunk, notify)
         shutil.rmtree(work, ignore_errors=True)  # only on success
         notify(0.97, "vista previa")
+        written = Path(res.get("output") or out)
         preview = out.with_name(out.name.removesuffix(".webm") + ".preview.png")
-        alpha_preview_png(out, preview, at=min(info.duration / 2, 1.0) if info.duration else 0.0)
-        return {**res, "preview": preview, "fps": round(info.fps_float, 6), "info": info}
+        at = min(info.duration / 2, 1.0) if info.duration else 0.0
+        t_prev = time.perf_counter()
+        if written.suffix.lower() == ".mkv":
+            split_preview_png(written, preview, at)
+        else:
+            alpha_preview_png(written, preview, at=at)
+        if "timings" in res:
+            res["timings"]["preview_s"] = round(time.perf_counter() - t_prev, 3)
+            res["timings"]["matte_video_s"] = round(time.perf_counter() - t0, 3)
+        return {**res, "output": written, "preview": preview, "fps": round(info.fps_float, 6),
+                "info": info}  # fmt: skip
 
     def _birefnet_video(
         self,
@@ -308,6 +344,7 @@ class MatteEngine:
                 on_event=on_event,
                 on_start=on_start,
                 extra_args=self.rvm_extra_args,
+                alpha_codec=self.rvm_alpha_codec,
             )
         finally:
             self._rvm_proc = None
@@ -322,5 +359,8 @@ class MatteEngine:
             "proc_fps": run.proc_fps,
             "precision": run.precision,
             "downsample": run.downsample,
+            "output": run.output,
+            "alpha_codec": run.alpha_codec,
+            "timings": run.timings,
             "warnings": list(dict.fromkeys(warnings)),
         }

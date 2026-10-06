@@ -80,6 +80,25 @@ const MIGRATIONS: readonly string[] = [
   /* v3 (error reports): per-job command lines, stderr tail (200 lines) and timings */ `
   ALTER TABLE jobs ADD COLUMN diagnostics TEXT;
   `,
+  /* v4 (Sprint 3 agent): proposed/applied EditPlans and their undo snapshots */ `
+  CREATE TABLE IF NOT EXISTS agent_plans (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    command TEXT NOT NULL,
+    status TEXT NOT NULL,          -- proposed | applied | rejected
+    data TEXT NOT NULL,            -- AgentPlanRecord JSON
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS agent_plans_project_idx ON agent_plans(project_id, created_at);
+  CREATE TABLE IF NOT EXISTS agent_snapshots (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    plan_id TEXT,
+    data TEXT NOT NULL,            -- Project JSON before agent.apply
+    created_at TEXT NOT NULL
+  );
+  `,
 ];
 
 function migrate(db: Database.Database): void {

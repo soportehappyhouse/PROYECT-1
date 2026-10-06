@@ -1,16 +1,19 @@
 import type { SqlDatabase } from "../db/adapter.js";
+import { AgentPlanRepo } from "./agent-plans.js";
 import { MediaRepo } from "./media.js";
 import { PresetRepo } from "./presets.js";
 import { ProjectRepo } from "./projects.js";
 import { SettingsRepo } from "./settings.js";
 
-export { MediaRepo, PresetRepo, ProjectRepo, SettingsRepo };
+export { AgentPlanRepo, MediaRepo, PresetRepo, ProjectRepo, SettingsRepo };
 
 export interface Repos {
   media: MediaRepo;
   projects: ProjectRepo;
   presets: PresetRepo;
   settings: SettingsRepo;
+  /** Sprint 3: agent plans + undo snapshots. */
+  agentPlans: AgentPlanRepo;
 }
 
 export function createRepos(db: SqlDatabase): Repos {
@@ -21,5 +24,6 @@ export function createRepos(db: SqlDatabase): Repos {
     projects: new ProjectRepo(db),
     presets,
     settings: new SettingsRepo(db),
+    agentPlans: new AgentPlanRepo(db),
   };
 }

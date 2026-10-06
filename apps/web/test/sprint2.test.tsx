@@ -644,6 +644,15 @@ describe("Test de rendimiento: recorte de personas", () => {
     expect(rvmFpsLabel(r)).toBe("≈ 18,2 fps (meta 15)");
     expect(rvmDetail(r)).toBe("1920×1080 · fp16 · reducción 0,2667 · CUDA");
     expect(rvmFpsLabel({ rvm_fps: null })).toBe("—");
+    const timed = { ...r, rvm_steady_fps: 42, rvm_startup_s: 5.06, rvm_bottleneck: "encode" };
+    expect(rvmFpsLabel(timed)).toBe("≈ 42,0 fps sostenido (arranque 5,1 s) · meta 15");
+    expect(rvmDetail(timed)).toBe(
+      "1920×1080 · fp16 · reducción 0,2667 · CUDA · 18,2 fps de punta a punta en 5 s · cuello: codificar",
+    );
+    expect(perfEstimates(timed).find((e) => e.label.startsWith("Recorte"))!.seconds).toBeCloseTo(
+      5.06 + 1800 / 42,
+      3,
+    );
     const est = perfEstimates(r).find((e) => e.label.startsWith("Recorte de personas"));
     expect(est?.seconds).toBeCloseTo(1800 / 18.24, 3);
   });

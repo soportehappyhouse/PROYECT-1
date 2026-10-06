@@ -191,6 +191,10 @@ def test_matte_rvm_subprocess_mock(
     assert frames.webm_has_alpha(alpha) and count_frames(alpha) == 50
     assert abs(sum(decoded_alpha(alpha, 30)) / (160 * 90) - 200) < 4  # mock alpha = 200
     assert not list((storage / "tmp" / "matte").glob("*/rvm"))  # work dir cleaned
+    # perf-rvm.md: the route reports the written file, the alpha codec and the stage timings
+    assert r["alpha_path"].endswith(".webm") and r["alpha_codec"] == "vp9"
+    assert r["timings"]["bottleneck"] in ("decode", "inference", "encode")
+    assert "process_s" in r["timings"] and "startup_s" in r["timings"]
 
 
 @needs_ffmpeg

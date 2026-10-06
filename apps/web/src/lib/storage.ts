@@ -31,4 +31,5 @@ export const STORAGE_KEYS = {
   project: "studio.project.v1",
   exportPresets: "studio.export-presets.v1",
   captionStyle: "studio.caption-style.v1",
+  agent: "studio.agent.v1",
 } as const;

@@ -16,6 +16,7 @@ const GLOBAL_IN_FORMS = new Set<ShortcutActionId>([
   "palette.open",
   "project.save",
   "project.export",
+  "assistant.open",
 ]);
 
 /** Transport actions that must not auto-repeat while the key is held down. */

@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 import type { WebPanelId } from "@/lib/layout";
+import { AssistantPanel } from "./AssistantPanel";
 import { ExportPanel } from "./ExportPanel";
 import { InspectorPanel } from "./InspectorPanel";
 import { JobsPanel } from "./JobsPanel";
@@ -23,4 +24,5 @@ export const PANEL_COMPONENTS: Record<WebPanelId, ComponentType> = {
   subtitles: SubtitlesPanel,
   export: ExportPanel,
   jobs: JobsPanel,
+  assistant: AssistantPanel,
 };

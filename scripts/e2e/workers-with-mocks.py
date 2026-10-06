@@ -13,12 +13,17 @@
   predictor returns a CONSTANT mask (a box of 30 % x 40 % of the frame centered on the mean of the
   positive clicks, the same on every frame), so propagate -> masks + track + alpha WebM are real.
 
+- Sprint 3 agent (STUDIO_MOCK_AGENT=0 turns it off): POST /agent/plan with a command starting with
+  "e2e:" answers a FIXED EditPlan (split + add_text + set_canvas) without Ollama, so run-e2e checks
+  plan -> resolve -> apply on any machine. Other commands reach the real /agent/plan (if present).
+
 Everything else (scenes, silences, packs, gpu, perf, vision.track with OpenCV, vision.reframe with
 a track) is the real code. Never used by setup/start.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -27,6 +32,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "apps" / "workers"))
 MOCK_VISION = os.environ.get("STUDIO_MOCK_VISION", "1") != "0"
 MOCK_DENOISE = os.environ.get("STUDIO_MOCK_DENOISE", "1") != "0"
+MOCK_AGENT = os.environ.get("STUDIO_MOCK_AGENT", "1") != "0"
 if MOCK_VISION:
     # RVM subprocess (vision_gpl.rvm --mock-model) on this interpreter: no .venv-gpl / torch.
     os.environ.setdefault("GPL_PYTHON", sys.executable)
@@ -140,9 +146,75 @@ if MOCK_VISION:
     matte.alpha_factory = lambda _device: lambda rgb: np.full(rgb.shape[:2], 200, dtype=np.uint8)
     services.sam_manager().backend_factory = lambda _size, _device: ConstMaskSam()
 
+E2E_PLAN = {
+    "version": 1,
+    "summary_es": "Divido el primer clip, agrego un título y paso el lienzo a vertical.",
+    "ops": [
+        {"op": "split", "clip": {"index": 1, "track": "video"}, "t": 1},
+        {"op": "add_text", "text": "Hola agente", "t": 0.5, "duration_s": 1.5, "position": "top"},
+        {"op": "set_canvas", "preset": "9:16"},
+    ],
+}
+
+
+def with_agent_mock(asgi):  # type: ignore[no-untyped-def]
+    """ASGI wrapper: POST /agent/plan {command: "e2e:..."} -> E2E_PLAN; anything else passes."""
+
+    async def wrapped(scope, receive, send):  # type: ignore[no-untyped-def]
+        if not (
+            scope["type"] == "http"
+            and scope["path"] == "/agent/plan"
+            and scope["method"] == "POST"
+        ):
+            return await asgi(scope, receive, send)
+        chunks: list[bytes] = []
+        more = True
+        while more:
+            msg = await receive()
+            chunks.append(msg.get("body", b""))
+            more = msg.get("more_body", False)
+        body = b"".join(chunks)
+        try:
+            command = str(json.loads(body or b"{}").get("command", ""))
+        except ValueError:
+            command = ""
+        if command.startswith("e2e:"):
+            payload = json.dumps(
+                {
+                    "plan": E2E_PLAN,
+                    "model": None,
+                    "latency_ms": 1,
+                    "attempts": 1,
+                    "warnings": [],
+                    "route": "deterministic",
+                }
+            ).encode()
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"application/json")],
+                }
+            )
+            await send({"type": "http.response.body", "body": payload})
+            return None
+        replayed = False
+
+        async def replay():  # type: ignore[no-untyped-def]
+            nonlocal replayed
+            if not replayed:
+                replayed = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            return await receive()
+
+        return await asgi(scope, replay, send)
+
+    return wrapped
+
+
 settings = get_settings()
 uvicorn.run(
-    app,
+    with_agent_mock(app) if MOCK_AGENT else app,
     host=settings.workers_host,
     port=settings.workers_port,
     log_level=uvicorn_level("info"),

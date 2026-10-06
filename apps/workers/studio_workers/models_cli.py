@@ -189,6 +189,14 @@ def run_packs(actions: list[str], root: Path, args: argparse.Namespace) -> int:
             for pid in ids:
                 pack = packs_mod.PACKS[pid]
                 _out(f"[{pid}] {pack.name_es}")
+                if (
+                    verb == "all"
+                    and pack.ollama_models is not None
+                    and packs_mod.ollama_installed_models() is None
+                ):  # -Full without Ollama (-SkipOllama): not an error, the assistant stays off
+                    _out("  Ollama no responde: se omite (instalalo con setup.ps1)")
+                    results.append({"id": pid, "action": "skipped", "reason": "ollama_down"})
+                    continue
                 report_progress = _print_progress(pid)
                 started = time.monotonic()
                 try:

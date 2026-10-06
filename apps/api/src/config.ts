@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { DEFAULT_PORTS } from "@studio/shared";
+import { AGENT_DEFAULT_MODEL, DEFAULT_PORTS } from "@studio/shared";
 
 /** Monorepo root (apps/api/src|dist -> ../../..). */
 export const REPO_ROOT = path.resolve(fileURLToPath(new URL(".", import.meta.url)), "../../..");
@@ -37,6 +37,10 @@ const EnvSchema = z.object({
   REMOTION_FONTS: z.enum(["google", "system"]).default("system"),
   REMOTION_BUNDLE_CACHE: z.string().optional(),
   REMOTION_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
+  /** Sprint 3 local agent (same keys the workers read; the workers talk to Ollama). */
+  OLLAMA_URL: z.string().default("http://127.0.0.1:11434"),
+  AGENT_MODEL: z.string().default(AGENT_DEFAULT_MODEL),
+  AGENT_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.2),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   ELEVENLABS_API_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
@@ -71,6 +75,8 @@ export interface ApiConfig {
     bundleCacheDir?: string;
     timeoutInMilliseconds?: number;
   };
+  /** Sprint 3 local agent: OLLAMA_URL / AGENT_MODEL / AGENT_TEMPERATURE (.env). */
+  agent: { ollamaUrl: string; model: string; temperature: number };
   logLevel: string;
   /** Secrets: never sent to the client; only `Boolean(key)` is exposed via /api/config. */
   keys: {
@@ -123,6 +129,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       }),
       ...(e.REMOTION_TIMEOUT_MS && { timeoutInMilliseconds: e.REMOTION_TIMEOUT_MS }),
     },
+    agent: { ollamaUrl: e.OLLAMA_URL, model: e.AGENT_MODEL, temperature: e.AGENT_TEMPERATURE },
     logLevel: e.LOG_LEVEL,
     keys: {
       elevenlabs: e.ELEVENLABS_API_KEY,

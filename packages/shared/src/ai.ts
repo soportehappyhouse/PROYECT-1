@@ -145,6 +145,16 @@ export const PerfResultSchema = z.object({
   rvm_downsample: z.number().nullish(),
   rvm_resolution: z.string().nullish(),
   rvm_target_fps: z.number().nullish(),
+  /**
+   * docs/trabajo/perf-rvm.md: `rvm_fps` above is end to end on 5 s (fixed costs dominate).
+   * `rvm_steady_fps` = frames / processing time without the first batch; `rvm_startup_s` =
+   * interpreter + torch + model load + first batch + preview (from the GPL `done.timings`).
+   */
+  rvm_steady_fps: z.number().nullish(),
+  rvm_startup_s: z.number().nullish(),
+  rvm_bottleneck: z.string().nullish(),
+  rvm_stage_ms: z.record(z.string(), z.number().nullable()).nullish(),
+  rvm_alpha_codec: z.string().nullish(),
   sam2_fps: z.number().nullish(),
   yunet_fps: z.number().nullish(),
   cpu_fallback_ok: z.boolean().default(false),

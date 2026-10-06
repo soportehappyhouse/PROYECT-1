@@ -59,9 +59,14 @@ describe("layout validation", () => {
       "voice",
       "subtitles",
       "export",
+      "assistant",
       "timeline",
       "jobs",
     ]);
+    expect(added.find((p) => p.id === "assistant")?.position).toEqual({
+      referencePanel: "inspector",
+      direction: "within",
+    });
     expect(added.find((p) => p.id === "timeline")?.position).toEqual({ direction: "below" });
     expect(added.find((p) => p.id === "jobs")?.position).toEqual({
       referencePanel: "timeline",

@@ -12,6 +12,8 @@ dependencies = [
   "pydantic-settings>=2.15,<3",
   "python-multipart>=0.0.32",
   "httpx>=0.28.1,<1",
+  # Sprint 3: EditPlan validation with the JSON Schema exported by @studio/shared
+  "jsonschema>=4.23,<5",
 ]
 
 [project.optional-dependencies]
@@ -37,6 +39,10 @@ build-backend = "setuptools.build_meta"
 # vision_gpl (GPL-3, RobustVideoMatting runner) is NOT part of the package: it runs from
 # apps/workers inside .venv-gpl as a separate process (studio_workers/vision/gpl.py).
 include = ["studio_workers*"]
+
+[tool.setuptools.package-data]
+# Sprint 3 agent: schema exported by @studio/shared, system prompt and dataset (read at runtime).
+"studio_workers.agent" = ["*.json", "prompts/*.md", "dataset/*.jsonl"]
 
 [tool.ruff]
 line-length = 100

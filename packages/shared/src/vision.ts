@@ -167,6 +167,10 @@ export const WorkerMatteResultSchema = z.object({
   preview_path: z.string().nullish(),
   fps: z.number().positive().nullish(),
   warnings: z.array(z.string()).nullish(),
+  /** RVM: "vp9" (WebM alpha, default) or "split" (.mkv colour + alpha, docs/trabajo/perf-rvm.md). */
+  alpha_codec: z.string().nullish(),
+  /** RVM stage timings of the run (`done.timings` + startup_s / preview_s). */
+  timings: z.record(z.string(), z.unknown()).nullish(),
 });
 export type WorkerMatteResult = z.infer<typeof WorkerMatteResultSchema>;
 

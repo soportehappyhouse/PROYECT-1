@@ -117,6 +117,9 @@ export function packInfoFromBody(raw: unknown): PackRequiredInfo | undefined {
       packId,
       ...(typeof o.name_es === "string" && { name_es: o.name_es }),
       ...(typeof o.size_bytes === "number" && { size_bytes: o.size_bytes }),
+      ...(typeof (o.message ?? r.message) === "string" && {
+        message: (o.message ?? r.message) as string,
+      }),
     };
   }
   return undefined;

@@ -14,6 +14,7 @@ from .config import get_settings
 from .errors import register_error_handlers
 from .packs import write_registry
 from .routers import (
+    agent,
     analyze,
     audio,
     gpu,
@@ -76,6 +77,7 @@ def create_app() -> FastAPI:
     app.include_router(audio.router)
     app.include_router(perf.router)
     app.include_router(vision.router)
+    app.include_router(agent.router)
     return app
 
 

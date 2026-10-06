@@ -1,0 +1,20 @@
+# Sprint 3 — shared + API (agente local)
+
+Contrato: `docs/trabajo/sprint3-contratos.md`. Rama `claude/funny-mccarthy-0bbdt6`, sin commit.
+
+## Shared (`packages/shared`)
+- `src/agent.ts` = **fuente única** del `EditPlan`: `EditOp` (20 ops, discriminada por `op`, `.strict()`), `ClipRef`, `Time` (no recursivo: `after_clip` usa `BaseClipRef` con `PointTime`), enums de plantillas, estilos de subtítulos (`CAPTION_STYLE_PRESETS`, nuevo en `subtitles.ts`), efectos de voz y presets; `.describe()` en español en cada campo. `validateEditPlan()` → errores en español con ruta (`ops[1].speed: Demasiado grande…`, op desconocida lista las válidas). Tipos de la api: `AgentPlanRequest/Record/Validation`, `AgentApply*`, `AgentStatus`, `AgentBugreport*`, `AgentEvalRequest`; workers: `WORKER_AGENT_ROUTES`, `WorkerAgentPlanRequest/Response`, `AgentWorkerStatus`.
+- `pnpm --filter @studio/shared export-schemas` (build + `scripts/export-schemas.mjs`, formateado con prettier) escribe `schemas/editplan.schema.json` y `apps/workers/studio_workers/agent/editplan.schema.json` (`io:"input"`, `$defs` ClipRef/Time/PointTime/BaseClipRef, ~39 KB). Un test verifica que ambos archivos estén al día.
+- `API_ROUTES.agent*`, `JobType` `agent.apply` (carril edit) y `agent.eval` (workers).
+
+## API (`apps/api`)
+- `services/agent/summary.ts`: resumen determinista en texto (≤ 6000 caracteres ≈ 1500 tokens): `PROYECTO … lienzo WxH (aspecto) · fps · duración · cursor`, `PISTAS` (V1/A1/T1/M1, clips `n. id=… "nombre" a-bs (dur)` + marcas), `ESCENAS: 1@0 2@12…`, `ARCHIVOS` (usados primero), 10 líneas de `TRANSCRIPCIÓN`, `ESTADO`.
+- `services/agent/resolve.ts`: `resolvePlan`/`resolveOp`; ClipRef por id, nombre difuso (exacto > prefijo > contiene > palabras), `index` (1 = primero, -1 = último, tras filtrar por `track`), `at`; Time número/start/end/cursor/`{scene}`/`{after_clip}`; `{scene}` se difiere si antes hay `detect_scenes`. Ambigüedad → `unresolved` con pregunta («¿Qué clip querés usar para borrar? Hay 2 posibles: 1) …»). `preview_es` 1 línea por op; `risks`: borrado, export (nunca sobrescribe), pack faltante (GET /packs), operaciones largas, lienzo que cambia de orientación.
+- Rutas `/api/agent/plan|apply|plans|plans/:id/reject|plans/:id/undo|status|eval|bugreport`; tabla `agent_plans` + `agent_snapshots` (migración v4). `PACK_REQUIRED agent-llm` (409, mensaje con `winget install Ollama.Ollama` y el modelo) cuando los workers piden el pack o Ollama falla. Bugreport: proxy a workers; si falla, plantilla determinista; con `reportId` se agrega a `reports/<id>/reporte.md`.
+- Job `agent.apply` (`jobs/handlers/agent.ts`): snapshot de undo, re-resuelve cada op sobre el proyecto actual, ejecuta en orden (ediciones en línea + sub-jobs existentes esperados con progreso «op i/n: <preview_es>»), se detiene en el primer error `{index, error, packRequired?}`; resultado `{applied, failed?, undoSnapshotId, steps[{index, preview_es, jobIds, result}]}`. Mapeo completo en ARQUITECTURA §4.
+- Decisiones: `voice_effect` usa `clip.voiceEffects` (se aplica al exportar, deshacible) en vez de un asset nuevo; `denoise` en video silencia el clip y agrega el audio limpio; `reframe {subject:"center"}` = ventana fija centrada; `add_audio {duck}` sin volumen = −12 dB; `add_motion {follow:"face"}` queda fijo (log) si no hay seguimiento.
+
+## Pruebas
+- shared: `test/agent.test.ts` (7: todas las ops, errores en español, enums = catálogos, JSON Schema y archivos exportados).
+- api: `agent-resolve.test.ts` (7: resumen determinista y acotado, nombres/índices/escenas/diferidas, preguntas, packs, lienzo) y `agent.test.ts` (7, workers simulados: plan→resolve→apply de 4 ops sobre lavfi con export real 1080×1920 + undo; corte en el primer error; subconjunto confirmado; plan inválido/rechazo; PACK_REQUIRED; status; bugreport + plantilla).
+- e2e: `workers-with-mocks.py` responde un EditPlan fijo a comandos `e2e:` (`STUDIO_MOCK_AGENT=0` lo apaga); paso obligatorio nuevo «sprint3: agent plan → resolve → apply → project changed → undo».

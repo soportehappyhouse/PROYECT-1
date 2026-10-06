@@ -33,6 +33,8 @@ export const JobTypeSchema = z.enum([
   "vision.track", // (workers /vision/track) asset kind "track" (+ clip.trackRef)
   "vision.reframe", // (workers /vision/reframe) project.reframe
   "timeline.track-to-keyframes", // (api) clip.trackRef -> clip.keyframes.position
+  "agent.apply", // (api) runs a confirmed EditPlan op by op (sub-jobs), undo snapshot
+  "agent.eval", // (workers /agent/eval) model evaluation -> storage/run/agent-eval.json
 ]);
 export type JobType = z.infer<typeof JobTypeSchema>;
 

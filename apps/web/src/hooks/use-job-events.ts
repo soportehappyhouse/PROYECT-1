@@ -15,7 +15,7 @@ import { suggestedPackLabel, suggestedPackOf } from "@/lib/gpu-preflight";
 import { clipEnd, findClip } from "@/lib/timeline";
 import {
   isTerminal,
-  jobTypeLabel,
+  jobLabel,
   jobOutputAssetId,
   jobOutputPath,
   useJobsStore,
@@ -57,7 +57,7 @@ export async function handleFinished(job: Job): Promise<void> {
   const jobs = useJobsStore.getState();
   if (jobs.handled[job.id]) return;
   jobs.markHandled(job.id);
-  const label = jobTypeLabel(job.type);
+  const label = jobLabel(job);
 
   if (job.status === "failed") {
     // A missing model pack is not an error to report: offer the download instead.

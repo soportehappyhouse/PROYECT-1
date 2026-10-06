@@ -107,7 +107,7 @@ export interface SettingsState {
   setSettingsOpen: (open: boolean, tab?: SettingsTab) => void;
 }
 
-export type SettingsTab = "appearance" | "shortcuts" | "layouts" | "ai-packs";
+export type SettingsTab = "appearance" | "shortcuts" | "layouts" | "ai-packs" | "assistant";
 
 function nowIso(): string {
   return new Date().toISOString();

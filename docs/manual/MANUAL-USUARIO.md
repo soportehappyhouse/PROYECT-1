@@ -26,6 +26,7 @@
 16. [Glosario](#16-glosario)
 17. [IA local: paquetes, GPU, silencios, escenas y redes](#17-ia-local-paquetes-gpu-silencios-escenas-y-redes)
 18. [Vista previa multicapa, keyframes y visión (IA)](#18-vista-previa-multicapa-keyframes-y-visión-ia)
+19. [Asistente local](#19-asistente-local)
 
 ---
 
@@ -154,7 +155,7 @@ De izquierda a derecha:
 - **Ajustes** (engranaje): pestañas _Apariencia_, _Atajos_, _Layouts_ y _Paquetes de IA_.
 - **🐞 Reportar error**: abre el formulario de reporte (ver [§13](#13-cómo-reportar-un-error)).
 
-### 4.2 Los 10 paneles
+### 4.2 Los 11 paneles
 
 | Panel               | Para qué sirve                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -168,6 +169,7 @@ De izquierda a derecha:
 | **Subtítulos**      | **Transcribir (Whisper)** el clip seleccionado (idioma y modelo), **Quitar silencios y muletillas…** (con revisión) o _Corte rápido_, editar segmentos, **Descargar SRT**, elegir **estilo** y **Renderizar subtítulos como motion**.                                                                                                                                                                                                                                                                              |
 | **Exportar**        | Elegir preset (arranca en _YouTube 1080p_), duplicarlo y editarlo (incluida la casilla **Transparencia**), **Revisión para redes** (casilla _Voy a subirlo a redes_, avisos y etiqueta de IA), nombre del archivo, exportar un rango, **Quemar subtítulos en el video** y la lista de **Exportaciones recientes** con **Descargar**.                                                                                                                                                                               |
 | **Trabajos**        | Todo lo que tarda (análisis, proxies, renders, voz, transcripción, exportación) con su progreso. Permite cancelar, abrir el resultado, filtrar _Todos/Activos_, limpiar terminados y, en los que fallan, **Reportar**. Arriba indica la conexión: _En vivo_, _Consulta periódica_ o _Sin conexión_.                                                                                                                                                                                                                |
+| **Asistente**       | Escribís lo que querés hacer (_Cortá los silencios_, _Exportá para TikTok_) y el asistente **local** propone un plan: lo revisás paso a paso, corregís textos o tiempos, y recién ahí **Aplicar**; **Deshacer todo** vuelve atrás. Se abre con `Ctrl+Shift+A` (ver [§19](#19-asistente-local)).                                                                                                                                                                                                                    |
 
 Cómo se trabaja en la **línea de tiempo**:
 
@@ -708,32 +710,33 @@ respaldo (algo menos natural). El build "full" de Gyan, que instala `setup.ps1`,
 ## 10. Atajos de teclado
 
 Todos se cambian en **Ajustes → Atajos** (ahí también aparecen todos). Mientras escribís en un
-campo de texto solo funcionan `Ctrl+K`, `Ctrl+S` y `Ctrl+E`; `Espacio` reproduce/pausa aunque un
+campo de texto solo funcionan `Ctrl+K`, `Ctrl+S`, `Ctrl+E` y `Ctrl+Shift+A`; `Espacio` reproduce/pausa aunque un
 botón tenga el foco (no lo "aprieta" dos veces). Al pasar el mouse por cualquier botón de ícono
 aparece qué hace y su atajo, por ejemplo _Cortar en el cursor (S)_.
 
-| Acción                        | Atajo por defecto      | Grupo           |
-| ----------------------------- | ---------------------- | --------------- |
-| Reproducir / pausar           | `Espacio`              | Reproducción    |
-| Ir al inicio                  | `Inicio`               | Reproducción    |
-| Ir al final                   | `Fin`                  | Reproducción    |
-| Reproducir hacia atrás        | `J` (otra vez: 2×, 4×) | Reproducción    |
-| Pausa (detenido: keyframe)    | `K`                    | Reproducción    |
-| Reproducir hacia adelante     | `L` (otra vez: 2×, 4×) | Reproducción    |
-| Fotograma anterior            | `←`                    | Reproducción    |
-| Fotograma siguiente           | `→`                    | Reproducción    |
-| Cortar (dividir) en el cursor | `S`                    | Línea de tiempo |
-| Eliminar clip (o keyframe)    | `Supr`                 | Línea de tiempo |
-| Acercar                       | `=`                    | Línea de tiempo |
-| Alejar                        | `-`                    | Línea de tiempo |
-| Activar / desactivar imán     | `N`                    | Línea de tiempo |
-| Deshacer                      | `Ctrl+Z`               | Edición         |
-| Rehacer                       | `Ctrl+Shift+Z`         | Edición         |
-| Exportar (abre el panel)      | `Ctrl+E`               | Proyecto        |
-| Guardar proyecto              | `Ctrl+S`               | Proyecto        |
-| Paleta de comandos            | `Ctrl+K`               | Interfaz        |
-| Restaurar layout              | `Ctrl+Shift+R`         | Interfaz        |
-| Zoom de la línea de tiempo    | `Ctrl` + rueda         | (fijo)          |
+| Acción                         | Atajo por defecto      | Grupo           |
+| ------------------------------ | ---------------------- | --------------- |
+| Reproducir / pausar            | `Espacio`              | Reproducción    |
+| Ir al inicio                   | `Inicio`               | Reproducción    |
+| Ir al final                    | `Fin`                  | Reproducción    |
+| Reproducir hacia atrás         | `J` (otra vez: 2×, 4×) | Reproducción    |
+| Pausa (detenido: keyframe)     | `K`                    | Reproducción    |
+| Reproducir hacia adelante      | `L` (otra vez: 2×, 4×) | Reproducción    |
+| Fotograma anterior             | `←`                    | Reproducción    |
+| Fotograma siguiente            | `→`                    | Reproducción    |
+| Cortar (dividir) en el cursor  | `S`                    | Línea de tiempo |
+| Eliminar clip (o keyframe)     | `Supr`                 | Línea de tiempo |
+| Acercar                        | `=`                    | Línea de tiempo |
+| Alejar                         | `-`                    | Línea de tiempo |
+| Activar / desactivar imán      | `N`                    | Línea de tiempo |
+| Deshacer                       | `Ctrl+Z`               | Edición         |
+| Rehacer                        | `Ctrl+Shift+Z`         | Edición         |
+| Exportar (abre el panel)       | `Ctrl+E`               | Proyecto        |
+| Guardar proyecto               | `Ctrl+S`               | Proyecto        |
+| Paleta de comandos             | `Ctrl+K`               | Interfaz        |
+| Restaurar layout               | `Ctrl+Shift+R`         | Interfaz        |
+| Asistente: escribir un comando | `Ctrl+Shift+A`         | Interfaz        |
+| Zoom de la línea de tiempo     | `Ctrl` + rueda         | (fijo)          |
 
 ## 11. Variables de `.env` que podés tocar
 
@@ -819,7 +822,9 @@ La guía completa está en **[Reportar errores](../REPORTAR-ERRORES.md)**. Resum
 1. **Desde el dashboard**: botón **🐞 Reportar error** del encabezado, la paleta (`Ctrl+K` →
    _Reportar error (diagnóstico para Claude)_), el botón **Reportar** de un trabajo que falló en
    **Trabajos** o el botón **Reportar** del aviso rojo. Completá título, qué intentabas hacer y
-   severidad; al terminar te da el **Prompt para Claude** (botón para copiarlo) y un **.zip**.
+   severidad (o tocá **Redactar con IA**: el asistente local los escribe a partir de tus últimas
+   acciones y errores, y vos los corregís); al terminar te da el **Prompt para Claude** (botón para
+   copiarlo) y un **.zip**.
 2. **Sin la app** (sirve aunque el dashboard o la API no arranquen): doble clic en
    `scripts\windows\reportar-error.cmd`, o desde PowerShell:
 
@@ -1123,8 +1128,10 @@ En **Ajustes → Paquetes de IA → Test de rendimiento IA** Studio mide en tu P
 Whisper, Piper, RVC, la detección de escenas y, con el paquete **matting**, el recorte de personas,
 y guarda el resultado. La tabla muestra cada velocidad y al lado los **tiempos estimados**, por
 ejemplo _Transcribir 10 min de audio ≈ 25 s_ o _Detectar escenas en 10 min a 30 fps ≈ 1 min_. La
-fila **Recorte de personas ≈ X fps (meta 15)** mide un clip 1080p de 5 s y dice la precisión (fp16
-en GPU, fp32 en CPU) y la reducción interna usada. Volvé a correrlo si cambiás de placa o de driver.
+fila **Recorte de personas ≈ X fps sostenido (arranque Y s) · meta 15** mide un clip 1080p de 5 s:
+la velocidad una vez en marcha y, aparte, lo que tarda en arrancar (cargar la IA, la primera
+tanda); abajo dice la precisión (fp16 en GPU, fp32 en CPU), la reducción interna, los fps de
+punta a punta y qué etapa limita. Volvé a correrlo si cambiás de placa o de driver.
 
 ### 17.4 Quitar silencios y muletillas
 
@@ -1292,3 +1299,102 @@ cambiando solo.
 | `K` no agrega el keyframe                   | Detené la reproducción, elegí el clip y poné el cursor **sobre** el clip.                                    |
 | La máscara toma de más                      | Agregá puntos **Excluir (−)** sobre lo que sobra, en el mismo cuadro.                                        |
 | _Paquete requerido_ al usar una herramienta | Descargalo desde la ventana; la acción se repite sola al terminar.                                           |
+
+## 19. Asistente local
+
+El **Asistente** te deja editar escribiendo lo que querés hacer, en castellano y con tus palabras.
+Un modelo de lenguaje que corre **en tu PC** (con [Ollama](https://ollama.com), gratis) lee el
+pedido y **propone un plan**; Studio lo revisa, te lo muestra paso a paso y **no toca nada hasta
+que vos tocás _Aplicar_**. Las tareas simples (cortar silencios, exportar, reencuadrar…) ni
+siquiera pasan por la IA: las reconoce una regla directa y responden al instante.
+
+### 19.1 Qué puede hacer
+
+| Pedido (ejemplos)                                      | Qué hace                                                                    |
+| ------------------------------------------------------ | --------------------------------------------------------------------------- |
+| _Cortá los silencios_ · _sacá las muletillas_          | Quitar silencios y muletillas ([§17.4](#174-quitar-silencios-y-muletillas)) |
+| _Detectá escenas y cortá en cada una_                  | Detectar escenas y dividir el clip                                          |
+| _Dividí el clip en el segundo 12_ · _recortá el final_ | Dividir, recortar, cambiar velocidad, borrar un clip                        |
+| _Poné un título 'Hola' en el segundo 3_                | Texto o motion graphic (título, rótulo, pantalla final…)                    |
+| _Subtítulos animados estilo Reels_                     | Transcribir y agregar subtítulos con estilo                                 |
+| _Leé este texto con voz de robot_                      | Texto a voz, efectos de voz, limpiar voz                                    |
+| _Agregá música alegre de fondo bajita_                 | Audio de la biblioteca (con volumen y ducking)                              |
+| _Bajá la música_ · _mové el texto al segundo 5_        | Cambiar el volumen de un clip (o silenciarlo) y moverlo a otro momento      |
+| _Quitá el fondo y poné uno azul_                       | Quitar fondo                                                                |
+| _Pasalo a vertical siguiendo la cara_                  | Reencuadrar a 9:16, 1:1 o 4:5; cambiar el lienzo                            |
+| _Exportá para TikTok_                                  | Exportar con el preset que corresponde (siempre pide confirmar)             |
+| _Reportá que el TTS no suena_                          | Redactar un reporte de error                                                |
+
+### 19.2 Cómo se usa
+
+1. Abrí el panel con `Ctrl+Shift+A` (o la paleta → _Asistente: escribir un comando_, o el menú
+   **Paneles**). Arriba ves el modelo, la insignia **100 % local** y cuánto tardó la última
+   respuesta.
+2. Escribí el pedido y tocá **Proponer** (o `Enter`). Con `↑`/`↓` recorrés los comandos
+   anteriores; los botones de ejemplo completan el campo.
+3. Revisá el plan: un resumen y cada operación en una lista con su casilla, lo que va a hacer y
+   etiquetas de riesgo (**rojo**: borra un clip o escribe un archivo; **ámbar**: quita partes o
+   usa IA y puede tardar). Los **riesgos** generales aparecen en rojo arriba.
+4. Corregí lo que haga falta **sin volver a escribir**: el texto, el momento (`3`, `3,5`,
+   `inicio`, `final` o `cursor`), la duración, el preset, la plantilla o el estilo se editan en
+   la misma lista (también el volumen o el momento al que se mueve un clip). Destildá las
+   operaciones que no quieras. Al tocar **Aplicar**, Studio vuelve a revisar lo que cambiaste y
+   actualiza la descripción de cada operación; si algo ya no se puede ubicar, te lo pregunta.
+5. Si el asistente **pregunta** algo (por ejemplo _¿Qué clip querés cortar?_), respondé en el
+   formulario y tocá **Responder y volver a proponer**.
+6. **Aplicar** ejecuta solo lo tildado, en orden, con una barra de progreso y una marca por
+   operación (en espera, en curso, hecha o falló). Si una falla, se detiene ahí y te dice cuál.
+7. **Deshacer todo** devuelve el proyecto a como estaba antes de aplicar (además, el cambio
+   entra como un paso de `Ctrl+Z`). **Rechazar** descarta el plan.
+8. El **Historial** guarda los planes con su estado (_Propuesto_, _Aplicado_, _Rechazado_,
+   _Deshecho_); tocá uno para volver a verlo.
+
+Atajos del asistente:
+
+| Tecla          | Qué hace                                            |
+| -------------- | --------------------------------------------------- |
+| `Ctrl+Shift+A` | Abre el panel y pone el cursor en el comando        |
+| `Enter`        | Proponer                                            |
+| `↑` / `↓`      | Comando anterior / siguiente                        |
+| `Ctrl+K`       | Paleta → _Asistente: escribir un comando_ y ajustes |
+
+### 19.3 Cómo escribir buenos comandos
+
+- **Un pedido claro por frase** y los datos exactos: _Poné "Suscribite" al final durante 4
+  segundos_ es mejor que _poné algo al final_.
+- **Nombrá el clip** como lo ves (_el clip "entrevista"_, _el segundo clip_, _el último_) o
+  elegilo antes: el asistente nunca inventa clips ni tiempos; si falta algo, pregunta.
+- **Tiempos**: segundos (_en el segundo 3_), _al inicio_, _al final_, _en el cursor_, _en la
+  escena 2_ o _después del clip "intro"_.
+- Podés encadenar: _cortá los silencios, agregá subtítulos estilo Reels y exportá para TikTok_.
+
+### 19.4 Ajustes → Asistente local
+
+- **Modelo**: `qwen3:8b` (recomendado), `hermes3:8b` o cualquier otro instalado en Ollama.
+  **Descargar modelo** baja el paquete `agent-llm` (~5 GB, una sola vez) con su progreso en
+  **Trabajos**.
+- **Temperatura**: más baja = respuestas más predecibles (recomendado 0,2).
+- Si no elegís nada, se usan los valores de `.env`: `AGENT_MODEL` (modelo), `AGENT_TEMPERATURE`
+  y `OLLAMA_URL` (dónde escucha Ollama, normalmente `http://127.0.0.1:11434`).
+- **Evaluar modelos**: corre 50 comandos de prueba con cada modelo instalado y muestra una tabla
+  con **Válido %** (el plan es correcto como formato), **Correcto %** (hace lo pedido) y la
+  **latencia p50**. Sirve para elegir el mejor modelo para tu PC.
+
+### 19.5 Límites
+
+- Necesita **Ollama** abierto y el modelo descargado. Si falta, al proponer se abre _Paquete
+  requerido_ con las instrucciones (instalarlo con `scripts\windows\setup.ps1` o
+  `winget install Ollama.Ollama`; `scripts\windows\doctor.ps1` verifica que esté en marcha).
+- Con una GPU de 6 GB la primera respuesta tarda más (carga el modelo; antes se libera la GPU de
+  Whisper/visión); después, unos segundos. Sin GPU funciona, pero más lento.
+- Planea hasta **20 operaciones** y hace hasta **5 preguntas** por vez. No edita keyframes uno
+  por uno, no mueve pistas ni crea plantillas nuevas: para eso usá los paneles.
+- Puede equivocarse: por eso **siempre** te muestra el plan antes y borrar o exportar piden
+  confirmación explícita.
+
+### 19.6 Privacidad
+
+Todo corre en tu computadora: el comando, el resumen del proyecto que lee el modelo (nombres y
+duraciones de clips, escenas, las primeras líneas de la transcripción) y el plan **no se envían
+a ningún servicio externo** ni necesitan claves o cuentas. La única descarga es la del modelo,
+una vez. **Redactar con IA** en _Reportar error_ usa el mismo modelo local.

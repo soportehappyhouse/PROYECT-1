@@ -2038,6 +2038,286 @@ await step(
 );
 
 await step(
+  "sprint3: agent plan (mocked workers, fixed plan) -> resolve -> apply -> project changed -> undo",
+  async () => {
+    const { video } = await sprint2Media();
+    const p = await sprint2Project("E2E asistente", video);
+    const clipId = p.tracks.find((t) => t.kind === "video").clips[0].id;
+    const status = await ok("GET", "/api/agent/status");
+    assert(status.workers === true, `agent status ${JSON.stringify(status)}`);
+    // workers-with-mocks.py answers a fixed EditPlan to commands starting with "e2e:".
+    const plan = await ok(
+      "POST",
+      "/api/agent/plan",
+      { command: "e2e: dividí, poné un título y pasalo a vertical", projectId: p.id, cursor: 1 },
+      [201],
+    );
+    assert(plan.ok === true, `plan not ok: ${JSON.stringify(plan).slice(0, 600)}`);
+    assert(plan.preview_es.length === 3, `preview ${JSON.stringify(plan.preview_es)}`);
+    assert(
+      plan.resolved[0]?.clip?.id === clipId,
+      `split resolved to ${JSON.stringify(plan.resolved[0])}`,
+    );
+    const listed = await ok("GET", `/api/agent/plans?projectId=${p.id}`);
+    assert(listed[0]?.id === plan.id, "plan not listed");
+    const { jobId } = await ok("POST", "/api/agent/apply", { planId: plan.id }, [202]);
+    const job = await waitOk(jobId, { timeoutMs: 60_000 });
+    assert(job.type === "agent.apply", `job type ${job.type}`);
+    assert(job.result.applied === 3 && !job.result.failed, `apply ${JSON.stringify(job.result)}`);
+    const saved = await ok("GET", `/api/projects/${p.id}`);
+    const V = saved.tracks.find((t) => t.kind === "video").clips;
+    assert(V.length === 2 && near(V[1].start, 1, 1e-6), `video clips ${JSON.stringify(V)}`);
+    const texts = saved.tracks.flatMap((t) => (t.kind === "text" ? t.clips : []));
+    assert(
+      texts.some((c) => c.text === "Hola agente"),
+      "text clip missing",
+    );
+    assert(
+      saved.settings.width === 1080 && saved.settings.height === 1920,
+      `canvas ${saved.settings.width}x${saved.settings.height}`,
+    );
+    const progress = sseFor(jobId).map((e) => e.message ?? "");
+    const undo = await ok("POST", `/api/agent/plans/${plan.id}/undo`, {});
+    assert(
+      undo.project.settings.width === p.settings.width &&
+        undo.project.tracks.find((t) => t.kind === "video").clips.length === 1,
+      "undo did not restore the project",
+    );
+    return {
+      preview: plan.preview_es,
+      route: plan.route,
+      progressEvents: progress.filter((m) => m.startsWith("op ")).length,
+    };
+  },
+);
+
+// Sprint 3 integration: the real workers router / Ollama (no mocked plan).
+const AGENT_MODEL = process.env.AGENT_MODEL?.trim() || "";
+
+await step(
+  "sprint3: deterministic route «exportá para reels» -> plan without LLM -> apply -> export file",
+  async () => {
+    const { video } = await sprint2Media();
+    const p = await sprint2Project("E2E asistente reels", video);
+    const plan = await ok(
+      "POST",
+      "/api/agent/plan",
+      { command: "exportá para reels", projectId: p.id },
+      [201],
+    );
+    assert(plan.route === "deterministic", `route ${plan.route}`);
+    assert(plan.model == null, `model ${plan.model} (the LLM must not be used)`);
+    assert(
+      plan.ok && plan.plan.ops.length === 1 && plan.resolved[0]?.preset === "reels-tiktok",
+      `plan ${JSON.stringify(plan).slice(0, 400)}`,
+    );
+    assert(plan.resolved[0].confirm === true, "export must always ask for confirmation");
+    // export is destructive: without the separate confirmation (confirmedIndexes) -> 409
+    const unconfirmed = await api("POST", "/api/agent/apply", { planId: plan.id });
+    assert(
+      unconfirmed.status === 409 && unconfirmed.json?.error?.code === "CONFIRM_REQUIRED",
+      `apply without confirmedIndexes -> ${unconfirmed.status}`,
+    );
+    const { jobId } = await ok(
+      "POST",
+      "/api/agent/apply",
+      { planId: plan.id, confirmedIndexes: [0] },
+      [202],
+    );
+    const job = await waitOk(jobId, { timeoutMs: 300_000 });
+    assert(job.result.applied === 1 && !job.result.failed, `apply ${JSON.stringify(job.result)}`);
+    const exported = job.result.steps[0].result;
+    const file = await download(exported.path, "agente-reels.mp4");
+    const v = (await ffprobe(file)).streams.find((x) => x.codec_type === "video");
+    assert(v.width === 1080 && v.height === 1920, `export ${v.width}x${v.height}`);
+    return { preview: plan.preview_es, latency_ms: plan.latency_ms, file: exported.path };
+  },
+);
+
+await step(
+  "sprint3: edited_ops -> api re-resolves (preview) -> apply -> project changed -> undo restores",
+  async () => {
+    const { video } = await sprint2Media();
+    const p = await sprint2Project("E2E asistente editado", video);
+    const plan = await ok(
+      "POST",
+      "/api/agent/plan",
+      { command: "poné el lienzo vertical", projectId: p.id },
+      [201],
+    );
+    assert(plan.route === "deterministic" && plan.ok, `plan ${JSON.stringify(plan).slice(0, 300)}`);
+    assert(plan.plan.ops[0].preset === "9:16", `op ${JSON.stringify(plan.plan.ops[0])}`);
+    // invalid edit -> 400 with the Spanish path
+    const bad = await api("POST", "/api/agent/apply", {
+      planId: plan.id,
+      edited_ops: [{ op: "set_canvas", preset: "21:9" }],
+    });
+    assert(
+      bad.status === 400 && /ops\[0\]\.preset/.test(bad.json?.error?.message),
+      `bad ${bad.status}`,
+    );
+    const edited = [{ ...plan.plan.ops[0], preset: "1:1" }];
+    const acc = await ok(
+      "POST",
+      "/api/agent/apply",
+      { planId: plan.id, edited_ops: edited },
+      [202],
+    );
+    assert(acc.plan?.edited === true, "apply did not answer the re-resolved plan");
+    assert(
+      acc.plan.preview_es[0] !== plan.preview_es[0] && /1080×1080/.test(acc.plan.preview_es[0]),
+      `preview ${plan.preview_es[0]} -> ${acc.plan.preview_es[0]}`,
+    );
+    const job = await waitOk(acc.jobId, { timeoutMs: 60_000 });
+    assert(job.result.applied === 1, `apply ${JSON.stringify(job.result)}`);
+    const saved = await ok("GET", `/api/projects/${p.id}`);
+    assert(
+      saved.settings.width === 1080 && saved.settings.height === 1080,
+      `canvas ${saved.settings.width}x${saved.settings.height}`,
+    );
+    // An edit after the apply: the undo asks first (409 PROJECT_CHANGED), force restores.
+    await ok("PUT", `/api/projects/${p.id}`, { ...saved, name: `${saved.name} (editado)` });
+    const changed = await api("POST", `/api/agent/plans/${plan.id}/undo`, {});
+    assert(
+      changed.status === 409 && changed.json?.error?.code === "PROJECT_CHANGED",
+      `undo after an edit -> ${changed.status}`,
+    );
+    const undo = await ok("POST", `/api/agent/plans/${plan.id}/undo`, { force: true });
+    const back = await ok("GET", `/api/projects/${p.id}`);
+    assert(
+      undo.plan.status === "proposed" &&
+        back.settings.width === p.settings.width &&
+        back.settings.height === p.settings.height,
+      `undo -> ${back.settings.width}x${back.settings.height}`,
+    );
+    return { before: plan.preview_es[0], after: acc.plan.preview_es[0] };
+  },
+);
+
+await step(
+  "sprint3: PACK_REQUIRED agent-llm (bogus model) + bugreport template fallback",
+  async () => {
+    const p = await ok("GET", `/api/projects`);
+    const r = await api("POST", "/api/agent/plan", {
+      command: "poné un texto que diga Hola en el segundo 1",
+      projectId: p[0].id,
+      settings: { model: "no-existe:1b" },
+    });
+    assert(r.status === 409 && r.json?.error === "PACK_REQUIRED", `plan -> ${r.status}`);
+    assert(r.json.packId === "agent-llm", `pack ${r.json.packId}`);
+    assert(/Ollama/.test(r.json.message) && /no-existe:1b/.test(r.json.message), r.json.message);
+    const bug = await ok("POST", "/api/agent/bugreport", {
+      title: "Se colgó el export",
+      steps_text: "Exporté para reels y se colgó",
+      model: "no-existe:1b",
+    });
+    assert(bug.source === "template", `bugreport source ${bug.source}`);
+    assert(/Pasos para reproducir/.test(bug.markdown_es), "template headings");
+    return { message: r.json.message.slice(0, 90), bugreport: bug.source };
+  },
+);
+
+if (AGENT_MODEL) {
+  await step(
+    `sprint3: LLM route with ${AGENT_MODEL} (api -> workers -> Ollama) -> plan -> apply`,
+    async () => {
+      const status = await ok("GET", "/api/agent/status");
+      assert(status.ollama && status.ready, `status ${JSON.stringify(status)}`);
+      const { video } = await sprint2Media();
+      const p = await sprint2Project("E2E asistente LLM", video);
+      const plan = await ok(
+        "POST",
+        "/api/agent/plan",
+        {
+          command: "poné un texto que diga Hola en el segundo 1",
+          projectId: p.id,
+          cursor: 0.5,
+          settings: { model: AGENT_MODEL },
+        },
+        [201],
+      );
+      assert(
+        plan.route === "llm" && plan.model === AGENT_MODEL,
+        `route ${plan.route} ${plan.model}`,
+      );
+      // Ollama has the model in memory now (/api/ps): the web stops showing «Cargando modelo…»
+      const after = await ok("GET", "/api/agent/status");
+      assert(after.loaded === true, `loaded ${after.loaded}`);
+      // Any schema-valid plan is fine (plan quality is measured on the user's PC).
+      assert(plan.plan && plan.errors.length === 0, `invalid plan ${JSON.stringify(plan.errors)}`);
+      assert(plan.preview_es.length === plan.plan.ops.length, "one preview line per op");
+      const ready = plan.resolved.map((r, i) => (r ? i : -1)).filter((i) => i >= 0);
+      let applied = null;
+      if (ready.length) {
+        // the user confirms delete/export apart (confirmedIndexes)
+        const { jobId } = await ok(
+          "POST",
+          "/api/agent/apply",
+          { planId: plan.id, ops: ready, confirmedIndexes: ready },
+          [202],
+        );
+        const job = await waitJob(jobId, { timeoutMs: 300_000 });
+        assert(job.status === "succeeded", `apply ${job.status} ${job.error}`);
+        applied = job.result.applied;
+        await ok("POST", `/api/agent/plans/${plan.id}/undo`, {});
+      }
+      return {
+        ops: plan.plan.ops.map((o) => o.op),
+        questions: plan.plan.questions?.length ?? 0,
+        attempts: plan.attempts,
+        latency_ms: plan.latency_ms,
+        warnings: plan.warnings,
+        applied,
+      };
+    },
+  );
+
+  await step(`sprint3: bugreport drafted by ${AGENT_MODEL}`, async () => {
+    const bug = await ok("POST", "/api/agent/bugreport", {
+      title: "La vista previa se congela",
+      steps_text: "Muevo el cursor y la vista previa se congela",
+      model: AGENT_MODEL,
+    });
+    assert(bug.source === "llm", `source ${bug.source}`);
+    assert(/Pasos para reproducir/.test(bug.markdown_es), "headings");
+    return { chars: bug.markdown_es.length };
+  });
+
+  await step(`sprint3: /api/agent/eval golden with ${AGENT_MODEL} -> agent-eval.json`, async () => {
+    const { jobId } = await ok(
+      "POST",
+      "/api/agent/eval",
+      { models: [AGENT_MODEL], dataset: "golden" },
+      [202],
+    );
+    const job = await waitOk(jobId, { timeoutMs: 900_000 });
+    const res = await ok("GET", "/api/agent/eval");
+    const m = res.models?.[AGENT_MODEL];
+    assert(res.n === 80 && m, `eval ${JSON.stringify(res).slice(0, 300)}`);
+    for (const k of [
+      "valid_json_rate",
+      "schema_valid_rate",
+      "exact_ops_rate",
+      "semantic_rate",
+      "semantic_rate_ops_only",
+    ])
+      assert(typeof m[k] === "number", `${k} missing`);
+    if (existsSync(STORAGE))
+      assert(existsSync(path.join(STORAGE, "run", "agent-eval.json")), "file");
+    return {
+      job: job.status,
+      semantic_rate: m.semantic_rate,
+      semantic_rate_ops_only: m.semantic_rate_ops_only,
+      schema_valid_rate: m.schema_valid_rate,
+      routes: m.routes,
+      p50_latency_ms: m.p50_latency_ms,
+    };
+  });
+} else {
+  skip("sprint3: LLM route (api -> workers -> Ollama)", "AGENT_MODEL is not set (no local model)");
+}
+
+await step(
   "cancel a running job (motion render 60 s mp4)",
   async () => {
     const { jobId } = await ok("POST", "/api/motion/render", {

@@ -49,6 +49,47 @@ def test_cpu_fallback_when_vram_is_short() -> None:
     assert budget.status()["warnings"] == ["gpu_fallback_cpu"]
 
 
+def test_acquire_releases_external_models_only_when_short() -> None:
+    """Two-way with Ollama: a short GPU first asks the external_release hook, probes again."""
+    state = {"free": 1500}
+    calls: list[str] = []
+
+    def release() -> list[str]:
+        calls.append("ollama")
+        state["free"] = 5500
+        return ["qwen3:8b"]
+
+    probe = lambda: VramInfo("RTX 4050", 6144, state["free"], "nvidia-smi")  # noqa: E731
+    budget = GpuBudget(use_cuda=True, probe=probe, external_release=release)
+    assert budget.acquire("whisper", 1800, lambda: None).device == "cuda"
+    assert calls == ["ollama"] and budget.last_external_release == ["qwen3:8b"]
+    # enough VRAM: the hook is not called
+    assert budget.acquire("rvc", 1500, lambda: None).device == "cuda" and calls == ["ollama"]
+
+
+def test_acquire_falls_back_to_cpu_when_release_does_not_help() -> None:
+    budget = GpuBudget(
+        use_cuda=True, probe=_probe(1000), external_release=lambda: []
+    )  # Ollama had nothing loaded
+    d = budget.acquire("whisper", 1800, lambda: None)
+    assert d.device == "cpu" and d.warnings == [GPU_FALLBACK_CPU]
+
+    def boom() -> list[str]:
+        raise RuntimeError("ollama down")
+
+    budget = GpuBudget(use_cuda=True, probe=_probe(1000), external_release=boom)
+    assert budget.acquire("whisper", 1800, lambda: None).device == "cpu"
+
+
+def test_make_room_never_evicts_ollama() -> None:
+    calls: list[str] = []
+    budget = GpuBudget(
+        use_cuda=True, probe=_probe(1000), external_release=lambda: calls.append("x") or []
+    )
+    budget.acquire("tiny", 100, lambda: None)
+    assert budget.make_room(5500) == "tiny" and calls == []
+
+
 def test_unknown_vram_still_tries_cuda_and_cpu_without_use_cuda() -> None:
     assert GpuBudget(use_cuda=True, probe=lambda: None).acquire("m", 9999, lambda: None).device == (
         "cuda"

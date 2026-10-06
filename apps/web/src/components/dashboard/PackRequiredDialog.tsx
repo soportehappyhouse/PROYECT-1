@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { ErrorNotice, Progress, Spinner } from "@/components/ui/misc";
 import { featureLabel } from "@/lib/ai";
+import { AGENT_PACK_ID } from "@/lib/agent-types";
 import { formatBytes } from "@/lib/format";
+import { useAgentStore } from "@/stores/agent-store";
 import { isTerminal, useJobsStore } from "@/stores/jobs-store";
 import { usePacksStore } from "@/stores/packs-store";
 
@@ -23,6 +25,12 @@ export function PackRequiredDialog() {
   const requestError = usePacksStore((s) => (packId ? s.downloadErrors[packId] : undefined));
   const job = useJobsStore((s) => (jobId ? s.jobs[jobId] : undefined));
   const [starting, setStarting] = useState(false);
+  const ollama = useAgentStore((s) => s.status?.ollama);
+  const isAgent = packId === AGENT_PACK_ID;
+
+  useEffect(() => {
+    if (isAgent) void useAgentStore.getState().loadStatus();
+  }, [isAgent]);
 
   useEffect(() => {
     if (request && packsStatus === "idle") void usePacksStore.getState().load();
@@ -57,6 +65,7 @@ export function PackRequiredDialog() {
         {pack?.description_es ? (
           <p className="text-xs text-muted-foreground">{pack.description_es}</p>
         ) : null}
+        {isAgent ? <OllamaHint missing={ollama === false} message={request.info.message} /> : null}
         <ul className="text-xs text-muted-foreground">
           {pack?.license ? <li>Licencia: {pack.license}</li> : null}
           {pack?.required_by.length ? (
@@ -95,5 +104,28 @@ export function PackRequiredDialog() {
         </div>
       </div>
     </Dialog>
+  );
+}
+
+/** agent-llm runs on Ollama: say how to install it when the service is missing. */
+function OllamaHint({ missing, message }: { missing: boolean; message: string | undefined }) {
+  return (
+    <div
+      className="rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs"
+      data-testid="ollama-hint"
+    >
+      <p>
+        El asistente usa <strong>Ollama</strong> (gratis, MIT), que corre el modelo en tu PC: nada
+        sale de tu computadora.
+      </p>
+      {missing ? (
+        <p className="mt-1">
+          No encontramos el servicio de Ollama. Instalalo con <code>scripts\windows\setup.ps1</code>{" "}
+          (o <code>winget install Ollama.Ollama</code>), abrilo y volvé a tocar <em>Descargar</em>.{" "}
+          <code>scripts\windows\doctor.ps1</code> verifica que esté en marcha.
+        </p>
+      ) : null}
+      {message ? <p className="mt-1 text-muted-foreground">{message}</p> : null}
+    </div>
   );
 }

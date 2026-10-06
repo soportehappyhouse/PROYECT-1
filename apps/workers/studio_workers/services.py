@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from .agent.ollama_client import OllamaClient, OllamaError
 from .config import get_settings
 from .denoise import DenoiseEngine
 from .gpu import GpuBudget
@@ -15,9 +16,20 @@ from .vision.matte import MatteEngine
 from .vision.sam import SamManager
 
 
+def release_ollama() -> list[str]:
+    """GpuBudget hook: unload the models Ollama keeps in VRAM (keep_alive 0) so Whisper/vision fit
+    on a 6 GB card. Best-effort; [] when Ollama is not running or OLLAMA_URL is refused."""
+    client = ollama_client()
+    try:
+        client.check_url()
+    except OllamaError:
+        return []
+    return client.unload_loaded_sync()
+
+
 @lru_cache
 def gpu_budget() -> GpuBudget:
-    return GpuBudget(use_cuda=get_settings().use_cuda)
+    return GpuBudget(use_cuda=get_settings().use_cuda, external_release=release_ollama)
 
 
 @lru_cache
@@ -63,6 +75,22 @@ def vision_queue() -> TaskQueue:
 
 
 @lru_cache
+def agent_queue() -> TaskQueue:
+    """Agent evaluations (one at a time: they share Ollama and the GPU)."""
+    return TaskQueue("agent")
+
+
+@lru_cache
+def ollama_client() -> OllamaClient:
+    settings = get_settings()
+    return OllamaClient(
+        settings.ollama_url,
+        timeout=settings.agent_timeout_sec,
+        allow_remote=settings.agent_allow_remote_ollama,
+    )
+
+
+@lru_cache
 def tts_providers() -> dict[str, TtsProvider]:
     return build_providers(get_settings())
 
@@ -79,3 +107,6 @@ def reset() -> None:
     matte_engine.cache_clear()
     sam_manager.cache_clear()
     vision_queue.cache_clear()
+    agent_queue.cache_clear()
+    # tests may monkeypatch ollama_client with a plain factory (fake Ollama transport)
+    getattr(ollama_client, "cache_clear", lambda: None)()

@@ -5,6 +5,7 @@ pydantic>=2.13,<3
 pydantic-settings>=2.15,<3
 python-multipart>=0.0.32
 httpx>=0.28.1,<1
+jsonschema>=4.23,<5
 pytest>=9.1,<10
 ruff>=0.16,<1
 # Sprint 2 vision tests (frames as numpy arrays, real OpenCV tracking on a lavfi clip). Same

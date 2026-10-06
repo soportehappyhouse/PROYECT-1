@@ -63,3 +63,77 @@ export const CaptionStyleSchema = z.object({
   animation: z.enum(["none", "pop", "karaoke", "fade"]),
 });
 export type CaptionStyle = z.infer<typeof CaptionStyleSchema>;
+
+/**
+ * Ids of the built-in caption presets: the SINGLE list (the agent's `add_captions {style}` enum in
+ * agent.ts, the web Subtítulos panel and the dataset validator all read it).
+ */
+export const CAPTION_STYLE_IDS = ["clasico", "reels", "karaoke", "minimal", "titular"] as const;
+export type CaptionStylePresetId = (typeof CAPTION_STYLE_IDS)[number];
+
+/**
+ * Built-in caption presets (the web Subtítulos panel uses these objects directly). Used by the
+ * agent's `add_captions {style}`; one preset per CAPTION_STYLE_IDS entry, same order.
+ */
+export const CAPTION_STYLE_PRESETS: readonly (CaptionStyle & { id: CaptionStylePresetId })[] = [
+  {
+    id: "clasico",
+    name: "Clásico",
+    fontFamily: "Inter",
+    fontSize: 54,
+    color: "#ffffff",
+    background: "rgba(0,0,0,0.6)",
+    highlightColor: "#ffd60a",
+    position: "bottom",
+    uppercase: false,
+    animation: "fade",
+  },
+  {
+    id: "reels",
+    name: "Reels (palabra a palabra)",
+    fontFamily: "Inter",
+    fontSize: 72,
+    color: "#ffffff",
+    background: "",
+    highlightColor: "#22d3ee",
+    position: "center",
+    uppercase: true,
+    animation: "pop",
+  },
+  {
+    id: "karaoke",
+    name: "Karaoke",
+    fontFamily: "Inter",
+    fontSize: 60,
+    color: "#e5e5e5",
+    background: "",
+    highlightColor: "#f43f5e",
+    position: "bottom",
+    uppercase: false,
+    animation: "karaoke",
+  },
+  {
+    id: "minimal",
+    name: "Minimal",
+    fontFamily: "Georgia",
+    fontSize: 44,
+    color: "#ffffff",
+    background: "",
+    highlightColor: "#ffffff",
+    position: "bottom",
+    uppercase: false,
+    animation: "none",
+  },
+  {
+    id: "titular",
+    name: "Titular arriba",
+    fontFamily: "Inter",
+    fontSize: 64,
+    color: "#111111",
+    background: "#ffd60a",
+    highlightColor: "#111111",
+    position: "top",
+    uppercase: true,
+    animation: "pop",
+  },
+];

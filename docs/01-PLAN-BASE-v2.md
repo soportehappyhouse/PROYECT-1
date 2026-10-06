@@ -41,6 +41,14 @@
 - Dataset de ejemplos (comando → EditPlan) generado con Claude en esta cuenta; evaluación automática; opción de LoRA local si el modelo base no alcanza.
 - Comandos iniciales: cortar silencios, agregar título/rótulo en t, subtítulos con estilo, reencuadrar, exportar preset; y "redactar reporte de bug".
 
+**Sprint 3b — Perfil de estilo + Consola Claude + libertad de composición (aprobado 2026-10-05)**
+
+- Perfil de estilo desde video de referencia: Studio extrae análisis (hoja de contactos, escenas, duraciones, transcripción, perfil de audio); el estilo lo deduce Claude en sesión (sin API) o un modelo local de visión opcional (pack `vision-llm`, Qwen2.5-VL 3B/7B); se guarda como `StylePreset` y el Asistente lo aplica como EditPlan.
+- Consola Claude: panel con terminal embebida (xterm.js + node-pty) que ejecuta Claude Code con la suscripción del usuario (sin API key) en la carpeta del proyecto; servidor MCP `studio-mcp` con herramientas (leer proyecto, proponer/aplicar EditPlan, jobs, exportar, reportes, análisis de estilo, capturas de la preview); `CLAUDE.md` de Studio con reglas y atajos.
+- Separación de audio en stems (Demucs htdemucs, MIT) como pack `stems`: voz / música / efectos a pistas separadas.
+- Recorte de fondo "calidad alta": RVM resnet50 + refinado de bordes (erosión/feather) + despill; opción por clip; medir vs mobilenet.
+- Compositor de capas libre: cualquier pista de video superior se compone sobre las inferiores con transformación, opacidad, modo de fusión (normal, multiplicar, pantalla, superponer, añadir), máscara por clip (SAM/forma), en preview y export.
+
 **Sprint 4 — Fase C (cara y voz)**
 
 - FaceFusion en venv aislado + compuerta de consentimiento (registro de personas con aprobación) + etiqueta.
@@ -69,5 +77,7 @@ Nube, multiusuario, entrenamiento de modelos pesados (más allá de LoRA chico),
 Mismo protocolo: Fable coordina, Opus implementa, Sonnet investiga, auditoría independiente por sprint, commit + push + devolución al cierre de cada sprint.
 
 ## Descubierto (fuera de alcance)
+
+- Separación de stems, calidad alta de recorte, compositor de capas y consola Claude: promovidos a Sprint 3b (ver arriba).
 
 - HyperFrames (HeyGen) como referencia para preview multicapa, keyframes y pila de efectos — ver docs/trabajo/analisis-hyperframes.md

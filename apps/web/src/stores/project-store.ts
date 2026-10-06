@@ -111,6 +111,11 @@ export interface ProjectState {
   applyCutsLocally: (clipId: string, cuts: readonly { start: number; end: number }[]) => number;
   /** Sprint 2 «Reencuadrar»: project.reframe (undefined = off); one undo step unless record=false. */
   setReframe: (reframe: ReframeSettings | undefined, record?: boolean) => void;
+  /**
+   * Sprint 3: adopt the whole project saved by the api (agent.apply / its undo) as one local
+   * undo step (tracks, subtitles and reframe are undoable; settings/publish follow the api).
+   */
+  adoptServerProject: (remote: Project, label: string) => void;
   /** Adopt tracks + subtitles edited by the api (timeline.apply-cuts) as one undo step. */
   applyServerEdit: (remote: Pick<Project, "tracks" | "subtitles">, label: string) => void;
   /** «Cortar en escenas»: split one clip at several times (one undo step); returns new pieces. */
@@ -520,6 +525,18 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
         saveState: "dirty",
         ...(record ? { past: [...past, snapshot(project)].slice(-HISTORY_LIMIT), future: [] } : {}),
       });
+    },
+    adoptServerProject: (remote, label) => {
+      addBreadcrumb("project", label, { projectId: remote.id });
+      const { project, past } = get();
+      set({
+        project: { ...remote, id: project.id },
+        past: [...past, snapshot(project)].slice(-HISTORY_LIMIT),
+        future: [],
+        saveState: "saved",
+      });
+      const sel = get().selectedClipId;
+      if (sel && !findClip(get().project, sel)) set({ selectedClipId: undefined });
     },
     applyServerEdit: (remote, label) => {
       addBreadcrumb("clip", label);

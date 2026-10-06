@@ -50,8 +50,26 @@ def bench_rvm(work: Path) -> dict[str, Any]:
     res = engine.matte_video(clip, work / "rvm.webm", model="rvm", chunk=300)
     frames = res.get("frames") or int(RVM_BENCH_SECONDS * RVM_BENCH_RATE)
     fps = frames / max(1e-6, time.perf_counter() - t0)
+    out: dict[str, Any] = {"rvm_fps": round(fps, 1)}
+    # docs/trabajo/perf-rvm.md: the 5 s clip is dominated by fixed costs (interpreter + torch
+    # import + model load + first batch + preview); report the sustained rate apart.
+    t = res.get("timings") or {}
+    first = t.get("first_batch_s") or 0.0
+    process = t.get("process_s")
+    if process:
+        cuda_seq = 4 if res.get("device") == "cuda" else 1
+        seq = t.get("seq_chunk") or res.get("seq_chunk") or cuda_seq
+        steady_frames = max(1, frames - (seq if first else 0))
+        out["rvm_steady_fps"] = round(steady_frames / max(1e-6, process - first), 1)
+        out["rvm_startup_s"] = round(t.get("startup_s", 0.0) + first + t.get("preview_s", 0.0), 2)
+        if t.get("bottleneck"):
+            out["rvm_bottleneck"] = t["bottleneck"]
+        if t.get("ms_per_frame"):
+            out["rvm_stage_ms"] = t["ms_per_frame"]
+    if res.get("alpha_codec"):
+        out["rvm_alpha_codec"] = res["alpha_codec"]
     return {
-        "rvm_fps": round(fps, 1),
+        **out,
         "rvm_proc_fps": res.get("proc_fps") or None,
         "rvm_device": res.get("device"),
         "rvm_precision": res.get("precision") or None,

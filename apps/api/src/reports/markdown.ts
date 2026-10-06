@@ -50,6 +50,8 @@ export const JOB_TYPE_LABELS_ES: Record<Job["type"], string> = {
   "vision.track": "Seguir objeto",
   "vision.reframe": "Reencuadre",
   "timeline.track-to-keyframes": "Seguimiento a keyframes",
+  "agent.apply": "Asistente: aplicar plan",
+  "agent.eval": "Asistente: evaluar modelos",
 };
 
 const PROMPT_JOBS = 3;

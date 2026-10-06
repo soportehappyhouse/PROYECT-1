@@ -531,3 +531,41 @@ function Format-Bytes([int64]$Bytes) {
     if ($Bytes -ge 1MB) { return ('{0:N0} MB' -f ($Bytes / 1MB)) }
     return ('{0:N0} KB' -f ($Bytes / 1KB))
 }
+
+# ------------------------------------------------------------------ sprint 3: Ollama (local agent)
+function Get-OllamaUrl { return (Get-EnvSetting 'OLLAMA_URL' 'http://127.0.0.1:11434').TrimEnd('/') }
+
+function Find-OllamaExe {
+    # winget Ollama.Ollama installs per user in %LOCALAPPDATA%\Programs\Ollama.
+    $cmd = Get-Command ollama -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    foreach ($pair in @(@($env:LOCALAPPDATA, 'Programs\Ollama'), @($env:ProgramFiles, 'Ollama'))) {
+        if (-not $pair[0]) { continue }
+        $exe = Join-Path (Join-Path $pair[0] $pair[1]) 'ollama.exe'
+        if (Test-Path $exe) { return $exe }
+    }
+    return $null
+}
+
+function Get-OllamaTags {
+    # Model names from /api/tags, or $null when the service does not answer.
+    try {
+        $r = Invoke-RestMethod -Uri ((Get-OllamaUrl) + '/api/tags') -TimeoutSec 3 -ErrorAction Stop
+        return @($r.models | ForEach-Object { $_.name })
+    } catch { return $null }
+}
+
+function Get-OllamaVersion {
+    try {
+        $r = Invoke-RestMethod -Uri ((Get-OllamaUrl) + '/api/version') -TimeoutSec 3 -ErrorAction Stop
+        return [string]$r.version
+    } catch { return $null }
+}
+
+function Start-OllamaService([string]$Exe) {
+    # The tray app ("ollama app.exe") starts the server and keeps it at login; else `ollama serve`.
+    $app = Join-Path (Split-Path $Exe -Parent) 'ollama app.exe'
+    if (Test-Path $app) { Start-Process -FilePath $app -WindowStyle Hidden | Out-Null }
+    else { Start-Process -FilePath $Exe -ArgumentList 'serve' -WindowStyle Hidden | Out-Null }
+    return (Wait-HttpOk ((Get-OllamaUrl) + '/api/version') 30)
+}

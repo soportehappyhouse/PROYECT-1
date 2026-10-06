@@ -6,16 +6,20 @@ import {
   type CreateReportResponse,
   type ReportSeverity,
 } from "@studio/shared";
-import { Bug, Check, Copy, Download, FolderOpen } from "lucide-react";
+import { Bug, Check, Copy, Download, FolderOpen, Sparkles } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Checkbox, Input, Label, Select, Textarea } from "@/components/ui/input";
 import { ErrorNotice, Spinner, Tabs } from "@/components/ui/misc";
+import { composeSteps, parseDraftedReport } from "@/lib/agent";
+import { agentApi } from "@/lib/agent-api";
 import { api, errorMessage } from "@/lib/api";
 import { lastClientError } from "@/lib/global-errors";
 import { buildReportRequest, copyText, failedJobIds, STEPS_TEMPLATE } from "@/lib/report";
-import { useBreadcrumbsStore } from "@/stores/breadcrumbs-store";
+import { useAgentStore } from "@/stores/agent-store";
+import { getBreadcrumbs, useBreadcrumbsStore } from "@/stores/breadcrumbs-store";
+import { useJobsStore } from "@/stores/jobs-store";
 import { useReportStore, type ReportPrefill } from "@/stores/report-store";
 
 const SEVERITIES = ReportSeveritySchema.options;
@@ -54,6 +58,46 @@ function ReportForm({
   const clientError = prefill.clientError ?? lastClientError();
   const jobIds = prefill.jobIds?.length ? prefill.jobIds : failedJobIds();
 
+  const [drafting, setDrafting] = useState(false);
+  const [aiNote, setAiNote] = useState<{ text: string; error?: boolean } | undefined>(undefined);
+
+  /** «Redactar con IA»: the local assistant turns breadcrumbs + errors into title and steps. */
+  const draftWithAi = async () => {
+    setDrafting(true);
+    setAiNote(undefined);
+    try {
+      const jobs = useJobsStore.getState().jobs;
+      const errors = [
+        ...(clientError ? [{ kind: "client", message: clientError.message }] : []),
+        ...jobIds
+          .map((id) => jobs[id])
+          .filter((j) => j !== undefined)
+          .map((j) => ({ kind: "job", type: j.type, error: j.error ?? j.message ?? "" })),
+      ];
+      const agentModel = useAgentStore.getState().settings.model;
+      const res = await agentApi.bugreport({
+        ...(title.trim() && { title: title.trim() }),
+        steps_text: steps.trim() === STEPS_TEMPLATE.trim() ? "" : steps,
+        breadcrumbs: getBreadcrumbs(),
+        errors,
+        ...(agentModel && { model: agentModel }),
+      });
+      const drafted = parseDraftedReport(res.markdown_es);
+      if (drafted.title) setTitle(drafted.title.slice(0, 200));
+      setSteps(composeSteps(drafted, res.markdown_es.trim() || steps));
+      setAiNote({
+        text:
+          res.source === "template"
+            ? "No hay modelo local: se armó con una plantilla. Revisalo y completalo."
+            : "Borrador del asistente local (nada salió de tu PC). Revisalo y corregilo antes de generar.",
+      });
+    } catch (err) {
+      setAiNote({ text: `No se pudo redactar con IA: ${errorMessage(err)}`, error: true });
+    } finally {
+      setDrafting(false);
+    }
+  };
+
   const request = () =>
     buildReportRequest({
       title: title.trim() || "Error sin título",
@@ -91,6 +135,26 @@ function ReportForm({
           onChange={(e) => setTitle(e.target.value)}
         />
       </Label>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          size="xs"
+          variant="outline"
+          disabled={drafting}
+          title="El asistente local redacta título, pasos, qué esperabas y qué pasó a partir de tus últimas acciones"
+          onClick={() => void draftWithAi()}
+        >
+          {drafting ? <Spinner className="size-3" /> : <Sparkles />} Redactar con IA
+        </Button>
+        {aiNote ? (
+          <span
+            role={aiNote.error ? "alert" : "status"}
+            className={aiNote.error ? "text-xs text-destructive" : "text-xs text-muted-foreground"}
+          >
+            {aiNote.text}
+          </span>
+        ) : null}
+      </div>
       <Label>
         ¿Qué intentabas hacer? (pasos, qué esperabas y qué pasó)
         <Textarea rows={8} value={steps} onChange={(e) => setSteps(e.target.value)} />

@@ -87,6 +87,14 @@ export async function tailFile(file: string, lines: number): Promise<string[]> {
   }
 }
 
+/**
+ * Sprint 4: paths of the Personas registry (storage/consent/persons|archive/…: photos, voice
+ * samples, consent evidence) are hidden in every text of a report; their files are never copied.
+ */
+export function hideConsentPaths(text: string): string {
+  return text.replace(/consent([\\/]+)(persons|archive)\1[^\s"'<>]*/gi, "consent/<oculto>");
+}
+
 /** Display a path relative to the repo when possible ("storage/reports/x"), else absolute. */
 function displayPath(abs: string): string {
   const rel = path.relative(REPO_ROOT, abs);
@@ -149,7 +157,7 @@ export async function buildReport(
   const writeText = async (rel: string, text: string) => {
     const abs = path.join(dir, ...rel.split("/"));
     await mkdir(path.dirname(abs), { recursive: true });
-    await writeFile(abs, redactText(text, redact), "utf8");
+    await writeFile(abs, redactText(hideConsentPaths(text), redact), "utf8");
     files.push(rel);
   };
   const writeJson = (rel: string, value: unknown) =>
@@ -257,6 +265,8 @@ export async function buildReport(
     let total = 0;
     const copySmall = async (relative: string | undefined) => {
       if (!relative || path.isAbsolute(relative) || relative.includes("..")) return;
+      // Sprint 4: the Personas registry (photos, voice samples, consent evidence) never leaves.
+      if (/^\.?[\\/]*consent[\\/]/i.test(relative)) return;
       const abs = path.join(config.storageDir, relative);
       const info = await stat(abs).catch(() => undefined);
       if (!info?.isFile() || info.size > MEDIA_FILE_LIMIT || total + info.size > MEDIA_TOTAL_LIMIT)

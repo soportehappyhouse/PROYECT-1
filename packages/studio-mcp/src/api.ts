@@ -2,6 +2,9 @@
 
 export const DEFAULT_API_URL = "http://127.0.0.1:3001";
 
+/** Sent on every request (docs/trabajo/sprint4-contratos.md, regla 12 «Solo humanos»). */
+export const STUDIO_CLIENT_HEADER = "X-Studio-Client";
+
 export class StudioApiError extends Error {
   constructor(
     readonly status: number,
@@ -50,7 +53,12 @@ export function createStudioApi(
     try {
       res = await fetchImpl(`${root}${path}`, {
         method,
-        headers: body === undefined ? {} : { "content-type": "application/json" },
+        // Sprint 4: every request says it comes from the console / assistant (the api refuses
+        // consents and licence acceptances from it: 403 HUMAN_ONLY).
+        headers: {
+          [STUDIO_CLIENT_HEADER]: "mcp",
+          ...(body === undefined ? {} : { "content-type": "application/json" }),
+        },
         ...(body !== undefined && { body: JSON.stringify(body) }),
       });
     } catch {

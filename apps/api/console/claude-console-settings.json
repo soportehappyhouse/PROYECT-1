@@ -5,6 +5,7 @@
       "Read(./.env*)",
       "Read(./storage/*.db*)",
       "Read(./storage/reports/**)",
+      "Read(./storage/consent/**)",
       "Edit(./storage/**)",
       "Write(./storage/**)",
       "Read(./models/**)",

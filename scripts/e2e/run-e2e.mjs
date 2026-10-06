@@ -3291,6 +3291,287 @@ await step(
 );
 // ------------------------------------------------------------------ END sprint 3b integration
 
+// ---------------------------------------------------------------- BEGIN sprint4:M1
+// «Caras»: Personas + consentimiento + cambio de cara. With scripts/e2e/workers-with-mocks.py the
+// packs faceswap / faceswap-extra are reported installed and FaceFusion is the fake
+// scripts/e2e/fake_facefusion/facefusion.py (box on the face; a photo ending with NSFW-TEST ->
+// content analyser rejection). STUDIO_MOCK_FACE=0 on the workers -> only the 403/409 checks.
+const m1 = { origin: { origin: "http://localhost:3000" } };
+async function m1Png(name, color = "gray", extra) {
+  const file = path.join(WORK, name);
+  await run(FFMPEG, ["-y", "-v", "error", "-f", "lavfi", "-i", `color=c=${color}:s=320x320`,
+    "-frames:v", "1", "-update", "1", file]); // prettier-ignore
+  if (extra) await writeFile(file, Buffer.concat([await readFile(file), Buffer.from(extra)]));
+  return file;
+}
+async function m1Form(fields, files) {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(fields)) fd.append(k, v);
+  for (const [k, f] of Object.entries(files))
+    fd.append(k, new Blob([await readFile(f.file)], { type: f.type }), f.name);
+  return fd;
+}
+async function m1Person(name, { consent = true, marker } = {}) {
+  const p = await ok("POST", "/api/persons", { name }, [201]);
+  const photo = await m1Png(`m1-${p.id}.png`, "gray", marker);
+  const fd = await m1Form({}, { photo: { file: photo, name: "cara.png", type: "image/png" } });
+  const up = await api("POST", `/api/persons/${p.id}/photos`, fd);
+  assert(up.status === 200, `photo ${up.status} ${JSON.stringify(up.json).slice(0, 300)}`);
+  if (consent) {
+    const r = await m1Consent(p.id, m1.origin);
+    assert(r.status === 201, `consent ${r.status} ${JSON.stringify(r.json).slice(0, 300)}`);
+  }
+  return ok("GET", `/api/persons/${p.id}`);
+}
+async function m1Consent(personId, headers = {}, scope = "face") {
+  const sig = await m1Png(`m1-firma-${personId}.png`, "white");
+  const fd = await m1Form(
+    { scope, method: "firma en pantalla", signer_name: "E2E Doble", text_version: "2026-10-06",
+      accept: "true" }, // prettier-ignore
+    { evidence: { file: sig, name: "firma.png", type: "image/png" } },
+  );
+  return api("POST", `/api/persons/${personId}/consents`, fd, { headers });
+}
+async function m1Licence(accept = true) {
+  const route = `/api/ai/licences/faceswap/${accept ? "accept" : "revoke"}`;
+  return api("POST", route, accept ? { text_version: "2026-10-06", accept: true } : undefined, {
+    headers: m1.origin,
+  });
+}
+async function m1Clip() {
+  if (!m1.video) {
+    const file = path.join(WORK, "m1-doble.mp4");
+    await run(FFMPEG, ["-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=25:d=3",
+      "-f", "lavfi", "-i", "sine=f=440:d=3", "-shortest", "-c:v", "libx264", "-preset", "ultrafast",
+      "-pix_fmt", "yuv420p", "-c:a", "aac", file]); // prettier-ignore
+    m1.video = await upload(file, "video/mp4");
+    await waitAssetJobs(m1.video.id, ["media.probe"]);
+  }
+  const p0 = await ok("POST", "/api/projects", { name: `E2E cara ${id("p")}` }, [201]);
+  const V = p0.tracks.find((t) => t.kind === "video");
+  const clipId = id("c");
+  V.clips = [{ id: clipId, trackId: V.id, assetId: m1.video.id, start: 0.5, in: 0.5, out: 2.5 }];
+  return { project: await ok("PUT", `/api/projects/${p0.id}`, p0), clipId };
+}
+const m1Packs = async () => (await ok("GET", "/api/ai/packs")).find((x) => x.id === "faceswap");
+
+await step("sprint4: persons CRUD + consentimiento firmado + HUMAN_ONLY", async () => {
+  const p = await m1Person("E2E Persona", { consent: false });
+  assert(p.photos.length === 1 && p.photos[0].width === 320, `photos ${JSON.stringify(p.photos)}`);
+  const noOrigin = await m1Consent(p.id, {});
+  assert(noOrigin.status === 403 && noOrigin.json.error.code === "HUMAN_ONLY", "no Origin");
+  const mcp = await m1Consent(p.id, { ...m1.origin, "X-Studio-Client": "mcp" });
+  assert(mcp.status === 403 && mcp.json.error.code === "HUMAN_ONLY", "X-Studio-Client: mcp");
+  const okc = await m1Consent(p.id, m1.origin, "both");
+  assert(okc.status === 201 && okc.json.text_sha256?.length === 64, `consent ${okc.status}`);
+  const list = await ok("GET", "/api/persons?scope=face");
+  const row = list.find((x) => x.id === p.id);
+  assert(row?.face === "vigente" && row.voice === "vigente", `summary ${JSON.stringify(row)}`);
+  const files = await fetch(`${API}/files/${okc.json.evidence_path}`);
+  assert(files.status === 404, `/files/consent/... -> ${files.status} (404 expected)`);
+  const lic = await fetch(`${API}/files/consent/licences.json`);
+  assert(lic.status === 404, `/files/consent/licences.json -> ${lic.status}`);
+  const del = await api("DELETE", `/api/persons/${p.id}`);
+  assert(del.status === 409, `delete without confirm -> ${del.status}`);
+  await ok("DELETE", `/api/persons/${p.id}?confirm=1`, undefined, [204]);
+  const gone = await api("GET", `/api/persons/${p.id}`);
+  assert(gone.status === 404 && gone.json.error.code === "PERSON_NOT_FOUND", "deleted person");
+  return { consent: okc.json.id, faces: p.photos[0].faces };
+});
+
+await step("sprint4: face.swap 403 LICENCE_REQUIRED / CONSENT_REQUIRED / revocado", async () => {
+  await m1Licence(false).catch(() => undefined);
+  const { project, clipId } = await m1Clip();
+  const nobody = await m1Person("E2E Sin consentimiento", { consent: false });
+  const body = (personId) => ({
+    personId,
+    assetId: m1.video.id,
+    target: { projectId: project.id, clipId },
+    confirmed: true,
+  });
+  const lic = await api("POST", "/api/face/swap", body(nobody.id));
+  assert(lic.status === 403 && lic.json.error.code === "LICENCE_REQUIRED", `licence ${lic.status}`);
+  const gated = await api("POST", "/api/ai/packs/faceswap/download");
+  assert(
+    gated.status === 403 && gated.json.error.code === "LICENCE_REQUIRED",
+    "pack download gate",
+  );
+  const accepted = await m1Licence(true);
+  assert(accepted.status === 200, `accept ${accepted.status}`);
+  const pack = await m1Packs();
+  const noConsent = await api("POST", "/api/face/swap", body(nobody.id));
+  if (pack?.installed) {
+    assert(
+      noConsent.status === 403 && noConsent.json.error.details.reason === "none",
+      `consent ${noConsent.status} ${JSON.stringify(noConsent.json).slice(0, 200)}`,
+    );
+  } else assert(noConsent.status === 409, `pack missing -> ${noConsent.status}`);
+  const rev = await m1Person("E2E Revocado");
+  await ok("POST", `/api/persons/${rev.id}/consents/${rev.consents[0].id}/revoke`);
+  const revoked = await api("POST", "/api/face/swap", body(rev.id));
+  if (pack?.installed)
+    assert(
+      revoked.status === 403 && revoked.json.error.details.reason === "revoked",
+      `revoked ${revoked.status}`,
+    );
+  const noConfirm = await api("POST", "/api/face/swap", { ...body(rev.id), confirmed: undefined });
+  assert(noConfirm.status === 409 && noConfirm.json.error.code === "CONFIRM_REQUIRED", "confirm");
+  return { packInstalled: !!pack?.installed, tool: pack?.tool?.state ?? null };
+});
+
+await step("sprint4: face.swap mock → asset aiAltered + clip.faceSwap + undo", async () => {
+  const pack = await m1Packs();
+  assert(pack?.installed, "pack faceswap not installed (workers-with-mocks STUDIO_MOCK_FACE)");
+  await m1Licence(true);
+  const person = await m1Person("E2E Doble Martín");
+  const { project, clipId } = await m1Clip();
+  const det = await ok("POST", "/api/face/detect", { assetId: m1.video.id, t: 1 });
+  assert(det.faces.length >= 1 && det.framePath.endsWith(".png"), `detect ${JSON.stringify(det)}`);
+  const pv = await ok("POST", "/api/face/preview", {
+    personId: person.id,
+    assetId: m1.video.id,
+    t: 1,
+    selector: { mode: "reference", t: 1, faceIndex: 0 },
+  }, [202]); // prettier-ignore
+  const preview = (await waitOk(pv.jobId, { timeoutMs: 120_000 })).result;
+  await download(preview.afterPath, "m1-after.png");
+  const r = await ok("POST", "/api/face/swap", {
+    personId: person.id,
+    assetId: m1.video.id,
+    options: { strength: 0.8, enhancer: false },
+    target: { projectId: project.id, clipId },
+    confirmed: true,
+  }, [202]); // prettier-ignore
+  const res = (await waitOk(r.jobId, { timeoutMs: 180_000 })).result;
+  const asset = await ok("GET", `/api/media/${res.assetId}`);
+  assert(
+    asset.aiAltered === true && asset.aiProvenance?.kind === "face" &&
+      asset.aiProvenance.personId === person.id && asset.aiProvenance.licences[0] === "faceswap",
+    `asset ${JSON.stringify(asset).slice(0, 400)}`,
+  ); // prettier-ignore
+  const out = await download(res.path, "m1-faceswap.mp4");
+  const st = (await ffprobe(out)).streams;
+  const dur = Number((await ffprobe(out)).format.duration);
+  assert(st.some((s) => s.codec_type === "audio") && near(dur, 2, 0.2), `output ${dur} s`);
+  const f = await frameRgb(out, 1, 320);
+  const center = f.px(160, 60);
+  assert(center[0] > 120 && center[1] < 110, `fake box not drawn: ${center}`);
+  const saved = await ok("GET", `/api/projects/${project.id}`);
+  const clip = saved.tracks.flatMap((t) => t.clips).find((c) => c.id === clipId);
+  assert(
+    clip.assetId === res.assetId && clip.in === 0 && clip.faceSwap?.prev.assetId === m1.video.id,
+    `clip ${JSON.stringify(clip).slice(0, 300)}`,
+  );
+  assert(saved.publish?.flags?.aiFace === true, "publish.flags.aiFace");
+  const undone = await ok("POST", "/api/face/undo", { projectId: project.id, clipId });
+  const back = undone.tracks.flatMap((t) => t.clips).find((c) => c.id === clipId);
+  assert(back.assetId === m1.video.id && back.in === 0.5 && !back.faceSwap, "undo");
+  return { frames: res.frames, device: res.device, preview: preview.afterPath, center };
+});
+
+await step("sprint4: NSFW mock → CONTENT_BLOCKED", async () => {
+  const pack = await m1Packs();
+  assert(pack?.installed, "pack faceswap not installed (workers-with-mocks STUDIO_MOCK_FACE)");
+  await m1Licence(true);
+  const person = await m1Person("E2E Contenido", { marker: "NSFW-TEST" });
+  const { project, clipId } = await m1Clip();
+  const r = await ok("POST", "/api/face/swap", {
+    personId: person.id,
+    assetId: m1.video.id,
+    target: { projectId: project.id, clipId },
+    confirmed: true,
+  }, [202]); // prettier-ignore
+  const job = await waitJob(r.jobId, { timeoutMs: 120_000 });
+  assert(job.status === "failed", `status ${job.status}`);
+  const full = await ok("GET", `/api/jobs/${r.jobId}`);
+  assert(full.result?.error?.code === "CONTENT_BLOCKED", `result ${JSON.stringify(full.result)}`);
+  const saved = await ok("GET", `/api/projects/${project.id}`);
+  const clip = saved.tracks.flatMap((t) => t.clips).find((c) => c.id === clipId);
+  assert(!clip.faceSwap && clip.assetId === m1.video.id, "clip untouched");
+  return { error: job.error };
+});
+
+await step("sprint4: EditPlan face_swap sin confirmedIndexes → 409", async () => {
+  await m1Licence(true);
+  const person = await m1Person("E2E Plan Lucía");
+  const { project, clipId } = await m1Clip();
+  const plan = {
+    version: 1,
+    summary_es: "Cara de Lucía en el doble.",
+    ops: [{ op: "face_swap", clip: { id: clipId }, person: { name: "plan lucia" } }],
+  };
+  const rec = await ok("POST", "/api/console/plans", { plan, projectId: project.id }, [201]);
+  assert(
+    rec.ok && rec.resolved[0].person.id === person.id,
+    `plan ${JSON.stringify(rec).slice(0, 300)}`,
+  );
+  const r = await api("POST", "/api/agent/apply", { planId: rec.id });
+  assert(r.status === 409 && r.json.error.code === "CONFIRM_REQUIRED", `apply ${r.status}`);
+  return { preview: rec.preview_es[0] };
+});
+
+await step("sprint4: studio_face_swap por stdio sin confirmed → rechazado", async () => {
+  const entry = path.join(REPO, "packages", "studio-mcp", "dist", "index.js");
+  assert(existsSync(entry), "packages/studio-mcp/dist missing (pnpm build:packages)");
+  const child = spawn(process.execPath, [entry], {
+    stdio: ["pipe", "pipe", "ignore"],
+    env: { ...process.env, STUDIO_API_URL: API },
+    windowsHide: true,
+  });
+  let buf = "";
+  const waiting = new Map();
+  child.stdout.on("data", (chunk) => {
+    buf += chunk;
+    let i;
+    while ((i = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, i).trim();
+      buf = buf.slice(i + 1);
+      if (line) {
+        const msg = JSON.parse(line);
+        waiting.get(msg.id)?.(msg);
+      }
+    }
+  });
+  let n = 0;
+  const rpc = (method, params) =>
+    new Promise((resolve) => {
+      const rid = ++n;
+      const timer = setTimeout(() => resolve({ error: { message: `timeout ${method}` } }), 30_000);
+      waiting.set(rid, (msg) => {
+        clearTimeout(timer);
+        resolve(msg);
+      });
+      child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: rid, method, params }) + "\n");
+    });
+  try {
+    await rpc("initialize", {
+      protocolVersion: "2025-06-18",
+      capabilities: {},
+      clientInfo: { name: "e2e", version: "1" },
+    });
+    child.stdin.write(
+      JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n",
+    );
+    const { project, clipId } = await m1Clip();
+    const before = (await ok("GET", "/api/jobs?type=face.swap&limit=500")).length;
+    const msg = await rpc("tools/call", {
+      name: "studio_face_swap",
+      arguments: { projectId: project.id, clipId, personId: "x" },
+    });
+    const rejected = !!msg.error || msg.result?.isError === true;
+    assert(rejected, `not rejected: ${JSON.stringify(msg).slice(0, 300)}`);
+    const after = (await ok("GET", "/api/jobs?type=face.swap&limit=500")).length;
+    assert(after === before, "a face.swap job was created");
+    const persons = await rpc("tools/call", { name: "studio_list_persons", arguments: {} });
+    const text = persons.result?.content?.[0]?.text ?? "";
+    assert(!persons.result?.isError && !text.includes("consent/"), `list ${text.slice(0, 200)}`);
+    return { rejected: (msg.error?.message ?? msg.result?.content?.[0]?.text ?? "").slice(0, 120) };
+  } finally {
+    child.kill();
+  }
+});
+// ------------------------------------------------------------------ END sprint4:M1
+
 // ---------------------------------------------------------------- report
 sse.controller.abort();
 const required = results.filter((r) => r.kind === "required");

@@ -1,0 +1,9 @@
+{
+  "version": "3.9.1",
+  "commit": "72470819a0373be3388b3929c8f8f311f418fc3c",
+  "source_url": "https://github.com/facefusion/facefusion/archive/72470819a0373be3388b3929c8f8f311f418fc3c.zip",
+  "source_sha256": null,
+  "python": "3.12",
+  "licence": "OpenRAIL-AS (FaceFusion code); model weights: see apps/workers/studio_workers/packs.py FACEFUSION_MODELS",
+  "notes": "source_sha256 null = recorded at the first download (trust on first download, toolvenv.ensure). Never run install.py; the content analyser is never modified (FaceFusion checks its CRC32)."
+}

@@ -231,3 +231,100 @@ export const CONSENT_REASON_ES: Record<ConsentRequiredReason, string> = {
   scope: "el consentimiento no cubre ese uso",
   deleted: "la persona fue dada de baja",
 };
+
+// ---- M1 helpers (docs/trabajo/sprint4-contratos.md «M1»): consent state of a Person ---------------
+
+/** Spanish words of each scope in CONSENT_TEXT_ES ({alcance}). */
+export const CONSENT_SCOPE_ES: Record<ConsentScope, string> = {
+  face: "rostro",
+  voice: "voz",
+  both: "rostro y voz",
+};
+
+/** The consent text shown to the person (and hashed into `text_sha256`), name and scope filled in. */
+export function renderConsentText(name: string, scope: ConsentScope): string {
+  return CONSENT_TEXT_ES.replace("{nombre}", name.trim()).replace(
+    "{alcance}",
+    CONSENT_SCOPE_ES[scope],
+  );
+}
+
+/** A consent of scope `both` covers the face and the voice. */
+export function consentCovers(c: Pick<Consent, "scope">, need: "face" | "voice"): boolean {
+  return c.scope === "both" || c.scope === need;
+}
+
+const time = (iso: string | undefined) => (iso ? Date.parse(iso) : Number.NaN);
+
+/** Expired when `expires_at` is at or before `now`. */
+export function consentExpired(c: Pick<Consent, "expires_at">, now: Date = new Date()): boolean {
+  const t = time(c.expires_at);
+  return Number.isFinite(t) && t <= now.getTime();
+}
+
+/** Consents that cover `need`, newest first (accepted_at). */
+function covering(
+  p: { consents?: readonly Consent[] },
+  need: "face" | "voice",
+): readonly Consent[] {
+  return [...(p.consents ?? [])]
+    .filter((c) => consentCovers(c, need))
+    .sort((a, b) => time(b.accepted_at) - time(a.accepted_at));
+}
+
+/**
+ * The consent that authorizes `need` now: the latest one covering it that is neither revoked nor
+ * expired (decision 7: history, the latest valid one counts). undefined = none.
+ */
+export function activeConsent(
+  p: { consents?: readonly Consent[] },
+  need: "face" | "voice",
+  now: Date = new Date(),
+): Consent | undefined {
+  return covering(p, need).find((c) => !c.revoked_at && !consentExpired(c, now));
+}
+
+/**
+ * Why there is no active consent for `need` (undefined when there is one): "none" (no consent at
+ * all), "scope" (consents exist but none covers `need`), "revoked" / "expired" (the latest one
+ * covering it). "deleted" is decided by the caller (Person removed).
+ */
+export function consentReason(
+  p: { consents?: readonly Consent[] },
+  need: "face" | "voice",
+  now: Date = new Date(),
+): "none" | "scope" | "revoked" | "expired" | undefined {
+  if (activeConsent(p, need, now)) return undefined;
+  const latest = covering(p, need)[0];
+  if (!latest) return (p.consents ?? []).length > 0 ? "scope" : "none";
+  return latest.revoked_at ? "revoked" : "expired";
+}
+
+/** «vigente» | «vencido» | «revocado» | «sin consentimiento» for `need`. */
+export function consentState(
+  p: { consents?: readonly Consent[] },
+  need: "face" | "voice",
+  now: Date = new Date(),
+): ConsentState {
+  const reason = consentReason(p, need, now);
+  if (reason === undefined) return "vigente";
+  if (reason === "revoked") return "revocado";
+  if (reason === "expired") return "vencido";
+  return "sin consentimiento";
+}
+
+/** GET /api/persons row (no file paths). */
+export function personSummary(p: Person, now: Date = new Date()): PersonSummary {
+  const face = activeConsent(p, "face", now);
+  const voice = activeConsent(p, "voice", now);
+  const expiries = [face?.expires_at, voice?.expires_at].filter((e): e is string => !!e).sort();
+  return {
+    id: p.id,
+    name: p.name,
+    photos: p.photos.length,
+    voiceSamples: p.voiceSamples.length,
+    face: consentState(p, "face", now),
+    voice: consentState(p, "voice", now),
+    ...(expiries[0] && { expires_at: expiries[0] }),
+  };
+}

@@ -1,7 +1,7 @@
 "use client";
 
 import type { Clip, MediaAsset, Track } from "@studio/shared";
-import { useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import { sceneSnapTimes } from "@/hooks/use-scene-markers";
 import { BLEND_MODE_LABELS, layerSummary } from "@/lib/layers";
 import { fileUrl } from "@/lib/api";
@@ -9,6 +9,7 @@ import { clipDuration, clipEnd, snapClipStart, snapPoints, snapTime } from "@/li
 import { cn } from "@/lib/utils";
 import { useProjectStore } from "@/stores/project-store";
 import { useKeyframeStore } from "@/stores/keyframe-store";
+import { ClipContextMenu, clipMenuHasItems } from "./ClipContextMenu";
 import { KeyframeDiamonds } from "./KeyframeDiamonds";
 import { Waveform } from "./Waveform";
 
@@ -52,6 +53,9 @@ export function ClipView({
   selected: boolean;
 }) {
   const gesture = useRef<Gesture | undefined>(undefined);
+  // Sprint 4 M1: right-click menu («Cambiar cara…» / «Deshacer cambio de cara»).
+  const [menu, setMenu] = useState<{ x: number; y: number } | undefined>(undefined);
+  const closeMenu = useCallback(() => setMenu(undefined), []);
   const duration = clipDuration(clip);
   const width = Math.max(2, duration * zoom);
 
@@ -144,6 +148,13 @@ export function ClipView({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
+      onContextMenu={(e) => {
+        if (!clipMenuHasItems(track, clip, asset)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        useProjectStore.getState().selectClip(clip.id);
+        setMenu({ x: e.clientX, y: e.clientY });
+      }}
       onKeyDown={(e) => {
         if (e.key === "Enter") useProjectStore.getState().selectClip(clip.id);
       }}
@@ -163,6 +174,11 @@ export function ClipView({
         {clip.voiceEffects.length > 0 ? <span className="ml-1 opacity-80">FX</span> : null}
         {clip.matte ? <span className="ml-1 opacity-80">Recorte</span> : null}
         {clip.trackRef ? <span className="ml-1 opacity-80">Sigue</span> : null}
+        {clip.faceSwap ? (
+          <span className="ml-1 opacity-80" title="Cara cambiada con IA">
+            IA cara
+          </span>
+        ) : null}
         {clip.blendMode || clip.maskRef ? (
           <span className="ml-1 opacity-80" title={layerSummary(clip)}>
             {clip.blendMode && clip.blendMode !== "normal" ? BLEND_MODE_LABELS[clip.blendMode] : ""}
@@ -172,6 +188,9 @@ export function ClipView({
         ) : null}
       </div>
       <KeyframeDiamonds clip={clip} track={track} zoom={zoom} />
+      {menu ? (
+        <ClipContextMenu clip={clip} track={track} asset={asset} at={menu} onClose={closeMenu} />
+      ) : null}
       {!track.locked ? (
         <>
           <div

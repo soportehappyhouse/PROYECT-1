@@ -13,6 +13,7 @@ import { openDatabase } from "./db/database.js";
 import { registerAgentHandlers } from "./jobs/handlers/agent.js";
 import { registerAiHandlers } from "./jobs/handlers/ai.js";
 import { registerAudioStemsHandler } from "./jobs/handlers/audio-stems.js";
+import { faceDeps, registerFaceHandlers } from "./jobs/handlers/face.js";
 import { registerStyleHandlers } from "./jobs/handlers/style.js";
 import { registerVisionHandlers } from "./jobs/handlers/vision.js";
 import { registerModuleBHandlers } from "./jobs/handlers/index.js";
@@ -24,6 +25,9 @@ import { DailyLogStream } from "./lib/log-file.js";
 import { errorBody, HttpError, PackRequiredError } from "./lib/errors.js";
 import { createRepos } from "./repos/index.js";
 import { registerRoutes } from "./routes/index.js";
+import { faceRoutes } from "./routes/face.js";
+import { personsRoutes } from "./routes/persons.js";
+import { setPersonsDirectory } from "./services/agent/persons.js";
 import { createFfmpegService } from "./services/ffmpeg.js";
 import { ensureStorageLayout } from "./services/storage.js";
 import { createWorkersClient } from "./services/workers-client.js";
@@ -69,6 +73,13 @@ export async function buildApp({
   registerAgentHandlers(ctx); // Sprint 3: agent.apply (lane edit), agent.eval
   registerStyleHandlers(ctx); // Sprint 3b: style.analyze, style.infer (perfil de estilo)
   registerAudioStemsHandler(ctx); // Sprint 3b: audio.stems (Demucs in the workers)
+  // Sprint 4 M1: face.preview, face.swap (FaceFusion in the workers) behind the consent gate.
+  const face = faceDeps(ctx);
+  registerFaceHandlers(face);
+  setPersonsDirectory(() => ({
+    persons: face.gate.summaries(),
+    faceswapLicence: face.gate.isLicenceAccepted("faceswap"),
+  }));
 
   // stdout + storage/logs/api-YYYY-MM-DD.log (7 days, secrets redacted). Tests use logger: false.
   const logStream =
@@ -107,12 +118,15 @@ export async function buildApp({
     root: config.storageDir,
     prefix: "/files/",
     decorateReply: false,
-    // Never expose the SQLite files, scratch dirs, logs, error reports or partial uploads.
+    // Never expose the SQLite files, scratch dirs, logs, error reports, partial uploads or the
+    // Personas registry (sprint 4: photos, voice samples, consent evidence, licences.json).
     allowedPath: (pathName) =>
-      !/^\/?(studio\.db|tmp\/|logs\/|reports\/|cache\/)/.test(pathName) &&
+      !/^\/?(studio\.db|tmp\/|logs\/|reports\/|cache\/|consent\/)/i.test(pathName) &&
       !pathName.endsWith(".part"),
   });
   await registerRoutes(app);
+  await app.register(personsRoutes); // Sprint 4 M1: Personas, consentimientos, licencias
+  await app.register(faceRoutes); // Sprint 4 M1: cambiar cara
 
   app.addHook("onReady", async () => queue.start());
   app.addHook("onClose", async () => {

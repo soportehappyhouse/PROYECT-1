@@ -1,0 +1,11 @@
+# FaceFusion 3.9.1 (tools/facefusion/.venv, Python 3.12) — CPU profile (USE_CUDA=false).
+# = requirements.txt of the 3.9.1 tag as is (onnxruntime 1.30.0, CPU build).
+# Source: https://raw.githubusercontent.com/facefusion/facefusion/3.9.1/requirements.txt [V]
+gradio==5.50.0
+gradio-rangeslider==0.0.8
+numpy==2.4.6
+onnx==1.23.1
+onnxruntime==1.30.0
+opencv-python-headless==5.0.0.93
+tqdm==4.70.1
+scipy==1.18.1

@@ -17,6 +17,9 @@
   "e2e:" answers a FIXED EditPlan (split + add_text + set_canvas) without Ollama, so run-e2e checks
   plan -> resolve -> apply on any machine. Other commands reach the real /agent/plan (if present).
 
+- Sprint 4 M1 face swap (STUDIO_MOCK_FACE=0 turns it off): packs faceswap / faceswap-extra
+  reported installed, FaceFusion = scripts/e2e/fake_facefusion/facefusion.py (box on the face).
+
 - Sprint 3b stems (STUDIO_MOCK_STEMS=0 turns it off): pack stems is reported as installed and the
   htdemucs model is a fixed linear split (vocals 0.6, drums 0.2, bass 0.1, other 0.1 of the mix),
   so /audio/stems runs the real decode, chunking, overlap-add and WAV writing.
@@ -242,6 +245,43 @@ if MOCK_STEMS:
 
     packs.pack_status = pack_status_stems
 # --------------------------------------------------------------- END sprint 3b stems mock
+
+# ------------------------------------------------------------- BEGIN sprint4:M1 face swap mock
+# STUDIO_MOCK_FACE=0 turns it off. Packs faceswap / faceswap-extra reported installed (no models
+# on disk: the CRC32/model check is skipped), FaceFusion = scripts/e2e/fake_facefusion/facefusion.py
+# on this interpreter through FACEFUSION_PYTHON / FACEFUSION_APP_DIR (copies the target with a box
+# on the face, prints %, a source photo named "*nsfw*" -> content analyser rejection, exit 1).
+# Without the YuNet model (reframe/faceswap pack) the detector returns one centered face.
+MOCK_FACE = os.environ.get("STUDIO_MOCK_FACE", "1") != "0"
+if MOCK_FACE:
+    os.environ.setdefault("FACEFUSION_PYTHON", sys.executable)
+    os.environ.setdefault(
+        "FACEFUSION_APP_DIR", str(Path(__file__).resolve().parent / "fake_facefusion")
+    )
+    from studio_workers.vision.reframe import yunet_path
+
+    _face = services.face_engine()
+    _face.require_models = lambda _model, _enhancer: None
+    if not yunet_path(get_settings().models_root).is_file():
+
+        def _center_face(_root):  # type: ignore[no-untyped-def]
+            def detect(img):  # type: ignore[no-untyped-def]
+                h, w = img.shape[:2]
+                return [(w * 0.35, h * 0.2, w * 0.3, h * 0.45, 0.99)]
+
+            return detect
+
+        _face.detector_factory = _center_face
+    _status_before_face = packs.pack_status
+
+    def pack_status_face(pack, root, catalog=None, **kw):  # type: ignore[no-untyped-def]
+        row = _status_before_face(pack, root, catalog, **kw)
+        if pack.id in ("faceswap", "faceswap-extra"):
+            row.update(installed=True, partial=False)
+        return row
+
+    packs.pack_status = pack_status_face
+# --------------------------------------------------------------- END sprint4:M1 face swap mock
 
 settings = get_settings()
 uvicorn.run(

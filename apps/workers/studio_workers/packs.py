@@ -1366,3 +1366,287 @@ def install_pack(
     }
     manifest.save()
     return report
+
+
+# BEGIN sprint4:M1 — packs "faceswap", "faceswap-extra" (FaceFusion 3.9.1, licence «faceswap»)
+# Code: FaceFusion 3.9.1 (OpenRAIL-AS) runs ONLY as a subprocess of tools/facefusion/.venv (Python
+# 3.12, onnxruntime-gpu 1.24.4), created by toolvenv.ensure("facefusion") (M3, imported lazily).
+# Weights from the public GitHub releases of facefusion/facefusion-assets: sizes measured with
+# Range requests and CRC32 = content of the published .hash files [V] (docs/trabajo/
+# fuentes-sprint4.md §1.5). FaceFusion only accepts a model when crc32(onnx) == .hash, so both go
+# to models/facefusion/ (tools/facefusion/app/.assets/models is a junction to it): with every file
+# present it downloads nothing. sha256: trust on first download (models/manifest.json). Nothing of
+# this is downloaded or run before the on-screen licence «faceswap» is accepted (licence_gate).
+FACEFUSION_ASSETS = "https://github.com/facefusion/facefusion-assets/releases/download"
+FACEFUSION_MODELS_SUBDIR = "facefusion"
+FACEFUSION_CRC_STAMP = ".studio-crc.json"
+FACEFUSION_VENV_SIZE = 2_200_000_000  # [V/S] onnxruntime-gpu 207 MB + nvidia cu12 ~1.65 GB + rest
+
+
+@dataclass(frozen=True)
+class FaceFusionModel:
+    name: str
+    release: str  # models-X.Y.Z tag of facefusion-assets
+    size_mb: float  # decimal MB [V] (Range request)
+    crc32: str | None  # [V] content of <name>.hash; None = only checked against the .hash file
+    licence: str
+    pack: str
+
+
+def _ffm(name: str, release: str, mb: float, crc: str | None, lic: str, pack: str = "faceswap"):
+    return FaceFusionModel(name, release, mb, crc, lic, pack)
+
+
+FACEFUSION_MODELS: dict[str, FaceFusionModel] = {
+    m.name: m
+    for m in (
+        _ffm("hyperswap_1a_256", "models-3.3.0", 402.7, "79e50d4b", "ResearchRAIL"),
+        _ffm("nsfw_1", "models-3.3.0", 80.4, "f602d1c5", "Apache-2.0"),
+        _ffm("nsfw_2", "models-3.3.0", 22.5, "c7fa5fe2", "Apache-2.0"),
+        _ffm("nsfw_3", "models-3.3.0", 358.2, "633a3b02", "MIT"),
+        _ffm("fairface", "models-3.0.0", 85.2, "10d79769", "CC-BY-4.0"),
+        _ffm("yoloface_8n", "models-3.0.0", 12.7, "f9a0382f", "GPL-3.0"),
+        _ffm("fan_68_5", "models-3.0.0", 0.9, "95c4a198", "OpenRAIL-M"),
+        _ffm("2dfan4", "models-3.0.0", 97.9, "a948738e", "MIT"),
+        _ffm("xseg_1", "models-3.1.0", 70.3, "f207afe3", "GPL-3.0"),
+        _ffm("bisenet_resnet_34", "models-3.0.0", 93.6, "35d17a50", "MIT"),
+        _ffm("arcface_w600k_r50", "models-3.0.0", 174.4, "1f5fefb8", "No comercial (InsightFace)"),
+        _ffm("kim_vocal_2", "models-3.0.0", 66.8, "c965a055", "No comercial"),
+        _ffm("gfpgan_1.4", "models-3.0.0", 340.3, "5a6c6364", "Apache-2.0"),
+        # faceswap-extra: chosen in «Cambiar cara» -> 409 PACK_REQUIRED faceswap-extra
+        _ffm("ghost_1_256", "models-3.0.0", 514.9, "53447f7f", "Apache-2.0", "faceswap-extra"),
+        # [U] release tag and CRC32 of crossface_ghost not read (22.1 MB [V]): checked vs .hash only
+        _ffm("crossface_ghost", "models-3.0.0", 22.1, None, "Apache-2.0", "faceswap-extra"),
+        _ffm(
+            "inswapper_128_fp16",
+            "models-3.0.0",
+            277.7,
+            "32500ff1",
+            "No comercial (InsightFace)",
+            "faceswap-extra",
+        ),
+    )
+}
+# Common modules every headless-run loads (content analyser, classifier, detector, landmarkers,
+# maskers, recognizer, voice extractor), whatever the swapper.
+FACEFUSION_BASE_MODELS: tuple[str, ...] = (
+    "nsfw_1",
+    "nsfw_2",
+    "nsfw_3",
+    "fairface",
+    "yoloface_8n",
+    "fan_68_5",
+    "2dfan4",
+    "xseg_1",
+    "bisenet_resnet_34",
+    "arcface_w600k_r50",
+    "kim_vocal_2",
+)
+FACEFUSION_SWAPPER_MODELS: dict[str, tuple[str, ...]] = {
+    "hyperswap_1a_256": ("hyperswap_1a_256",),
+    "ghost_1_256": ("ghost_1_256", "crossface_ghost"),
+    "inswapper_128_fp16": ("inswapper_128_fp16",),
+}
+FACEFUSION_ENHANCER_MODEL = "gfpgan_1.4"
+
+
+def facefusion_dir(root: Path) -> Path:
+    return root / FACEFUSION_MODELS_SUBDIR
+
+
+def facefusion_models_for(swapper: str, enhancer: bool) -> list[str]:
+    """Model files one run needs (base modules + swapper (+ crossface) + GFPGAN)."""
+    names = [*FACEFUSION_BASE_MODELS, *FACEFUSION_SWAPPER_MODELS[swapper]]
+    if enhancer:
+        names.append(FACEFUSION_ENHANCER_MODEL)
+    return names
+
+
+def _facefusion_pack_models(pack_id: str) -> list[FaceFusionModel]:
+    return [m for m in FACEFUSION_MODELS.values() if m.pack == pack_id]
+
+
+def _facefusion_items_for(pack_id: str) -> Callable[[Path, dict | None], list[Item]]:
+    def items(root: Path, _catalog: dict | None) -> list[Item]:
+        out: list[Item] = list(_yunet_items(root, _catalog)) if pack_id == "faceswap" else []
+        for m in _facefusion_pack_models(pack_id):
+            base = f"{FACEFUSION_ASSETS}/{m.release}/{m.name}"
+            rel = f"{FACEFUSION_MODELS_SUBDIR}/{m.name}"
+            min_bytes = max(1_000, int(m.size_mb * 1_000_000 * 0.97))
+            out.append(FileItem(f"{pack_id}:facefusion", f"{m.name}.onnx", f"{rel}.onnx",
+                                f"{base}.onnx", Expected(min_bytes=min_bytes)))  # fmt: skip
+            out.append(FileItem(f"{pack_id}:facefusion", f"{m.name}.hash", f"{rel}.hash",
+                                f"{base}.hash", Expected(min_bytes=8)))  # fmt: skip
+        return out
+
+    return items
+
+
+def _read_hash(path: Path) -> str:
+    try:
+        return path.read_text("utf-8", errors="replace").strip().lower()[:8]
+    except OSError:
+        return ""
+
+
+def facefusion_models_ready(root: Path, names: list[str] | tuple[str, ...]) -> list[str]:
+    """Cheap check (no hashing): names whose .onnx or .hash is missing, or whose .hash does not
+    match the pinned CRC32. [] = all there."""
+    folder = facefusion_dir(root)
+    bad: list[str] = []
+    for name in names:
+        model = FACEFUSION_MODELS[name]
+        onnx, hsh = folder / f"{name}.onnx", folder / f"{name}.hash"
+        missing = not onnx.is_file() or not hsh.is_file()
+        if missing or (model.crc32 and _read_hash(hsh) != model.crc32):
+            bad.append(name)
+    return bad
+
+
+def crc32_file(path: Path, chunk: int = 4 * 1024 * 1024) -> str:
+    import zlib  # noqa: PLC0415
+
+    crc = 0
+    with path.open("rb") as fh:
+        while block := fh.read(chunk):
+            crc = zlib.crc32(block, crc)
+    return f"{crc & 0xFFFFFFFF:08x}"
+
+
+def verify_facefusion_models(
+    root: Path, names: list[str] | tuple[str, ...], *, on_line: Callable[[str], None] | None = None
+) -> list[str]:
+    """Full check: crc32(onnx) == .hash (== pinned CRC32), as FaceFusion's hash_helper does. A
+    stamp (size + mtime per file) in models/facefusion/.studio-crc.json skips files already checked.
+    Returns the names that failed (missing or corrupt)."""
+    say = on_line or (lambda _l: None)
+    folder = facefusion_dir(root)
+    stamp_path = folder / FACEFUSION_CRC_STAMP
+    try:
+        stamp: dict[str, Any] = json.loads(stamp_path.read_text("utf-8"))
+    except (OSError, ValueError):
+        stamp = {}
+    bad = facefusion_models_ready(root, names)
+    changed = False
+    for name in names:
+        if name in bad:
+            continue
+        onnx = folder / f"{name}.onnx"
+        st = onnx.stat()
+        key = [st.st_size, st.st_mtime_ns]
+        expected = _read_hash(folder / f"{name}.hash")
+        cached = stamp.get(name)
+        if isinstance(cached, dict) and cached.get("key") == key and cached.get("crc") == expected:
+            continue
+        say(f"verificando CRC32 de {name}.onnx")
+        crc = crc32_file(onnx)
+        if crc != expected:
+            say(f"{name}.onnx dañado (CRC32 {crc}, se esperaba {expected})")
+            stamp.pop(name, None)
+            bad.append(name)
+        else:
+            stamp[name] = {"key": key, "crc": crc}
+        changed = True
+    if changed and folder.is_dir():
+        tmp = stamp_path.with_name(FACEFUSION_CRC_STAMP + ".tmp")
+        tmp.write_text(json.dumps(stamp, indent=1) + "\n", "utf-8")
+        tmp.replace(stamp_path)
+    return bad
+
+
+def _facefusion_post_install(pack_id: str) -> Callable[[Path], None]:
+    def post(root: Path) -> None:
+        names = [m.name for m in _facefusion_pack_models(pack_id)]
+        bad = verify_facefusion_models(root, names, on_line=lambda line: log.info(line))
+        if bad:
+            for name in bad:  # a corrupt file is downloaded again on the next try
+                (facefusion_dir(root) / f"{name}.onnx").unlink(missing_ok=True)
+            names = ", ".join(bad)
+            raise RuntimeError(f"Modelos de FaceFusion dañados (CRC32): {names}. Reintentá.")
+
+    return post
+
+
+def _facefusion_installed(pack_id: str) -> Callable[[Path], bool]:
+    def check(root: Path) -> bool:
+        names = [m.name for m in _facefusion_pack_models(pack_id)]
+        return not facefusion_models_ready(root, names)
+
+    return check
+
+
+def _faceswap_tool_status() -> dict:
+    from .face.tool import tool_summary  # noqa: PLC0415
+
+    return tool_summary()
+
+
+def _faceswap_status_rows(_root: Path) -> list[dict[str, Any]]:
+    from .face.tool import tool_status_rows  # noqa: PLC0415
+
+    return tool_status_rows()
+
+
+def _faceswap_env(_root: Path, say: Callable[[str], None]) -> None:
+    from .face.tool import ensure_tool  # noqa: PLC0415
+
+    ensure_tool(say)
+
+
+_FACESWAP_LICENSE = (
+    "OpenRAIL-AS (FaceFusion) + modelos no comerciales, ResearchRAIL, GPL-3, Apache, MIT, "
+    "CC-BY-4.0 — aislado en tools\\facefusion"
+)
+PACKS["faceswap"] = Pack(
+    id="faceswap",
+    name_es="Cambio de cara (FaceFusion 3.9.1)",
+    description_es=(
+        "Pone la cara de una Persona registrada con su consentimiento sobre la de un clip (por "
+        "ejemplo, un doble de riesgo). FaceFusion corre aparte (tools\\facefusion, Python 3.12) y "
+        "su analizador de contenido queda siempre activo. Requiere aceptar en pantalla la licencia "
+        "(modelos de uso no comercial). En GPU usa ~3,5 GB; sin GPU es muy lento."
+    ),
+    group="faceswap",
+    license=_FACESWAP_LICENSE,
+    required_by=("face.swap", "face.preview", "face.detect"),
+    pip=(NUMPY, OPENCV_HEADLESS),
+    approx_size=int(sum(m.size_mb for m in _facefusion_pack_models("faceswap")) * 1_000_000)
+    + YUNET_SIZE
+    + OPENCV_HEADLESS.size
+    + FACEFUSION_VENV_SIZE,
+    items=_facefusion_items_for("faceswap"),
+    post_install=_facefusion_post_install("faceswap"),
+    installed_check=_facefusion_installed("faceswap"),
+    post_install_env=_faceswap_env,
+    extra_status=_faceswap_status_rows,
+    licence_gate="faceswap",
+    tool_status=_faceswap_tool_status,
+    notes=(
+        "FaceFusion 3.9.1 (72470819) en tools/facefusion/.venv; modelos .onnx + .hash de "
+        "facefusion-assets (GitHub releases), CRC32 verificado; sha256 de la primera descarga"
+    ),
+)
+PACKS["faceswap-extra"] = Pack(
+    id="faceswap-extra",
+    name_es="Modelos extra de cambio de cara",
+    description_es=(
+        "Modelos alternativos para «Cambiar cara»: Ghost 1 (Apache-2.0, 256 px) e InSwapper "
+        "(128 px, rápido, uso no comercial). Requiere el paquete «Cambio de cara»."
+    ),
+    group="faceswap",
+    license="Apache-2.0 (Ghost) + No comercial (InsightFace, InSwapper)",
+    required_by=("face.swap.extra",),
+    approx_size=int(sum(m.size_mb for m in _facefusion_pack_models("faceswap-extra")) * 1_000_000),
+    items=_facefusion_items_for("faceswap-extra"),
+    post_install=_facefusion_post_install("faceswap-extra"),
+    installed_check=_facefusion_installed("faceswap-extra"),
+    post_install_env=_faceswap_env,
+    extra_status=_faceswap_status_rows,
+    licence_gate="faceswap",
+    tool_status=_faceswap_tool_status,
+    notes="ghost_1_256 + crossface_ghost + inswapper_128_fp16 (facefusion-assets models-3.0.0)",
+)
+FEATURE_PACKS["face.swap"] = "faceswap"
+FEATURE_PACKS["face.preview"] = "faceswap"
+FEATURE_PACKS["face.swap.extra"] = "faceswap-extra"
+# END sprint4:M1

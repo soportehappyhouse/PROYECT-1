@@ -28,6 +28,9 @@ const CONTRACT_TOOLS = [
   "studio_style_apply",
   "studio_bug_report",
   "studio_search_library",
+  // sprint 4 M1
+  "studio_list_persons",
+  "studio_face_swap",
 ];
 
 const PROJECT = {
@@ -325,6 +328,116 @@ describe("studio-mcp server (MCP protocol, in memory)", () => {
     expect(JSON.stringify(res.content)).toContain("NO_PROJECT");
     const down = await client.callTool({ name: "studio_get_job", arguments: { id: "x" } });
     expect(JSON.stringify(down.content)).toContain("API_UNREACHABLE");
+    await client.close();
+  });
+});
+
+describe("studio-mcp sprint 4 M1: Personas + cambio de cara", () => {
+  it("sends X-Studio-Client: mcp on every request", async () => {
+    const seen: (string | null)[] = [];
+    const fetchImpl: FetchLike = async (_input, init) => {
+      seen.push(new Headers(init?.headers).get("x-studio-client"));
+      return new Response(JSON.stringify([]), { status: 200 });
+    };
+    const api = createStudioApi("http://127.0.0.1:3001", fetchImpl);
+    await api.get("/api/persons");
+    await api.post("/api/agent/plan", { command: "x" });
+    expect(seen).toEqual(["mcp", "mcp"]);
+  });
+
+  it("studio_list_persons returns the summaries (no paths)", async () => {
+    const { deps, calls } = mockApi({
+      "GET /api/persons": () => [
+        {
+          id: "p1",
+          name: "Ana",
+          photos: 2,
+          voiceSamples: 0,
+          face: "vigente",
+          voice: "sin consentimiento",
+        },
+      ],
+    });
+    const out = await run("studio_list_persons", { scope: "face" }, deps);
+    expect(calls[0]!.url).toBe("/api/persons?scope=face");
+    expect(out).toEqual({
+      count: 1,
+      persons: [
+        {
+          id: "p1",
+          name: "Ana",
+          face: "vigente",
+          voice: "sin consentimiento",
+          photos: 2,
+          voiceSamples: 0,
+        },
+      ],
+    });
+  });
+
+  it("studio_face_swap posts the clip asset with target + confirmed and waits", async () => {
+    const { deps, calls } = mockApi({
+      "GET /api/projects/p1": () => PROJECT,
+      "POST /api/face/swap": () => ({ jobId: "j9" }),
+      "GET /api/jobs/j9": () => ({
+        id: "j9",
+        type: "face.swap",
+        status: "succeeded",
+        progress: 1,
+        result: { assetId: "a2", clipId: "c1" },
+      }),
+    });
+    const out = await run(
+      "studio_face_swap",
+      { projectId: "p1", clipId: "c1", personId: "per1", t: 1, faceIndex: 1, confirmed: true },
+      deps,
+    );
+    expect(calls[1]!.body).toEqual({
+      personId: "per1",
+      assetId: "a1",
+      // timeline 1 s of the clip (start 0, in 2, speed 2) = 4 s of the asset
+      selector: { mode: "reference", t: 4, faceIndex: 1 },
+      options: {},
+      target: { projectId: "p1", clipId: "c1" },
+      confirmed: true,
+    });
+    expect(out).toMatchObject({ jobId: "j9", status: "succeeded", assetId: "a2", clipId: "c1" });
+  });
+
+  it("the MCP schema rejects studio_face_swap without confirmed: true", async () => {
+    const posted: string[] = [];
+    const fetchImpl: FetchLike = async (input, init) => {
+      if (init?.method === "POST") posted.push(String(input));
+      return new Response(JSON.stringify(PROJECT), { status: 200 });
+    };
+    const server = createStudioMcpServer({
+      api: createStudioApi("http://127.0.0.1:3001", fetchImpl),
+      deps: { storageDir: async () => undefined },
+    });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test", version: "1.0.0" });
+    await Promise.all([server.connect(a), client.connect(b)]);
+    const tool = (await client.listTools()).tools.find((t) => t.name === "studio_face_swap")!;
+    expect(tool.description).toContain("nadie en el video es menor de edad");
+    expect(tool.annotations?.destructiveHint).toBe(true);
+    for (const confirmed of [undefined, false]) {
+      const res = await client
+        .callTool({
+          name: "studio_face_swap",
+          arguments: {
+            projectId: "p1",
+            clipId: "c1",
+            personId: "per1",
+            ...(confirmed !== undefined && { confirmed }),
+          },
+        })
+        .catch((err: unknown) => ({
+          isError: true,
+          content: [{ type: "text", text: String(err) }],
+        }));
+      expect(res.isError).toBe(true);
+    }
+    expect(posted).toEqual([]);
     await client.close();
   });
 });

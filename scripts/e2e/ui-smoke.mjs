@@ -1560,6 +1560,159 @@ await step(
   },
 );
 
+// ---------------------------------------------------------------- BEGIN sprint4:M1
+// «Caras»: Ajustes → Personas (create, photo, signature on the canvas, consent vigente) and the
+// «Cambiar cara» wizard against workers-with-mocks.py (packs faceswap installed, fake FaceFusion
+// that draws a box on the face). The licence is accepted in its on-screen dialog.
+const m1 = {};
+async function m1Lavfi(name, graph, extra = []) {
+  const { mkdtemp } = await import("node:fs/promises");
+  const os = await import("node:os");
+  m1.dir ??= await mkdtemp(path.join(os.tmpdir(), "studio-ui-m1-"));
+  const file = path.join(m1.dir, name);
+  const r = spawnSync("ffmpeg", ["-y", "-v", "error", "-f", "lavfi", "-i", graph, ...extra, file]);
+  if (r.status !== 0) throw new Error(`ffmpeg ${name}: ${r.stderr}`);
+  return file;
+}
+/** A Person with a photo and a face consent made through the api (web Origin). */
+async function m1ApiPerson(name) {
+  const { readFile } = await import("node:fs/promises");
+  const person = await apiSend("POST", "/api/persons", { name });
+  const photo = await m1Lavfi(`${person.id}.png`, "color=c=gray:s=320x320", ["-frames:v", "1"]);
+  const pf = new FormData();
+  pf.append("photo", new Blob([await readFile(photo)], { type: "image/png" }), "cara.png");
+  await fetch(`${API}/api/persons/${person.id}/photos`, { method: "POST", body: pf });
+  const sig = await m1Lavfi(`${person.id}-firma.png`, "color=c=white:s=240x90", ["-frames:v", "1"]);
+  const cf = new FormData();
+  for (const [k, v] of Object.entries({ scope: "face", method: "firma en pantalla",
+    signer_name: name, text_version: "2026-10-06", accept: "true" })) cf.append(k, v); // prettier-ignore
+  cf.append("evidence", new Blob([await readFile(sig)], { type: "image/png" }), "firma.png");
+  const res = await fetch(`${API}/api/persons/${person.id}/consents`, {
+    method: "POST",
+    headers: { origin: WEB },
+    body: cf,
+  });
+  if (res.status !== 201) throw new Error(`consent -> ${res.status} ${await res.text()}`);
+  return person;
+}
+
+await step(
+  "Sprint 4: Ajustes → Personas: crear, firmar en pantalla, consentimiento vigente",
+  async () => {
+    const name = `Martín E2E ${Date.now() % 10000}`;
+    await page.getByRole("button", { name: "Ajustes" }).click();
+    await page.getByRole("tab", { name: "Personas" }).click();
+    await page.getByPlaceholder(/Nombre de la persona/).fill(name);
+    await page.getByRole("button", { name: "Nueva persona" }).click();
+    const detail = page.getByLabel(`Persona ${name}`);
+    await detail.waitFor({ timeout: 10_000 });
+    const photo = await m1Lavfi("ui-cara.png", "color=c=gray:s=320x320", ["-frames:v", "1"]);
+    await page.getByLabel("Subir fotos").setInputFiles(photo);
+    await detail.getByAltText(`Foto de ${name}`).first().waitFor({ timeout: 15_000 });
+    const form = page.getByLabel("Registrar consentimiento", { exact: true });
+    const text = await form.getByTestId("consent-text").innerText();
+    if (!text.includes(`Yo, ${name}, mayor de edad`)) throw new Error(`consent text: ${text}`);
+    const pad = await form.getByLabel("Recuadro para firmar").boundingBox();
+    await page.mouse.move(pad.x + 20, pad.y + pad.height * 0.7);
+    await page.mouse.down();
+    for (const [fx, fy] of [
+      [0.3, 0.3],
+      [0.5, 0.8],
+      [0.7, 0.2],
+      [0.9, 0.6],
+    ])
+      await page.mouse.move(pad.x + fx * pad.width, pad.y + fy * pad.height, { steps: 6 });
+    await page.mouse.up();
+    await form.getByRole("checkbox", { name: /Leí este texto con la persona/ }).check();
+    await form.getByRole("button", { name: "Registrar consentimiento" }).click();
+    await page
+      .getByLabel("Personas registradas")
+      .getByText("Rostro: vigente")
+      .first()
+      .waitFor({ timeout: 15_000 });
+    await shot(page, "s4-personas.png");
+    await page.keyboard.press("Escape");
+    const row = (await apiJson("/api/persons")).find((p) => p.name === name);
+    if (row?.face !== "vigente") throw new Error(`api: ${JSON.stringify(row)}`);
+    m1.personName = name;
+    return { person: row.id, photos: row.photos };
+  },
+);
+
+await step(
+  "Sprint 4: Cambiar cara (mock): vista previa, aplicar, insignia IA, deshacer",
+  async () => {
+    const pack = (await apiJson("/api/ai/packs")).find((p) => p.id === "faceswap");
+    if (!pack) throw new Error("pack faceswap not listed by /api/ai/packs");
+    if (!pack.installed) return { skipped: "faceswap not installed (STUDIO_MOCK_FACE=0)" };
+    await fetch(`${API}/api/ai/licences/faceswap/revoke`, { method: "POST" }).catch(
+      () => undefined,
+    );
+    const name = m1.personName ?? (await m1ApiPerson(`Lucía E2E ${Date.now() % 10000}`)).name;
+    const { readFile } = await import("node:fs/promises");
+    const file = await m1Lavfi("ui-doble.mp4", "testsrc2=s=640x360:r=25:d=3", [
+    "-c:v", "libx264", "-pix_fmt", "yuv420p",
+  ]); // prettier-ignore
+    const fd = new FormData();
+    fd.append("file", new Blob([await readFile(file)]), "ui-doble.mp4");
+    const asset = await (await fetch(`${API}/api/media`, { method: "POST", body: fd })).json();
+    for (let i = 0; i < 240; i++) {
+      const jobs = (await apiJson("/api/jobs?limit=100")).filter(
+        (j) => j.payload?.assetId === asset.id,
+      );
+      if (jobs.length && jobs.every((j) => !["queued", "running"].includes(j.status))) break;
+      await sleep(500);
+    }
+    const p = await apiSend("POST", "/api/projects", { name: "UI cambiar cara" });
+    const V = p.tracks.find((t) => t.kind === "video");
+    V.clips = [{ id: "uiface", trackId: V.id, assetId: asset.id, start: 0, in: 0, out: 3 }];
+    await apiSend("PUT", `/api/projects/${p.id}`, p);
+    await openProject(p.id);
+    await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).click();
+    await page.locator("[data-clip-id='uiface']").click({ button: "right" });
+    await page.getByRole("menuitem", { name: /Cambiar cara/ }).click();
+    // first use: the licence dialog opens on top of the wizard
+    const licence = page.getByRole("dialog", { name: /Licencia: Cambio de cara/ });
+    await licence.waitFor({ timeout: 10_000 });
+    await licence.getByRole("checkbox", { name: /uso no comercial/ }).check();
+    await licence.getByRole("button", { name: "Aceptar" }).click();
+    await licence.waitFor({ state: "detached", timeout: 10_000 });
+    const wizard = page.getByRole("dialog", { name: "Cambiar cara" });
+    await wizard.getByRole("radio", { name: new RegExp(name) }).check();
+    await wizard.getByRole("button", { name: /Siguiente/ }).click();
+    await wizard.getByRole("button", { name: "Cara 1" }).click({ timeout: 20_000 });
+    await wizard.getByRole("button", { name: /Siguiente/ }).click();
+    await wizard.getByRole("button", { name: /Vista previa de 1 fotograma/ }).click();
+    await wizard.getByAltText("Después").waitFor({ timeout: 60_000 });
+    await shot(page, "s4-cambiar-cara-vista-previa.png");
+    await wizard.getByRole("button", { name: /Siguiente/ }).click();
+    const apply = wizard.getByRole("button", { name: /Aplicar cambio de cara/ });
+    if (!(await apply.isDisabled())) throw new Error("apply enabled before the confirmation");
+    await wizard.getByRole("checkbox", { name: /nadie en el video es menor de edad/ }).check();
+    await apply.click();
+    await wizard.getByText(/^Listo:/).waitFor({ timeout: 120_000 });
+    await wizard.getByRole("button", { name: "Cerrar" }).click();
+    const clipBox = page.locator("[data-clip-id='uiface']");
+    await clipBox.getByText("IA cara").waitFor({ timeout: 10_000 });
+    await clipBox.click();
+    await page.locator(".dv-tab", { hasText: "Propiedades" }).click();
+    await page.getByText(`IA: cara (${name})`).waitFor({ timeout: 10_000 });
+    const swapped = await apiJson(`/api/projects/${p.id}`);
+    const clip = swapped.tracks.flatMap((t) => t.clips).find((c) => c.id === "uiface");
+    if (!clip.faceSwap || clip.assetId === asset.id)
+      throw new Error(`clip ${JSON.stringify(clip)}`);
+    await page.getByRole("button", { name: "Deshacer cambio de cara" }).first().click();
+    await page.getByText("Cambio de cara deshecho").first().waitFor({ timeout: 10_000 });
+    const back = (await apiJson(`/api/projects/${p.id}`)).tracks
+      .flatMap((t) => t.clips)
+      .find((c) => c.id === "uiface");
+    if (back.faceSwap || back.assetId !== asset.id)
+      throw new Error(`undo: ${JSON.stringify(back)}`);
+    return { swappedAsset: clip.assetId, person: name };
+  },
+);
+// ------------------------------------------------------------------ END sprint4:M1
+
 await browser.close();
 console.log(
   `\nconsole errors (${consoleErrors.length}):`,

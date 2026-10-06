@@ -17,6 +17,7 @@ import { assetMeta } from "./MediaPanel";
 import { Panel } from "./Panel";
 import { LayerSection } from "./LayerSection";
 import { KeyframesSection, MatteSection, ReframeSection, TrackingSection } from "./VisionSections";
+import { FaceSwapSection } from "@/components/face/FaceSwapSection";
 
 const TRANSITIONS: Transition["type"][] = ["fade", "crossfade", "wipe", "slide", "zoom"];
 const TRANSITION_LABELS: Record<Transition["type"], string> = {
@@ -424,6 +425,7 @@ export function InspectorPanel() {
         ) : null}
         <TrackingSection clip={clip} track={track} />
         <MatteSection clip={clip} track={track} asset={asset} />
+        <FaceSwapSection clip={clip} track={track} asset={asset} />
 
         {track.kind === "audio" || track.kind === "video" ? (
           <Section title="Audio">

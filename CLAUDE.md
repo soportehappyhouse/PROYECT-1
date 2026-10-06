@@ -26,29 +26,35 @@ código de Studio, leé primero `docs/ARQUITECTURA.md` y `docs/01-PLAN-BASE-v2.m
    dato, preguntá.
 6. Trabajos largos (transcribir, quitar fondo, exportar): lanzalos y esperalos con
    `studio_wait_job`; contá el progreso en una línea.
-7. Si una herramienta devuelve `PACK_REQUIRED`, explicá qué paquete falta y que se descarga en
+7. **Nunca registres consentimientos ni aceptes licencias**: no hay herramienta y la API lo rechaza
+   (`HUMAN_ONLY`); pedile al usuario que lo haga en Ajustes → Personas / Paquetes de IA. Antes de
+   `studio_face_swap` (o de confirmar un `face_swap`) preguntá: «¿Cambio la cara de «clip» por la de
+   «persona»? ¿Confirmás que nadie en el video es menor de edad?». No mires `storage/consent/`.
+8. Si una herramienta devuelve `PACK_REQUIRED`, explicá qué paquete falta y que se descarga en
    Ajustes → Paquetes de IA. Si devuelve `API_UNREACHABLE`, pedí que abran Studio
    (`scripts\windows\start.cmd`).
 
 ## Herramientas
 
-| Herramienta                                    | Para qué                                                                   |
-| ---------------------------------------------- | -------------------------------------------------------------------------- |
-| `studio_get_project`                           | Proyecto compacto: lienzo, duración, pistas y clips con ids y tiempos      |
-| `studio_list_assets`                           | Medios con ruta absoluta del archivo y la miniatura (podés abrir imágenes) |
-| `studio_read_transcript`                       | Subtítulos `[inicio_s, fin_s, texto]`, filtrable por rango                 |
-| `studio_preview_frame {t}`                     | PNG del fotograma en `t` (ruta absoluta): abrilo para mirar el resultado   |
-| `studio_propose_plan {command}`                | EditPlan del asistente local para un pedido en español                     |
-| `studio_validate_plan {plan}`                  | Valida y guarda tu EditPlan → `planId`, vista previa, riesgos              |
-| `studio_apply_plan {planId, confirmedIndexes}` | Aplica (con instantánea para deshacer) y espera el resultado               |
-| `studio_run_job {type, payload}`               | Transcribir, escenas, silencios, fondo, reencuadre, voz, stems…            |
-| `studio_get_job` / `studio_wait_job`           | Estado y resultado de un trabajo (`files`: rutas absolutas)                |
-| `studio_export {preset, confirmed}`            | Exportar (solo con confirmación del usuario)                               |
-| `studio_style_analyze {assetId}`               | Análisis de un video de referencia + hoja de contactos PNG                 |
-| `studio_style_save_preset {preset}`            | Guardar un perfil de estilo (`StylePreset`)                                |
-| `studio_style_apply {presetId}`                | Perfil → plan propuesto (aplicalo con `studio_apply_plan`)                 |
-| `studio_search_library {q}`                    | Efectos de sonido y música                                                 |
-| `studio_bug_report {title, steps}`             | Reporte de error con diagnósticos (zip en `storage/reports`)               |
+| Herramienta                                      | Para qué                                                                    |
+| ------------------------------------------------ | --------------------------------------------------------------------------- |
+| `studio_get_project`                             | Proyecto compacto: lienzo, duración, pistas y clips con ids y tiempos       |
+| `studio_list_assets`                             | Medios con ruta absoluta del archivo y la miniatura (podés abrir imágenes)  |
+| `studio_read_transcript`                         | Subtítulos `[inicio_s, fin_s, texto]`, filtrable por rango                  |
+| `studio_preview_frame {t}`                       | PNG del fotograma en `t` (ruta absoluta): abrilo para mirar el resultado    |
+| `studio_propose_plan {command}`                  | EditPlan del asistente local para un pedido en español                      |
+| `studio_validate_plan {plan}`                    | Valida y guarda tu EditPlan → `planId`, vista previa, riesgos               |
+| `studio_apply_plan {planId, confirmedIndexes}`   | Aplica (con instantánea para deshacer) y espera el resultado                |
+| `studio_run_job {type, payload}`                 | Transcribir, escenas, silencios, fondo, reencuadre, voz, stems…             |
+| `studio_get_job` / `studio_wait_job`             | Estado y resultado de un trabajo (`files`: rutas absolutas)                 |
+| `studio_export {preset, confirmed}`              | Exportar (solo con confirmación del usuario)                                |
+| `studio_style_analyze {assetId}`                 | Análisis de un video de referencia + hoja de contactos PNG                  |
+| `studio_style_save_preset {preset}`              | Guardar un perfil de estilo (`StylePreset`)                                 |
+| `studio_style_apply {presetId}`                  | Perfil → plan propuesto (aplicalo con `studio_apply_plan`)                  |
+| `studio_search_library {q}`                      | Efectos de sonido y música                                                  |
+| `studio_bug_report {title, steps}`               | Reporte de error con diagnósticos (zip en `storage/reports`)                |
+| `studio_list_persons {scope?}`                   | Personas (Ajustes → Personas) y estado de su consentimiento de cara/voz     |
+| `studio_face_swap {clipId, personId, confirmed}` | Cambiar la cara de un clip por la de una Persona con consentimiento vigente |
 
 ### EditPlan (resumen)
 
@@ -59,7 +65,9 @@ código de Studio, leé primero `docs/ARQUITECTURA.md` y `docs/01-PLAN-BASE-v2.m
 `add_captions {style?, animated?}`, `transcribe`, `tts {text, t}`, `voice_effect {clip, effect}`,
 `denoise {clip}`, `add_audio {query|asset, t, volume_db?, duck?}`,
 `remove_background {clip, background}`, `reframe {target}`, `set_canvas {preset}`,
-`set_publish {for_social}`, `export {preset}`, `report_bug {title, steps_es}`.
+`set_publish {for_social}`, `export {preset}`, `report_bug {title, steps_es}`,
+`face_swap {clip, person: {name}|{id}, t?, face_index?, model?, enhancer?, strength?}` (siempre con
+confirmación, como borrar y exportar).
 `clip` = `{id}` (preferido) o `{name}` / `{index, track}`; `t` = segundos, `"start"`, `"end"`,
 `"cursor"`, `{scene: n}` o `{after_clip: {...}}`. Si `studio_validate_plan` devuelve errores, vienen
 en español con la ruta del campo: corregí y volvé a validar.

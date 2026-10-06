@@ -10,7 +10,7 @@ import { useSilencesStore } from "@/stores/silences-store";
 import { cutAtScenes, detectScenes } from "@/components/timeline/scene-actions";
 import { openReport } from "@/stores/report-store";
 import { THEME_LABELS, useSettingsStore } from "@/stores/settings-store";
-import { runAction } from "./actions";
+import { openFaceSwap, openPersons, runAction } from "./actions";
 import { showPanel, togglePanel } from "./dock-controller";
 
 interface PaletteItem {
@@ -127,6 +127,20 @@ export function CommandPalette() {
         label: "Paquetes de IA y test de rendimiento",
         run: () => s().setSettingsOpen(true, "ai-packs"),
       },
+      // BEGIN sprint4:M1 (caras): no shortcut on purpose
+      {
+        id: "ai:persons",
+        group: "IA local",
+        label: "Personas y consentimientos",
+        run: () => openPersons(),
+      },
+      {
+        id: "ai:face-swap",
+        group: "IA local",
+        label: "Cambiar cara del clip seleccionado (Persona con consentimiento)",
+        run: () => openFaceSwap(),
+      },
+      // END sprint4:M1
     );
     list.push({
       id: "report-error",

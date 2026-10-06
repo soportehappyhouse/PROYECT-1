@@ -133,7 +133,8 @@ interface PlanRecordLike {
   model?: string | null;
 }
 
-const ALWAYS_CONFIRM = new Set(["delete_clip", "export"]);
+// = ALWAYS_CONFIRM_OPS (packages/shared/src/agent.ts); sprint 4: face_swap.
+const ALWAYS_CONFIRM = new Set(["delete_clip", "export", "face_swap"]);
 
 function compactPlan(r: PlanRecordLike) {
   const ops = r.plan?.ops ?? [];
@@ -152,6 +153,17 @@ function compactPlan(r: PlanRecordLike) {
       .filter((i) => i >= 0),
     ...(r.model && { model: r.model }),
   };
+}
+
+/** GET /api/persons row (PersonSummary of packages/shared/src/consent.ts; no file paths). */
+interface PersonSummaryLike {
+  id: string;
+  name: string;
+  photos: number;
+  voiceSamples: number;
+  face: string;
+  voice: string;
+  expires_at?: string;
 }
 
 const projectIdArg = z
@@ -552,6 +564,130 @@ export const TOOLS = [
       };
     },
   }),
+  // ------------------------------------------------------------- BEGIN sprint4:M1 (caras)
+  defineTool({
+    name: "studio_list_persons",
+    title: "Listar Personas",
+    description:
+      "Lista las Personas registradas en Ajustes → Personas con el estado de su consentimiento de " +
+      "rostro y de voz (vigente, vencido, revocado o sin consentimiento), cuántas fotos y muestras " +
+      "de voz tienen y cuándo vence. Solo se puede usar la cara de quien tenga face: vigente. Nunca " +
+      "registres consentimientos ni aceptes licencias: no hay herramienta y la API lo rechaza; " +
+      "pedile al usuario que lo haga en Ajustes.",
+    input: {
+      scope: z
+        .enum(["face", "voice"])
+        .optional()
+        .describe("Solo las que tienen ese consentimiento vigente."),
+    },
+    readOnly: true,
+    run: async ({ scope }, { api }) => {
+      const list = await api.get<PersonSummaryLike[]>("/api/persons", { scope });
+      return {
+        count: list.length,
+        persons: list.map((p) => ({
+          id: p.id,
+          name: p.name,
+          face: p.face,
+          voice: p.voice,
+          photos: p.photos,
+          voiceSamples: p.voiceSamples,
+          ...(p.expires_at && { expires_at: p.expires_at }),
+        })),
+      };
+    },
+  }),
+  defineTool({
+    name: "studio_face_swap",
+    title: "Cambiar cara",
+    description:
+      "Cambia la cara de un clip de video por la de una Persona registrada con consentimiento de " +
+      "rostro vigente (studio_list_persons). ANTES preguntale al usuario, con estas palabras: " +
+      "«¿Cambio la cara de «<clip>» por la de «<persona>»? ¿Confirmás que nadie en el video es " +
+      "menor de edad?» y pasá confirmed: true solo si contestó que sí a las dos. Necesita la " +
+      "licencia del cambio de cara aceptada en pantalla (Ajustes → Paquetes de IA) y el paquete " +
+      "faceswap; nunca registres consentimientos ni aceptes licencias por tu cuenta. El resultado " +
+      "es un video nuevo marcado como contenido alterado con IA y se deshace con «Deshacer cambio " +
+      "de cara» en Propiedades. Espera el resultado (wait=true por defecto) y devuelve assetId y clipId.",
+    input: {
+      projectId: projectIdArg,
+      clipId: z.string().min(1).describe("Id del clip de video (studio_get_project)."),
+      personId: z.string().min(1).describe("Id de la Persona (studio_list_persons)."),
+      t: z
+        .number()
+        .min(0)
+        .optional()
+        .describe("Segundo de la línea de tiempo donde se ve la cara a cambiar (con faceIndex)."),
+      faceIndex: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe("Cara a cambiar en ese momento, de izquierda a derecha (0 = la primera)."),
+      model: z
+        .enum(["hyperswap_1a_256", "ghost_1_256", "inswapper_128_fp16"])
+        .optional()
+        .describe("hyperswap_1a_256 (recomendado), ghost_1_256 o inswapper_128_fp16 (rápido)."),
+      enhancer: z.boolean().optional().describe("Mejorar la nitidez de la cara (por defecto sí)."),
+      strength: z.number().min(0.1).max(1).optional().describe("Intensidad 0.1–1 (por defecto 1)."),
+      confirmed: z
+        .literal(true)
+        .describe("true = el usuario confirmó el consentimiento y que nadie es menor de edad."),
+      wait: z.boolean().optional(),
+    },
+    destructive: true,
+    run: async (args, deps) => {
+      const { api } = deps;
+      const id = await resolveProjectId(api, args.projectId);
+      const project = await api.get<ProjectLike>(`/api/projects/${encodeURIComponent(id)}`);
+      const clip = project.tracks.flatMap((t) => t.clips).find((c) => c.id === args.clipId);
+      if (!clip?.assetId)
+        throw new StudioApiError(404, "NOT_FOUND", `No hay un clip de video «${args.clipId}»`);
+      const speed = clip.speed || 1;
+      const selector =
+        args.t !== undefined || args.faceIndex !== undefined
+          ? {
+              mode: "reference",
+              t:
+                Math.round(
+                  Math.max(
+                    clip.in ?? 0,
+                    (clip.in ?? 0) + ((args.t ?? clip.start) - clip.start) * speed,
+                  ) * 1000,
+                ) / 1000,
+              faceIndex: args.faceIndex ?? 0,
+            }
+          : { mode: "one" };
+      const res = await api.post<{ jobId: string }>("/api/face/swap", {
+        personId: args.personId,
+        assetId: clip.assetId,
+        selector,
+        options: {
+          ...(args.model && { model: args.model }),
+          ...(args.enhancer !== undefined && { enhancer: args.enhancer }),
+          ...(args.strength !== undefined && { strength: args.strength }),
+        },
+        target: { projectId: id, clipId: args.clipId },
+        confirmed: true,
+      });
+      if (args.wait === false) return { jobId: res.jobId, status: "queued" };
+      const job = await waitJob(deps, res.jobId, 3600);
+      const result = (job.result ?? {}) as {
+        assetId?: string;
+        clipId?: string;
+        warnings?: string[];
+      };
+      return {
+        jobId: res.jobId,
+        status: job.status,
+        ...(result.assetId && { assetId: result.assetId }),
+        clipId: result.clipId ?? args.clipId,
+        ...(result.warnings?.length && { warnings: result.warnings }),
+        ...(job.status !== "succeeded" && { job }),
+      };
+    },
+  }),
+  // --------------------------------------------------------------- END sprint4:M1 (caras)
 ] as const;
 
 export const TOOL_NAMES = TOOLS.map((t) => t.name);

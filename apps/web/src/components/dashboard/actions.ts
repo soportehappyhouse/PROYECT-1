@@ -6,6 +6,7 @@ import { focusAssistant } from "@/stores/agent-store";
 import { focusConsole } from "@/stores/console-store";
 import { keyOrPause, REFRAME_OWNER, useKeyframeStore } from "@/stores/keyframe-store";
 import { useProjectStore } from "@/stores/project-store";
+import { useFaceStore } from "@/stores/face-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { showPanel } from "./dock-controller";
 
@@ -97,4 +98,21 @@ export function runAction(id: ShortcutActionId): void {
       focusConsole();
       break;
   }
+}
+
+// ---- Sprint 4 M1 (caras): palette / menu entries without a shortcut on purpose -----------------
+
+/** Ajustes → Personas y consentimientos. */
+export function openPersons(): void {
+  useSettingsStore.getState().setSettingsOpen(true, "persons");
+}
+
+/** «Cambiar cara…» on `clipId` (default: the selected clip). */
+export function openFaceSwap(clipId?: string): void {
+  const id = clipId ?? useProjectStore.getState().selectedClipId;
+  if (!id) {
+    toast.message("Elegí un clip de video para cambiarle la cara");
+    return;
+  }
+  void useFaceStore.getState().openWizard(id);
 }

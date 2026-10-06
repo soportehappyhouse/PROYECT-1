@@ -17,6 +17,7 @@ from .routers import (
     agent,
     analyze,
     audio,
+    face,
     gpu,
     health,
     jobs,
@@ -80,6 +81,7 @@ def create_app() -> FastAPI:
     app.include_router(vision.router)
     app.include_router(agent.router)
     app.include_router(style.router)  # Sprint 3b: perfil de estilo
+    app.include_router(face.router)  # Sprint 4 M1: detectar caras + cambio de cara (FaceFusion)
     return app
 
 

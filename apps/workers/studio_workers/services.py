@@ -125,3 +125,30 @@ def reset() -> None:
     audio_queue.cache_clear()
     # tests may monkeypatch ollama_client with a plain factory (fake Ollama transport)
     getattr(ollama_client, "cache_clear", lambda: None)()
+
+
+# BEGIN sprint4:M1 — face swap engine (FaceFusion subprocess) + its own one-at-a-time queue
+@lru_cache
+def face_engine():  # type: ignore[no-untyped-def]  # -> face.engine.FaceEngine
+    from .face.engine import FaceEngine  # noqa: PLC0415
+
+    return FaceEngine(get_settings(), budget=gpu_budget())
+
+
+@lru_cache
+def face_queue() -> TaskQueue:
+    """Face previews / swaps: one at a time (one GPU, FaceFusion uses ~3.5 GB)."""
+    return TaskQueue("face")
+
+
+_reset_before_sprint4_m1 = reset
+
+
+def reset() -> None:  # noqa: F811 - extends reset() above (face engine + queue)
+    # tests may monkeypatch them with plain factories
+    getattr(face_engine, "cache_clear", lambda: None)()
+    getattr(face_queue, "cache_clear", lambda: None)()
+    _reset_before_sprint4_m1()
+
+
+# END sprint4:M1

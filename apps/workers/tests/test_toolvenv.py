@@ -14,6 +14,7 @@ import sys
 import time
 import types
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -673,18 +674,52 @@ def test_verify_records_providers(tv: dict[str, Any]) -> None:
     assert toolvenv.status("facefusion", use_cuda=False)["state"] == "ready"
 
 
+def _wait_until(cond: Callable[[], bool], timeout: float = 5.0) -> bool:
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if cond():
+            return True
+        time.sleep(0.01)
+    return cond()
+
+
 def test_idle_timer_fires_once_after_last_touch() -> None:
+    # Generous margins (busy Windows runners, 15.6 ms clock): what matters is the order.
     fired: list[float] = []
-    timer = toolvenv.IdleTimer(0.15, lambda: fired.append(time.monotonic()))
+    timer = toolvenv.IdleTimer(0.6, lambda: fired.append(time.monotonic()))
     timer.touch()
-    time.sleep(0.08)
+    time.sleep(0.3)
+    last = time.monotonic()
     timer.touch()  # restarts the countdown
-    time.sleep(0.08)
-    assert fired == []
+    time.sleep(0.3)
+    assert fired == []  # 0.6 s after the first touch, but only 0.3 s after the last one
+    assert _wait_until(lambda: len(fired) == 1)
+    assert fired[0] - last >= 0.6 - 0.05
     time.sleep(0.2)
-    assert len(fired) == 1
+    assert len(fired) == 1  # once
     off = toolvenv.IdleTimer(0, lambda: fired.append(0))
     off.touch()
     time.sleep(0.05)
     assert len(fired) == 1
     timer.cancel()
+
+
+def test_idle_timer_early_wake_is_rescheduled_and_stale_timers_ignored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fired: list[int] = []
+    timer = toolvenv.IdleTimer(0.3, lambda: fired.append(1))
+    # the clock says it is far too early (coarse clock / early wake): the release must not be
+    # dropped, it runs once the rest of the wait has passed
+    real = time.monotonic
+    skew = {"s": 0.0}
+    monkeypatch.setattr(toolvenv.time, "monotonic", lambda: real() - skew["s"])
+    timer.touch()
+    skew["s"] = 0.25  # from now on the clock reads 0.25 s behind: the first wake looks early
+    assert _wait_until(lambda: fired == [1], timeout=3.0)
+    # only the current timer's thread may release: a call from anywhere else is a no-op
+    timer.touch()
+    timer._fire()
+    timer.cancel()
+    time.sleep(0.5)
+    assert fired == [1]

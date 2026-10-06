@@ -1263,6 +1263,9 @@ def verify(
 # -------------------------------------------------------------------------- idle shutdown
 
 
+_IDLE_EARLY_S = 0.02  # an idle timer that wakes up this much early still fires
+
+
 class IdleTimer:
     """Calls ``on_idle`` once ``idle_s`` passed since the last ``touch()`` (RVC / Chatterbox
     release the GPU budget after a while without use). ``idle_s`` <= 0 disables it."""
@@ -1288,7 +1291,15 @@ class IdleTimer:
 
     def _fire(self) -> None:
         with self._lock:
-            if time.monotonic() - self.last_used < self.idle_s * 0.99:
+            if threading.current_thread() is not self._timer:
+                return  # superseded by a later touch() / cancel()
+            remaining = self.idle_s - (time.monotonic() - self.last_used)
+            if remaining > _IDLE_EARLY_S:
+                # Woke up early by the clocks (time.monotonic ticks every ~15.6 ms on Windows):
+                # wait for the rest instead of dropping the release until the next touch().
+                self._timer = threading.Timer(remaining, self._fire)
+                self._timer.daemon = True
+                self._timer.start()
                 return
             self._timer = None
         try:

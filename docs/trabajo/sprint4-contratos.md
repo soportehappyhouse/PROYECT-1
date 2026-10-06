@@ -403,6 +403,11 @@ Criterio 5 del plan: un cambio de cara solo corre con consentimiento registrado 
   montarse (dockview lo deja montado): una Persona con consentimiento de voz registrada después no
   aparecía hasta recargar. `lib/api-persons.ts` emite `studio:persons:changed` tras cada cambio y
   el panel recarga con ese evento, al elegir Chatterbox y al enfocar «Voz a clonar». Test web nuevo.
+- **`IdleTimer` (M3)**: un despertar «temprano» según `time.monotonic()` (≈ 15,6 ms de resolución
+  en Windows) descartaba el timer sin reprogramarlo y la GPU de RVC/Chatterbox no se liberaba hasta
+  otro uso. Ahora solo se ignoran los timers reemplazados y, si despertó antes, espera el resto.
+  Tests nuevos (uno falla con el código anterior) y márgenes amplios en el existente (fallaba de
+  forma intermitente en windows-latest).
 - **Procedencia en RVC (M2 ↔ M3)**: `voice.rvc` usa `inheritAiProvenance(source, {jobId})` de
   `services/ai-provenance.ts` (se quitó `inheritVoiceProvenance`): el asset derivado guarda el
   `jobId` del RVC como el resto de las herencias (antes quedaba el del TTS de origen).

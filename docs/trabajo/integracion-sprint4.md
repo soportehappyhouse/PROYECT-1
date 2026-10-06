@@ -36,10 +36,16 @@ de `setup.ps1`, `doctor.ps1` y `common.ps1` no usen sintaxis de PowerShell 7 (co
 - **CI en GitHub** (antes de la integración): 3e81f1a y 3cf9511 fallaban en `Python workers
   (windows-latest)` (3 tests) y `Node (windows-latest)` (`persons.test.ts`; en 3cf9511 también el
   timeout de `agent.test.ts`). Ubuntu y el smoke de Windows, verdes. Causas y arreglos abajo.
+- **CI tras la integración**: c5d312d 5/5 verde. f1f230e (solo web y docs) falló en windows-latest
+  por dos intermitentes ajenos al cambio: `test_idle_timer_fires_once_after_last_touch` (destapó
+  el bug 9, arreglado) y un job de exportación de `ffmpeg.integration.test.ts` (test de sprints
+  anteriores) colgado 242 s, sin salida en el log; pasó en las 3 corridas anteriores y en el
+  sandbox. Se agregó diagnóstico al helper (tipo, estado, progreso y cola del log del job) para
+  identificarlo si vuelve.
 - **Desde cero**: `pnpm install --frozen-lockfile` (lockfile sin cambios), `lint`, `format:check`,
   `-r typecheck`, `-r build`, `-r test` OK: shared 103, studio-mcp 18, motion-engines 22, remotion
   55 + 1 skip, web 227, api 270 + 1 skip. `studio-mcp smoke`: 18 herramientas. Workers: ruff OK
-  (también sobre `tools/`), pytest **449 passed, 9 skipped** (6 de Ollama real, 1 venv real de
+  (también sobre `tools/`), pytest **450 passed, 9 skipped** (6 de Ollama real, 1 venv real de
   herramientas `STUDIO_TOOL_VENV_TESTS=1`, 2 sin torch). `validate-dataset.py`: OK (golden 80,
   `face_swap` = 3). 6 `.ps1` parsean. Búsqueda de secretos en `git diff origin/main`: vacía (solo
   `https://evil.example` de un test de `Origin` y hosts públicos documentados).
@@ -79,6 +85,7 @@ de `setup.ps1`, `doctor.ps1` y `common.ps1` no usen sintaxis de PowerShell 7 (co
 | 6 | Smoke de `studio-mcp` aceptaba 16 herramientas | exige ≥ 18 | `pnpm --filter @studio/studio-mcp smoke` |
 | 7 | Tamaño de Chatterbox: 6,2 GB (pack/UI) vs 6,5 GB (`setup.ps1`, `doctor.ps1`, guía) | 6,2 GB en todos lados | — |
 | 8 | **«Voz a clonar» no veía Personas nuevas** (M1 ↔ M2, lo destapó el ui-smoke completo): el panel de Voz cargaba `GET /api/persons?scope=voice` solo al montarse y dockview lo deja montado; una Persona registrada (o revocada) en Ajustes → Personas con el panel abierto no aparecía (o seguía ofrecida) hasta recargar la página. Con `--only` el paso de M2 pasaba porque el panel se montaba después | `lib/api-persons.ts` (M1) emite `studio:persons:changed` tras cada cambio; `voice-clone-store` (M2) `loadPersons()`; `VoicePanel` recarga con ese evento, al elegir el motor Chatterbox y al enfocar «Voz a clonar» (cambios hechos por la api o la consola) | `voice-clone.test.tsx` «a Person registered or revoked while the panel is open…»; ui-smoke completo |
+| 9 | **`IdleTimer` podía no liberar nunca la GPU** (M3, lo destapó un fallo intermitente en windows-latest): si el hilo del timer despertaba «antes» según `time.monotonic()` (≈ 15,6 ms de resolución en Windows), `_fire` lo descartaba sin reprogramarse y la liberación de RVC/Chatterbox quedaba esperando otro `touch()`; en producción lo tapaba el margen del 1 % de 120/300 s, en el test de 0,15 s no | `_fire` ignora solo los timers reemplazados (`threading.current_thread() is not self._timer`) y, si despertó antes, espera el resto | `test_idle_timer_early_wake_is_rescheduled_and_stale_timers_ignored` (falla con el código viejo); `test_idle_timer_fires_once_after_last_touch` con márgenes amplios |
 
 Costuras revisadas sin cambios: `ConsentGate` de M1 en la voz de M2 (403 scope/revocado/vencido, 409
 sin muestra, revalidación al empezar el job); `tool_status`/`extra_status`/`post_install_env` de los

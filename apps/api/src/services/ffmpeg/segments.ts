@@ -5,6 +5,7 @@ import {
   aiLabelText,
   effectiveBurnSubtitles,
   subtitlesToBurn,
+  tracksInZOrder,
   type Clip,
   type ExportPreset,
   type Project,
@@ -183,6 +184,7 @@ export interface SegmentHashInput {
  * encoder, ffmpeg version and COMPILER_VERSION. Sprint 2: keyframes (rebased to the window; the
  * caller resolves trackRef to keyframes first, so the track content is hashed through them), matte
  * (+ alpha / background asset stamps) and project.reframe with the window start when it applies.
+ * Sprint 3b: tracks in z-order, blend mode and mask (+ mask asset stamp, fps).
  * Audio-only fields (volume, voice effects, muted,
  * audio tracks) are left out: audio is rendered separately.
  */
@@ -190,7 +192,9 @@ export function segmentHash(h: SegmentHashInput): string {
   const { project, window: win } = h;
   const rel = (t: number) => t - win.start;
   const used = new Set<string>();
-  const tracks = project.tracks
+  const fpsMatters = new Set<string>();
+  // Sprint 3b: z-order (Track.order) decides the stacking, so the list is hashed in that order.
+  const tracks = tracksInZOrder(project.tracks)
     .filter((t) => t.kind !== "audio" && !t.hidden)
     .map((t) => {
       if (t.kind === "text")
@@ -220,6 +224,12 @@ export function segmentHash(h: SegmentHashInput): string {
             const bg = c.matte.background;
             if (bg?.value && (bg.type === "image" || bg.type === "video")) used.add(bg.value);
           }
+          if (c.maskRef?.type === "asset") {
+            used.add(c.maskRef.assetId);
+            // SAM mask folders are numbered with the mask (else source) frame rate.
+            fpsMatters.add(c.maskRef.assetId);
+            if (id) fpsMatters.add(id);
+          }
           return {
             id,
             start: c.start,
@@ -237,6 +247,9 @@ export function segmentHash(h: SegmentHashInput): string {
             trackRef: c.trackRef,
             matte: c.matte,
             motion: c.trackRef ? c.motion?.template : undefined,
+            // Sprint 3b layers (absent = old hash unchanged).
+            blend: c.blendMode && c.blendMode !== "normal" ? c.blendMode : undefined,
+            mask: c.maskRef,
           };
         }),
       };
@@ -259,6 +272,7 @@ export function segmentHash(h: SegmentHashInput): string {
           codec: a.videoCodec,
           w: a.width,
           h: a.height,
+          fps: fpsMatters.has(id) ? a.fps : undefined,
           file: h.stamps.get(id),
         },
       ];

@@ -60,6 +60,7 @@ export function createProjectExportHandler(
       ctx.reportProgress(0.01, "Preparando exportación");
       const ids = new Set<string>();
       const trackIds = new Set<string>();
+      const maskIds = new Set<string>();
       for (const t of project.tracks)
         for (const c of t.clips) {
           if (c.assetId) ids.add(c.assetId);
@@ -71,12 +72,28 @@ export function createProjectExportHandler(
             if (bg?.value && (bg.type === "image" || bg.type === "video")) ids.add(bg.value);
           }
           if (c.trackRef) trackIds.add(c.trackRef.assetId);
+          // Sprint 3b: asset mask of the clip (SAM mask folder / image / alpha video).
+          if (c.maskRef?.type === "asset") maskIds.add(c.maskRef.assetId);
         }
       const tracks = await loadTrackFiles(app, trackIds, (w) => ctx.log(`AVISO: ${w}`));
       for (const tf of tracks.values()) ids.add(tf.source.assetId); // media size for the mapping
       const assets = new Map<string, TimelineAsset>();
+      for (const id of maskIds) ids.add(id);
       for (const id of ids) {
         let a = app.repos.media.get(id);
+        if (a?.kind === "mask" && maskIds.has(id)) {
+          // Folder of PNGs (or one PNG): no probe, read by the compiler as an image sequence.
+          assets.set(id, {
+            id,
+            absPath: absPath(app, a.path),
+            kind: "mask",
+            hasVideo: true,
+            hasAudio: false,
+            ...(a.fps !== undefined && { fps: a.fps }),
+            ...(a.width && a.height && { width: a.width, height: a.height }),
+          });
+          continue;
+        }
         if (!a || a.kind === "track" || a.kind === "mask") continue;
         if (a.hasVideo === undefined || a.hasAudio === undefined) {
           const info = await app.ffmpeg.probe(absPath(app, a.path), ctx.signal);
@@ -99,6 +116,7 @@ export function createProjectExportHandler(
           ...(a.videoCodec && { videoCodec: a.videoCodec }),
           ...(a.durationSec !== undefined && { durationSec: a.durationSec }),
           ...(a.width && a.height && { width: a.width, height: a.height }),
+          ...(a.fps !== undefined && { fps: a.fps }),
         });
       }
       checkAborted(ctx);

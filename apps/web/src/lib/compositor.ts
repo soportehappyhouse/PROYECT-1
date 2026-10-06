@@ -1,14 +1,19 @@
 import {
+  blendModeToCanvas,
   effectiveBurnSubtitles,
   fitRect,
+  maskShapeRect,
   reframeCropAt as sharedReframeCropAt,
   rendersOwnTrack,
   subtitlesToBurn,
   trackPointAt,
   trackToCanvas,
+  tracksInZOrder,
   videoRectAt,
+  type BlendMode,
   type CaptionStyle,
   type Clip,
+  type ClipMaskShape,
   type MediaAsset,
   type Project,
   type Rect,
@@ -18,6 +23,7 @@ import {
 } from "@studio/shared";
 import { cropFraction, interpolate } from "./interpolate";
 import { keyframesOf, staticCrop } from "./keyframes";
+import { lumaToAlpha, maskImageUrl } from "./layers";
 import { clipDuration, clipEnd, sourceTimeAt } from "./timeline";
 import type {
   CropBox,
@@ -33,8 +39,12 @@ import type {
  * `player/lib/layerOrdering.ts`, `core/src/runtime/clock.ts`): one element per visible clip,
  * z-order by track, every layer shown only inside its time window, seek by time. Code is ours.
  *
- * Order matches the export compiler: tracks in array order (index 0 at the bottom), clips of one
- * track stacked by start (later on top, like the export lanes), subtitles above everything.
+ * Order matches the export compiler: tracks in z-order (Sprint 3b `tracksInZOrder`: Track.order,
+ * else array index; bottom first), clips of one track stacked by start (later on top, like the
+ * export lanes), subtitles above everything. Sprint 3b: a layer with a blend mode and/or a mask is
+ * drawn on an offscreen canvas, masked there (`destination-in` / `destination-out` with the
+ * blurred shape, or the mask image as alpha) and composited with the `globalCompositeOperation`
+ * of its blend mode (blendModeToCanvas) and its opacity — the same result as the export blend.
  * Geometry uses the shared helpers (fitRect, interpolate, trackToCanvas) so preview = export.
  */
 
@@ -65,6 +75,16 @@ export interface TextPayload {
   center?: Vec2;
 }
 
+/**
+ * Sprint 3b mask of a layer: a shape (fractions of `rect`; `featherScale` = clip scale, the feather
+ * is given at 100 %), a pool media (image / alpha video; alpha channel or luma) or a mask image URL
+ * (SAM frame / PNG, luma; key = "url:<url>" in the SourceLookup).
+ */
+export type LayerMask =
+  | { kind: "shape"; shape: ClipMaskShape; featherScale: number }
+  | { kind: "source"; source: LayerSource; channel: "alpha" | "luma" }
+  | { kind: "url"; key: string; channel: "luma" };
+
 export interface Layer {
   key: string;
   clipId: string;
@@ -84,6 +104,10 @@ export interface Layer {
   text?: TextPayload;
   /** The layer follows a track (trackRef). */
   tracked?: boolean;
+  /** Sprint 3b: blend mode (absent = normal). */
+  blend?: Exclude<BlendMode, "normal">;
+  /** Sprint 3b: clip mask. */
+  mask?: LayerMask;
 }
 
 export interface AudioSource extends LayerSource {
@@ -246,7 +270,7 @@ export function composeAt(input: CompositorInput): Composition {
   const layers: Layer[] = [];
   const audio: AudioSource[] = [];
 
-  project.tracks.forEach((track: Track, trackIndex) => {
+  tracksInZOrder(project.tracks).forEach((track: Track, trackIndex) => {
     if (track.kind === "audio") {
       if (track.muted) return;
       for (const c of track.clips) {
@@ -328,6 +352,9 @@ export function composeAt(input: CompositorInput): Composition {
       };
       const crop = cropAt(c, a, t);
       if (crop) layer.crop = crop;
+      if (c.blendMode && c.blendMode !== "normal") layer.blend = c.blendMode;
+      const mask = layerMask(project, assets, c, a, rect, crop, t);
+      if (mask) layer.mask = mask;
       const alphaAsset = c.matte ? assets[c.matte.assetId] : undefined;
       if (c.matte && alphaAsset) {
         const bg = c.matte.background;
@@ -364,11 +391,64 @@ export function composeAt(input: CompositorInput): Composition {
   };
 }
 
-/** Every media source a composition needs (main, alpha, background, audio). */
+/**
+ * Sprint 3b: mask of a clip at `t` for the preview. Shapes: feather scale = displayed width over
+ * the fitted width at scale 100 %. Asset masks: SAM folder frame at the clip source time, or the
+ * image / alpha video through the media pool (aligned to the source like the clip).
+ */
+function layerMask(
+  project: Project,
+  assets: Record<string, MediaAsset>,
+  c: Clip,
+  a: MediaAsset,
+  rect: Rect,
+  crop: CropBox | undefined,
+  t: number,
+): LayerMask | undefined {
+  const m = c.maskRef;
+  if (!m) return undefined;
+  if (m.type === "shape") {
+    const size = mediaSize(a);
+    const full = fitRect(
+      { width: project.settings.width, height: project.settings.height },
+      size,
+      crop && size
+        ? { crop: { x: 0, y: 0, width: crop.w * size.width, height: crop.h * size.height } }
+        : {},
+    );
+    const featherScale = full.width > 0 ? rect.width / full.width : 1;
+    return { kind: "shape", shape: m, featherScale };
+  }
+  const ma = assets[m.assetId];
+  if (!ma) return undefined;
+  if (ma.kind === "mask") {
+    const fps = ma.fps ?? a.fps ?? project.settings.fps;
+    return {
+      kind: "url",
+      key: `url:${maskImageUrl(ma, sourceTimeAt(c, t), fps)}`,
+      channel: "luma",
+    };
+  }
+  const channel = ma.hasAlpha ? "alpha" : "luma";
+  if (ma.kind === "image")
+    return { kind: "source", source: source(`${c.id}:mask`, ma, 0, 1), channel };
+  if (ma.kind === "video")
+    return {
+      kind: "source",
+      source: source(`${c.id}:mask`, ma, sourceTimeAt(c, t), c.speed || 1, {
+        keepOriginal: true,
+      }),
+      channel,
+    };
+  return undefined;
+}
+
+/** Every media source a composition needs (main, alpha, background, mask, audio). */
 export function compositionSources(comp: Composition): LayerSource[] {
   const out: LayerSource[] = [];
   for (const l of comp.layers) {
     if (l.source) out.push(l.source);
+    if (l.mask?.kind === "source") out.push(l.mask.source);
     if (l.matte) {
       out.push(l.matte.alpha);
       if (l.matte.backgroundSource) out.push(l.matte.backgroundSource);
@@ -573,6 +653,229 @@ function drawSubtitle(
   );
 }
 
+/** The content of one visual layer (opacity / blend are applied by the caller). */
+function drawLayerBody(
+  ctx: CanvasRenderingContext2D,
+  l: Layer,
+  lookup: SourceLookup,
+  canvas: { width: number; height: number },
+): void {
+  if (l.kind === "text" || l.kind === "pending-motion") {
+    if (l.kind === "pending-motion") {
+      ctx.fillStyle = "rgba(217,70,239,.25)";
+      ctx.fillRect(l.rect.x, l.rect.y, l.rect.width, l.rect.height);
+    }
+    if (l.text) drawText(ctx, l.text, canvas, l.kind === "pending-motion" ? l.rect : undefined);
+    return;
+  }
+  if (l.matte) {
+    const bg = l.matte.background;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(l.rect.x, l.rect.y, l.rect.width, l.rect.height);
+    ctx.clip();
+    if (bg?.type === "color") {
+      ctx.fillStyle = typeof bg.value === "string" ? bg.value : "#00b140";
+      ctx.fillRect(l.rect.x, l.rect.y, l.rect.width, l.rect.height);
+    } else if (bg?.type === "blur") {
+      const el = l.source ? lookup(l.source.key) : undefined;
+      if (drawable(el)) {
+        ctx.filter = `blur(${Number(bg.value) || 20}px)`;
+        drawMedia(ctx, el, l.rect, l.crop);
+        ctx.filter = "none";
+      }
+    } else if (l.matte.backgroundSource) {
+      const el = lookup(l.matte.backgroundSource.key);
+      if (drawable(el)) drawCover(ctx, el, l.rect);
+    }
+    ctx.restore();
+    const alpha = lookup(l.matte.alpha.key);
+    if (drawable(alpha)) drawMedia(ctx, alpha, l.rect, l.crop);
+    return;
+  }
+  const el = l.source ? lookup(l.source.key) : undefined;
+  if (drawable(el)) drawMedia(ctx, el, l.rect, l.crop);
+}
+
+/** Minimal canvas the offscreen layer path needs (HTMLCanvasElement / OffscreenCanvas / fakes). */
+export interface ScratchCanvas {
+  width: number;
+  height: number;
+  getContext(type: "2d"): unknown;
+}
+
+/** Offscreen canvases reused between frames (slot 0 = layer, 1 = mask conversion). */
+const scratchPool: ScratchCanvas[] = [];
+
+function newCanvas(w: number, h: number): ScratchCanvas | undefined {
+  if (typeof OffscreenCanvas !== "undefined") return new OffscreenCanvas(w, h);
+  if (typeof document !== "undefined") {
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    return c;
+  }
+  return undefined;
+}
+
+function defaultScratch(slot: number, w: number, h: number): ScratchCanvas | undefined {
+  let c = scratchPool[slot];
+  if (!c) {
+    c = newCanvas(w, h);
+    if (!c) return undefined;
+    scratchPool[slot] = c;
+  }
+  if (c.width !== w) c.width = w;
+  if (c.height !== h) c.height = h;
+  return c;
+}
+
+export interface DrawOptions {
+  /** Offscreen canvas factory (tests); default OffscreenCanvas / <canvas>. */
+  scratch?: (slot: number, width: number, height: number) => ScratchCanvas | undefined;
+}
+
+/** Luma masks converted to alpha, per image element (SAM PNG frames are static). */
+const alphaMasks = new WeakMap<object, ScratchCanvas>();
+
+/**
+ * Alpha version of a luma mask (gray PNG / opaque video): drawn at most 1280 px wide, alpha =
+ * luma (lumaToAlpha). Images are cached; video frames are converted every draw.
+ */
+function lumaMask(
+  el: CanvasImageSource,
+  scratch: NonNullable<DrawOptions["scratch"]>,
+): ScratchCanvas | undefined {
+  const isVideo = typeof HTMLVideoElement !== "undefined" && el instanceof HTMLVideoElement;
+  const cached = !isVideo ? alphaMasks.get(el as object) : undefined;
+  if (cached) return cached;
+  const { w, h } = sourceSize(el);
+  const k = Math.min(1, 1280 / Math.max(1, w));
+  const cw = Math.max(1, Math.round(w * k));
+  const ch = Math.max(1, Math.round(h * k));
+  const c = isVideo ? scratch(1, cw, ch) : newCanvas(cw, ch);
+  const mctx = c?.getContext("2d") as CanvasRenderingContext2D | null | undefined;
+  if (!c || !mctx) return undefined;
+  mctx.setTransform(1, 0, 0, 1, 0, 0);
+  mctx.clearRect(0, 0, cw, ch);
+  mctx.drawImage(el, 0, 0, cw, ch);
+  try {
+    const img = mctx.getImageData(0, 0, cw, ch);
+    lumaToAlpha(img.data);
+    mctx.putImageData(img, 0, 0);
+  } catch {
+    return undefined; // tainted (cross-origin without CORS): no mask
+  }
+  if (!isVideo) alphaMasks.set(el as object, c); // own canvas per image element
+  return c;
+}
+
+/**
+ * Apply a layer mask on the offscreen layer canvas (identity transform, device pixels; `t` = the
+ * project -> device transform). Shapes: filled ellipse/rect blurred with sigma = feather/2
+ * (canvas `filter: blur()`, gaussian like the export gblur), `destination-in` (keep inside) or
+ * `destination-out` (invert). Media masks: drawn with the layer crop into its rect,
+ * `destination-in`. Returns false when the mask image is not loaded yet (layer skipped).
+ */
+function applyLayerMask(
+  octx: CanvasRenderingContext2D,
+  l: Layer,
+  lookup: SourceLookup,
+  t: { a: number; d: number; e: number; f: number },
+  scratch: NonNullable<DrawOptions["scratch"]>,
+): boolean {
+  const m = l.mask!;
+  const dev = (r: Rect): Rect => ({
+    x: r.x * t.a + t.e,
+    y: r.y * t.d + t.f,
+    width: r.width * t.a,
+    height: r.height * t.d,
+  });
+  octx.save();
+  octx.setTransform(1, 0, 0, 1, 0, 0);
+  if (m.kind === "shape") {
+    const r = dev(maskShapeRect(l.rect, m.shape));
+    const sigma = ((m.shape.feather ?? 0) * m.featherScale * t.a) / 2;
+    octx.globalCompositeOperation = m.shape.invert ? "destination-out" : "destination-in";
+    octx.filter = sigma >= 0.3 ? `blur(${sigma.toFixed(2)}px)` : "none";
+    octx.fillStyle = "#fff";
+    octx.beginPath();
+    if (m.shape.shape === "ellipse")
+      octx.ellipse(
+        r.x + r.width / 2,
+        r.y + r.height / 2,
+        Math.max(0.5, r.width / 2),
+        Math.max(0.5, r.height / 2),
+        0,
+        0,
+        Math.PI * 2,
+      );
+    else octx.rect(r.x, r.y, r.width, r.height);
+    octx.fill();
+    octx.filter = "none";
+    octx.restore();
+    return true;
+  }
+  const el = lookup(m.kind === "url" ? m.key : m.source.key);
+  if (!drawable(el)) {
+    octx.restore();
+    return false;
+  }
+  const src = m.channel === "luma" ? lumaMask(el, scratch) : el;
+  if (!src) {
+    octx.restore();
+    return false;
+  }
+  octx.globalCompositeOperation = "destination-in";
+  drawMedia(octx, src as CanvasImageSource, dev(l.rect), l.crop);
+  octx.restore();
+  return true;
+}
+
+/**
+ * Sprint 3b: a blended and/or masked layer — drawn alone on an offscreen canvas of the target
+ * size (same transform), masked, then composited with its blend mode and opacity.
+ */
+function drawCompositedLayer(
+  ctx: CanvasRenderingContext2D,
+  l: Layer,
+  lookup: SourceLookup,
+  canvas: { width: number; height: number },
+  scratch: NonNullable<DrawOptions["scratch"]>,
+): void {
+  const w = ctx.canvas?.width ?? canvas.width;
+  const h = ctx.canvas?.height ?? canvas.height;
+  const off = scratch(0, w, h);
+  const octx = off?.getContext("2d") as CanvasRenderingContext2D | null | undefined;
+  const t =
+    typeof ctx.getTransform === "function"
+      ? ctx.getTransform()
+      : { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+  if (!off || !octx) {
+    // No offscreen canvas: blend without the mask (better than nothing).
+    ctx.save();
+    ctx.globalCompositeOperation = blendModeToCanvas(l.blend);
+    ctx.globalAlpha = l.opacity;
+    drawLayerBody(ctx, l, lookup, canvas);
+    ctx.restore();
+    return;
+  }
+  octx.setTransform(1, 0, 0, 1, 0, 0);
+  octx.globalCompositeOperation = "source-over";
+  octx.globalAlpha = 1;
+  octx.filter = "none";
+  octx.clearRect(0, 0, w, h);
+  octx.setTransform(t.a, t.b, t.c, t.d, t.e, t.f);
+  drawLayerBody(octx, l, lookup, canvas);
+  if (l.mask && !applyLayerMask(octx, l, lookup, t, scratch)) return;
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = l.opacity;
+  ctx.globalCompositeOperation = blendModeToCanvas(l.blend);
+  ctx.drawImage(off as unknown as CanvasImageSource, 0, 0);
+  ctx.restore();
+}
+
 /** Draw a composition (canvas units = project pixels; the caller sets the transform). */
 export function drawComposition(
   ctx: CanvasRenderingContext2D,
@@ -580,48 +883,20 @@ export function drawComposition(
   lookup: SourceLookup,
   canvas: { width: number; height: number },
   captionStyle?: CaptionStyle,
+  options: DrawOptions = {},
 ): void {
+  const scratch = options.scratch ?? defaultScratch;
   ctx.save();
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   for (const l of comp.layers) {
     if (l.opacity <= 0) continue;
+    if (l.blend || l.mask) {
+      drawCompositedLayer(ctx, l, lookup, canvas, scratch);
+      continue;
+    }
     ctx.globalAlpha = l.opacity;
-    if (l.kind === "text" || l.kind === "pending-motion") {
-      if (l.kind === "pending-motion") {
-        ctx.fillStyle = "rgba(217,70,239,.25)";
-        ctx.fillRect(l.rect.x, l.rect.y, l.rect.width, l.rect.height);
-      }
-      if (l.text) drawText(ctx, l.text, canvas, l.kind === "pending-motion" ? l.rect : undefined);
-      continue;
-    }
-    if (l.matte) {
-      const bg = l.matte.background;
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(l.rect.x, l.rect.y, l.rect.width, l.rect.height);
-      ctx.clip();
-      if (bg?.type === "color") {
-        ctx.fillStyle = typeof bg.value === "string" ? bg.value : "#00b140";
-        ctx.fillRect(l.rect.x, l.rect.y, l.rect.width, l.rect.height);
-      } else if (bg?.type === "blur") {
-        const el = l.source ? lookup(l.source.key) : undefined;
-        if (drawable(el)) {
-          ctx.filter = `blur(${Number(bg.value) || 20}px)`;
-          drawMedia(ctx, el, l.rect, l.crop);
-          ctx.filter = "none";
-        }
-      } else if (l.matte.backgroundSource) {
-        const el = lookup(l.matte.backgroundSource.key);
-        if (drawable(el)) drawCover(ctx, el, l.rect);
-      }
-      ctx.restore();
-      const alpha = lookup(l.matte.alpha.key);
-      if (drawable(alpha)) drawMedia(ctx, alpha, l.rect, l.crop);
-      continue;
-    }
-    const el = l.source ? lookup(l.source.key) : undefined;
-    if (drawable(el)) drawMedia(ctx, el, l.rect, l.crop);
+    drawLayerBody(ctx, l, lookup, canvas);
   }
   ctx.globalAlpha = 1;
   if (comp.subtitle) drawSubtitle(ctx, comp.subtitle, captionStyle, canvas);

@@ -3,6 +3,7 @@
 import type { Clip, MediaAsset, Track } from "@studio/shared";
 import { useRef } from "react";
 import { sceneSnapTimes } from "@/hooks/use-scene-markers";
+import { BLEND_MODE_LABELS, layerSummary } from "@/lib/layers";
 import { fileUrl } from "@/lib/api";
 import { clipDuration, clipEnd, snapClipStart, snapPoints, snapTime } from "@/lib/timeline";
 import { cn } from "@/lib/utils";
@@ -162,6 +163,13 @@ export function ClipView({
         {clip.voiceEffects.length > 0 ? <span className="ml-1 opacity-80">FX</span> : null}
         {clip.matte ? <span className="ml-1 opacity-80">Recorte</span> : null}
         {clip.trackRef ? <span className="ml-1 opacity-80">Sigue</span> : null}
+        {clip.blendMode || clip.maskRef ? (
+          <span className="ml-1 opacity-80" title={layerSummary(clip)}>
+            {clip.blendMode && clip.blendMode !== "normal" ? BLEND_MODE_LABELS[clip.blendMode] : ""}
+            {clip.blendMode && clip.blendMode !== "normal" && clip.maskRef ? " · " : ""}
+            {clip.maskRef ? "Máscara" : ""}
+          </span>
+        ) : null}
       </div>
       <KeyframeDiamonds clip={clip} track={track} zoom={zoom} />
       {!track.locked ? (

@@ -14,6 +14,8 @@ import { cachedTrack } from "@/lib/vision-api";
 import { frameAt, useMaskStore } from "@/stores/mask-store";
 import { useMediaStore } from "@/stores/media-store";
 import { usePreviewStore } from "@/stores/preview-store";
+import { MaskShapeEditor } from "./MaskShapeEditor";
+import { useMaskEditorStore } from "./mask-editor-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useVisionStore } from "@/stores/vision-store";
 
@@ -45,6 +47,7 @@ export function PreviewOverlay() {
   const draft = usePreviewStore((s) => s.reframeDraft);
   const mask = useMaskStore();
   const svgRef = useRef<SVGSVGElement>(null);
+  const maskEditClipId = useMaskEditorStore((s) => s.clipId);
   const [drag, setDrag] = useState<{ a: Pt; b: Pt } | undefined>(undefined);
   const { width: W, height: H } = project.settings;
 
@@ -85,6 +88,12 @@ export function PreviewOverlay() {
       ? frameAt(sourceTimeAt(toolClip, playhead), mask.fps, mask.frames) === mask.frame
       : false;
   const full = toolLayer ? sourceToCanvas(toolLayer, { x: 0, y: 0, w: 1, h: 1 }) : undefined;
+  // Sprint 3b: shape mask editor of the selected clip (inspector «Capa» → «Editar forma»).
+  const selectedClip =
+    selectedClipId && maskEditClipId === selectedClipId
+      ? findClip(project, selectedClipId)?.clip
+      : undefined;
+  const maskShape = selectedClip?.maskRef?.type === "shape" ? selectedClip.maskRef : undefined;
 
   return (
     <svg
@@ -188,6 +197,15 @@ export function PreviewOverlay() {
           stroke={selected.tracked ? "#a78bfa" : "rgba(255,255,255,.7)"}
           strokeDasharray="10 6"
           strokeWidth={Math.max(1, W / 960)}
+        />
+      ) : null}
+      {selected && maskShape && selectedClip && tool === "none" ? (
+        <MaskShapeEditor
+          layer={selected}
+          clip={selectedClip}
+          shape={maskShape}
+          toCanvas={toCanvas}
+          unit={Math.max(1, W / 960)}
         />
       ) : null}
       {selected?.kind === "text" && selected.text?.center ? (

@@ -14,6 +14,7 @@ import {
 } from "@studio/shared";
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { blendModeToCss } from "@/lib/layers";
 import { assetPreviewUrl } from "@/lib/api";
 import { clipAt, clipsAt, sourceTimeAt } from "@/lib/timeline";
 import { useCaptionStyleStore, type CaptionStyle } from "@/stores/caption-style-store";
@@ -80,7 +81,7 @@ function SyncedMedia({
         className={className}
         preload="auto"
         playsInline
-        style={{ ...style, opacity: clip.opacity }}
+        style={{ ...style, opacity: clip.opacity, mixBlendMode: blendModeToCss(clip.blendMode) }}
         onError={() => setFailed(true)}
         onLoadedData={() => setFailed(false)}
       />

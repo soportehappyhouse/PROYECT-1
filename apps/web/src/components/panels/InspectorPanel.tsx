@@ -15,6 +15,7 @@ import { useMediaStore } from "@/stores/media-store";
 import { useProjectStore } from "@/stores/project-store";
 import { assetMeta } from "./MediaPanel";
 import { Panel } from "./Panel";
+import { LayerSection } from "./LayerSection";
 import { KeyframesSection, MatteSection, ReframeSection, TrackingSection } from "./VisionSections";
 
 const TRANSITIONS: Transition["type"][] = ["fade", "crossfade", "wipe", "slide", "zoom"];
@@ -415,6 +416,8 @@ export function InspectorPanel() {
             />
           </Section>
         ) : null}
+
+        <LayerSection clip={clip} track={track} />
 
         {track.kind === "video" || track.kind === "motion" || track.kind === "text" ? (
           <KeyframesSection clip={clip} track={track} />

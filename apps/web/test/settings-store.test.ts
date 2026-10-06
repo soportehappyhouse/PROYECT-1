@@ -60,9 +60,15 @@ describe("layout validation", () => {
       "subtitles",
       "export",
       "assistant",
+      "console",
+      "style",
       "timeline",
       "jobs",
     ]);
+    expect(added.find((p) => p.id === "console")).toMatchObject({
+      inactive: true,
+      position: { referencePanel: "assistant", direction: "within" },
+    });
     expect(added.find((p) => p.id === "assistant")?.position).toEqual({
       referencePanel: "inspector",
       direction: "within",

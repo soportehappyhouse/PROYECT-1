@@ -294,12 +294,27 @@ class BBox(SnakeModel):
     h: float = Field(gt=0)
 
 
+class MatteRefine(SnakeModel):
+    """Sprint 3b alpha refinement (vision_gpl/refine.py); None = default of the quality."""
+
+    erode: int | None = Field(default=None, ge=0, le=20)
+    feather: float | None = Field(default=None, ge=0, le=20)
+    despill: bool | None = None
+    temporal: float | None = Field(default=None, ge=0, le=0.9)
+    mask_dilate: int | None = Field(default=None, ge=0, le=200)
+
+
 class MatteRequest(SnakeModel):
     path: str
     model: Literal["rvm", "birefnet"] = "rvm"
     output_base: str
     downsample: float | None = Field(default=None, ge=0.25, le=1.0)
     chunk_frames: int = Field(default=300, ge=10, le=3000)
+    # sprint 3b: fast = mobilenetv3 (pack matting); high = resnet50 + refinement (matting-hq)
+    quality: Literal["fast", "high"] = "fast"
+    refine: MatteRefine | None = None
+    # SAM mask guide: one PNG or a folder of %05d.png (relative to STORAGE_DIR)
+    mask_path: str | None = None
 
 
 class MatteImageRequest(SnakeModel):

@@ -147,3 +147,39 @@ Primera corrida: `actualizar.cmd` → Ajustes → Paquetes de IA → descargar `
 
 ## Pendiente para la PC real
 `actualizar.cmd` (instala Ollama) → Ajustes → Paquetes de IA → `agent-llm` (~5 GB) → Asistente local → "Evaluar modelos" → pegar resultados. Test de rendimiento: ver fps sostenido del recorte.
+
+---
+
+# Sprint 3b — 2026-10-06 — Perfil de estilo, Consola Claude, stems, recorte HQ, capas libres
+
+**Plan:** `docs/01-PLAN-BASE-v2.md` (sección Sprint 3b). **Contratos:** `docs/trabajo/sprint3b-contratos.md`. **Integración:** `docs/trabajo/integracion-sprint3b.md`. **Decisión 8:** sin API key — la consola usa la suscripción de Claude.ai vía Claude Code CLI + servidor MCP local.
+
+## Entregado
+- **Perfil de estilo**: análisis de un video de referencia (escenas, planos, cortes/min, zooms, LUFS, voz/música/silencios, OCR opcional) + hoja de contactos PNG; inferencia con VLM local (pack `vision-llm`, 409 `PACK_REQUIRED` si falta) o con Claude desde la consola; `StylePreset` estricto → EditPlan válido (`compileStylePreset`); panel Estilo en la web.
+- **Consola Claude**: PTY sobre WebSocket solo loopback + Origin permitido, token aleatorio de un solo uso (2 min, máx. 4 sesiones), env del hijo sin claves (`ANTHROPIC_API_KEY`, AWS, Google; se conserva `CLAUDE_CODE_OAUTH_TOKEN`), ajustes propios con `permissions.deny` (`.env*`, `storage/*.db*`, `storage/reports`, escritura en `storage/`, `models/`, `WebFetch`); `packages/studio-mcp` con 16 herramientas (`studio_*`), `.mcp.json`, `CLAUDE.md` en español; `setup.ps1 -WithClaude`.
+- **Stems (Demucs htdemucs)**: pack `stems`, separación voz/música (2 o 4 stems) por bloques leídos de disco (sin tope de duración, RAM acotada), 5.1 → estéreo, pistas «Voz»/«Música» alineadas al clip con snapshot de undo (`PROJECT_CHANGED` + `force`), GPU vía budget manager.
+- **Recorte HQ**: RVM resnet50 + refinado de alfa + despill + guía SAM, GPL aislado en subproceso (`vision_gpl`); `maskAssetId` validado (`INVALID_MASK_ASSET`); VRAM medida después de `acquire`.
+- **Capas libres**: 8 modos de fusión, máscaras rect/elipse (feather, invertida)/PNG/SAM, `Track.order` explícito (`nextTrackOrder`), paridad vista previa ↔ export con píxeles reales (tolerancia 8, diferencia máxima medida 3); hash de caché de segmentos incluye blend, máscara y z.
+- Manual §20–§23 (MD, HTML y PDF 69 páginas), `ARQUITECTURA.md`, `CONSOLA-CLAUDE.md`, `.env.example`, CI con smoke de `studio-mcp`.
+
+## Criterios (plan v2, sprint 3b)
+- Estilo: 1 min de referencia analizado en < 60 s en CPU → 🟢 **19,2 s** (medición independiente del auditor); el preset genera un EditPlan válido → 🟢.
+- Capas: multiply/screen y elipse idénticos entre vista previa y export → 🟢 export (ffmpeg real), 🟢 vista previa (ui-smoke 8 modos + elipse, diferencia máx. 3).
+- Consola: `claude` corre dentro de Studio y `studio_get_project` responde → 🟡 probado con un `claude` falso (PTY, WS, token, `--settings`, MCP smoke); el real solo se mide en tu PC.
+- Stems: 1 min < 60 s en GPU → 🟡 solo medible en tu PC (aquí 35 s en CPU con pesos aleatorios, no cuenta).
+- Recorte HQ: halos visiblemente menores → 🟡 evidencia sintética (32,7 → 8,0, −76 %); confirmar con un clip real.
+- CI verde ubuntu + windows + smoke → se verifica en el PR.
+
+## Auditoría independiente (solo lectura)
+14 hallazgos (0 críticos, 4 medios, 10 bajos) → **14 corregidos** + 1 fallo de CI en Windows (test de consola) corregido. Desvío declarado: no se bloquea `Read(./storage/**)` entero porque Claude necesita abrir los PNG que `studio-mcp` le entrega; si se quiere el bloqueo total hay que devolver las imágenes dentro de la respuesta MCP.
+
+## Números
+- Agentes: 5 módulos + integración + auditoría + fixes. Tests: Node 585 (shared 72, web 192, api 230, remotion 55, motion-engines 22, studio-mcp 14), Python 331; e2e 57/57 obligatorios (3 SKIP sin Ollama); ui-smoke 33/33.
+- Commits del sprint: 8 (contratos, 5 módulos, integración, correcciones).
+
+## Pendiente para la PC real
+1. `actualizar.cmd` (instala Claude Code si usás `-WithClaude`) → `claude login` una vez → Studio → panel Consola → «¿qué hay en mi proyecto?» (debe llamar `studio_get_project`).
+2. Ajustes → Paquetes de IA → `stems` (~80 MB) → separar un clip de 1 min y anotar el tiempo. Después pasame tamaño y `sha256` del archivo `models/stems/955717e8-8726e21a.th` para fijarlos en `packs.py` (hoy se registran en `manifest.json` en la primera descarga porque el sandbox no pudo bajarlo).
+3. `matting-hq` (~230 MB) → recortar un clip con fondo complejo en calidad alta y comparar bordes con el modo normal.
+4. `vision-llm` (opcional) → Estilo → analizar un video de referencia → «Inferir con IA local»; o hacerlo desde la consola con Claude.
+5. Sigue pendiente del sprint 3: Asistente → «Evaluar modelos» (qwen3:8b / hermes3:8b) y fps sostenido del recorte.

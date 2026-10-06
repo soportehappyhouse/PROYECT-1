@@ -3,6 +3,7 @@ import { saveProjectNow } from "@/hooks/use-project-sync";
 import type { ShortcutActionId } from "@/lib/shortcuts";
 import { projectDuration, stepFrame } from "@/lib/timeline";
 import { focusAssistant } from "@/stores/agent-store";
+import { focusConsole } from "@/stores/console-store";
 import { keyOrPause, REFRAME_OWNER, useKeyframeStore } from "@/stores/keyframe-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -90,6 +91,10 @@ export function runAction(id: ShortcutActionId): void {
     case "assistant.open":
       showPanel("assistant");
       focusAssistant();
+      break;
+    case "console.open":
+      showPanel("console");
+      focusConsole();
       break;
   }
 }

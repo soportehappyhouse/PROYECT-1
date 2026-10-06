@@ -62,6 +62,10 @@ export const DEFAULT_JOB_LANES: Record<JobType, JobLane> = {
   // Sprint 3: runs edits inline and waits for sub-jobs of other lanes (never edit-lane jobs).
   "agent.apply": "edit",
   "agent.eval": "workers",
+  "audio.stems": "workers", // Sprint 3b: Demucs in the workers, then a short project edit
+  // Sprint 3b style profile: workers analysis (ffmpeg/OCR) and the local vision LLM.
+  "style.analyze": "workers",
+  "style.infer": "workers",
 };
 
 /** Raised by handlers (or the runner) when ctx.signal aborts. */

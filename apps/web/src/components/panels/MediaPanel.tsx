@@ -90,7 +90,8 @@ export function assetMeta(a: MediaAsset): string {
 function MediaItem({ asset, selected }: { asset: MediaAsset; selected: boolean }) {
   const data: AssetDragData = { type: "asset", asset };
   // Sprint 2: tracks (track.json) and SAM masks are data, not timeline media.
-  const dataOnly = asset.kind === "track" || asset.kind === "mask";
+  // Sprint 3b: style analyses (analysis.json) too.
+  const dataOnly = asset.kind === "track" || asset.kind === "mask" || asset.kind === "analysis";
   const { setNodeRef, attributes, listeners, isDragging } = useDraggable({
     id: `asset:${asset.id}`,
     data,

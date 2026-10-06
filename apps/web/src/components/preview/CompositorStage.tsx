@@ -11,6 +11,7 @@ import {
   driverSource,
   type LayerSource,
 } from "@/lib/compositor";
+import { MaskImageCache } from "@/lib/layers";
 import { MasterClock, masterClock } from "@/lib/master-clock";
 import { MediaPool, type MediaUrls } from "@/lib/media-pool";
 import { findClip } from "@/lib/timeline";
@@ -100,6 +101,13 @@ export function CompositorStage({ width, height }: { width: number; height: numb
       },
     );
 
+    // Sprint 3b: SAM mask frames / mask PNGs (layer masks with key "url:<url>").
+    const maskImages = new MaskImageCache(() => {
+      dirty = true;
+    });
+    const lookup = (key: string) =>
+      key.startsWith("url:") ? maskImages.get(key.slice(4)) : pool.get(key);
+
     const draw = (at?: number) => {
       const t0 = performance.now();
       const st = useProjectStore.getState();
@@ -154,7 +162,7 @@ export function CompositorStage({ width, height }: { width: number; height: numb
         drawComposition(
           ctx,
           comp,
-          (key) => pool.get(key),
+          lookup,
           { width: W, height: H },
           st.project.captionStyle ?? useCaptionStyleStore.getState().style,
         );
@@ -236,6 +244,7 @@ export function CompositorStage({ width, height }: { width: number; height: numb
       for (const u of unsubs) u();
       masterClock.setDriver(undefined);
       pool.dispose();
+      maskImages.clear();
     };
   }, []);
 

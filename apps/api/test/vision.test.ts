@@ -25,6 +25,7 @@ import {
 import { trackPropsFor } from "../src/jobs/handlers/motion-render.js";
 import { segmentHash } from "../src/services/ffmpeg/segments.js";
 import { compileExport } from "../src/services/ffmpeg/timeline.js";
+import { requireMaskAsset } from "../src/voice-ai/media-bridge.js";
 import { makeApp, multipart, waitFor } from "./helpers.js";
 
 /** Sprint 2 vision routes and jobs against a fake workers service (sprint2-contratos.md). */
@@ -62,7 +63,12 @@ describe("vision routes and jobs (mocked workers)", () => {
   let server: http.Server;
   let app: FastifyInstance;
   let storage = "";
-  const state = { mattingInstalled: false, samWorkerMissing: false, samInstalled: true };
+  const state = {
+    mattingInstalled: false,
+    mattingHqInstalled: false,
+    samWorkerMissing: false,
+    samInstalled: true,
+  };
   const seen: Record<string, Record<string, unknown>> = {};
 
   beforeAll(async () => {
@@ -88,6 +94,7 @@ describe("vision routes and jobs (mocked workers)", () => {
           case "GET /packs":
             return send(200, [
               pack("matting", state.mattingInstalled),
+              pack("matting-hq", state.mattingHqInstalled),
               pack("matting-image", true),
               pack("sam2", state.samInstalled),
               pack("reframe", true),
@@ -95,12 +102,22 @@ describe("vision routes and jobs (mocked workers)", () => {
           case "POST /vision/matte":
             write(`${String(json.output_base)}.alpha.webm`);
             return send(200, { task_id: "m1" });
-          case "GET /vision/tasks/m1":
+          case "GET /vision/tasks/m1": {
+            const base = String(seen["/vision/matte"]!.output_base);
+            const high = seen["/vision/matte"]!.quality === "high";
             return done({
-              alpha_path: `${String(seen["/vision/matte"]!.output_base)}.alpha.webm`,
+              alpha_path: `${base}.alpha.webm`,
               preview_path: null,
               fps: 25,
+              ...(high && {
+                quality: "high",
+                rvm_model: "resnet50",
+                refine: { erode: 1, feather: 2, despill: true },
+                halo: { before: 21.5, after: 7.25, frames: 3, reduction: 0.66 },
+                preview_compare_path: write(`${base}.compare.png`, "PNG"),
+              }),
             });
+          }
           case "POST /vision/matte-image":
             return send(200, { path: write(`${String(json.output_base)}.png`) });
           case "POST /vision/sam/session":
@@ -261,6 +278,67 @@ describe("vision routes and jobs (mocked workers)", () => {
       kind: "image",
       hasAlpha: true,
     });
+  });
+
+  it("vision.matte quality high: 409 matting-hq, then quality/refine/mask pass through", async () => {
+    addAsset("hq");
+    state.mattingInstalled = true;
+    const pre = await post(API_ROUTES.aiVisionMatte, { assetId: "hq", quality: "high" });
+    expect(pre.statusCode).toBe(409);
+    expect(pre.json()).toMatchObject({ error: "PACK_REQUIRED", packId: "matting-hq" });
+
+    state.mattingHqInstalled = true;
+    const maskAsset = app.ctx.repos.media.insert({
+      id: "hqmask",
+      kind: "mask",
+      name: "Máscara · hq",
+      path: "masks/job1",
+      sizeBytes: 0,
+      createdAt: new Date().toISOString(),
+    });
+    // a video (or any non-mask asset) as the guide → 400 INVALID_MASK_ASSET
+    addAsset("notmask");
+    const bad = await post(API_ROUTES.aiVisionMatte, {
+      assetId: "hq",
+      quality: "high",
+      maskAssetId: "notmask",
+    });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json()).toMatchObject({
+      error: { code: "INVALID_MASK_ASSET", message: expect.stringMatching(/no es una máscara/) },
+    });
+    const png = app.ctx.repos.media.insert({
+      id: "pngmask",
+      kind: "image",
+      name: "mascara.png",
+      path: "media/mascara.png",
+      mimeType: "image/png",
+      sizeBytes: 10,
+      createdAt: new Date().toISOString(),
+    });
+    expect(requireMaskAsset(app.ctx, png.id).id).toBe("pngmask"); // a PNG image is accepted
+    const res = await post(API_ROUTES.aiVisionMatte, {
+      assetId: "hq",
+      quality: "high",
+      refine: { feather: 2, erode: 0, despill: true, maskDilate: 8 },
+      maskAssetId: maskAsset.id,
+    });
+    expect(res.statusCode).toBe(202);
+    const job = await jobEnd(res.json<{ jobId: string }>().jobId);
+    expect(job.status, job.error).toBe("succeeded");
+    expect(seen["/vision/matte"]).toMatchObject({
+      quality: "high",
+      refine: { feather: 2, erode: 0, despill: true, mask_dilate: 8 },
+      mask_path: "masks/job1",
+    });
+    const r = job.result as VisionMatteResult;
+    expect(r.quality).toBe("high");
+    expect(r.previewComparePath).toMatch(/\.compare\.png$/);
+    expect(r.halo).toMatchObject({ before: 21.5, after: 7.25 });
+    // fast (default) sends none of the new fields: the sprint 2 request is unchanged
+    const fast = await post(API_ROUTES.aiVisionMatte, { assetId: "hq" });
+    await jobEnd(fast.json<{ jobId: string }>().jobId);
+    expect(Object.keys(seen["/vision/matte"]!).sort()).toEqual(["model", "output_base", "path"]);
   });
 
   it("SAM session: points mask copied under storage/masks and served; propagate -> assets; delete", async () => {

@@ -12,6 +12,8 @@ import type { AppContext } from "./context.js";
 import { openDatabase } from "./db/database.js";
 import { registerAgentHandlers } from "./jobs/handlers/agent.js";
 import { registerAiHandlers } from "./jobs/handlers/ai.js";
+import { registerAudioStemsHandler } from "./jobs/handlers/audio-stems.js";
+import { registerStyleHandlers } from "./jobs/handlers/style.js";
 import { registerVisionHandlers } from "./jobs/handlers/vision.js";
 import { registerModuleBHandlers } from "./jobs/handlers/index.js";
 import { createMotionRenderHandler } from "./jobs/handlers/motion-render.js";
@@ -65,6 +67,8 @@ export async function buildApp({
   registerVisionHandlers(ctx); // Sprint 2: vision.matte/mask/track/reframe, timeline.track-to-keyframes
   queue.register(createMotionRenderHandler(ctx)); // module c: motion.render
   registerAgentHandlers(ctx); // Sprint 3: agent.apply (lane edit), agent.eval
+  registerStyleHandlers(ctx); // Sprint 3b: style.analyze, style.infer (perfil de estilo)
+  registerAudioStemsHandler(ctx); // Sprint 3b: audio.stems (Demucs in the workers)
 
   // stdout + storage/logs/api-YYYY-MM-DD.log (7 days, secrets redacted). Tests use logger: false.
   const logStream =

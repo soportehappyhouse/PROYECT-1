@@ -16,6 +16,24 @@ export function requireMediaAsset(ctx: Pick<AppContext, "repos">, id: string): M
   return asset;
 }
 
+/**
+ * Asset used as a matte guide (`maskAssetId`): a SAM mask (kind "mask") or a PNG image. Anything
+ * else (a video, an audio file…) is a 400 INVALID_MASK_ASSET.
+ */
+export function requireMaskAsset(ctx: Pick<AppContext, "repos">, id: string): MediaAsset {
+  const asset = requireMediaAsset(ctx, id);
+  const png =
+    asset.kind === "image" &&
+    (asset.mimeType === "image/png" || asset.path.toLowerCase().endsWith(".png"));
+  if (asset.kind !== "mask" && !png)
+    throw new HttpError(
+      400,
+      "INVALID_MASK_ASSET",
+      `«${asset.name}» no es una máscara: elegí una máscara SAM o una imagen PNG`,
+    );
+  return asset;
+}
+
 export interface NewAudioAsset {
   /** Relative to STORAGE_DIR. */
   path: string;

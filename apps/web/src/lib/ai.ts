@@ -13,6 +13,8 @@ export const FEATURE_LABELS: Record<string, string> = {
   silences: "Quitar silencios",
   matting: "Quitar fondo",
   "matting-image": "Quitar fondo (imágenes)",
+  "matting-hq": "Quitar fondo (alta calidad)",
+  "vision.matte.rvm-hq": "Quitar fondo (alta calidad)",
   "quitar-fondo": "Quitar fondo",
   sam2: "Máscara y seguir objeto",
   mascara: "Máscara",
@@ -134,6 +136,26 @@ export function rvmFpsLabel(
   }
   if (r.rvm_fps == null) return "—";
   return `≈ ${dec1(r.rvm_fps)} fps (meta ${target})`;
+}
+
+/**
+ * Sprint 3b: «≈ 24,6 fps sostenido (arranque 6,2 s) · reducción 0,375» for the «Recorte alta
+ * calidad» row (GPL CLI with --quality high); undefined when matting-hq was not measured.
+ */
+export function rvmHqFpsLabel(
+  r: Partial<
+    Pick<PerfResult, "rvm_hq_steady_fps" | "rvm_hq_startup_s" | "rvm_hq_fps" | "rvm_hq_downsample">
+  >,
+): string | undefined {
+  const fps = r.rvm_hq_steady_fps ?? r.rvm_hq_fps;
+  if (fps == null) return undefined;
+  const kind = r.rvm_hq_steady_fps != null ? " sostenido" : "";
+  const startup = r.rvm_hq_startup_s != null ? ` (arranque ${dec1(r.rvm_hq_startup_s)} s)` : "";
+  const ds =
+    r.rvm_hq_downsample != null
+      ? ` · reducción ${String(r.rvm_hq_downsample).replace(".", ",")}`
+      : "";
+  return `≈ ${dec1(fps)} fps${kind}${startup}${ds}`;
 }
 
 const RVM_BOTTLENECK: Record<string, string> = {

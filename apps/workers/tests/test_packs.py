@@ -40,6 +40,10 @@ def test_registry_matches_contract() -> None:
         "sam2",
         "reframe",
         "agent-llm",  # sprint 3: models pulled through Ollama
+        "stems",  # sprint 3b: Demucs htdemucs (registered after the tuple)
+        "ocr",  # sprint 3b: perfil de estilo (RapidOCR)
+        "vision-llm",  # sprint 3b: perfil de estilo (Ollama qwen2.5vl:3b)
+        "matting-hq",  # sprint 3b: recorte de calidad alta (RVM resnet50)
     ]
     assert packs.FEATURE_PACKS["analyze.scenes"] == "scenes"
     assert packs.FEATURE_PACKS["audio.denoise"] == "voz-limpia"
@@ -240,11 +244,21 @@ def test_cli_packs(dirs, monkeypatch: pytest.MonkeyPatch, capsys, tmp_path: Path
 
     monkeypatch.setattr(packs, "install_pack", fake_install)
     monkeypatch.setattr(models_cli, "_catalog", lambda *a, **k: None)
+    # independent of a real Ollama: "up, no models" → the Ollama packs are installed too
+    monkeypatch.setattr(packs, "ollama_installed_models", lambda *a, **k: [])
     report = tmp_path / "r.json"
     assert models_cli.main(["--packs", "all", "--report", str(report)]) == 1
     assert done == list(packs.PACKS)  # a failure does not stop the next packs
     data = json.loads(report.read_text("utf-8"))
     assert data["failed"] == 1 and data["installed"] == len(packs.PACKS) - 1
+
+    # Ollama down (-SkipOllama): `all` skips the Ollama packs without failing
+    ollama_packs = [p for p, pk in packs.PACKS.items() if pk.ollama_models is not None]
+    assert {"agent-llm", "vision-llm"} <= set(ollama_packs)
+    done.clear()
+    monkeypatch.setattr(packs, "ollama_installed_models", lambda *a, **k: None)
+    assert models_cli.main(["--packs", "all", "--report", str(report)]) == 1
+    assert done == [p for p in packs.PACKS if p not in ollama_packs]
 
 
 def test_extract_deepfilter_zip(tmp_path: Path) -> None:

@@ -2,6 +2,8 @@ import {
   AgentWorkerStatusSchema,
   BugreportResponseSchema,
   WORKER_AGENT_ROUTES,
+  WORKER_STEMS_ROUTES,
+  type WorkerStemsRequest,
   WorkerAgentPlanResponseSchema,
   type AgentWorkerStatus,
   type BugreportResponse,
@@ -114,6 +116,17 @@ export interface WorkerMatteRequest {
   output_base: string;
   downsample?: number;
   chunk_frames?: number;
+  /** Sprint 3b: fast (mobilenetv3) | high (resnet50 + refinement, pack matting-hq). */
+  quality?: "fast" | "high";
+  refine?: {
+    erode?: number;
+    feather?: number;
+    despill?: boolean;
+    temporal?: number;
+    mask_dilate?: number;
+  };
+  /** SAM mask guide (STORAGE_DIR-relative PNG or folder of %05d.png). */
+  mask_path?: string;
 }
 
 /** Workers POST /vision/track body: `bbox` (fractions of the source) or `mask_png` (path). */
@@ -190,6 +203,11 @@ export interface WorkersClient {
   agentPlan(req: WorkerAgentPlanRequest, signal?: AbortSignal): Promise<WorkerAgentPlanResponse>;
   agentBugreport(req: WorkerBugreportRequest, signal?: AbortSignal): Promise<BugreportResponse>;
   agentEval(req: { models?: string[]; dataset?: string }): Promise<WorkerTaskAccepted>;
+  // ---- Sprint 3b (WORKER_STEMS_ROUTES) ----
+  /** POST /audio/stems (Demucs htdemucs, pack stems) -> {task_id}; 409 PACK_REQUIRED first. */
+  audioStems(req: WorkerStemsRequest): Promise<WorkerTaskAccepted>;
+  /** GET /audio/tasks/{id} (VisionTask shape; result = WorkerStemsResult). */
+  audioTask(taskId: string, signal?: AbortSignal): Promise<VisionTask>;
 }
 
 /**
@@ -514,6 +532,16 @@ export function createWorkersClient(baseUrl: string): WorkersClient {
       call("POST", WORKER_AGENT_ROUTES.bugreport, BugreportResponseSchema, req, signal, true),
     agentEval: (req) =>
       call("POST", WORKER_AGENT_ROUTES.evaluate, WorkerTaskAcceptedSchema, req, undefined, true),
+    audioStems: (req) =>
+      call("POST", WORKER_STEMS_ROUTES.stems, WorkerTaskAcceptedSchema, req, undefined, true),
+    audioTask: (taskId, signal) =>
+      call(
+        "GET",
+        buildRoute(WORKER_STEMS_ROUTES.task, { id: taskId }),
+        VisionTaskSchema,
+        undefined,
+        signal ? AbortSignal.any([signal, AbortSignal.timeout(SHORT_TIMEOUT_MS)]) : undefined,
+      ),
     async jobProgress(jobId) {
       try {
         return await call(

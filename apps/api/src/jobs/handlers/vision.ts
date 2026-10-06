@@ -46,7 +46,7 @@ import {
   registerTrackAsset,
 } from "../../services/vision-assets.js";
 import { WorkersError, type WorkersClient } from "../../services/workers-client.js";
-import { requireMediaAsset } from "../../voice-ai/media-bridge.js";
+import { requireMaskAsset, requireMediaAsset } from "../../voice-ai/media-bridge.js";
 import { JobAbortedError } from "../state.js";
 import type { JobContext, JobHandler } from "../types.js";
 import { toPackRequired, viaPacks, type AiDeps, type AiHandlerOptions } from "./ai.js";
@@ -148,6 +148,7 @@ export function createVisionMatteHandler(
       const outputBase = `renders/${job.id}`;
       let asset: MediaAsset;
       let previewPath: string | undefined;
+      const hq: Pick<VisionMatteResult, "quality" | "previewComparePath" | "halo" | "refine"> = {};
       const warnings: string[] = [];
       if (image) {
         ctx.reportProgress(0.1, "Quitando el fondo de la imagen (BiRefNet)");
@@ -172,7 +173,21 @@ export function createVisionMatteHandler(
           throw new HttpError(400, "BAD_REQUEST", "Quitar el fondo necesita un video o una imagen");
         if (model !== "rvm")
           throw new HttpError(400, "BAD_REQUEST", "Para video se usa RobustVideoMatting (rvm)");
-        ctx.reportProgress(0.03, "Quitando el fondo (RobustVideoMatting)");
+        const high = req.quality === "high";
+        ctx.reportProgress(
+          0.03,
+          `Quitando el fondo (RobustVideoMatting${high ? ", alta calidad" : ""})`,
+        );
+        // sprint 3b: quality / refinement / SAM mask guide pass straight to the workers
+        const maskPath = req.maskAssetId ? requireMaskAsset(deps, req.maskAssetId).path : undefined;
+        const r = req.refine;
+        const refine = r && {
+          ...(r.erode !== undefined && { erode: r.erode }),
+          ...(r.feather !== undefined && { feather: r.feather }),
+          ...(r.despill !== undefined && { despill: r.despill }),
+          ...(r.temporal !== undefined && { temporal: r.temporal }),
+          ...(r.maskDilate !== undefined && { mask_dilate: r.maskDilate }),
+        };
         const { task_id } = await viaPacks(() =>
           deps.workers.visionMatte({
             path: src.path,
@@ -180,6 +195,9 @@ export function createVisionMatteHandler(
             output_base: outputBase,
             ...(req.downsample !== undefined && { downsample: req.downsample }),
             ...(req.chunkFrames !== undefined && { chunk_frames: req.chunkFrames }),
+            ...(req.quality && { quality: req.quality }),
+            ...(refine && Object.keys(refine).length > 0 && { refine }),
+            ...(maskPath && { mask_path: maskPath }),
           }),
         );
         ctx.log(`Tarea de recorte ${task_id}`);
@@ -189,6 +207,12 @@ export function createVisionMatteHandler(
         });
         warnings.push(...done.warnings, ...(done.result.warnings ?? []));
         previewPath = done.result.preview_path ?? undefined;
+        const q = done.result.quality;
+        if (q === "fast" || q === "high") hq.quality = q;
+        if (done.result.preview_compare_path)
+          hq.previewComparePath = done.result.preview_compare_path;
+        if (done.result.halo) hq.halo = done.result.halo;
+        if (done.result.refine) hq.refine = done.result.refine;
         asset = await registerFileAsset(deps, {
           kind: "video",
           path: done.result.alpha_path,
@@ -216,6 +240,7 @@ export function createVisionMatteHandler(
         path: asset.path,
         sourceAssetId: src.id,
         ...(previewPath && { previewPath }),
+        ...hq,
         ...(linkedClip && { linkedClip }),
         ...(warnings.length > 0 && { warnings }),
       };

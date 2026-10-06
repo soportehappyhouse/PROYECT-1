@@ -1949,7 +1949,7 @@ await step(
     const green = (c) => c[1] > 180 && c[0] < 80 && c[2] < 80;
     assert(!green(inside) && inside[1] < 90, `inside the mask ${inside} (expected the source)`);
     assert(green(outside), `outside the mask ${outside} (expected green)`);
-    ctx.s2sam = { alphaAssetId: r.alphaAssetId };
+    ctx.s2sam = { alphaAssetId: r.alphaAssetId, maskAssetId: r.maskAssetId };
     return {
       sessionId,
       frames,
@@ -1988,6 +1988,26 @@ await step(
     const c = f.px(0.8 * 960, 0.2 * 540);
     assert(c[1] >= 35 && c[1] <= 80 && c[0] < 30 && c[2] < 30, `background pixel ${c}`);
     return { pixel: c, warnings: job.result.warnings ?? [] };
+  },
+);
+
+await step(
+  "sprint3b: «Quitar fondo» alta calidad (RVM mock, --quality high) -> refine + before/after PNG",
+  async () => {
+    const { video } = await sprint2Media();
+    const res = await ok("POST", "/api/ai/vision/matte", {
+      assetId: video.id,
+      quality: "high",
+      refine: { feather: 1, erode: 1, despill: true },
+    });
+    const job = await waitOk(res.jobId, { timeoutMs: 300_000 });
+    const r = job.result;
+    assert(r.quality === "high", `quality ${r.quality}`);
+    assert(r.refine?.despill === true && r.refine?.feather === 1, JSON.stringify(r.refine));
+    assert(r.previewComparePath?.endsWith(".compare.png"), `compare ${r.previewComparePath}`);
+    const png = await fetch(`${API}/files/${r.previewComparePath}`);
+    assert(png.ok, `GET compare ${png.status}`);
+    return { previewComparePath: r.previewComparePath, halo: r.halo ?? null };
   },
 );
 
@@ -2347,6 +2367,306 @@ await step(
   SKIP_MOTION ? "optional" : "required",
 );
 
+// ---------------------------------------------------------------- BEGIN sprint 3b stems
+await step(
+  "sprint3b: stems (lavfi tone+noise video) -> «Voz»/«Música» tracks aligned, clip muted -> undo",
+  async () => {
+    const src = path.join(WORK, "e2e-stems.mp4");
+    await run(FFMPEG, [
+      "-y",
+      "-v",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "color=c=0x203040:s=320x180:r=25:d=6",
+      "-f",
+      "lavfi",
+      "-i",
+      "sine=frequency=440:duration=6:sample_rate=48000",
+      "-f",
+      "lavfi",
+      "-i",
+      "anoisesrc=d=6:c=pink:a=0.08:r=48000",
+      "-filter_complex",
+      "[1:a][2:a]amix=inputs=2:normalize=0[a]",
+      "-map",
+      "0:v",
+      "-map",
+      "[a]",
+      "-c:v",
+      "libx264",
+      "-pix_fmt",
+      "yuv420p",
+      "-c:a",
+      "aac",
+      "-shortest",
+      src,
+    ]);
+    const video = await upload(src, "video/mp4");
+    await waitAssetJobs(video.id, ["media.probe"]);
+    const p0 = await ok("POST", "/api/projects", { name: "E2E stems" }, [201]);
+    const V = p0.tracks.find((t) => t.kind === "video");
+    const clipId = id("c");
+    V.clips = [
+      { id: clipId, trackId: V.id, assetId: video.id, start: 1.5, in: 0.5, out: 5.5, volume: 0.9 },
+    ];
+    const p = await ok("PUT", `/api/projects/${p0.id}`, p0);
+    const pack = (await ok("GET", "/api/ai/packs")).find((x) => x.id === "stems");
+    assert(pack, "pack «stems» not listed by GET /api/ai/packs");
+    const body = { clipId, mode: "two", target: { projectId: p.id } };
+    const r = await api("POST", "/api/audio/stems", body);
+    if (!pack.installed) {
+      assert(
+        r.status === 409 && r.json?.packId === "stems",
+        `stems without pack -> ${r.status} ${JSON.stringify(r.json)}`,
+      );
+      return "409 PACK_REQUIRED (workers without the stems pack / mocks off)";
+    }
+    assert(r.status === 202, `stems -> ${r.status} ${JSON.stringify(r.json)}`);
+    const job = await waitOk(r.json.jobId, { timeoutMs: 180_000 });
+    const res = job.result;
+    assert(
+      res.stems.map((s) => s.label).join() === "Voz,Música",
+      `stems ${JSON.stringify(res.stems)}`,
+    );
+    assert(res.undoSnapshotId && res.previousVolume === 0.9, `result ${JSON.stringify(res)}`);
+    const saved = await ok("GET", `/api/projects/${p.id}`);
+    const names = saved.tracks.map((t) => t.name);
+    const srcClip = saved.tracks.flatMap((t) => t.clips).find((c) => c.id === clipId);
+    assert(srcClip?.volume === 0, `source clip volume ${srcClip?.volume}`);
+    for (const s of res.stems) {
+      const track = saved.tracks.find((t) => t.id === s.trackId);
+      assert(track?.kind === "audio" && track.name === s.label, `track ${JSON.stringify(track)}`);
+      const c = track.clips[0];
+      assert(
+        c.assetId === s.assetId && c.start === 1.5 && c.in === 0.5 && c.out === 5.5,
+        `stem clip ${JSON.stringify(c)}`,
+      );
+      assert(c.volume === 0.9, `stem clip volume ${c.volume}`);
+      const f = await ffprobe(await download(s.path, `stem-${s.name}.wav`));
+      const a = f.streams.find((x) => x.codec_type === "audio");
+      assert(
+        a.sample_rate === "44100" && a.channels === 2,
+        `stem ${a.sample_rate} Hz x${a.channels}`,
+      );
+      assert(near(+f.format.duration, 6, 0.2), `stem duration ${f.format.duration}`);
+    }
+    const progress = sseFor(r.json.jobId).filter((e) => (e.message ?? "").includes("Separando"));
+    const undo = await ok("POST", "/api/audio/stems/undo", { undoSnapshotId: res.undoSnapshotId });
+    const back = undo.project;
+    assert(
+      !back.tracks.some((t) => t.name === "Voz" || t.name === "Música") &&
+        back.tracks.flatMap((t) => t.clips).find((c) => c.id === clipId)?.volume === 0.9,
+      `undo did not restore: ${back.tracks.map((t) => t.name).join(", ")}`,
+    );
+    return { device: res.device, tracks: names, progressEvents: progress.length };
+  },
+);
+// ------------------------------------------------------------------ END sprint 3b stems
+// ---------------------------------------------------------------- BEGIN sprint 3b style
+// «Perfil de estilo»: analysis of a lavfi reference (4 shots of 2 s + tone), local vision model
+// (409 PACK_REQUIRED unless qwen2.5vl:3b is in Ollama), preset -> Assistant plan -> agent.apply.
+const STYLE_SHEET = { w: 4 * 320 + 3 * 4 + 8, h: 6 * 180 + 5 * 4 + 8 }; // 4x6 tiles of 320x180
+
+async function styleReference() {
+  if (ctx.styleRef) return ctx.styleRef;
+  const src = path.join(WORK, "e2e-estilo-ref.mp4");
+  const shots = ["testsrc2=", "smptebars=", "color=c=red:", "color=c=blue:"];
+  const args = ["-y", "-v", "error"];
+  for (const s of shots) args.push("-f", "lavfi", "-i", `${s}s=640x360:r=25:d=2`);
+  args.push("-f", "lavfi", "-i", "sine=f=440:d=8:sample_rate=48000");
+  args.push(
+    "-filter_complex",
+    "[0:v][1:v][2:v][3:v]concat=n=4:v=1:a=0,format=yuv420p[v]",
+    "-map",
+    "[v]",
+    "-map",
+    "4:a",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "ultrafast",
+    "-c:a",
+    "aac",
+    "-shortest",
+    src,
+  );
+  await run(FFMPEG, args);
+  const video = await upload(src, "video/mp4");
+  await waitAssetJobs(video.id, ["media.probe"]);
+  ctx.styleRef = { video };
+  return ctx.styleRef;
+}
+
+await step(
+  "sprint3b: style.analyze (lavfi 4 shots) -> analysis asset + contact sheet 4x6",
+  async () => {
+    const { video } = await styleReference();
+    const t0 = Date.now();
+    const { jobId } = await ok("POST", "/api/style/analyze", { assetId: video.id }, [202]);
+    const job = await waitOk(jobId, { timeoutMs: 180_000 });
+    const ms = Date.now() - t0;
+    const { analysisId, analysis, contactSheetPath } = job.result;
+    const s = analysis.shot_stats;
+    assert(s.count === 4, `shots ${s.count}: ${JSON.stringify(analysis.scenes)}`);
+    assert(near(s.median_s, 2, 0.15), `median ${s.median_s}`);
+    assert(analysis.audio.has_audio && analysis.audio.loudness_lufs < -10, "audio");
+    assert(analysis.thumbnails.length === 24, `thumbnails ${analysis.thumbnails.length}`);
+    const asset = (await ok("GET", "/api/media")).find((a) => a.id === analysisId);
+    assert(
+      asset?.kind === "analysis" && asset.thumbnailPath === contactSheetPath,
+      "analysis asset",
+    );
+    const sheet = await ffprobe(await download(contactSheetPath, "estilo-hoja.png"));
+    const v = sheet.streams[0];
+    assert(
+      v.width === STYLE_SHEET.w && v.height === STYLE_SHEET.h,
+      `contact sheet ${v.width}x${v.height}`,
+    );
+    const listed = await ok("GET", `/api/style/analyses?assetId=${video.id}`);
+    assert(
+      listed.some((r) => r.id === analysisId),
+      "analysis not listed",
+    );
+    ctx.styleRef.analysisId = analysisId;
+    const progress = sseFor(jobId).filter((e) => e.status === "running").length;
+    return {
+      ms,
+      method: analysis.scenes_method,
+      cutsPerMin: s.cuts_per_min,
+      lufs: analysis.audio.loudness_lufs,
+      music: analysis.audio.music_detected,
+      ocr: analysis.text_on_screen ? analysis.text_on_screen.length : "sin pack",
+      sseRunning: progress,
+    };
+  },
+);
+
+await step(
+  "sprint3b: style.infer -> 409 PACK_REQUIRED vision-llm (console hint) or a preset",
+  async () => {
+    const analysisId = ctx.styleRef?.analysisId;
+    assert(analysisId, "no analysis from the previous step");
+    const r = await api("POST", "/api/style/infer", { analysisId });
+    if (r.status === 409) {
+      assert(r.json?.packId === "vision-llm", `pack ${JSON.stringify(r.json)}`);
+      assert(/Consola Claude/.test(r.json?.message ?? ""), `message ${r.json?.message}`);
+      return "409 PACK_REQUIRED (sin qwen2.5vl:3b en Ollama)";
+    }
+    assert(r.status === 202, `infer -> ${r.status} ${JSON.stringify(r.json)}`);
+    const job = await waitJob(r.json.jobId, { timeoutMs: 600_000 });
+    if (job.status === "failed") {
+      assert(
+        job.result?.packId === "vision-llm" && /Consola Claude/.test(job.error ?? ""),
+        `infer job ${job.error}`,
+      );
+      return "job failed with PACK_REQUIRED (console hint)";
+    }
+    assert(job.status === "succeeded" && job.result.preset?.canvas, `infer ${job.status}`);
+    return { model: job.result.model, preset: job.result.preset.name };
+  },
+);
+
+await step(
+  "sprint3b: save a style preset -> apply -> Assistant plan proposed -> agent.apply (confirmed export)",
+  async () => {
+    const { video } = await styleReference();
+    const wav = path.join(WORK, "e2e-estilo-musica.wav");
+    await run(FFMPEG, ["-y", "-v", "error", "-f", "lavfi", "-i", "sine=f=220:d=8", wav]);
+    const music = await upload(wav, "audio/wav");
+    await waitAssetJobs(music.id, ["media.probe"]);
+    const p0 = await ok("POST", "/api/projects", { name: "E2E estilo" }, [201]);
+    const V = p0.tracks.find((t) => t.kind === "video");
+    const A = p0.tracks.find((t) => t.kind === "audio");
+    V.clips = [{ id: id("c"), trackId: V.id, assetId: video.id, start: 0, in: 0, out: 8 }];
+    const musicClip = id("m");
+    A.clips = [{ id: musicClip, trackId: A.id, assetId: music.id, start: 0, in: 0, out: 8 }];
+    const p = await ok("PUT", `/api/projects/${p0.id}`, p0);
+    const preset = await ok(
+      "POST",
+      "/api/style/presets",
+      {
+        name: "E2E vertical",
+        canvas: "9:16",
+        cut_rhythm: { target_shot_s: 6, remove_silences: true, min_silence_ms: 400 },
+        captions: { enabled: false, style: "reels", animated: true, position: "center" },
+        titles: { enabled: false, template: "title-card" },
+        transitions: { type: "fade" },
+        music: { duck: true, volume_db: -14 },
+        export_preset: "reels-tiktok",
+        notes_es: "Preset de prueba e2e.",
+        source: { via: "manual", assetId: video.id, analysisId: ctx.styleRef?.analysisId },
+      },
+      [201],
+    );
+    const res = await ok(
+      "POST",
+      `/api/style/presets/${preset.id}/apply`,
+      { projectId: p.id },
+      [201],
+    );
+    const ops = res.plan.plan.ops.map((o) => o.op);
+    assert(
+      ops.join() === "set_canvas,cut_silences,detect_scenes,set_volume,export",
+      `ops ${ops.join()}`,
+    );
+    assert(res.plan.status === "proposed" && res.plan.ok, `plan ${JSON.stringify(res.plan)}`);
+    assert(
+      res.preview_es.length === ops.length && res.preview_es[0] === "Lienzo 1080×1920",
+      "preview",
+    );
+    assert(
+      res.notes_es.some((n) => /fundido/.test(n)),
+      `notes ${res.notes_es}`,
+    );
+    const listed = await ok("GET", `/api/agent/plans?projectId=${p.id}`);
+    assert(listed[0]?.id === res.planId, "style plan not in the Assistant history");
+    // detect_scenes needs the scenes pack: leave it unchecked when the workers lack it.
+    const scenesPack = (await ok("GET", "/api/ai/packs")).find((x) => x.id === "scenes");
+    const chosen = ops
+      .map((_, i) => i)
+      .filter((i) => ops[i] !== "detect_scenes" || scenesPack?.installed);
+    const exportIdx = ops.indexOf("export");
+    const refused = await api("POST", "/api/agent/apply", { planId: res.planId, ops: chosen });
+    assert(
+      refused.status === 409 && refused.json?.error?.code === "CONFIRM_REQUIRED",
+      `without confirmation -> ${refused.status} ${JSON.stringify(refused.json)}`,
+    );
+    const { jobId } = await ok(
+      "POST",
+      "/api/agent/apply",
+      { planId: res.planId, ops: chosen, confirmedIndexes: [exportIdx] },
+      [202],
+    );
+    const job = await waitOk(jobId, { timeoutMs: 300_000 });
+    assert(
+      job.result.applied === chosen.length && !job.result.failed,
+      `apply ${JSON.stringify(job.result)}`,
+    );
+    const saved = await ok("GET", `/api/projects/${p.id}`);
+    assert(saved.settings.width === 1080 && saved.settings.height === 1920, "canvas not 9:16");
+    const mc = saved.tracks.flatMap((t) => t.clips).find((c) => c.id === musicClip);
+    assert(near(mc.volume, 10 ** (-14 / 20), 1e-3), `music volume ${mc?.volume}`);
+    const exp = job.result.steps.find((s) => s.index === exportIdx)?.result;
+    assert(exp?.path, `export step ${JSON.stringify(job.result.steps)}`);
+    const out = await ffprobe(await download(exp.path, "estilo-export.mp4"));
+    const vs = out.streams.find((x) => x.codec_type === "video");
+    assert(vs.width === 1080 && vs.height === 1920, `export ${vs.width}x${vs.height}`);
+    const plan = (await ok("GET", `/api/agent/plans?projectId=${p.id}`)).find(
+      (x) => x.id === res.planId,
+    );
+    assert(plan?.status === "applied", `plan status ${plan?.status}`);
+    return {
+      ops,
+      applied: chosen.length,
+      scenesPack: !!scenesPack?.installed,
+      videoClips: saved.tracks.find((t) => t.kind === "video").clips.length,
+    };
+  },
+);
+// ------------------------------------------------------------------ END sprint 3b style
+
 await step("cancel a running export (youtube-4k) + partial file removed", async () => {
   const { jobId } = await ok("POST", `/api/projects/${ctx.project.id}/export`, {
     presetId: "youtube-4k",
@@ -2520,6 +2840,456 @@ await step(
   },
   "expected-fail",
 );
+
+// ---- Sprint 3b «Capas y fusiones» (module E): blend mode / mask / z-order in the real export.
+// Flat lavfi colours; the expected pixels come from @studio/shared blendRgb (the same reference the
+// api pixel tests and the web preview parity tests use).
+
+async function layersMedia() {
+  if (ctx.s3bLayers) return ctx.s3bLayers;
+  const lib = await sharedLib();
+  const hex = (c) => c.map((v) => v.toString(16).padStart(2, "0")).join("");
+  const make = async (name, rgb) => {
+    const file = path.join(WORK, `e2e-capa-${name}.mp4`);
+    await run(FFMPEG, [
+      "-y", "-v", "error", "-f", "lavfi", "-i", `color=c=0x${hex(rgb)}:s=640x360:r=25:d=3`,
+      "-c:v", "libx264", "-crf", "4", "-pix_fmt", "yuv420p", file,
+    ]); // prettier-ignore
+    const a = await upload(file, "video/mp4");
+    await waitAssetJobs(a.id, ["media.probe"]);
+    return a;
+  };
+  ctx.s3bLayers = {
+    lib,
+    base: await make("base", lib.LAYER_PARITY_BASE),
+    top: await make("top", lib.LAYER_PARITY_TOP),
+    red: await make("rojo", [255, 0, 0]),
+    blue: await make("azul", [0, 0, 255]),
+  };
+  return ctx.s3bLayers;
+}
+
+/** Project 640×360 with two video tracks (bottom → top) of one 3 s clip each; export youtube-1080p. */
+async function exportLayers(name, bottom, top, topExtra = {}, trackExtra = [{}, {}]) {
+  const p = await ok(
+    "POST",
+    "/api/projects",
+    { name, settings: { width: 640, height: 360, fps: 25 } },
+    [201],
+  );
+  const V = p.tracks.find((t) => t.kind === "video");
+  const V2 = { ...V, id: id("trk"), name: "Video 2", clips: [] };
+  V.clips = [{ id: id("c"), trackId: V.id, assetId: bottom.id, start: 0, in: 0, out: 3 }];
+  V2.clips = [
+    { id: id("c"), trackId: V2.id, assetId: top.id, start: 0, in: 0, out: 3, ...topExtra },
+  ];
+  Object.assign(V, trackExtra[0]);
+  Object.assign(V2, trackExtra[1]);
+  p.tracks = [V, V2, ...p.tracks.filter((t) => t.id !== V.id)];
+  await ok("PUT", `/api/projects/${p.id}`, p);
+  const { jobId } = await ok("POST", `/api/projects/${p.id}/export`, {
+    presetId: "youtube-1080p",
+    fileName: name.replace(/\s+/g, "-"),
+  });
+  const job = await waitOk(jobId);
+  return frameRgb(await download(job.result.path, `${name.replace(/\s+/g, "-")}.mp4`), 1.5, 640);
+}
+
+const rgbNear = (got, want, tol = 8) => got.every((v, i) => Math.abs(v - want[i]) <= tol);
+
+await step(
+  "sprint3b: export multiply / screen over the base track -> pixel = shared blendRgb",
+  async () => {
+    const { lib, base, top } = await layersMedia();
+    const out = {};
+    for (const mode of ["multiply", "screen"]) {
+      const f = await exportLayers(`E2E capas ${mode}`, base, top, { blendMode: mode });
+      const got = f.px(320, 180);
+      const want = lib.blendRgb(mode, lib.LAYER_PARITY_BASE, lib.LAYER_PARITY_TOP);
+      assert(rgbNear(got, want, lib.LAYER_PARITY_TOLERANCE), `${mode}: got ${got}, want ${want}`);
+      out[mode] = { got, want };
+    }
+    return out;
+  },
+);
+
+await step("sprint3b: export ellipse mask (feather 12) + Track.order swap", async () => {
+  const { red, blue } = await layersMedia();
+  const mask = { type: "shape", shape: "ellipse", x: 0.1, y: 0.1, w: 0.8, h: 0.8, feather: 12 };
+  const f = await exportLayers("E2E capas elipse", blue, red, { maskRef: mask });
+  const center = f.px(320, 180);
+  const corner = f.px(4, 4);
+  assert(rgbNear(center, [255, 0, 0]), `center ${center} (red expected)`);
+  assert(rgbNear(corner, [0, 0, 255]), `corner ${corner} (blue expected)`);
+  // same tracks with Track.order swapped: the blue (bottom row) is now drawn on top
+  const g = await exportLayers("E2E capas orden", blue, red, {}, [{ order: 1 }, { order: 0 }]);
+  const top = g.px(320, 180);
+  assert(rgbNear(top, [0, 0, 255]), `reordered: ${top} (blue expected on top)`);
+  return { center, corner, reordered: top };
+});
+
+// ---------------------------------------------------------------- BEGIN sprint 3b integration
+// Cross-module checks: console routes + studio-mcp against the real api, SAM mask (sprint 2) as a
+// layer mask, block-cache hashes with blend/mask/order, Track.order with stems and agent plans.
+
+/** One-clip-per-track project (bottom → top) on a 640×360 canvas; returns the saved project. */
+async function layersProject(name, bottom, top, topExtra = {}, dur = 3) {
+  const p = await ok(
+    "POST",
+    "/api/projects",
+    { name, settings: { width: 640, height: 360, fps: 25 } },
+    [201],
+  );
+  const V = p.tracks.find((t) => t.kind === "video");
+  const V2 = { ...V, id: id("trk"), name: "Video 2", clips: [] };
+  V.clips = [{ id: id("c"), trackId: V.id, assetId: bottom.id, start: 0, in: 0, out: dur }];
+  V2.clips = [
+    { id: id("c"), trackId: V2.id, assetId: top.id, start: 0, in: 0, out: dur, ...topExtra },
+  ];
+  p.tracks = [V, V2, ...p.tracks.filter((t) => t.id !== V.id)];
+  return ok("PUT", `/api/projects/${p.id}`, p);
+}
+
+await step(
+  "sprint3b: console status + session/WS round-trip + /api/projects/:id/frame PNG",
+  async () => {
+    const st = await ok("GET", "/api/console/status");
+    assert(
+      typeof st.claudeInstalled === "boolean" && st.storageDir,
+      `status ${JSON.stringify(st)}`,
+    );
+    const { red } = await layersMedia();
+    const p = await layersProject("E2E consola fotograma", red, red);
+    const res = await fetch(`${API}/api/projects/${p.id}/frame?t=1&format=png`);
+    assert(
+      res.ok && (res.headers.get("content-type") ?? "").includes("png"),
+      `frame ${res.status}`,
+    );
+    const png = Buffer.from(await res.arrayBuffer());
+    assert(png.subarray(1, 4).toString() === "PNG", "not a PNG");
+    const method = res.headers.get("x-studio-frame-method");
+    let ws = "claude not installed (status only)";
+    if (st.claudeInstalled) {
+      const s = await ok("POST", "/api/console/session", { cols: 100, rows: 30 }, [201]);
+      const sock = new WebSocket(`${API.replace(/^http/, "ws")}/api/console/ws?token=${s.token}`);
+      const seen = [];
+      const out = await new Promise((resolve, reject) => {
+        const timer = setTimeout(
+          () => reject(new Fail(`WS timeout: ${seen.join("").slice(-200)}`)),
+          20_000,
+        );
+        sock.onmessage = (ev) => {
+          const m = JSON.parse(String(ev.data));
+          if (m.type === "status" && m.state === "running")
+            sock.send(JSON.stringify({ type: "input", data: "hola-e2e\r" }));
+          if (m.type === "output") seen.push(m.data);
+          if (seen.join("").includes("hola-e2e")) {
+            clearTimeout(timer);
+            resolve(seen.join(""));
+          }
+        };
+        sock.onerror = () => reject(new Fail("WS error"));
+      });
+      sock.send(JSON.stringify({ type: "kill" }));
+      sock.close();
+      const reuse = new WebSocket(`${API.replace(/^http/, "ws")}/api/console/ws?token=${s.token}`);
+      const code = await new Promise((resolve) => (reuse.onclose = (ev) => resolve(ev.code)));
+      assert(code === 4401, `reused token closed with ${code} (4401 expected)`);
+      ws = `echo ok (${out.length} B), token reuse -> 4401, claude ${st.version}`;
+    }
+    return { claudeInstalled: st.claudeInstalled, frame: `${png.length} B (${method})`, ws };
+  },
+);
+
+await step(
+  "sprint3b: studio-mcp (stdio) studio_style_save_preset + studio_style_apply -> Assistant plan",
+  async () => {
+    const entry = path.join(REPO, "packages", "studio-mcp", "dist", "index.js");
+    assert(existsSync(entry), "packages/studio-mcp/dist missing (pnpm build:packages)");
+    const { video } = await styleReference();
+    const p0 = await ok("POST", "/api/projects", { name: "E2E MCP estilo" }, [201]);
+    p0.tracks.find((t) => t.kind === "video").clips = [
+      {
+        id: id("c"),
+        trackId: p0.tracks.find((t) => t.kind === "video").id,
+        assetId: video.id,
+        start: 0,
+        in: 0,
+        out: 8,
+      },
+    ];
+    const p = await ok("PUT", `/api/projects/${p0.id}`, p0);
+    const child = spawn(process.execPath, [entry], {
+      stdio: ["pipe", "pipe", "ignore"],
+      env: { ...process.env, STUDIO_API_URL: API },
+      windowsHide: true,
+    });
+    let buf = "";
+    const waiting = new Map();
+    child.stdout.on("data", (chunk) => {
+      buf += chunk;
+      let i;
+      while ((i = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, i).trim();
+        buf = buf.slice(i + 1);
+        if (line) {
+          const msg = JSON.parse(line);
+          waiting.get(msg.id)?.(msg);
+        }
+      }
+    });
+    let n = 0;
+    const rpc = (method, params) =>
+      new Promise((resolve, reject) => {
+        const rid = ++n;
+        const timer = setTimeout(() => reject(new Fail(`MCP timeout: ${method}`)), 30_000);
+        waiting.set(rid, (msg) => {
+          clearTimeout(timer);
+          if (msg.error) reject(new Fail(`${method}: ${msg.error.message}`));
+          else resolve(msg.result);
+        });
+        child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: rid, method, params }) + "\n");
+      });
+    const call = async (name, args) => {
+      const r = await rpc("tools/call", { name, arguments: args });
+      const text = r.content?.[0]?.text ?? "";
+      assert(!r.isError, `${name} -> ${text.slice(0, 300)}`);
+      return JSON.parse(text);
+    };
+    try {
+      await rpc("initialize", {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "e2e", version: "1" },
+      });
+      child.stdin.write(
+        JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n",
+      );
+      const saved = await call("studio_style_save_preset", {
+        preset: {
+          name: "E2E Claude vertical",
+          canvas: "9:16",
+          cut_rhythm: { target_shot_s: 4, remove_silences: false, min_silence_ms: 400 },
+          captions: { enabled: false, style: "reels", animated: true, position: "center" },
+          titles: { enabled: false, template: "title-card" },
+          transitions: { type: "cut" },
+          music: { duck: false, volume_db: -12 },
+          export_preset: "reels-tiktok",
+          notes_es: "Deducido por la Consola Claude (e2e).",
+          source: { assetId: video.id, analysisId: ctx.styleRef?.analysisId },
+        },
+      });
+      assert(
+        saved.id && saved.source?.via === "claude",
+        `saved ${JSON.stringify(saved).slice(0, 300)}`,
+      );
+      const listed = await ok("GET", "/api/style/presets");
+      assert(
+        listed.some((x) => x.id === saved.id),
+        "preset not in GET /api/style/presets",
+      );
+      const applied = await call("studio_style_apply", { presetId: saved.id, projectId: p.id });
+      assert(applied.planId, `apply ${JSON.stringify(applied).slice(0, 300)}`);
+      const plans = await ok("GET", `/api/agent/plans?projectId=${p.id}`);
+      const rec = plans.find((x) => x.id === applied.planId);
+      assert(
+        rec?.status === "proposed" && rec.plan.ops[0].op === "set_canvas",
+        `plan ${JSON.stringify(rec).slice(0, 300)}`,
+      );
+      return {
+        presetId: saved.id,
+        planId: applied.planId,
+        ops: rec.plan.ops.map((o) => o.op).join(","),
+      };
+    } finally {
+      child.kill();
+    }
+  },
+);
+
+await step(
+  "sprint3b: SAM mask asset (sprint 2) as Clip.maskRef -> export shows the top clip only inside the mask",
+  async () => {
+    assert(ctx.s2sam?.maskAssetId, "needs the sprint 2 SAM step (mask asset)");
+    const { video } = await sprint2Media();
+    const { red } = await layersMedia();
+    const p0 = await ok("POST", "/api/projects", { name: "E2E capa máscara SAM" }, [201]);
+    const V = p0.tracks.find((t) => t.kind === "video");
+    const V2 = { ...V, id: id("trk"), name: "Video 2", clips: [] };
+    V.clips = [{ id: id("c"), trackId: V.id, assetId: red.id, start: 0, in: 0, out: 3 }];
+    V2.clips = [
+      {
+        id: id("c"),
+        trackId: V2.id,
+        assetId: video.id,
+        start: 0,
+        in: 0,
+        out: 3,
+        maskRef: { type: "asset", assetId: ctx.s2sam.maskAssetId },
+      },
+    ];
+    p0.tracks = [V, V2, ...p0.tracks.filter((t) => t.id !== V.id)];
+    const p = await ok("PUT", `/api/projects/${p0.id}`, p0);
+    const ex = await ok("POST", `/api/projects/${p.id}/export`, {
+      presetId: "youtube-1080p",
+      fileName: "capa-mascara-sam",
+    });
+    const f = await frameRgb(
+      await download((await waitOk(ex.jobId)).result.path, "capa-mascara-sam.mp4"),
+      1,
+      960,
+    );
+    const b = S2.box(0);
+    const click = { x: (b.x + b.w / 2) / S2.W, y: (b.y + b.h / 2) / S2.H };
+    const mx = Math.min(Math.max(0, click.x - 0.15), 0.7);
+    const my = Math.min(Math.max(0, click.y - 0.2), 0.6);
+    const inside = f.px((mx + 0.15) * 960, (my + 0.05) * 540);
+    const outside = f.px(0.8 * 960, 0.2 * 540);
+    const isRed = (c) => c[0] > 200 && c[1] < 60 && c[2] < 60;
+    assert(
+      !isRed(inside) && inside[0] < 90,
+      `inside the SAM mask ${inside} (expected the top clip)`,
+    );
+    assert(isRed(outside), `outside the SAM mask ${outside} (expected the red bottom track)`);
+    return { inside, outside };
+  },
+);
+
+await step(
+  "sprint3b: block-cache hash: stable re-export; blend / mask / Track.order change -> re-render",
+  async () => {
+    const { base, top } = await layersMedia();
+    const p = await layersProject("E2E capas hash", base, top);
+    const exportSeg = async () => {
+      const { jobId } = await ok("POST", `/api/projects/${p.id}/export`, {
+        presetId: "youtube-1080p",
+        fileName: "capas-hash",
+      });
+      const r = (await waitOk(jobId)).result;
+      assert(r.mode === "segments" && r.segments, `mode ${r.mode}`);
+      return r.segments;
+    };
+    const save = async (mut) => {
+      const cur = await ok("GET", `/api/projects/${p.id}`);
+      mut(cur.tracks);
+      await ok("PUT", `/api/projects/${p.id}`, cur);
+    };
+    const topClip = (tracks) => tracks.find((t) => t.name === "Video 2").clips[0];
+    const out = { first: await exportSeg(), again: await exportSeg() };
+    assert(
+      out.again.rendered === 0 && out.again.cached === out.first.total,
+      `again ${JSON.stringify(out.again)}`,
+    );
+    // blocks are content-addressed: values no other step exports (difference, feather 7)
+    await save((t) => (topClip(t).blendMode = "difference"));
+    out.blend = await exportSeg();
+    await save(
+      (t) =>
+        (topClip(t).maskRef = {
+          type: "shape",
+          shape: "ellipse",
+          x: 0.1,
+          y: 0.1,
+          w: 0.8,
+          h: 0.8,
+          feather: 7,
+          invert: false,
+        }),
+    );
+    out.mask = await exportSeg();
+    await save((t) =>
+      t.filter((x) => x.kind === "video").forEach((x, i, all) => (x.order = all.length - 1 - i)),
+    );
+    out.order = await exportSeg();
+    await save((t) => {
+      delete topClip(t).blendMode;
+      delete topClip(t).maskRef;
+      t.forEach((x) => delete x.order);
+    });
+    out.back = await exportSeg();
+    for (const k of ["blend", "mask", "order"])
+      assert(out[k].rendered >= 1, `${k}: nothing re-rendered ${JSON.stringify(out[k])}`);
+    assert(
+      out.back.rendered === 0,
+      `back to the original: re-rendered ${JSON.stringify(out.back)}`,
+    );
+    return Object.fromEntries(Object.entries(out).map(([k, v]) => [k, `${v.rendered}/${v.total}`]));
+  },
+);
+
+await step(
+  "sprint3b: Track.order kept by agent EditPlan apply (new track on top) and by stems (next to the source)",
+  async () => {
+    const lib = await sharedLib();
+    const p0 = await ok("POST", "/api/projects", { name: "E2E orden z" }, [201]);
+    // explicit z-order that differs from the array order (as after dragging tracks in the timeline)
+    p0.tracks = p0.tracks.map((t, i, all) => ({ ...t, order: all.length - 1 - i }));
+    const p = await ok("PUT", `/api/projects/${p0.id}`, p0);
+    const before = Object.fromEntries(p.tracks.map((t) => [t.id, t.order]));
+    const plan = {
+      version: 1,
+      summary_es: "Dos textos superpuestos",
+      ops: [
+        { op: "add_text", text: "Uno", t: 0, duration_s: 2 },
+        { op: "add_text", text: "Dos", t: 0, duration_s: 2 },
+      ],
+    };
+    const rec = await ok("POST", "/api/console/plans", { plan, projectId: p.id }, [201]);
+    assert(rec.ok && rec.id, `plan ${JSON.stringify(rec).slice(0, 300)}`);
+    const { jobId } = await ok("POST", "/api/agent/apply", { planId: rec.id }, [202]);
+    const job = await waitOk(jobId);
+    assert(job.result.applied === 2, `apply ${JSON.stringify(job.result)}`);
+    const after = await ok("GET", `/api/projects/${p.id}`);
+    for (const [tid, o] of Object.entries(before))
+      assert(after.tracks.find((t) => t.id === tid)?.order === o, `track ${tid} order changed`);
+    const added = after.tracks.filter((t) => !(t.id in before));
+    assert(
+      added.length === 1 && added[0].kind === "text",
+      `new tracks ${added.map((t) => t.name)}`,
+    );
+    const z = lib.tracksInZOrder(after.tracks);
+    assert(z.at(-1).id === added[0].id, `new track z ${z.map((t) => t.name)}`);
+    // stems with explicit order: the stem tracks go right above the source track in z-order
+    const stemsPack = (await ok("GET", "/api/ai/packs")).find((x) => x.id === "stems");
+    let stems = "pack stems missing (skipped)";
+    if (stemsPack?.installed) {
+      const wav = path.join(WORK, "e2e-orden-stems.wav");
+      await run(FFMPEG, ["-y", "-v", "error", "-f", "lavfi", "-i", "sine=f=330:d=4", wav]);
+      const src = await upload(wav, "audio/wav");
+      await waitAssetJobs(src.id, ["media.probe"]);
+      const cur = await ok("GET", `/api/projects/${p.id}`);
+      const V = cur.tracks.find((t) => t.kind === "audio");
+      const clipId = id("c");
+      V.clips = [{ id: clipId, trackId: V.id, assetId: src.id, start: 0, in: 0, out: 4 }];
+      await ok("PUT", `/api/projects/${p.id}`, cur);
+      const r = await ok(
+        "POST",
+        "/api/audio/stems",
+        { clipId, mode: "two", target: { projectId: p.id } },
+        [202],
+      );
+      await waitOk(r.jobId, { timeoutMs: 180_000 });
+      const saved = await ok("GET", `/api/projects/${p.id}`);
+      const zs = lib.tracksInZOrder(saved.tracks);
+      const at = zs.findIndex((t) => t.id === V.id);
+      assert(
+        zs[at + 1]?.name === "Voz" && zs[at + 2]?.name === "Música",
+        `z ${zs.map((t) => t.name)}`,
+      );
+      assert(
+        zs.every((t, i) => t.order === i),
+        `orders ${zs.map((t) => t.order)}`,
+      );
+      assert(
+        saved.tracks.flatMap((t) => t.clips).find((c) => c.id === clipId).volume === 0,
+        "source not muted",
+      );
+      stems = zs.map((t) => t.name).join(" < ");
+    }
+    return { agent: z.map((t) => t.name).join(" < "), stems };
+  },
+);
+// ------------------------------------------------------------------ END sprint 3b integration
 
 // ---------------------------------------------------------------- report
 sse.controller.abort();

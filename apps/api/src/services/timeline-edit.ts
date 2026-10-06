@@ -1,3 +1,4 @@
+import { nextTrackOrder } from "@studio/shared";
 import type { Clip, CutRange, Project, SubtitleSegment, Track } from "@studio/shared";
 import { HttpError } from "../lib/errors.js";
 
@@ -318,13 +319,17 @@ export function moveClip(
   if (!target) {
     const n = tracks.filter((x) => x.kind === track.kind).length + 1;
     const name = { video: "Video", audio: "Audio", text: "Texto", motion: "Motion" }[track.kind];
+    // A new track goes on top of the z-order, never tied with `track`.
+    const { order: _order, ...rest } = track;
+    const order = nextTrackOrder(tracks);
     target = {
-      ...track,
+      ...rest,
       id: newId(),
       name: `${name} ${n}`,
       muted: false,
       hidden: false,
       clips: [],
+      ...(order !== undefined && { order }),
     };
     tracks.push(target);
   }

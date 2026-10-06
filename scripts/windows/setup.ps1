@@ -20,7 +20,8 @@
      Reutiliza el torch del .venv principal (no baja otra copia de ~2.5 GB).
   6. Paquetes de IA (models\packs.json): por defecto solo "core" (Whisper base + voz Daniela);
      con -Full todos en secuencia (whisper-turbo, voces-es, rvc-base, scenes, voz-limpia, matting,
-     matting-image, sam2, reframe). Lo que ya esta se omite; el resto se baja bajo demanda desde
+     matting-image, sam2, reframe, agent-llm, stems, ocr, vision-llm, matting-hq; los de Ollama
+     se omiten si Ollama no corre). Lo que ya esta se omite; el resto se baja bajo demanda desde
      Ajustes > Paquetes de IA.
   7. pnpm build (se omite si el build coincide con el hash del codigo y de .env).
   Al final: tabla con segundos por paso, "N pasos omitidos, M ejecutados" y el tiempo total
@@ -34,7 +35,9 @@
   Ignora los sellos: rehace pnpm install, pip install, el build y vuelve a descargar los modelos.
 .PARAMETER Full
   Descarga TODOS los paquetes de IA en secuencia (~4,1 GB: Whisper large-v3-turbo, 7 voces Piper,
-  RVC base, PySceneDetect, DeepFilterNet, RVM + .venv-gpl, BiRefNet-lite, SAM 2.1, YuNet). Sin
+  RVC base, PySceneDetect, DeepFilterNet, RVM + .venv-gpl, BiRefNet-lite, SAM 2.1, YuNet; sprint 3b:
+  Demucs htdemucs (stems), RapidOCR (ocr), RVM resnet50 (matting-hq); mas los modelos de Ollama
+  qwen3:8b (agent-llm) y qwen2.5vl:3b (vision-llm), ~8 GB, si Ollama esta instalado). Sin
   -Full solo se instala "core" y el resto se pide al usar cada funcion. Se puede repetir: lo ya
   descargado se omite y lo parcial se reanuda.
 .PARAMETER WithCuda
@@ -58,6 +61,12 @@
 .PARAMETER SkipOllama
   No instala ni inicia Ollama (winget Ollama.Ollama): el Asistente local (paquete agent-llm) queda
   deshabilitado. El modelo (qwen3:8b, ~5 GB) no se baja aca: se descarga desde Ajustes o con -Full.
+.PARAMETER WithClaude
+  Instala Claude Code (npm i -g @anthropic-ai/claude-code) para la Consola Claude de Studio. Activo
+  por defecto cuando hay Node.js 22 o superior; idempotente (si ya esta, muestra la version y se
+  omite). Usa la suscripcion de Claude.ai: despues corre `claude auth login` una vez. Sin API key.
+.PARAMETER SkipClaude
+  No instala Claude Code (la Consola Claude muestra como instalarlo). Igual que -WithClaude:$false.
 .PARAMETER SkipModels
   No descarga modelos (whisper / piper / rvc).
 .PARAMETER SkipBrowser
@@ -74,6 +83,8 @@
   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\setup.ps1 -WithCuda -Full
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\setup.ps1 -NoCuda
+.EXAMPLE
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\setup.ps1 -SkipClaude
 #>
 [CmdletBinding()]
 param(
@@ -87,6 +98,8 @@ param(
     [switch]$SkipWinget,
     [switch]$SkipRvc,
     [switch]$SkipOllama,
+    [switch]$WithClaude,
+    [switch]$SkipClaude,
     [switch]$SkipModels,
     [switch]$SkipBrowser,
     [switch]$SkipBuild,
@@ -441,6 +454,46 @@ if ($nodeVer) {
     }
 } else {
     Add-Result 'pnpm 12' skip 'requiere Node.js 22'
+}
+
+# --- Claude Code (sprint 3b: Consola Claude). Suscripcion Claude.ai, sin API key. Optional: a
+# failure is a warning. Default ON with Node >= 22; -SkipClaude / -WithClaude:$false skip it.
+Start-StepClock
+$claudeWanted = $true
+if ($SkipClaude -or ($PSBoundParameters.ContainsKey('WithClaude') -and -not $WithClaude)) {
+    $claudeWanted = $false
+    Add-Result 'Claude Code' skip '-SkipClaude (la Consola Claude explica como instalarlo)' -Seconds (Stop-StepClock)
+} elseif (-not $nodeVer -or -not (Test-VersionAtLeast $nodeVer '22.0.0')) {
+    $claudeWanted = $false
+    Add-Result 'Claude Code' skip 'requiere Node.js 22 o superior' -Seconds (Stop-StepClock)
+}
+if ($claudeWanted) {
+    $claudeAction = 'omitido'
+    $claudeExe = Find-ClaudeExe
+    $claudeVer = Get-ClaudeVersion $claudeExe
+    if ($claudeVer -and -not $Force) {
+        Write-Omit "Claude Code $claudeVer"
+    } else {
+        try {
+            Write-Info 'Instalando Claude Code (Consola Claude; usa tu suscripcion de Claude.ai)...'
+            Invoke-Native 'npm' @('install', '-g', $script:ClaudeNpmPackage)
+            Update-SessionPath
+            $claudeExe = Find-ClaudeExe
+            $claudeVer = Get-ClaudeVersion $claudeExe
+            $claudeAction = 'ejecutado'
+        } catch {
+            Write-Careful $_.Exception.Message
+        }
+    }
+    if ($claudeVer) {
+        $auth = Get-ClaudeAuthStatus $claudeExe
+        $loginText = 'sesion: desconocida (corre: claude auth login)'
+        if ($auth.LoggedIn -eq $true) { $loginText = "sesion iniciada ($($auth.Method))" }
+        elseif ($auth.LoggedIn -eq $false) { $loginText = 'falta iniciar sesion: corre  claude auth login' }
+        Add-Result 'Claude Code' ok ("{0} - {1}" -f $claudeVer, $loginText) -Action $claudeAction -Seconds (Stop-StepClock)
+    } else {
+        Add-Result 'Claude Code' warn ("no instalado (npm i -g {0}); la Consola Claude queda sin usar" -f $script:ClaudeNpmPackage) -Action $claudeAction -Seconds (Stop-StepClock)
+    }
 }
 
 # ============================================================================ 4. Python workers

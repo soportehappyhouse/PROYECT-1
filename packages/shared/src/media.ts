@@ -12,6 +12,8 @@ export const MediaKindSchema = z.enum([
   "track",
   /** Sprint 2: SAM mask (folder of PNGs under storage/masks/<id>/, or one PNG). */
   "mask",
+  /** Sprint 3b: StyleAnalysis JSON (storage/renders/style/<job>/analysis.json; thumbnail = contact sheet). */
+  "analysis",
 ]);
 export type MediaKind = z.infer<typeof MediaKindSchema>;
 

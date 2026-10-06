@@ -1,3 +1,4 @@
+import { nextTrackOrder } from "@studio/shared";
 import type { Clip, MediaAsset, Project, Track, TrackKind } from "@studio/shared";
 import { createId } from "./ids";
 import { roundTime } from "./format";
@@ -119,8 +120,10 @@ export function canPlaceOnTrack(trackKind: TrackKind, clipKind: TrackKind): bool
   return trackKind === clipKind;
 }
 
+/** New empty track meant to be appended to `existing` (on top of the z-order). */
 export function createTrack(kind: TrackKind, existing: readonly Track[] = []): Track {
   const n = existing.filter((t) => t.kind === kind).length + 1;
+  const order = nextTrackOrder(existing);
   return {
     id: createId("trk"),
     kind,
@@ -129,6 +132,7 @@ export function createTrack(kind: TrackKind, existing: readonly Track[] = []): T
     locked: false,
     hidden: false,
     clips: [],
+    ...(order !== undefined && { order }),
   };
 }
 

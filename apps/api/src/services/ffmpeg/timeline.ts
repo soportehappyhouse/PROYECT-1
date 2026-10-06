@@ -1,17 +1,23 @@
+import path from "node:path";
 import {
   aiLabelText,
+  blendModeToFfmpeg,
   effectiveBurnSubtitles,
   fitRect,
   hasKeyframes,
+  maskShapeRect,
   normalizeCropRect,
   reframeWindow,
   rendersOwnTrack,
   resolveTrackRefs,
   subtitlesToBurn,
+  tracksInZOrder,
   videoRectAt,
   type Clip,
+  type ClipMaskShape,
   type CropRect,
   type Keyframe,
+  type Rect,
   type TrackFile,
   type ExportPreset,
   type MediaKind,
@@ -50,6 +56,8 @@ export interface TimelineAsset {
   /** Display size (fits captions to the video rect). */
   width?: number;
   height?: number;
+  /** Frame rate (Sprint 3b: frame numbering of SAM mask folders). */
+  fps?: number;
 }
 
 export interface CompileExportOptions {
@@ -205,10 +213,16 @@ interface FloatSeg {
 /**
  * Compile a Project into one FFmpeg filter_complex invocation:
  *  - canvas = project.settings (w×h), fps = preset.fps; black (or transparent) base of length T;
- *  - tracks are layered in array order (tracks[0] at the bottom); video/motion tracks become one
- *    stream each (clips in sequence, transparent gaps, xfade for adjacent transitions, alpha fades
- *    otherwise) overlaid on the composite; text tracks are drawtext; audio of video+audio tracks is
- *    trimmed/sped/effected/delayed and amix-ed;
+ *  - tracks are layered in z-order (tracksInZOrder: Track.order, else array index; bottom first);
+ *    video/motion tracks become one stream per lane (clips in sequence, transparent gaps, xfade
+ *    for adjacent transitions, alpha fades otherwise) overlaid on the composite; text tracks are
+ *    drawtext; audio of video+audio tracks is trimmed/sped/effected/delayed and amix-ed;
+ *  - Sprint 3b layers: a clip mask (Clip.maskRef) multiplies the clip alpha (shape generated once
+ *    with geq + gblur and looped, or the asset mask through the clip's own crop/placement chain);
+ *    a clip with Clip.blendMode ≠ normal is composited on its own: its full-canvas stream and the
+ *    composite go to planar RGB (gbrap), `blend=all_mode=<mode>` (composite first, so «overlay»
+ *    depends on the backdrop like the canvas preview) and the result is laid over the composite
+ *    with the clip alpha (alphamerge + overlay) — opacity, fades, masks and keyframes included;
  *  - project.subtitles are burned (SRT), then range trim, reframe to preset size (blurred
  *    background when the aspect ratio differs) and preset encoding (GIF via palettegen).
  */
@@ -433,7 +447,7 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
    * Start of a clip chain: crop (fixed, or Sprint 2 crop keyframes: size of the first keyframe,
    * x/y moving), timestamps from 0 and speed. `lead` = segment-local minus clip-local time.
    */
-  const headChain = (clip: Clip, speed: number, lead: number): string[] => {
+  const headChain = (clip: Clip, speed: number, lead: number, pixFmt = "yuva420p"): string[] => {
     const chain: string[] = [];
     // Crop keyframes in fractions of the source (percent accepted, like the preview).
     const cropKf = hasKeyframes(clip.keyframes, "crop")
@@ -461,8 +475,157 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
         );
       }
     }
-    chain.push("format=yuva420p");
+    chain.push(`format=${pixFmt}`);
     return chain;
+  };
+
+  /**
+   * Sprint 3b: the clip frame on its canvas-sized stream (canvas px), as fitRect places it:
+   * `placement` (scale/position) and the static crop or the size of the first crop keyframe.
+   */
+  const clipFrameRect = (
+    clip: Clip,
+    a: TimelineAsset,
+    placement: Pick<Clip, "scale" | "position">,
+  ): Rect => {
+    const media = a.width && a.height ? { width: a.width, height: a.height } : undefined;
+    let crop = clip.crop;
+    const first = hasKeyframes(clip.keyframes, "crop")
+      ? clip.keyframes.crop!.find((k) => typeof k.v === "object" && "w" in k.v)
+      : undefined;
+    if (first && media) {
+      const r = normalizeCropRect(first.v as CropRect);
+      crop = { x: 0, y: 0, width: r.w * media.width, height: r.h * media.height };
+    }
+    return fitRect({ width: W, height: H }, media, { ...placement, ...(crop && { crop }) });
+  };
+
+  /** Shape mask (gray W×H, 255 = keep): one frame drawn with geq (+ gblur, negate), looped. */
+  const shapeMaskStream = (m: ClipMaskShape, rect: Rect, featherScale: number, dur: number) => {
+    const r = maskShapeRect(rect, m);
+    const cx = r.x + r.width / 2;
+    const cy = r.y + r.height / 2;
+    const rx = Math.max(0.5, r.width / 2);
+    const ry = Math.max(0.5, r.height / 2);
+    const inside =
+      m.shape === "ellipse"
+        ? `lte(pow((X+0.5-${sec(cx)})/${sec(rx)},2)+pow((Y+0.5-${sec(cy)})/${sec(ry)},2),1)`
+        : `between(X+0.5,${sec(r.x)},${sec(r.x + r.width)})*between(Y+0.5,${sec(r.y)},${sec(r.y + r.height)})`;
+    const sigma = ((m.feather ?? 0) * featherScale) / 2;
+    const chain = [
+      `color=c=black:s=${W}x${H}:r=${FPS}:d=1`,
+      "trim=end_frame=1",
+      "format=gray",
+      `geq=lum=${quoteFilterArg(`255*${inside}`)}`,
+      ...(sigma >= 0.3 ? [`gblur=sigma=${sec(Math.min(sigma, 200))}:steps=3`] : []),
+      ...(m.invert ? ["negate"] : []),
+      "loop=loop=-1:size=1",
+      `trim=duration=${sec(dur + frame)}`,
+      `setpts=N/(${FPS}*TB)`,
+    ];
+    const label = g.label("mk");
+    vadd(`${chain.join(",")}[${label}]`);
+    return label;
+  };
+
+  /**
+   * Asset mask (gray, 255 = keep) aligned to the clip: SAM mask folder (%05d.png per source frame,
+   * numbered from the clip source start), one PNG / image (luma, alpha when it has one) or a video
+   * (luma, or its alpha: «máscara alfa» WebM), scaled to the clip source size and sent through the
+   * same crop / speed / placement filters as the clip.
+   */
+  const assetMaskStream = (
+    clip: Clip,
+    ma: TimelineAsset,
+    src: TimelineAsset,
+    o: { srcStart: number; segDur: number; speed: number; lead: number; placement: string[] },
+  ): string => {
+    let idx: number;
+    const useAlpha = ma.kind !== "mask" && ma.hasAlpha === true;
+    if (ma.kind === "mask" && !/\.png$/i.test(ma.absPath)) {
+      const fps = ma.fps ?? src.fps ?? FPS;
+      idx = g.input([
+        "-framerate",
+        String(+fps.toFixed(6)),
+        "-start_number",
+        String(Math.max(0, Math.round(o.srcStart * fps))),
+        "-i",
+        path.posix.join(ma.absPath.replace(/\\/g, "/"), "%05d.png"),
+      ]);
+    } else if (ma.kind === "mask" || ma.kind === "image") {
+      idx = g.input([
+        "-loop",
+        "1",
+        "-framerate",
+        String(FPS),
+        "-t",
+        sec(o.segDur + frame),
+        "-i",
+        ma.absPath,
+      ]);
+    } else
+      idx = mediaInput(
+        { ...ma, ...(useAlpha && { hasAlpha: true }) },
+        o.srcStart,
+        o.segDur,
+        o.speed,
+      );
+    const sw = src.width;
+    const sh = src.height;
+    const chain = [
+      useAlpha ? "format=yuva420p,alphaextract" : "format=gray",
+      ...(sw && sh ? [`scale=${even(sw)}:${even(sh)}`] : []),
+      ...headChain(clip, o.speed, o.lead, "gray"),
+      ...o.placement,
+      "setsar=1",
+      `fps=${FPS}`,
+      "format=gray",
+    ];
+    const label = g.label("mk");
+    vadd(`[${idx}:v]${chain.join(",")}[${label}]`);
+    return label;
+  };
+
+  /**
+   * Sprint 3b: multiply the alpha of a canvas-sized clip stream by its mask; returns the label of
+   * the masked stream (`input` unchanged without a usable mask). `rect` = clip frame on the
+   * stream, `featherScale` = clip scale (feather is given at 100 %).
+   */
+  const applyMask = (
+    clip: Clip,
+    a: TimelineAsset,
+    input: string,
+    o: {
+      rect: Rect;
+      featherScale: number;
+      srcStart: number;
+      segDur: number;
+      speed: number;
+      lead: number;
+      placement: string[];
+    },
+  ): string => {
+    const m = clip.maskRef;
+    if (!m || audioOnly) return input;
+    let mask: string;
+    if (m.type === "shape") mask = shapeMaskStream(m, o.rect, o.featherScale, o.segDur);
+    else {
+      const ma = asset(m.assetId);
+      if (!ma) {
+        g.warnings.push(`Máscara ${m.assetId} no encontrada: el clip ${clip.id} queda sin máscara`);
+        return input;
+      }
+      // Matte clips are composited at the alpha video size: align the mask to that.
+      const mt = clip.matte ? asset(clip.matte.assetId) : undefined;
+      const size = mt?.width && mt.height ? mt : a;
+      mask = assetMaskStream(clip, ma, { ...a, width: size.width, height: size.height }, o);
+    }
+    const [c1, c2, ca, mm, out] = ["mc", "mc", "ma", "mm", "mo"].map((p) => g.label(p));
+    vadd(`[${input}]split[${c1}][${c2}]`);
+    vadd(`[${c2}]alphaextract[${ca}]`);
+    vadd(`[${ca}][${mask}]blend=all_mode=multiply[${mm}]`);
+    vadd(`[${c1}][${mm}]alphamerge[${out}]`);
+    return out!;
   };
 
   /** Fixed opacity (colorchannelmixer) or Sprint 2 opacity keyframes (geq on the alpha plane). */
@@ -496,12 +659,27 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
     const fadeOut = clip.transitionOut ? Math.min(clip.transitionOut.durationSec, dur / 2) : 0;
     const src = sourceInput(track, clip, a, clip.in, dur, speed);
     const chain = headChain(clip, speed, 0);
-    chain.push(
+    const fitPad = [
       `scale=${W}:${H}:force_original_aspect_ratio=decrease`,
       `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black@0`,
-      "setsar=1",
-      `fps=${FPS}`,
-    );
+    ];
+    chain.push(...fitPad, "setsar=1", `fps=${FPS}`);
+    let srcLabel = src.video;
+    if (clip.maskRef && !audioOnly) {
+      // Masked at scale 100 % (centered fit): the per-frame scale / position move the mask too.
+      const pre = g.label("pm");
+      vadd(`[${src.video}]${chain.join(",")}[${pre}]`);
+      srcLabel = applyMask(clip, a, pre, {
+        rect: clipFrameRect(clip, a, {}),
+        featherScale: 1,
+        srcStart: clip.in,
+        segDur: dur,
+        speed,
+        lead: 0,
+        placement: fitPad,
+      });
+      chain.length = 0;
+    }
     if (a.kind !== "image") chain.push(`tpad=stop_mode=clone:stop_duration=${sec(dur)}`);
     chain.push(`trim=duration=${sec(dur)}`, "setpts=PTS-STARTPTS");
     // Box = canvas × max scale; the fitted media stays centered in it.
@@ -528,7 +706,7 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
     if (fadeOut > 0) chain.push(`fade=t=out:st=${sec(dur - fadeOut)}:d=${sec(fadeOut)}:alpha=1`);
     chain.push("settb=AVTB", `setpts=PTS+${sec(start)}/TB`);
     const fl = g.label("fl");
-    vadd(`[${src.video}]${chain.join(",")}[${fl}]`);
+    vadd(`[${srcLabel}]${chain.join(",")}[${fl}]`);
     if (src.audioIdx !== undefined) addAudio(src.audioIdx, clip, start, dur, 0, fadeIn, fadeOut);
 
     // Center of the clip in canvas fractions -> top-left of the box.
@@ -632,20 +810,36 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
       const src = sourceInput(track, clip, a, srcStart, segDur, speed);
       // Segment-local time = clip-local time + xfade (the segment starts xfade earlier).
       const chain = headChain(clip, speed, xfade);
-      if (clip.scale !== undefined || clip.position)
-        chain.push(
-          ...pipPlacementFilters({
-            canvas: { width: W, height: H },
+      const placement =
+        clip.scale !== undefined || clip.position
+          ? pipPlacementFilters({
+              canvas: { width: W, height: H },
+              ...(clip.scale !== undefined && { scale: clip.scale }),
+              ...(clip.position && { position: clip.position }),
+            })
+          : [
+              `scale=${W}:${H}:force_original_aspect_ratio=decrease`,
+              `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black@0`,
+            ];
+      chain.push(...placement, "setsar=1", `fps=${FPS}`);
+      let srcLabel = src.video;
+      if (clip.maskRef && !audioOnly) {
+        const pre = g.label("pm");
+        vadd(`[${src.video}]${chain.join(",")}[${pre}]`);
+        srcLabel = applyMask(clip, a, pre, {
+          rect: clipFrameRect(clip, a, {
             ...(clip.scale !== undefined && { scale: clip.scale }),
             ...(clip.position && { position: clip.position }),
           }),
-        );
-      else
-        chain.push(
-          `scale=${W}:${H}:force_original_aspect_ratio=decrease`,
-          `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black@0`,
-        );
-      chain.push("setsar=1", `fps=${FPS}`);
+          featherScale: Math.min(1, Math.max(0.05, clip.scale ?? 1)),
+          srcStart,
+          segDur,
+          speed,
+          lead: xfade,
+          placement,
+        });
+        chain.length = 0;
+      }
       chain.push(...opacityFilters(clip, xfade));
       if (a.kind !== "image") chain.push(`tpad=stop_mode=clone:stop_duration=${sec(segDur)}`);
       chain.push(`trim=duration=${sec(segDur)}`, "setpts=PTS-STARTPTS");
@@ -654,7 +848,7 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
         chain.push(`fade=t=out:st=${sec(segDur - fadeOut)}:d=${sec(fadeOut)}:alpha=1`);
       chain.push("settb=AVTB");
       const sl = g.label("seg");
-      vadd(`[${src.video}]${chain.join(",")}[${sl}]`);
+      vadd(`[${srcLabel}]${chain.join(",")}[${sl}]`);
 
       if (xfade > 0 && tr) {
         flush();
@@ -756,7 +950,54 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
     return filters;
   };
 
-  for (const track of project.tracks) {
+  /**
+   * Sprint 3b: composite a clip stream (canvas-sized from t = 0, or a floating box placed at
+   * x/y) over `cur` with an FFmpeg blend mode, in planar RGB: blend(composite, layer) where the
+   * layer is opaque, the composite elsewhere, weighted by the layer alpha (opacity/fades/mask).
+   */
+  const blendOnto = (top: string, mode: string, xy?: { x: string; y: string }) => {
+    const [tc, full, b1, b2, t1, t2, ta, bg, bl, bla, next] = [
+      "tc",
+      "bt",
+      "bb",
+      "bb",
+      "bt",
+      "bt",
+      "ba",
+      "bg",
+      "bl",
+      "bm",
+      "c",
+    ].map((p) => g.label(p));
+    const at = xy ? `x=${quoteFilterArg(xy.x)}:y=${quoteFilterArg(xy.y)}` : "0:0";
+    vadd(`color=c=black@0:s=${W}x${H}:r=${FPS}:d=${sec(T)},format=yuva420p[${tc}]`);
+    vadd(`[${tc}][${top}]overlay=${at}:eof_action=pass:format=auto,format=gbrap[${full}]`);
+    if (mode === "addition") {
+      // «Sumar» = canvas "lighter": composite + alpha × layer (premultiplied), clamped; the
+      // alpha plane keeps the larger alpha (transparent exports).
+      const [tp, bgA] = [g.label("bp"), g.label("bg")];
+      vadd(`[${full}]premultiply=inplace=1[${tp}]`);
+      vadd(`[${cur}]format=gbrap[${bgA}]`);
+      vadd(
+        `[${bgA}][${tp}]blend=c0_mode=addition:c1_mode=addition:c2_mode=addition:c3_mode=lighten,format=${alpha ? "yuva420p" : "yuv420p"}[${next}]`,
+      );
+      cur = next!;
+      return;
+    }
+    vadd(`[${cur}]split[${b1}][${b2}]`);
+    vadd(`[${full}]split[${t1}][${t2}]`);
+    vadd(`[${t2}]alphaextract[${ta}]`);
+    vadd(`[${b1}]format=gbrap[${bg}]`);
+    vadd(`[${bg}][${t1}]blend=all_mode=${mode}[${bl}]`);
+    vadd(`[${bl}][${ta}]alphamerge[${bla}]`);
+    vadd(
+      `[${b2}][${bla}]overlay=0:0:format=auto,format=${alpha ? "yuva420p" : "yuv420p"}[${next}]`,
+    );
+    cur = next!;
+  };
+  const blendOf = (c: Clip) => blendModeToFfmpeg(c.blendMode);
+
+  for (const track of tracksInZOrder(project.tracks)) {
     if (track.kind === "audio") {
       if (track.muted || gif) continue;
       for (const clip of [...track.clips].sort((a, b) => a.start - b.start)) {
@@ -794,7 +1035,7 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
     const playable = playableClips(
       win ? { ...track, clips: sliceClipsToWindow(track.clips, win) } : track,
     );
-    const lanes = lanesOf(playable.filter((c) => !isFloatingClip(c)));
+    const lanes = lanesOf(playable.filter((c) => !isFloatingClip(c) && !blendOf(c)));
     if (lanes.length > 1)
       g.warnings.push(
         `Clips solapados en «${track.name}»: se apilan en ${lanes.length} capas (el último encima)`,
@@ -806,9 +1047,19 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
       vadd(`[${cur}][${stream.label}]overlay=0:0:eof_action=pass[${next}]`);
       cur = next;
     }
+    // Blended clips: one stream each (no xfade with neighbours: their transitions become fades).
+    for (const clip of playable.filter((c) => !isFloatingClip(c) && blendOf(c))) {
+      const stream = visualTrack(track, [clip]);
+      if (stream) blendOnto(stream.label, blendOf(clip)!);
+    }
     for (const clip of playable.filter(isFloatingClip)) {
       const fl = floatingClip(track, clip);
       if (!fl) continue;
+      const mode = blendOf(clip);
+      if (mode) {
+        blendOnto(fl.label, mode, fl);
+        continue;
+      }
       const next = g.label("c");
       vadd(
         `[${cur}][${fl.label}]overlay=x=${quoteFilterArg(fl.x)}:y=${quoteFilterArg(fl.y)}:eof_action=pass[${next}]`,

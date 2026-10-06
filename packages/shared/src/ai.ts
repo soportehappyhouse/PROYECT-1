@@ -155,6 +155,17 @@ export const PerfResultSchema = z.object({
   rvm_bottleneck: z.string().nullish(),
   rvm_stage_ms: z.record(z.string(), z.number().nullable()).nullish(),
   rvm_alpha_codec: z.string().nullish(),
+  /**
+   * Sprint 3b «Recorte de calidad alta» (pack matting-hq): the same clip through the GPL CLI with
+   * `--quality high` (resnet50 fp16 + alpha refinement). Same sustained / startup split as above;
+   * `rvm_hq_halo` = no-reference edge halo score after refinement (0..255, lower = cleaner).
+   */
+  rvm_hq_steady_fps: z.number().nullish(),
+  rvm_hq_startup_s: z.number().nullish(),
+  rvm_hq_fps: z.number().nullish(),
+  rvm_hq_precision: z.string().nullish(),
+  rvm_hq_downsample: z.number().nullish(),
+  rvm_hq_halo: z.number().nullish(),
   sam2_fps: z.number().nullish(),
   yunet_fps: z.number().nullish(),
   cpu_fallback_ok: z.boolean().default(false),
@@ -305,6 +316,8 @@ export const FEATURE_PACKS = {
   /** Sprint 2 (vision). */
   matting: "matting",
   mattingImage: "matting-image",
+  /** Sprint 3b: «Quitar fondo» en alta calidad (RVM resnet50 + refinado de bordes). */
+  mattingHq: "matting-hq",
   sam2: "sam2",
   reframe: "reframe",
 } as const;
@@ -330,6 +343,8 @@ export const FEATURE_VRAM_MB = {
   sam2: 1500,
   /** BiRefNet-lite (onnxruntime, 1024²) ~1.8 GB; also CPU when only the CPU onnxruntime is there. */
   birefnet: 1800,
+  /** Sprint 3b: Demucs htdemucs fp32, segment 7 s (~2 GB). */
+  stems: 2000,
 } as const;
 export type GpuFeature = keyof typeof FEATURE_VRAM_MB;
 

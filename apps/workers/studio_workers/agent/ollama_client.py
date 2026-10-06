@@ -42,6 +42,7 @@ MODEL_SIZES = {
     "qwen3:8b": 5_225_000_000,
     "hermes3:8b": 4_661_000_000,
     "qwen3:0.6b": 523_000_000,
+    "qwen2.5vl:3b": 3_200_000_000,  # Sprint 3b vision-llm pack (Perfil de estilo) [S]
 }
 UNKNOWN_MODEL_SIZE = 5_000_000_000
 
@@ -59,6 +60,7 @@ MODEL_LABELS = {
     "qwen3:8b": "Qwen3 8B",
     "hermes3:8b": "Hermes 3 8B",
     "qwen3:0.6b": "Qwen3 0.6B",
+    "qwen2.5vl:3b": "Qwen2.5-VL 3B",
 }
 
 

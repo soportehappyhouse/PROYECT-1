@@ -2,10 +2,24 @@
 
 import { useDroppable } from "@dnd-kit/core";
 import type { MediaAsset, Track } from "@studio/shared";
-import { Eye, EyeOff, Lock, Trash2, Unlock, Volume2, VolumeX } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  EllipsisVertical,
+  Eye,
+  EyeOff,
+  GripVertical,
+  Lock,
+  Trash2,
+  Unlock,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { MenuItem, MenuSeparator } from "@/components/ui/menu";
 import { useSceneMarkers } from "@/hooks/use-scene-markers";
+import { moveTrackBy, moveTrackTo, timelineRows } from "@/lib/layers";
 import { projectDuration } from "@/lib/timeline";
 import { cn } from "@/lib/utils";
 import { useMediaStore } from "@/stores/media-store";
@@ -13,7 +27,7 @@ import { useProjectStore } from "@/stores/project-store";
 import { ClipView } from "./ClipView";
 import { Ruler } from "./Ruler";
 
-export const HEADER_WIDTH = 184;
+export const HEADER_WIDTH = 224;
 export const TRACK_HEIGHT = 56;
 
 /** Data attached to every track lane so drops from the media panel know where they land. */
@@ -23,17 +37,156 @@ export interface TrackDropData {
   timeAt: (clientX: number) => number;
 }
 
-function TrackHeader({ track }: { track: Track }) {
-  const updateTrack = useProjectStore((s) => s.updateTrack);
-  const removeTrack = useProjectStore((s) => s.removeTrack);
+/** dataTransfer type of a dragged track header (Sprint 3b z-order). */
+const TRACK_DRAG_TYPE = "application/x-studio-track";
+
+/**
+ * Sprint 3b: menu of a track header (right click or ⋮): layer order. Rows are the z-order: the
+ * first row is the bottom layer, lower rows are drawn on top.
+ */
+function TrackLayerMenu({
+  track,
+  z,
+  count,
+  at,
+  onClose,
+}: {
+  track: Track;
+  z: number;
+  count: number;
+  at: { x: number; y: number };
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+  const run = (fn: () => void) => () => {
+    fn();
+    onClose();
+  };
   return (
     <div
-      className="sticky left-0 z-20 flex shrink-0 items-center gap-0.5 border-r border-b bg-card px-1.5"
-      style={{ width: HEADER_WIDTH, height: TRACK_HEIGHT }}
+      ref={ref}
+      role="menu"
+      aria-label={`Capa de «${track.name}»`}
+      className="fixed z-50 min-w-60 rounded-md border bg-card p-1 text-sm shadow-lg"
+      style={{ left: at.x, top: at.y }}
     >
+      <div className="px-2 py-1 text-xs text-muted-foreground">
+        Capa {z + 1} de {count} · las pistas de más abajo se dibujan encima
+      </div>
+      <MenuItem disabled={z === 0} onSelect={run(() => moveTrackBy(track.id, -1))} hint="al fondo">
+        <span className="inline-flex items-center gap-1.5">
+          <ArrowUp className="size-3.5" /> Mover arriba
+        </span>
+      </MenuItem>
+      <MenuItem
+        disabled={z >= count - 1}
+        onSelect={run(() => moveTrackBy(track.id, 1))}
+        hint="al frente"
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <ArrowDown className="size-3.5" /> Mover abajo
+        </span>
+      </MenuItem>
+      <MenuSeparator />
+      <MenuItem disabled={z >= count - 1} onSelect={run(() => moveTrackTo(track.id, count - 1))}>
+        Traer al frente
+      </MenuItem>
+      <MenuItem disabled={z === 0} onSelect={run(() => moveTrackTo(track.id, 0))}>
+        Enviar al fondo
+      </MenuItem>
+    </div>
+  );
+}
+
+function TrackHeader({ track, z, count }: { track: Track; z: number; count: number }) {
+  const updateTrack = useProjectStore((s) => s.updateTrack);
+  const removeTrack = useProjectStore((s) => s.removeTrack);
+  const [menu, setMenu] = useState<{ x: number; y: number } | undefined>(undefined);
+  const [dropOver, setDropOver] = useState(false);
+  const closeMenu = useCallback(() => setMenu(undefined), []);
+  return (
+    <div
+      data-track-header={track.id}
+      data-z={z}
+      className={cn(
+        "sticky left-0 z-20 flex shrink-0 items-center gap-0.5 border-r border-b bg-card px-1",
+        dropOver && "ring-2 ring-primary ring-inset",
+      )}
+      style={{ width: HEADER_WIDTH, height: TRACK_HEIGHT }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setMenu({ x: e.clientX, y: e.clientY });
+      }}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes(TRACK_DRAG_TYPE)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        setDropOver(true);
+      }}
+      onDragLeave={() => setDropOver(false)}
+      onDrop={(e) => {
+        setDropOver(false);
+        const id = e.dataTransfer.getData(TRACK_DRAG_TYPE);
+        if (!id || id === track.id) return;
+        e.preventDefault();
+        moveTrackTo(id, z);
+      }}
+    >
+      <span
+        draggable
+        role="button"
+        tabIndex={-1}
+        aria-label={`Arrastrar «${track.name}» para cambiar su capa`}
+        title="Arrastrá para cambiar el orden de capas (más abajo = encima)"
+        className="flex cursor-grab items-center text-muted-foreground active:cursor-grabbing"
+        onDragStart={(e) => {
+          e.dataTransfer.setData(TRACK_DRAG_TYPE, track.id);
+          e.dataTransfer.effectAllowed = "move";
+        }}
+      >
+        <GripVertical className="size-3.5" />
+      </span>
+      <span
+        data-testid="track-z"
+        className="rounded bg-muted px-1 text-[10px] font-semibold tabular-nums text-muted-foreground"
+        title={`Capa ${z + 1} de ${count} (1 = fondo; las pistas de más abajo se dibujan encima)`}
+      >
+        {z + 1}
+      </span>
       <span className="flex-1 truncate text-xs font-medium" title={track.name}>
         {track.name}
       </span>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Orden de capa"
+        aria-haspopup="menu"
+        aria-expanded={!!menu}
+        tooltip="Orden de capa: mover arriba / abajo"
+        onClick={(e) => {
+          const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          setMenu(menu ? undefined : { x: r.left, y: r.bottom + 2 });
+        }}
+      >
+        <EllipsisVertical />
+      </Button>
+      {menu ? (
+        <TrackLayerMenu track={track} z={z} count={count} at={menu} onClose={closeMenu} />
+      ) : null}
       <Button
         variant="ghost"
         size="icon-sm"
@@ -148,6 +301,8 @@ export function Timeline() {
   const [viewportWidth, setViewportWidth] = useState(800);
 
   const duration = Math.max(projectDuration(project) + 30, (viewportWidth - HEADER_WIDTH) / zoom);
+  // Sprint 3b: rows in z-order (first row = bottom layer), like the export and the preview.
+  const rows = timelineRows(project);
   const width = duration * zoom;
 
   // Ctrl/Cmd + wheel zooms around the pointer.
@@ -199,9 +354,9 @@ export function Timeline() {
           />
           <Ruler zoom={zoom} duration={duration} onSeek={seek} markers={markers} />
         </div>
-        {project.tracks.map((track) => (
+        {rows.map((track, z) => (
           <div key={track.id} className="flex">
-            <TrackHeader track={track} />
+            <TrackHeader track={track} z={z} count={rows.length} />
             <TrackLane
               track={track}
               width={width}

@@ -4,6 +4,7 @@
 //
 //   node scripts/e2e/ui-smoke.mjs --web http://127.0.0.1:3000 --api http://127.0.0.1:3001 \
 //        --media <folder with a .mp4/.wav/.png> [--shots docs/trabajo/capturas] [--headed] [--vp9-preview]
+//        [--only <regex>]
 //
 // Needs the `playwright` package (global: `npm i -g playwright && npx playwright install chromium`,
 // or set --playwright <path to playwright/index.mjs>). The web must be built with
@@ -28,7 +29,10 @@ const MAX_SHOT_BYTES = 300 * 1024;
 const { chromium } = await import(PW.endsWith(".mjs") ? pathToFileURL(PW).href : PW);
 const results = [];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** --only <regex>: run only the matching steps (each step must then set up its own state). */
+const ONLY = opt("only") ? new RegExp(opt("only"), "i") : undefined;
 async function step(name, fn) {
+  if (ONLY && !ONLY.test(name)) return;
   const t = Date.now();
   try {
     const detail = await fn();
@@ -1203,6 +1207,356 @@ await step(
     } finally {
       await page.evaluate(() => localStorage.removeItem("studio.agent.v1"));
     }
+  },
+);
+
+// ---- Sprint 3b «Capas y fusiones»: the blend mode chosen in Propiedades → «Capa» changes the
+// canvas preview to the shared reference (blendRgb — the export pixel tests match the same one),
+// then an ellipse mask keeps the center and drops the corners (parity with the export).
+await step(
+  "Sprint 3b: «Capa» → Multiplicar + máscara elíptica change the preview pixels (= export reference)",
+  async () => {
+    if (!shared?.blendRgb) throw new Error("packages/shared/dist missing (pnpm build:packages)");
+    if (!page.url().startsWith(WEB)) {
+      await page.goto(WEB, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+    }
+    const hex = (c) => c.map((v) => v.toString(16).padStart(2, "0")).join("");
+    const vp9 = ["-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-crf", "8",
+      "-b:v", "0", "-pix_fmt", "yuv420p"]; // prettier-ignore
+    const base = await lavfiUpload(
+      "ui-capa-base.webm",
+      `color=c=0x${hex(shared.LAYER_PARITY_BASE)}:s=640x360:r=25:d=4`,
+      vp9,
+    );
+    const top = await lavfiUpload(
+      "ui-capa-top.webm",
+      `color=c=0x${hex(shared.LAYER_PARITY_TOP)}:s=640x360:r=25:d=4`,
+      vp9,
+    );
+    const p = await apiSend("POST", "/api/projects", {
+      name: "UI capas",
+      settings: { width: 640, height: 360, fps: 25 },
+    });
+    const V = p.tracks.find((t) => t.kind === "video");
+    const V2 = { ...V, id: "trk_ui_capa2", name: "Video 2", clips: [] };
+    V.clips = [{ id: "clp_ui_base", trackId: V.id, assetId: base.id, start: 0, in: 0, out: 4 }];
+    V2.clips = [{ id: "clp_ui_top", trackId: V2.id, assetId: top.id, start: 0, in: 0, out: 4 }];
+    p.tracks = [V, V2, ...p.tracks.filter((t) => t.id !== V.id)];
+    await apiSend("PUT", `/api/projects/${p.id}`, p);
+    await openProject(p.id);
+    await page.waitForFunction(
+      () => [...document.querySelectorAll("video")].filter((v) => v.readyState >= 2).length >= 2,
+      undefined,
+      { timeout: 60_000 },
+    );
+    await gotoFrame(25);
+    const tol = shared.LAYER_PARITY_TOLERANCE;
+    const near3 = (a, b) => a.every((v, i) => Math.abs(v - b[i]) <= tol);
+    const normal = await canvasProbe({ at: [0.5, 0.5] });
+    if (!near3(normal, shared.LAYER_PARITY_TOP)) throw new Error(`normal: ${normal}`);
+    await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).click();
+    await page.locator("[data-clip-id='clp_ui_top']").click();
+    await page.locator(".dv-tab", { hasText: "Propiedades" }).click();
+    const props = page.locator("section[aria-label='Propiedades']");
+    await props.getByLabel("Modo de fusión").selectOption("multiply");
+    await page.locator(".dv-tab", { hasText: "Vista previa" }).click();
+    await sleep(800);
+    const want = shared.blendRgb("multiply", shared.LAYER_PARITY_BASE, shared.LAYER_PARITY_TOP);
+    const multiplied = await canvasProbe({ at: [0.5, 0.5] });
+    if (!near3(multiplied, want)) throw new Error(`multiply: ${multiplied}, want ${want}`);
+    await page.locator(".dv-tab", { hasText: "Propiedades" }).click();
+    await props.getByLabel("Máscara").selectOption("ellipse");
+    await page.locator(".dv-tab", { hasText: "Vista previa" }).click();
+    await page.getByTestId("mask-shape-editor").waitFor({ timeout: 5_000 });
+    await sleep(800);
+    const center = await canvasProbe({ at: [0.5, 0.5] });
+    const corner = await canvasProbe({ at: [0.02, 0.03] });
+    if (!near3(center, want)) throw new Error(`ellipse center: ${center}, want ${want}`);
+    if (!near3(corner, shared.LAYER_PARITY_BASE)) throw new Error(`ellipse corner: ${corner}`);
+    await shot(page, "s3b-capas.png");
+    const saved = await (async () => {
+      for (let i = 0; i < 20; i++) {
+        const s = await apiJson(`/api/projects/${p.id}`);
+        const c = s.tracks.flatMap((t) => t.clips).find((x) => x.id === "clp_ui_top");
+        if (c?.maskRef) return c;
+        await sleep(500);
+      }
+      return undefined;
+    })();
+    return {
+      normal,
+      multiplied,
+      want,
+      center,
+      corner,
+      saved: saved ? { blendMode: saved.blendMode, mask: saved.maskRef?.shape } : "no autosave",
+    };
+  },
+);
+
+// ---- Sprint 3b audit: preview/export parity of EVERY blend mode (shared BLEND_MODES) + an ellipse
+// mask. One project, one export: the top track has one 1 s clip per mode (and a last one with
+// multiply + ellipse); the canvas pixel at each clip's middle must match the FFmpeg export frame
+// within LAYER_PARITY_TOLERANCE (the blendRgb reference is reported too).
+await step(
+  "Sprint 3b: paridad vista previa/exportación de todos los modos de fusión + máscara elíptica (±8)",
+  async () => {
+    if (!shared?.BLEND_MODES) throw new Error("packages/shared/dist missing (pnpm build:packages)");
+    if (!page.url().startsWith(WEB)) {
+      await page.goto(WEB, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+    }
+    const modes = [...shared.BLEND_MODES];
+    const n = modes.length + 1; // + ellipse
+    const hex = (c) => c.map((v) => v.toString(16).padStart(2, "0")).join("");
+    const vp9 = ["-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-crf", "8",
+      "-b:v", "0", "-pix_fmt", "yuv420p"]; // prettier-ignore
+    const base = await lavfiUpload(
+      "ui-par-base.webm",
+      `color=c=0x${hex(shared.LAYER_PARITY_BASE)}:s=640x360:r=25:d=${n}`,
+      vp9,
+    );
+    const top = await lavfiUpload(
+      "ui-par-top.webm",
+      `color=c=0x${hex(shared.LAYER_PARITY_TOP)}:s=640x360:r=25:d=${n}`,
+      vp9,
+    );
+    const p = await apiSend("POST", "/api/projects", {
+      name: "UI paridad capas",
+      settings: { width: 640, height: 360, fps: 25 },
+    });
+    const V = p.tracks.find((t) => t.kind === "video");
+    const V2 = { ...V, id: "trk_ui_par2", name: "Video 2", clips: [] };
+    V.clips = [{ id: "clp_par_base", trackId: V.id, assetId: base.id, start: 0, in: 0, out: n }];
+    V2.clips = [...modes, "ellipse"].map((m, i) => ({
+      id: `clp_par_${i}`,
+      trackId: V2.id,
+      assetId: top.id,
+      start: i,
+      in: i,
+      out: i + 1,
+      ...(m === "ellipse"
+        ? { blendMode: "multiply", maskRef: shared.defaultMaskShape("ellipse") }
+        : m !== "normal" && { blendMode: m }),
+    }));
+    p.tracks = [V, V2, ...p.tracks.filter((t) => t.id !== V.id)];
+    await apiSend("PUT", `/api/projects/${p.id}`, p);
+    await openProject(p.id);
+    await page.waitForFunction(
+      () => [...document.querySelectorAll("video")].filter((v) => v.readyState >= 2).length >= 2,
+      undefined,
+      { timeout: 60_000 },
+    );
+    const next = page
+      .locator("section[aria-label='Vista previa']")
+      .getByRole("button", { name: "Fotograma siguiente" });
+    const preview = [];
+    await gotoFrame(12); // middle of the first 1 s clip
+    for (let i = 0; i < n; i++) {
+      if (i > 0) {
+        for (let k = 0; k < 25; k++) await next.click();
+        await sleep(900);
+      }
+      preview.push({
+        center: await canvasProbe({ at: [0.5, 0.5] }),
+        corner: await canvasProbe({ at: [0.02, 0.03] }),
+      });
+    }
+    await shot(page, "s3b-paridad-capas.png");
+    const ex = await apiSend("POST", `/api/projects/${p.id}/export`, {
+      presetId: "youtube-1080p",
+      fileName: "ui-paridad-capas",
+    });
+    const job = await waitApiJob(ex.jobId);
+    if (job.status !== "succeeded") throw new Error(`export ${job.status}: ${job.error}`);
+    const out = path.join(s2.dir, "ui-paridad-capas.mp4");
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(
+      out,
+      Buffer.from(await (await fetch(`${API}/files/${job.result.path}`)).arrayBuffer()),
+    );
+    const tol = shared.LAYER_PARITY_TOLERANCE;
+    const diff = (a, b) => Math.max(...a.map((v, i) => Math.abs(v - b[i])));
+    const rows = [];
+    const bad = [];
+    for (let i = 0; i < n; i++) {
+      const raw = spawnSync("ffmpeg", ["-v", "error", "-ss", String(i + 0.5), "-i", out, "-frames:v", "1",
+        "-vf", "scale=640:360", "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"], { maxBuffer: 1 << 24 }).stdout; // prettier-ignore
+      const px = ([fx, fy]) => {
+        const j = (Math.round(fy * 359) * 640 + Math.round(fx * 639)) * 3;
+        return [raw[j], raw[j + 1], raw[j + 2]];
+      };
+      const mode = i < modes.length ? modes[i] : "ellipse";
+      const ref = shared.blendRgb(
+        mode === "ellipse" ? "multiply" : mode,
+        shared.LAYER_PARITY_BASE,
+        shared.LAYER_PARITY_TOP,
+      );
+      const e = { center: px([0.5, 0.5]), corner: px([0.02, 0.03]) };
+      const row = {
+        mode,
+        preview: preview[i].center,
+        export: e.center,
+        ref,
+        d: diff(preview[i].center, e.center),
+      };
+      if (row.d > tol) bad.push(`${mode}: preview ${row.preview} export ${row.export}`);
+      if (mode === "ellipse") {
+        row.corner = { preview: preview[i].corner, export: e.corner };
+        if (diff(preview[i].corner, e.corner) > tol)
+          bad.push(`ellipse corner: preview ${preview[i].corner} export ${e.corner}`);
+        if (diff(e.corner, shared.LAYER_PARITY_BASE) > tol)
+          bad.push(`ellipse corner export ${e.corner} (base expected)`);
+      }
+      rows.push(row);
+    }
+    if (bad.length) throw new Error(`${bad.join("; ")} (tolerancia ${tol})`);
+    return { tolerance: tol, rows };
+  },
+);
+
+// ---- Sprint 3b integration: «Perfil de estilo» → «Deducir con Consola Claude» dispatches
+// `studio:console:paste`; the Consola Claude panel shows up, opens a session and pastes the prompt
+// (with a fake `claude` in STUDIO_CLAUDE_BIN the PTY echoes it; without claude the panel still opens).
+await step(
+  "Sprint 3b: «Deducir con Consola Claude» (Perfil de estilo) pastes the prompt into the Consola Claude panel",
+  async () => {
+    const ref = await lavfiUpload("ui-estilo-ref.mp4", "testsrc2=s=320x180:r=25:d=4", [
+      "-c:v",
+      "libx264",
+      "-pix_fmt",
+      "yuv420p",
+    ]);
+    const { jobId } = await apiSend("POST", "/api/style/analyze", { assetId: ref.id });
+    await waitApiJob(jobId, 180_000);
+    const status = await apiJson("/api/console/status?refresh=1");
+    await page.goto(WEB, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+    await page.locator(".dv-tab", { hasText: "Perfil de estilo" }).click();
+    const panel = page.locator("section[aria-label='Perfil de estilo']");
+    const select = panel.getByLabel("Video de referencia");
+    await select
+      .locator(`option[value='${ref.id}']`)
+      .waitFor({ state: "attached", timeout: 15_000 });
+    await select.selectOption(ref.id);
+    const ask = panel.getByRole("button", { name: "Deducir con Consola Claude" });
+    await ask.waitFor({ timeout: 15_000 });
+    await ask.click();
+    const term = page.getByTestId("console-terminal");
+    await term.waitFor({ state: "visible", timeout: 10_000 });
+    const squash = (s) => s.replace(/\s+/g, "");
+    let text = "";
+    for (let i = 0; i < 40; i++) {
+      text = await term.evaluate((el) =>
+        [...el.querySelectorAll(".xterm-rows > div")].map((r) => r.textContent).join(""),
+      );
+      if (squash(text).includes("studio_style_save_preset")) break;
+      if (!status.claudeInstalled && /claude-code/.test(text)) break;
+      await sleep(500);
+    }
+    if (status.claudeInstalled && !squash(text).includes("studio_style_save_preset"))
+      throw new Error(`prompt not in the terminal: ${text.slice(0, 200)}`);
+    if (!status.claudeInstalled && !/claude-code/.test(text))
+      throw new Error(`no install hint in the terminal: ${text.slice(0, 200)}`);
+    await shot(page, "s3b-consola-estilo.png");
+    await page
+      .getByRole("button", { name: "Cerrar la sesión" })
+      .click()
+      .catch(() => undefined);
+    return {
+      claude: status.claudeInstalled ? status.version : "not installed",
+      pasted: squash(text).includes("studio_style_save_preset"),
+    };
+  },
+);
+
+// ---- Sprint 3b integration: a SAM 2 mask (sprint 2 session, mock predictor) chosen in
+// Propiedades → «Capa» → Máscara «Máscara SAM / imagen» cuts the top clip in the preview and in
+// the export (inside the mask = top clip, outside = the track below).
+await step(
+  "Sprint 3b: SAM mask asset (sprint 2) as «Capa» mask in Propiedades → preview + export",
+  async () => {
+    const vp9 = ["-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-crf", "8",
+      "-b:v", "0", "-pix_fmt", "yuv420p"]; // prettier-ignore
+    const base = await lavfiUpload("ui-sam-base.webm", "color=c=0xff0000:s=640x360:r=25:d=4", vp9);
+    const top = await lavfiUpload("ui-sam-top.webm", "color=c=0x404040:s=640x360:r=25:d=4", vp9);
+    const sess = await apiSend("POST", "/api/ai/vision/sam/session", { assetId: top.id });
+    await apiSend("POST", `/api/ai/vision/sam/session/${sess.sessionId}/points`, {
+      frame: 0,
+      points: [{ x: 0.5, y: 0.5, label: 1 }],
+    });
+    const prop = await apiSend(
+      "POST",
+      `/api/ai/vision/sam/session/${sess.sessionId}/propagate`,
+      {},
+    );
+    const maskAssetId = (await waitApiJob(prop.jobId)).result.maskAssetId;
+    if (!maskAssetId) throw new Error("no mask asset from the SAM propagation");
+    const p = await apiSend("POST", "/api/projects", {
+      name: "UI capa SAM",
+      settings: { width: 640, height: 360, fps: 25 },
+    });
+    const V = p.tracks.find((t) => t.kind === "video");
+    const V2 = { ...V, id: "trk_ui_sam2", name: "Video 2", clips: [] };
+    V.clips = [{ id: "clp_ui_sam_base", trackId: V.id, assetId: base.id, start: 0, in: 0, out: 4 }];
+    V2.clips = [{ id: "clp_ui_sam_top", trackId: V2.id, assetId: top.id, start: 0, in: 0, out: 4 }];
+    p.tracks = [V, V2, ...p.tracks.filter((t) => t.id !== V.id)];
+    await apiSend("PUT", `/api/projects/${p.id}`, p);
+    if (!page.url().startsWith(WEB)) await page.goto(WEB, { waitUntil: "domcontentloaded" });
+    await openProject(p.id);
+    await page.waitForFunction(
+      () => [...document.querySelectorAll("video")].filter((v) => v.readyState >= 2).length >= 2,
+      undefined,
+      { timeout: 60_000 },
+    );
+    await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).click();
+    await page.locator("[data-clip-id='clp_ui_sam_top']").click();
+    await page.locator(".dv-tab", { hasText: "Propiedades" }).click();
+    const props = page.locator("section[aria-label='Propiedades']");
+    await props.getByLabel("Máscara", { exact: true }).selectOption("asset");
+    const media = props.getByLabel("Medio de la máscara");
+    await media.waitFor({ timeout: 5_000 });
+    await media.selectOption(maskAssetId);
+    await page.locator(".dv-tab", { hasText: "Vista previa" }).click();
+    await gotoFrame(25);
+    await sleep(1_500);
+    const center = await canvasProbe({ at: [0.5, 0.5] });
+    const corner = await canvasProbe({ at: [0.1, 0.1] });
+    const red = (c) => c[0] > 200 && c[1] < 60 && c[2] < 60;
+    if (red(center) || center[0] > 110)
+      throw new Error(`preview center ${center} (top clip expected)`);
+    if (!red(corner)) throw new Error(`preview corner ${corner} (red track below expected)`);
+    let saved;
+    for (let i = 0; i < 20 && !saved; i++) {
+      const s = await apiJson(`/api/projects/${p.id}`);
+      const c = s.tracks.flatMap((t) => t.clips).find((x) => x.id === "clp_ui_sam_top");
+      if (c?.maskRef?.assetId === maskAssetId) saved = s;
+      else await sleep(500);
+    }
+    if (!saved) throw new Error("maskRef not autosaved");
+    const ex = await apiSend("POST", `/api/projects/${p.id}/export`, {
+      presetId: "youtube-1080p",
+      fileName: "ui-capa-sam",
+    });
+    const job = await waitApiJob(ex.jobId);
+    const out = path.join(s2.dir, "ui-capa-sam.mp4");
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(
+      out,
+      Buffer.from(await (await fetch(`${API}/files/${job.result.path}`)).arrayBuffer()),
+    );
+    const raw = spawnSync("ffmpeg", ["-v", "error", "-ss", "1", "-i", out, "-frames:v", "1", "-vf", "scale=640:360",
+      "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"], { maxBuffer: 1 << 24 }).stdout; // prettier-ignore
+    const px = ([fx, fy]) => {
+      const i = (Math.round(fy * 359) * 640 + Math.round(fx * 639)) * 3;
+      return [raw[i], raw[i + 1], raw[i + 2]];
+    };
+    const ec = px([0.5, 0.5]);
+    const ek = px([0.1, 0.1]);
+    if (red(ec) || !red(ek)) throw new Error(`export center ${ec} corner ${ek}`);
+    await shot(page, "s3b-capa-sam.png");
+    return { maskAssetId, preview: { center, corner }, export: { center: ec, corner: ek } };
   },
 );
 

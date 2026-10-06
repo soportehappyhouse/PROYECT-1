@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 import type { WebPanelId } from "@/lib/layout";
 import { AssistantPanel } from "./AssistantPanel";
+import { ConsolePanel } from "./ConsolePanel";
 import { ExportPanel } from "./ExportPanel";
 import { InspectorPanel } from "./InspectorPanel";
 import { JobsPanel } from "./JobsPanel";
@@ -8,6 +9,7 @@ import { LibraryPanel } from "./LibraryPanel";
 import { MediaPanel } from "./MediaPanel";
 import { MotionPanel } from "./MotionPanel";
 import { PreviewPanel } from "./PreviewPanel";
+import { StylePanel } from "./StylePanel";
 import { SubtitlesPanel } from "./SubtitlesPanel";
 import { TimelinePanel } from "./TimelinePanel";
 import { VoicePanel } from "./VoicePanel";
@@ -25,4 +27,6 @@ export const PANEL_COMPONENTS: Record<WebPanelId, ComponentType> = {
   export: ExportPanel,
   jobs: JobsPanel,
   assistant: AssistantPanel,
+  console: ConsolePanel,
+  style: StylePanel,
 };

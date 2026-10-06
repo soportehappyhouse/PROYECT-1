@@ -357,8 +357,8 @@ def test_perf_rvm_measures_1080p_5s_through_gpl(dirs, monkeypatch: pytest.Monkey
     class Engine:
         calls: list[str] = []
 
-        def rvm_available(self) -> bool:
-            return True
+        def rvm_available(self, quality: str = "fast") -> bool:
+            return quality == "fast"  # matting-hq not installed: skipped with a reason
 
         def gpl_status(self) -> dict:
             return {"state": "ready"}
@@ -386,3 +386,39 @@ def test_perf_rvm_measures_1080p_5s_through_gpl(dirs, monkeypatch: pytest.Monkey
     assert result["rvm_steady_fps"] == round(121 / 2.5, 1)
     assert result["rvm_startup_s"] == 3.7 and result["rvm_bottleneck"] == "encode"
     assert result["rvm_stage_ms"] == {"encode": 20.0} and result["rvm_alpha_codec"] == "vp9"
+    assert result["rvm_hq_steady_fps"] is None and "matting-hq" in result["skipped"]["rvm_hq"]
+
+
+def test_perf_rvm_hq_runs_gpl_quality_high(dirs, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sprint 3b: rvm_hq_steady_fps + startup from the GPL run with --quality high."""
+    from studio_workers import services
+    from studio_workers.vision import bench
+
+    monkeypatch.setattr(bench, "_clip", lambda dst, *_a, **_k: dst.write_bytes(b"x") or dst)
+    asked: list[str] = []
+
+    class Engine:
+        def rvm_available(self, quality: str = "fast") -> bool:
+            return True
+
+        def gpl_status(self) -> dict:
+            return {"state": "ready"}
+
+        def matte_video(self, src: Path, out: Path, *, model: str, chunk: int,
+                        quality: str = "fast") -> dict:  # fmt: skip
+            asked.append(quality)
+            hq = quality == "high"
+            return {"frames": 125, "device": "cuda", "precision": "fp16", "warnings": [],
+                    "downsample": 0.375 if hq else 0.2667,
+                    "halo": {"before": 20.0, "after": 8.0} if hq else None,
+                    "timings": {"startup_s": 4.0, "first_batch_s": 1.0, "process_s": 6.0,
+                                "preview_s": 0.2}}  # fmt: skip
+
+    fake = types.SimpleNamespace(matte_engine=Engine, sam_manager=services.sam_manager)
+    monkeypatch.setattr(bench, "services", fake)
+    result: dict = {"skipped": {}, "errors": {}, "warnings": []}
+    bench.run_vision_bench(get_settings(), dirs[0], result)
+    assert asked == ["fast", "high"] and "rvm_hq" not in result["errors"]
+    assert result["rvm_hq_steady_fps"] == round(123 / 5.0, 1)  # 2 frames per CUDA call (HQ)
+    assert result["rvm_hq_startup_s"] == 5.2 and result["rvm_hq_downsample"] == 0.375
+    assert result["rvm_hq_precision"] == "fp16" and result["rvm_hq_halo"] == 8.0

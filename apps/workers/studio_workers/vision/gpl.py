@@ -169,6 +169,40 @@ class RvmRun:
     # + startup_s (spawn -> start event: interpreter, torch import, model load) and total_s
     timings: dict[str, Any] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+    # Sprint 3b «Recorte de calidad alta»: fast (mobilenetv3) | high (resnet50 + refinement)
+    quality: str = "fast"
+    model: str = ""
+    refine: dict[str, Any] | None = None  # parameters used (None = alpha untouched)
+    halo: dict[str, Any] | None = None  # {before, after, frames, reduction} (no-reference)
+    compare_path: Path | None = None  # before | after PNG of one frame
+    mask_frames: int | None = None  # frames guided by the SAM mask
+
+
+def refine_args(
+    quality: str = "fast",
+    refine: dict[str, Any] | None = None,
+    mask_path: Path | None = None,
+    compare_out: Path | None = None,
+    compare_frame: int | None = None,
+) -> list[str]:
+    """CLI flags of vision_gpl.rvm for the quality mode, the alpha refinement (keys erode,
+    feather, despill, temporal, mask_dilate; absent = default of the quality), the SAM mask guide
+    and the before/after comparison frame."""
+    args = ["--quality", quality]
+    r = refine or {}
+    for key, flag in (("erode", "--erode"), ("feather", "--feather"), ("temporal", "--temporal"),
+                      ("mask_dilate", "--mask-dilate")):  # fmt: skip
+        if r.get(key) is not None:
+            args += [flag, str(r[key])]
+    if r.get("despill") is not None:
+        args += ["--despill", "on" if r["despill"] else "off"]
+    if mask_path is not None:
+        args += ["--mask", str(mask_path)]
+    if compare_out is not None:
+        args += ["--compare-out", str(compare_out)]
+        if compare_frame is not None:
+            args += ["--compare-frame", str(int(compare_frame))]
+    return args
 
 
 class GplProcessError(RuntimeError):
@@ -277,4 +311,10 @@ def run_rvm(
         alpha_codec=str(result.get("alpha_codec") or "vp9"),
         timings=timings,
         warnings=list(dict.fromkeys([*warnings, *(result.get("warnings") or [])])),
+        quality=str(result.get("quality") or "fast"),
+        model=str(result.get("model") or ""),
+        refine=result.get("refine") if isinstance(result.get("refine"), dict) else None,
+        halo=result.get("halo") if isinstance(result.get("halo"), dict) else None,
+        compare_path=Path(result["compare_path"]) if result.get("compare_path") else None,
+        mask_frames=int(result["mask_frames"]) if result.get("mask_frames") is not None else None,
     )

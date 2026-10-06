@@ -689,6 +689,195 @@ PACKS: dict[str, Pack] = {
     )
 }
 
+# ---------------------------------------------------------------- BEGIN sprint 3b: pack "stems"
+# Demucs v4 htdemucs (code MIT, weights MIT: facebookresearch/demucs). Weights file = the signature
+# remote/htdemucs.yaml names (955717e8) in demucs 4.0.1's remote/files.txt, on the official
+# dl.fbaipublicfiles.com root; demucs puts the sha256 prefix in the file name. [V PyPI 2026-10-06]
+# Integrity (audio/stems.py verify_weights, before torch.load): exact size + full sha256 when pinned
+# below, like matting-hq. TODO(sha256): the official host answered 403 to the build sandbox again on
+# 2026-10-06 (audit fix), so the full hash/size could not be measured: fill STEMS_WEIGHTS_SHA256 and
+# STEMS_WEIGHTS_EXACT_SIZE from a verified download. Until then: the name prefix + the size and
+# sha256 recorded in models/manifest.json at the first download (trust on first download), and a
+# warning in the workers log every time the model loads.
+STEMS_WEIGHTS_FILE = "955717e8-8726e21a.th"
+STEMS_WEIGHTS_SHA256_PREFIX = "8726e21a"
+STEMS_WEIGHTS_SHA256: str | None = None  # TODO(sha256): full hex digest of STEMS_WEIGHTS_FILE
+STEMS_WEIGHTS_EXACT_SIZE: int | None = None  # TODO(sha256): exact byte size of STEMS_WEIGHTS_FILE
+STEMS_WEIGHTS_URL = f"https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/{STEMS_WEIGHTS_FILE}"
+STEMS_WEIGHTS_SIZE = STEMS_WEIGHTS_EXACT_SIZE or 84_000_000  # [S] ~80 MiB (torch hub "80.2M")
+
+
+def stems_weights_path(root: Path) -> Path:
+    return root / "demucs" / STEMS_WEIGHTS_FILE
+
+
+def _stems_items(root: Path, _catalog: dict | None) -> list[Item]:
+    return [
+        FileItem(
+            "stems:htdemucs",
+            STEMS_WEIGHTS_FILE,
+            f"demucs/{STEMS_WEIGHTS_FILE}",
+            STEMS_WEIGHTS_URL,
+            Expected(
+                min_bytes=None if STEMS_WEIGHTS_EXACT_SIZE else 70_000_000,
+                size_bytes=STEMS_WEIGHTS_EXACT_SIZE,
+                sha256=STEMS_WEIGHTS_SHA256,
+            ),
+        )
+    ]
+
+
+PACKS["stems"] = Pack(
+    id="stems",
+    name_es="Separar audio (Demucs htdemucs)",
+    description_es=(
+        "Separa voz y música (o voz, batería, bajo y otros) de cualquier audio o video. En GPU "
+        "usa ~2 GB de VRAM (1 min de audio en menos de un minuto); sin GPU funciona en CPU, más "
+        "lento."
+    ),
+    group="audio",
+    license="MIT (Demucs: código y pesos htdemucs)",
+    required_by=("audio.stems",),
+    pip=(
+        PipReq("torch==2.7.1", "torch", 220_000_000, only_if_missing=True),
+        PipReq("torchaudio==2.7.1", "torchaudio", 2_500_000, only_if_missing=True),
+        PipReq("pyyaml", "yaml", 160_000, only_if_missing=True),
+        PipReq("tqdm", "tqdm", 80_199),
+        PipReq("einops==0.8.2", "einops", 65_638),
+        # --no-deps: julius/openunmix/demucs list torch/torchaudio without upper bounds; pip could
+        # swap the venv's (CUDA) torch for a newer CPU build. torch stays the venv's own.
+        PipReq("julius==0.2.8", "julius", 21_819, no_deps=True),
+        PipReq("openunmix==1.3.0", "openunmix", 40_047, no_deps=True),
+        # dora-search pulls omegaconf, retrying, submitit and treetable (pure Python, no torch pin).
+        PipReq("dora-search==0.1.13", "dora", 73_400 + 400_000),
+        PipReq("demucs==4.0.1", "demucs", 1_212_924, no_deps=True),
+    ),
+    approx_size=STEMS_WEIGHTS_SIZE
+    + 160_000
+    + 80_199
+    + 65_638
+    + 21_819
+    + 40_047
+    + 473_400
+    + 1_212_924,
+    items=_stems_items,
+    installed_check=lambda root: stems_weights_path(root).is_file(),
+    notes=(
+        "htdemucs 955717e8 (prefijo sha256 8726e21a + sha256 de la primera descarga, comprobados "
+        "antes de cargar) de dl.fbaipublicfiles.com; "
+        "demucs 4.0.1 --no-deps (torch del venv)"
+    ),
+)
+# ------------------------------------------------------------------ END sprint 3b: pack "stems"
+
+# ------------------------------------------------------- BEGIN sprint 3b: packs "ocr", "vision-llm"
+# Perfil de estilo (studio_workers/style). OCR: RapidOCR 1.4.4 (Apache-2.0; PP-OCR det/rec/cls ONNX
+# models ship inside the wheel) on onnxruntime CPU. --no-deps: rapidocr lists opencv-python (GUI),
+# which collides with opencv-python-headless. Wheel sizes: win_amd64 cp311 on PyPI [V 2026-10-06].
+# Vision LLM: qwen2.5vl:3b (Apache-2.0) pulled through the local Ollama (~3.2 GB [S ollama.com]).
+STYLE_VISION_DEFAULT_MODEL = "qwen2.5vl:3b"
+
+
+def style_vision_model() -> str:
+    """STYLE_VISION_MODEL (.env) or qwen2.5vl:3b."""
+    import os  # noqa: PLC0415
+
+    return os.environ.get("STYLE_VISION_MODEL", "").strip() or STYLE_VISION_DEFAULT_MODEL
+
+
+PACKS["ocr"] = Pack(
+    id="ocr",
+    name_es="Texto en pantalla (RapidOCR)",
+    description_es=(
+        "Lee los textos que aparecen en un video de referencia (títulos, rótulos, subtítulos "
+        "quemados) para el Perfil de estilo. CPU, liviano; los modelos vienen en el paquete."
+    ),
+    group="vision",
+    license="Apache-2.0 (RapidOCR + modelos PP-OCR) + MIT (onnxruntime) + Apache-2.0 (OpenCV)",
+    required_by=("style.ocr",),
+    pip=(
+        NUMPY,
+        OPENCV_HEADLESS,
+        PipReq(f"onnxruntime=={ORT_VERSION}", "onnxruntime", 12_594_863, only_if_missing=True),
+        PipReq("pyclipper>=1.2.0", "pyclipper", 104_362),
+        PipReq("shapely>=1.7.1,!=2.0.4", "shapely", 1_722_856),
+        PipReq("pyyaml", "yaml", 158_763, only_if_missing=True),
+        PipReq("pillow", "PIL", 7_233_653, only_if_missing=True),
+        PipReq("six>=1.15.0", "six", 11_050, only_if_missing=True),
+        PipReq("tqdm", "tqdm", 80_199, only_if_missing=True),
+        PipReq("rapidocr-onnxruntime==1.4.4", "rapidocr_onnxruntime", 14_915_192, no_deps=True),
+    ),
+    approx_size=14_915_192 + 104_362 + 1_722_856 + 12_594_863 + OPENCV_HEADLESS.size,
+    notes="rapidocr-onnxruntime 1.4.4 --no-deps (modelos ONNX dentro de la rueda, 14,9 MB)",
+)
+
+PACKS["vision-llm"] = Pack(
+    id="vision-llm",
+    name_es="Modelo de visión local (Ollama + Qwen2.5-VL 3B)",
+    description_es=(
+        "Mira la hoja de contactos y el análisis de un video de referencia y deduce un perfil de "
+        "estilo (ritmo, subtítulos, títulos, música). Corre en Ollama, nada sale de tu PC "
+        "(~3,2 GB). Alternativa sin descarga: la Consola Claude."
+    ),
+    group="agent",
+    license="MIT (Ollama) + Apache-2.0 (Qwen2.5-VL 3B)",
+    required_by=("style.infer",),
+    approx_size=3_200_000_000,
+    ollama_models=lambda: (style_vision_model(),),
+    notes="STYLE_VISION_MODEL elige el modelo (qwen2.5vl:3b por defecto); Ollama verifica capas",
+)
+# --------------------------------------------------------- END sprint 3b: packs "ocr", "vision-llm"
+
+# ---------------------------------------------------------- BEGIN sprint 3b: pack "matting-hq"
+# «Recorte de calidad alta»: RVM resnet50 TorchScript (same GitHub release v1.0.0 as matting,
+# GPL-3.0, runs in the same .venv-gpl) + the alpha refinement of vision_gpl/refine.py (no extra
+# dependencies). Exact size + sha256 [V] of the release assets, measured 2026-10-06.
+RVM_HQ_FILES = {
+    "rvm_resnet50_fp16.torchscript": 54_173_764,
+    "rvm_resnet50_fp32.torchscript": 108_063_684,
+}
+RVM_HQ_SHA256 = {
+    "rvm_resnet50_fp16.torchscript": (
+        "1273e58a7946296b148844a73b87e393d0ac8e5bce04af877ed443686e3c7c46"
+    ),
+    "rvm_resnet50_fp32.torchscript": (
+        "072adec3c75a1af773ec35d8b595612f8e3472b7a4b8a210684432b493376852"
+    ),
+}
+
+
+def _rvm_hq_items(root: Path, _catalog: dict | None) -> list[Item]:
+    return [
+        FileItem(
+            "matting-hq:rvm-resnet50",
+            name,
+            f"matting/{name}",
+            f"{RVM_RELEASE}/{name}",
+            Expected(size_bytes=size, sha256=RVM_HQ_SHA256[name]),
+        )
+        for name, size in RVM_HQ_FILES.items()
+    ]
+
+
+PACKS["matting-hq"] = Pack(
+    id="matting-hq",
+    name_es="Recorte de calidad alta (RobustVideoMatting resnet50)",
+    description_es=(
+        "Modelo grande de recorte de personas + limpieza de bordes (quita halos de fondos "
+        "coloridos). Más lento que el recorte rápido; usa el mismo entorno aparte (.venv-gpl) "
+        "por su licencia GPL-3."
+    ),
+    group="vision",
+    license="GPL-3.0 (RobustVideoMatting; aislado en .venv-gpl, proceso aparte)",
+    required_by=("vision.matte.rvm-hq",),
+    approx_size=sum(RVM_HQ_FILES.values()) + GPL_VENV_SHARED_SIZE,
+    items=_rvm_hq_items,
+    post_install_env=_gpl_setup,
+    extra_status=_gpl_status_rows,
+    notes="TorchScript resnet50 fp16 (GPU) + fp32 (CPU), release v1.0.0 [V sha256]",
+)
+# ------------------------------------------------------------ END sprint 3b: pack "matting-hq"
+
 FEATURE_PACKS = {feat: p.id for p in PACKS.values() for feat in p.required_by if p.id != "core"}
 
 

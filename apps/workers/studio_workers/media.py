@@ -55,11 +55,20 @@ def wav_to_mp3(src: Path, dst: Path, quality: int = 2) -> None:
     run_ffmpeg(["-i", str(src), "-codec:a", "libmp3lame", "-q:a", str(quality), str(dst)])
 
 
-def to_wav(src: Path, dst: Path, sample_rate: int | None = None, mono: bool = False) -> None:
+def to_wav(
+    src: Path,
+    dst: Path,
+    sample_rate: int | None = None,
+    mono: bool = False,
+    channels: int | None = None,
+) -> None:
+    """Decode ``src`` to 16-bit PCM WAV. ``channels`` (e.g. 2) downmixes 5.1/7.1 with ``-ac N``."""
     dst.parent.mkdir(parents=True, exist_ok=True)
     args = ["-i", str(src), "-vn"]
     if mono:
         args += ["-ac", "1"]
+    elif channels:
+        args += ["-ac", str(int(channels))]
     if sample_rate:
         args += ["-ar", str(sample_rate)]
     run_ffmpeg([*args, "-c:a", "pcm_s16le", str(dst)])

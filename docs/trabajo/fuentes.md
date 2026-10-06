@@ -18,3 +18,6 @@ Detalle por módulo: [fuentes-motion.md](fuentes-motion.md) · [fuentes-audio.md
 | opencv-python-headless 4.11.0.86 | Apache-2.0 | Lectura de cuadros, seguimiento CSRT/plantilla, YuNet (paquetes `scenes`, `reframe`, `matting-image`) |
 | scenedetect (PySceneDetect) 0.7.1 | BSD-3-Clause | Detección de escenas (paquete `scenes`) |
 | deepfilternet / deepfilterlib 0.5.6 | MIT / Apache-2.0 (doble) | Limpieza de voz (paquete `voz-limpia`, pesos DeepFilterNet3 del repo oficial) |
+| Ollama | MIT | Servicio local del asistente de edición (paquete `agent-llm`, Sprint 3): lo instala `setup.ps1` (`winget install Ollama.Ollama`); los workers le hablan solo por loopback (`OLLAMA_URL` no local se rechaza salvo `AGENT_ALLOW_REMOTE_OLLAMA=true`) |
+| Qwen3 8B (`qwen3:8b`, Q4_K_M) | Apache-2.0 | Modelo por defecto del asistente (`AGENT_MODEL`), descargado con `ollama pull qwen3:8b` (~5 GB; Ollama verifica los digests) |
+| Hermes 3 8B (`hermes3:8b`) | Llama 3.1 Community License | Modelo alternativo del asistente. Derivado de Llama 3.1: uso personal OK; si se usa hay que mostrar el aviso **«Built with Llama»** (Ajustes → «Asistente local» lo muestra cuando está elegido) y respetar la Acceptable Use Policy de Llama |

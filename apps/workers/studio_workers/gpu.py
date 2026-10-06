@@ -9,6 +9,13 @@ loading: ``acquire(name, estimated_mb, unload)``. The policy (docs/INVESTIGACION
   the response carries ``warnings: ["gpu_fallback_cpu"]``;
 - Piper never asks (CPU only).
 
+Two-way with Ollama (the edit agent): Ollama is an external GPU user this process does not own.
+Before Ollama runs, ``make_room`` unloads the resident Whisper/vision model when free VRAM is
+short. The other way, when ``acquire`` finds the free VRAM under the estimate it first calls the
+``external_release`` hook (services: unload every model ``/api/ps`` lists with ``keep_alive: 0``)
+and probes again; only if it still does not fit the engine goes to CPU. ``make_room`` never calls
+the hook (it runs right before an Ollama call: evicting Ollama there would just reload it).
+
 VRAM is read with ``nvidia-smi`` (NVML, no CUDA context: creating a torch context just to read the
 free memory would cost ~0.3 GB on a 6 GB card) and, when torch already initialized CUDA in this
 process, with ``torch.cuda.mem_get_info()``. Unknown VRAM (no nvidia-smi, no torch) does not block
@@ -87,6 +94,8 @@ class Resident:
 
 
 VramProbe = Callable[[], VramInfo | None]
+# Frees VRAM held outside this process (Ollama); returns what it released (names, maybe []).
+ExternalRelease = Callable[[], list[str]]
 
 
 def _probe_nvidia_smi() -> VramInfo | None:
@@ -155,9 +164,12 @@ class GpuBudget:
         use_cuda: bool,
         probe: VramProbe | None = None,
         reserve_mb: int = DEFAULT_RESERVE_MB,
+        external_release: ExternalRelease | None = None,
     ) -> None:
         self.use_cuda = use_cuda
         self.reserve_mb = reserve_mb
+        self.external_release = external_release
+        self.last_external_release: list[str] = []
         self._probe = probe or default_probe
         self._lock = threading.RLock()
         self._resident: Resident | None = None
@@ -187,6 +199,8 @@ class GpuBudget:
                 self._unload_locked()
             info = self.vram(fresh=True)
             if info is not None and info.free_mb - self.reserve_mb < estimated_mb:
+                info = self._release_external(name, estimated_mb, info)
+            if info is not None and info.free_mb - self.reserve_mb < estimated_mb:
                 log.warning(
                     "GPU budget: %s needs ~%d MB, free %d MB (reserve %d): CPU fallback",
                     name,
@@ -199,6 +213,28 @@ class GpuBudget:
             now = time.monotonic()
             self._resident = Resident(name, estimated_mb, unload, now, now)
             return Decision("cuda")
+
+    def _release_external(self, name: str, estimated_mb: int, info: VramInfo) -> VramInfo | None:
+        """Not enough VRAM for `name`: unload Ollama's models (hook) and probe again."""
+        if self.external_release is None:
+            return info
+        try:
+            released = list(self.external_release() or [])
+        except Exception as exc:  # the hook is best-effort; the CPU fallback still applies
+            log.warning("GPU budget: releasing external models failed: %s", exc)
+            return info
+        self.last_external_release = released
+        if not released:
+            return info
+        log.info(
+            "GPU budget: %s needs ~%d MB, free %d MB: unloaded Ollama %s",
+            name,
+            estimated_mb,
+            info.free_mb,
+            ", ".join(released),
+        )
+        self._cache = None
+        return self.vram(fresh=True)
 
     def failed(self, name: str) -> list[str]:
         """The engine could not load `name` on CUDA (DLLs, OOM): forget it, report fallback."""

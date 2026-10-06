@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import { Checkbox, Input, Label, Select } from "@/components/ui/input";
 import {
   Badge,
@@ -27,9 +28,12 @@ import {
   Spinner,
 } from "@/components/ui/misc";
 import {
+  confirmDestructiveLabel,
+  destructiveIndexes,
   editableParams,
   fallbackPreview,
   formatLatency,
+  isDestructive,
   navigateHistory,
   needsConfirm,
   opArg,
@@ -79,6 +83,7 @@ function ModelStatus() {
   const lastModel = useAgentStore((s) => s.lastModel);
   const latency = useAgentStore((s) => s.lastLatencyMs);
   const route = useAgentStore((s) => s.lastRoute);
+  const proposing = useAgentStore((s) => s.proposing);
   const downloading = usePacksStore((s) => s.downloads[AGENT_PACK_ID]);
   const job = useJobsStore((s) => (downloading ? s.jobs[downloading] : undefined));
   const name = lastModel ?? model ?? status?.model ?? DEFAULT_AGENT_MODEL;
@@ -92,6 +97,8 @@ function ModelStatus() {
   else if (status.workers === false) state = { label: "Workers apagados", tone: "danger" };
   else if (!status.ollama) state = { label: "Falta Ollama", tone: "danger" };
   else if (!status.ready) state = { label: "Falta el modelo", tone: "warning" };
+  else if (proposing && status.loaded === false)
+    state = { label: "Cargando modelo…", tone: "warning" };
   else state = { label: "Listo", tone: "success" };
 
   return (
@@ -395,6 +402,11 @@ function OpItem({ index, run }: { index: number; run: OpRunState | undefined }) 
               </Badge>
             ))}
             {needsConfirm(op) ? null : <Badge tone="muted">Sin confirmación</Badge>}
+            {isDestructive(op) && enabled && !locked ? (
+              <Badge tone={draft.confirmed.includes(index) ? "success" : "danger"}>
+                {draft.confirmed.includes(index) ? "Confirmada" : "Requiere confirmación"}
+              </Badge>
+            ) : null}
             {unresolved ? <Badge tone="danger">No se pudo ubicar</Badge> : null}
           </span>
           <span className="text-xs text-muted-foreground">{preview}</span>
@@ -501,13 +513,16 @@ function PlanView() {
   const states = run ? opRunStates(ops.length, run.selected, job, run.result) : undefined;
   const count = enabled.filter(Boolean).length;
   const busy = run?.status === "starting" || run?.status === "running";
+  // delete_clip / export: checked by hand AND confirmed with a separate click before «Aplicar».
+  const destructive = destructiveIndexes(ops, enabled);
+  const needsConfirmClick = destructive.some((i) => !draft.confirmed.includes(i));
   const canUndo =
     !undone &&
     record.status === "applied" &&
     (run?.status === "done" || run?.status === "failed" || !run);
   const statusKey = undone ? "undone" : record.status;
   const st = STATUS_LABELS[statusKey];
-  const { apply, reject, undoAll } = useAgentStore.getState();
+  const { apply, reject, undoAll, confirmDestructive } = useAgentStore.getState();
 
   return (
     <Section title="Plan propuesto">
@@ -549,7 +564,19 @@ function PlanView() {
               <Button size="sm" variant="ghost" disabled={busy} onClick={() => void reject()}>
                 <X /> Rechazar
               </Button>
-              <Button size="sm" disabled={busy || count === 0} onClick={() => void apply()}>
+              {needsConfirmClick && !run ? (
+                <Button size="sm" variant="destructive" onClick={confirmDestructive}>
+                  <CircleAlert /> {confirmDestructiveLabel(ops, destructive)}
+                </Button>
+              ) : null}
+              <Button
+                size="sm"
+                disabled={busy || count === 0 || needsConfirmClick}
+                title={
+                  needsConfirmClick ? "Primero confirmá el borrado o la exportación" : undefined
+                }
+                onClick={() => void apply()}
+              >
                 {busy ? <Spinner /> : <Check />} Aplicar ({count})
               </Button>
             </>
@@ -560,13 +587,54 @@ function PlanView() {
             </Button>
           ) : null}
           {canUndo ? (
-            <Button size="sm" variant="outline" onClick={() => void undoAll()}>
+            <Button
+              size="sm"
+              variant="outline"
+              title="Vuelve el proyecto a como estaba antes de aplicar. No borra los archivos exportados ni los medios que creó el plan."
+              onClick={() => void undoAll()}
+            >
               <Undo2 /> Deshacer todo
             </Button>
           ) : null}
         </div>
+        {canUndo ? (
+          <p className="text-right text-[10px] text-muted-foreground">
+            Deshacer no borra los archivos exportados ni los medios creados.
+          </p>
+        ) : null}
       </div>
+      <UndoConflictDialog />
     </Section>
+  );
+}
+
+/** 409 PROJECT_CHANGED on «Deshacer todo»: the project was edited after the apply. */
+function UndoConflictDialog() {
+  const conflict = useAgentStore((s) => s.undoConflict);
+  const { undoAll, dismissUndoConflict } = useAgentStore.getState();
+  return (
+    <Dialog
+      open={!!conflict}
+      onClose={dismissUndoConflict}
+      title="El proyecto cambió después"
+      className="max-w-md"
+    >
+      <div className="flex flex-col gap-3 text-sm" data-testid="agent-undo-conflict">
+        <p>El proyecto cambió después; ¿restaurar igual?</p>
+        <p className="text-xs text-muted-foreground">
+          Si restaurás, se pierden los cambios que hiciste después de aplicar el plan. Los archivos
+          exportados y los medios creados no se borran.
+        </p>
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="ghost" onClick={dismissUndoConflict}>
+            Cancelar
+          </Button>
+          <Button size="sm" variant="destructive" onClick={() => void undoAll(true)}>
+            <Undo2 /> Restaurar igual
+          </Button>
+        </div>
+      </div>
+    </Dialog>
   );
 }
 
@@ -610,6 +678,8 @@ export function AssistantPanel() {
   const error = useAgentStore((s) => s.proposeError);
   const draft = useAgentStore((s) => s.draft);
   const proposing = useAgentStore((s) => s.proposing);
+  // Ollama has not loaded the model yet (/api/ps): the first LLM call loads it (≈5 GB).
+  const loading = useAgentStore((s) => !!s.status?.ready && s.status.loaded === false);
 
   const focusTick = useAgentStore((s) => s.focusTick);
 
@@ -628,8 +698,11 @@ export function AssistantPanel() {
         <CommandBox />
         {error ? <ErrorNotice message={`No se pudo proponer un plan: ${error}`} /> : null}
         {proposing && !draft ? (
-          <p className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Spinner /> Pensando un plan (en tu PC)…
+          <p className="flex items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
+            <Spinner />{" "}
+            {loading
+              ? "Cargando modelo… (la primera vez puede tardar hasta un minuto)"
+              : "Pensando un plan (en tu PC)…"}
           </p>
         ) : null}
         {draft ? (

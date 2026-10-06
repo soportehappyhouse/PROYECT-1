@@ -14,7 +14,12 @@ import {
   Spinner,
 } from "@/components/ui/misc";
 import { formatLatency, formatRate } from "@/lib/agent";
-import { AGENT_PACK_ID, DEFAULT_AGENT_MODEL, DEFAULT_AGENT_MODELS } from "@/lib/agent-types";
+import {
+  AGENT_PACK_ID,
+  DEFAULT_AGENT_MODEL,
+  DEFAULT_AGENT_MODELS,
+  isLlamaModel,
+} from "@/lib/agent-types";
 import { useAgentStore } from "@/stores/agent-store";
 import { isTerminal, useJobsStore } from "@/stores/jobs-store";
 import { usePacksStore } from "@/stores/packs-store";
@@ -143,6 +148,12 @@ export function AssistantTab() {
             </span>
           </Label>
         </div>
+        {isLlamaModel(current) ? (
+          <p className="text-[11px] text-muted-foreground" data-testid="built-with-llama">
+            <Badge tone="muted">Built with Llama</Badge> {current} deriva de Llama 3.1 (Llama 3.1
+            Community License, uso personal OK).
+          </p>
+        ) : null}
         <DownloadModel />
       </Section>
       <Section
@@ -160,8 +171,9 @@ export function AssistantTab() {
         }
       >
         <p className="text-[11px] text-muted-foreground">
-          Corre los 50 comandos de prueba con cada modelo instalado y mide si el plan es válido, si
-          es el correcto y cuánto tarda (unos minutos).
+          Corre los 80 comandos de prueba con cada modelo instalado y mide si el plan es válido, si
+          es el correcto (también solo entre los pedidos que tienen operaciones) y cuánto tarda
+          (unos minutos).
         </p>
         {evalError ? <ErrorNotice message={evalError} /> : null}
         {results.length > 0 ? (
@@ -171,6 +183,9 @@ export function AssistantTab() {
                 <th className="pb-1 font-medium">Modelo</th>
                 <th className="pb-1 font-medium">Válido</th>
                 <th className="pb-1 font-medium">Correcto</th>
+                <th className="pb-1 font-medium" title="Solo los pedidos con operaciones">
+                  Correcto (con ops)
+                </th>
                 <th className="pb-1 font-medium">Latencia p50</th>
               </tr>
             </thead>
@@ -184,6 +199,7 @@ export function AssistantTab() {
                   <td className="py-1 tabular-nums">
                     {formatRate(r.semantic_rate ?? r.exact_ops_rate)}
                   </td>
+                  <td className="py-1 tabular-nums">{formatRate(r.semantic_rate_ops_only)}</td>
                   <td className="py-1 tabular-nums">{formatLatency(r.p50_latency_ms)}</td>
                 </tr>
               ))}

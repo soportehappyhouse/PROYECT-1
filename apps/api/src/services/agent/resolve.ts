@@ -35,7 +35,18 @@ import {
  * becomes an `unresolved` Spanish question. The same `resolveOp` runs again inside agent.apply
  * against the CURRENT project (ops before it may have changed the timeline): resolved refs pass
  * through unchanged; a `{scene: n}` deferred because a previous op detects scenes is computed then.
+ *
+ * Quality gate (what a small local model gets wrong most): a time after the end of the project
+ * (+2 s), a text/graphic that would end after 1 h, a speed outside ×0.1–×8 and a trim whose start
+ * is not before its end never run: they become a question for the user.
  */
+
+/** Seconds a time may pass the end of the project (rounding, the last frame). */
+export const TIME_TOLERANCE_S = 2;
+/** Longest timeline the agent writes to (EditPlan `duration_s` max). */
+export const MAX_TIMELINE_S = 3600;
+export const SPEED_MIN = 0.1;
+export const SPEED_MAX = 8;
 
 export interface ResolveContext {
   project: Project;
@@ -134,17 +145,27 @@ interface Ctx extends ResolveContext {
   earlier: readonly EditOp[];
 }
 
+/** A time after the end of the project (+ tolerance) is a question, never a guess. */
+function withinProject(t: number, ctx: Ctx, what: string): number {
+  const dur = projectDuration(ctx.project);
+  if (t > dur + TIME_TOLERANCE_S)
+    throw new Unresolved(
+      `El momento ${what} (${fmtSec(t)}) queda después del final del proyecto (${fmtSec(dur)}). ¿En qué segundo va?`,
+    );
+  return t;
+}
+
 function resolvePointOrTime(t: Time | PointTime, ctx: Ctx, what: string): number | Time {
   if (typeof t === "number") {
     if (!Number.isFinite(t) || t < 0) throw new Unresolved(`El momento ${what} no es válido.`);
-    return round3(t);
+    return withinProject(round3(t), ctx, what);
   }
   if (t === "start") return 0;
   if (t === "end") return projectDuration(ctx.project);
   if (t === "cursor") {
     if (ctx.cursor === undefined)
       throw new Unresolved(`¿En qué segundo ${what}? No sé dónde está el cabezal.`);
-    return round3(ctx.cursor);
+    return withinProject(round3(ctx.cursor), ctx, what);
   }
   if ("scene" in t) {
     const scenes = timelineScenes(ctx.project, ctx.media);
@@ -285,6 +306,12 @@ function resolveInner(op: EditOp, ctx: Ctx): Out {
       risks.push(`Operación larga: ${what} de ${fmtSec(sec)} puede tardar varios minutos.`);
   };
   const totalDur = (list: Located[]) => list.reduce((s, l) => s + clipDuration(l.clip), 0);
+  const endsInTime = (t: number, dur: number, what: string) => {
+    if (t + dur > MAX_TIMELINE_S)
+      throw new Unresolved(
+        `${what} terminaría en ${fmtSec(t + dur)}, después de la hora máxima (${fmtSec(MAX_TIMELINE_S)}). ¿Cuánto tiene que durar?`,
+      );
+  };
   const optionalClips = (
     clip: ClipRef | undefined,
     filter: ClipFilter,
@@ -341,6 +368,10 @@ function resolveInner(op: EditOp, ctx: Ctx): Out {
         throw new Unresolved(`¿Dónde empieza y dónde termina ${label(l)} después del recorte?`);
       const tin = op.in !== undefined ? seconds(op.in, ctx, "del nuevo inicio") : undefined;
       const tout = op.out !== undefined ? seconds(op.out, ctx, "del nuevo final") : undefined;
+      if (tin !== undefined && tout !== undefined && tin >= tout)
+        throw new Unresolved(
+          `El recorte de ${label(l)} empieza en ${fmtSec(tin)} y termina antes (${fmtSec(tout)}). ¿Dónde empieza y dónde termina?`,
+        );
       const a = tin ?? l.clip.start;
       const b = tout ?? clipEnd(l.clip);
       if (b - a < 0.04)
@@ -372,6 +403,10 @@ function resolveInner(op: EditOp, ctx: Ctx): Out {
     }
     case "set_speed": {
       const l = resolveClip(op.clip, ctx, { what: "para cambiar la velocidad" });
+      if (!(op.speed >= SPEED_MIN && op.speed <= SPEED_MAX))
+        throw new Unresolved(
+          `La velocidad ×${String(op.speed).replace(".", ",")} para ${label(l)} está fuera de lo que se puede aplicar (×0,1 a ×8). ¿Qué velocidad querés?`,
+        );
       const dur = clipDuration(l.clip) * ((l.clip.speed || 1) / op.speed);
       return {
         op: { ...op, clip: ref(l) },
@@ -417,6 +452,7 @@ function resolveInner(op: EditOp, ctx: Ctx): Out {
     case "add_text": {
       const t = seconds(op.t, ctx, "del texto");
       const dur = op.duration_s ?? 3;
+      endsInTime(t, dur, "El texto");
       const pos = { top: "arriba", center: "al centro", bottom: "abajo" }[op.position ?? "bottom"];
       return {
         op: { ...op, t },
@@ -426,6 +462,8 @@ function resolveInner(op: EditOp, ctx: Ctx): Out {
     }
     case "add_motion": {
       const t = resolveTime(op.t, ctx, "del gráfico");
+      if (typeof t === "number" && op.duration_s !== undefined)
+        endsInTime(t, op.duration_s, "El gráfico");
       let follow = op.follow;
       if (follow && follow !== "face") follow = ref(resolveClip(follow, ctx, { what: "a seguir" }));
       if (follow === "face")

@@ -257,6 +257,52 @@ describe("agent resolver", () => {
     expect(c.unresolved[0]).toMatch(/No sé dónde está el cabezal/);
   });
 
+  it("quality gate: times past the end, clips past 1 h, speeds and inverted trims become questions", () => {
+    // project duration = 60 s; tolerance 2 s
+    const r = resolvePlan(
+      plan([
+        { op: "add_text", text: "fuera", t: 75 },
+        { op: "add_text", text: "justo", t: 61.5 },
+        { op: "move_clip", clip: { id: "t1" }, t: 300 },
+        { op: "split", clip: { index: 1, track: "video" }, t: { scene: 2 } },
+        { op: "add_motion", template: "title-card", t: 30, duration_s: 3590 },
+        { op: "add_text", text: "larga", t: 50, duration_s: 3555 },
+        { op: "set_speed", clip: { id: "c2" }, speed: 12 },
+        { op: "set_speed", clip: { id: "c2" }, speed: 0.1 },
+        { op: "set_speed", clip: { id: "c2" }, speed: 8 },
+        { op: "trim", clip: { id: "c1" }, in: 20, out: 10 },
+        { op: "trim", clip: { id: "c1" }, in: 10, out: 10 },
+        { op: "add_audio", query: "aplausos", t: { after_clip: { id: "c2" } } },
+      ]),
+      ctx(),
+    );
+    const bad = r.resolved.map((op, i) => (op === null ? i : -1)).filter((i) => i >= 0);
+    expect(bad).toEqual([0, 2, 4, 5, 6, 9, 10]);
+    expect(r.unresolved[0]).toBe(
+      "Operación 1: El momento del texto (75 s) queda después del final del proyecto (60 s). ¿En qué segundo va?",
+    );
+    expect(r.unresolved[1]).toMatch(/^Operación 3: El momento del nuevo inicio \(300 s\)/);
+    expect(r.unresolved[2]).toMatch(/^Operación 5: El gráfico terminaría en 3620 s.*¿Cuánto/);
+    expect(r.unresolved[3]).toMatch(/^Operación 6: El texto terminaría en 3605 s/);
+    expect(r.unresolved[4]).toMatch(
+      /^Operación 7: La velocidad ×12 .*×0,1 a ×8\)\. ¿Qué velocidad/,
+    );
+    expect(r.unresolved[5]).toMatch(
+      /^Operación 10: El recorte de «entrevista.mp4» empieza en 20 s/,
+    );
+    expect(r.unresolved[6]).toMatch(/^Operación 11: .*empieza en 10 s y termina antes/);
+    expect(r.resolved[1]).toMatchObject({ t: 61.5 }); // within the tolerance
+    expect(r.resolved[11]).toMatchObject({ t: 60 }); // after the last clip = the end
+    // the cursor past the end is a question too
+    const c = resolveOp(
+      plan([{ op: "add_text", text: "x", t: "cursor" }]).ops[0]!,
+      ctx(project(), { cursor: 90 }),
+    );
+    expect(c.unresolved[0]).toMatch(/\(90 s\) queda después del final/);
+    // an unknown export preset was already a question
+    expect(resolveOp(plan([{ op: "export", preset: "nada" }]).ops[0]!, ctx()).op).toBeNull();
+  });
+
   it("optional clips, filters, pack risks and backgrounds", () => {
     const packs = [
       { id: "scenes", name_es: "Escenas", size_bytes: 1e8, installed: false },

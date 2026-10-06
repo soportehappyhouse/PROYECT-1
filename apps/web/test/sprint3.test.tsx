@@ -10,6 +10,8 @@ import {
   appendAnswers,
   buildApplyRequest,
   composeSteps,
+  confirmDestructiveLabel,
+  destructiveIndexes,
   editableParams,
   navigateHistory,
   normalizeEvalResults,
@@ -19,6 +21,7 @@ import {
   pushHistory,
 } from "@/lib/agent";
 import { normalizePlanRecord } from "@/lib/agent-api";
+import { isLlamaModel } from "@/lib/agent-types";
 import { PANELS } from "@/lib/layout";
 import { SHORTCUT_ACTIONS } from "@/lib/shortcuts";
 import { useAgentStore } from "@/stores/agent-store";
@@ -265,7 +268,13 @@ describe("Panel Asistente", () => {
     await proposeFromPanel("Poné un título");
     await screen.findByTestId("agent-plan");
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Aplicar: Eliminar clip" }));
+    // delete_clip and export start unchecked (destructive): only the text is checked.
+    expect(
+      (screen.getByRole("checkbox", { name: "Aplicar: Eliminar clip" }) as HTMLInputElement)
+        .checked,
+    ).toBe(false);
+    expect(screen.getByRole("button", { name: /Aplicar \(1\)/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Aplicar: Exportar" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Texto (Agregar texto)" }), {
       target: { value: "Chau" },
     });
@@ -275,7 +284,13 @@ describe("Panel Asistente", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "Preset (Exportar)" }), {
       target: { value: "youtube-shorts" },
     });
-    expect(screen.getByRole("button", { name: /Aplicar \(2\)/ })).toBeTruthy();
+    // A checked export needs the separate confirmation before «Aplicar».
+    const applyBtn = screen.getByRole("button", { name: /Aplicar \(2\)/ }) as HTMLButtonElement;
+    expect(applyBtn.disabled).toBe(true);
+    expect(screen.getByText("Requiere confirmación")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar exportación" }));
+    expect(screen.getByText("Confirmada")).toBeTruthy();
+    expect(applyBtn.disabled).toBe(false);
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Aplicar \(2\)/ }));
@@ -288,6 +303,7 @@ describe("Panel Asistente", () => {
     };
     expect(body.planId).toBe("plan1");
     expect(body.ops).toEqual([0, 2]);
+    expect((body as { confirmedIndexes?: number[] }).confirmedIndexes).toEqual([2]);
     expect(body.edited_ops[0]).toMatchObject({ op: "add_text", text: "Chau", t: 4.5 });
     expect(body.edited_ops[2]).toMatchObject({ op: "export", preset: "youtube-shorts" });
     expect(typeof (body as { cursor?: unknown }).cursor).toBe("number");
@@ -330,6 +346,98 @@ describe("Panel Asistente", () => {
     expect(screen.getByRole("list", { name: "Historial de planes" }).textContent).toContain(
       "Deshecho",
     );
+  });
+
+  it("checking delete + export asks «Confirmar borrado/exportación»; toggling again re-asks", async () => {
+    mockFetch((path, method) => {
+      if (path === "/api/agent/status") return { json: READY };
+      if (path === "/api/agent/plan" && method === "POST") return { json: plan() };
+      return undefined;
+    });
+    render(<AssistantPanel />);
+    await proposeFromPanel("Poné un título");
+    await screen.findByTestId("agent-plan");
+    expect(screen.queryByRole("button", { name: /Confirmar/ })).toBeNull();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Aplicar: Eliminar clip" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Aplicar: Exportar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar borrado/exportación" }));
+    expect(useAgentStore.getState().draft!.confirmed).toEqual([1, 2]);
+    // unchecking the export forgets the confirmation of the delete too
+    fireEvent.click(screen.getByRole("checkbox", { name: "Aplicar: Exportar" }));
+    expect(useAgentStore.getState().draft!.confirmed).toEqual([]);
+    expect(screen.getByRole("button", { name: "Confirmar borrado" })).toBeTruthy();
+    expect(
+      (screen.getByRole("button", { name: /Aplicar \(2\)/ }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it("Deshacer todo after later edits: 409 PROJECT_CHANGED → «¿restaurar igual?» → force", async () => {
+    let undoCalls = 0;
+    const calls = mockFetch((path, method) => {
+      if (path === "/api/agent/status") return { json: READY };
+      if (path === "/api/agent/plans/plan1/undo" && method === "POST") {
+        undoCalls++;
+        if (undoCalls === 1)
+          return {
+            status: 409,
+            json: {
+              error: {
+                code: "PROJECT_CHANGED",
+                message: "El proyecto cambió después de aplicar el plan",
+              },
+            },
+          };
+        return {
+          json: {
+            project: useProjectStore.getState().project,
+            plan: plan({ status: "proposed" }),
+          },
+        };
+      }
+      return undefined;
+    });
+    useAgentStore.getState().receivePlan(plan({ status: "applied", undoSnapshotId: "snap1" }));
+    render(<AssistantPanel />);
+    expect(screen.getByText(/Deshacer no borra los archivos exportados/)).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Deshacer todo/ }));
+    });
+    const dialog = await screen.findByTestId("agent-undo-conflict");
+    expect(dialog.textContent).toContain("El proyecto cambió después; ¿restaurar igual?");
+    expect(dialog.textContent).toContain("no se borran");
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: /Restaurar igual/ }));
+    });
+    const undos = calls.filter((c) => c.path === "/api/agent/plans/plan1/undo");
+    expect(undos.map((c) => c.body)).toEqual([
+      { undoSnapshotId: "snap1" },
+      { undoSnapshotId: "snap1", force: true },
+    ]);
+    // the local edits are saved before asking the api (it compares the saved project)
+    expect(calls.findIndex((c) => c.method === "PUT")).toBeLessThan(
+      calls.findIndex((c) => c.path === "/api/agent/plans/plan1/undo"),
+    );
+    await waitFor(() => expect(screen.queryByTestId("agent-undo-conflict")).toBeNull());
+    expect(useAgentStore.getState().undone.plan1).toBe(true);
+  });
+
+  it("shows «Cargando modelo…» while the first LLM call loads the model", async () => {
+    mockFetch((path) => {
+      if (path === "/api/agent/status") return { json: { ...READY, loaded: false } };
+      return undefined;
+    });
+    render(<AssistantPanel />);
+    await screen.findByText("Listo");
+    act(() => useAgentStore.setState({ proposing: true }));
+    expect(screen.getByText(/Cargando modelo… \(la primera vez/)).toBeTruthy();
+    expect(screen.getByTestId("assistant-status").textContent).toContain("Cargando modelo…");
+    // once the LLM answered, the model is in memory
+    act(() => {
+      useAgentStore.getState().receivePlan(plan());
+      useAgentStore.setState({ proposing: false });
+    });
+    expect(useAgentStore.getState().status?.loaded).toBe(true);
+    expect(screen.queryByText(/Cargando modelo/)).toBeNull();
   });
 
   it("Rechazar marks the plan rejected in the history", async () => {
@@ -416,7 +524,12 @@ describe("Ajustes → Asistente local", () => {
         return {
           json: {
             models: {
-              "qwen3:8b": { schema_valid_rate: 0.98, semantic_rate: 0.92, p50_latency_ms: 2300 },
+              "qwen3:8b": {
+                schema_valid_rate: 0.98,
+                semantic_rate: 0.92,
+                semantic_rate_ops_only: 0.95,
+                p50_latency_ms: 2300,
+              },
               "llama3.1:8b": { schema_valid_rate: 0.9, semantic_rate: 0.81, p50_latency_ms: 800 },
             },
           },
@@ -445,6 +558,8 @@ describe("Ajustes → Asistente local", () => {
     });
     const table = await screen.findByTestId("agent-eval");
     expect(table.textContent).toContain("92 %");
+    expect(table.textContent).toContain("Correcto (con ops)");
+    expect(table.textContent).toContain("95 %");
     expect(table.textContent).toContain("2,3 s");
     expect(table.textContent).toContain("800 ms");
     expect(calls.find((c) => c.path === "/api/agent/eval" && c.method === "POST")?.body).toEqual({
@@ -458,6 +573,19 @@ describe("Ajustes → Asistente local", () => {
     expect(calls.find((c) => c.path === "/api/agent/plan")?.body).toMatchObject({
       settings: { model: "hermes3:8b", temperature: 0.5 },
     });
+  });
+
+  it("shows «Built with Llama» only with a Llama-based model (hermes3)", async () => {
+    mockFetch((path) => (path === "/api/agent/status" ? { json: READY } : undefined));
+    render(<AssistantTab />);
+    const select = await screen.findByRole("combobox", { name: "Modelo del asistente" });
+    expect(screen.queryByTestId("built-with-llama")).toBeNull();
+    fireEvent.change(select, { target: { value: "hermes3:8b" } });
+    expect(screen.getByTestId("built-with-llama").textContent).toContain("Built with Llama");
+    fireEvent.change(select, { target: { value: "qwen3:8b" } });
+    expect(screen.queryByTestId("built-with-llama")).toBeNull();
+    expect(isLlamaModel("hermes3:8b") && isLlamaModel("hermes3")).toBe(true);
+    expect(isLlamaModel("qwen3:8b") || isLlamaModel(undefined)).toBe(false);
   });
 });
 
@@ -546,6 +674,15 @@ describe("lib/agent", () => {
       planId: "p",
       ops: [0, 2],
     });
+    // only confirmed indexes that are also applied are sent
+    expect(buildApplyRequest("p", ops, ops, [true, false, true], undefined, [1, 2])).toEqual({
+      planId: "p",
+      ops: [0, 2],
+      confirmedIndexes: [2],
+    });
+    expect(destructiveIndexes(ops, [true, true, true])).toEqual([1, 2]);
+    expect(confirmDestructiveLabel(ops, [1])).toBe("Confirmar borrado");
+    expect(confirmDestructiveLabel(ops, [1, 2])).toBe("Confirmar borrado/exportación");
   });
 
   it("parses times, appends answers, keeps a deduplicated history", () => {

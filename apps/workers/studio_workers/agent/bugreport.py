@@ -141,8 +141,8 @@ async def draft_report(
     model: str,
     *,
     temperature: float = 0.2,
-    keep_alive: str | int = "5m",
-    num_ctx: int = 8192,
+    keep_alive: str | int = "60s",
+    num_ctx: int = 4096,
     before_llm: Callable[[], Any] | None = None,
 ) -> dict[str, Any]:
     """{markdown_es, source: "llm" | "template", model?, warning?}."""

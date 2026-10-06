@@ -50,6 +50,8 @@ export interface AgentEvalModelResult {
   schema_valid_rate?: number;
   exact_ops_rate?: number;
   semantic_rate?: number;
+  /** Same, only over the examples whose expected plan has ops (asking does not count). */
+  semantic_rate_ops_only?: number;
   p50_latency_ms?: number;
   failures?: unknown[];
 }
@@ -75,5 +77,12 @@ export const AGENT_PACK_ID = AGENT_LLM_PACK_ID;
 
 /** Models offered in Ajustes → «Asistente local» even before they are installed. */
 export const DEFAULT_AGENT_MODELS = [AGENT_DEFAULT_MODEL, "hermes3:8b"] as const;
+
+/**
+ * Hermes 3 is a Llama 3.1 derivative: the Llama 3.1 Community License asks to show «Built with
+ * Llama» when it is used (docs/trabajo/fuentes.md).
+ */
+export const isLlamaModel = (model: string | undefined): boolean =>
+  !!model && /^(hermes3|llama3(\.\d+)?)(:|$)/i.test(model.trim());
 export const DEFAULT_AGENT_MODEL = AGENT_DEFAULT_MODEL;
 export const DEFAULT_AGENT_TEMPERATURE = 0.2;

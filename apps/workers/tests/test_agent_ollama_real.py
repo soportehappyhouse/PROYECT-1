@@ -89,3 +89,22 @@ def test_real_planner_end_to_end() -> None:
     out = asyncio.run(planner.plan("agregá un título que diga Hola en el segundo 3", SUMMARY))
     assert out.route == "llm" and 1 <= out.attempts <= 3
     assert schema.validate_plan(out.plan) == []  # valid plan or the "rephrase" question
+
+
+@needs_model
+def test_real_ps_loaded_and_unload_keep_alive_zero() -> None:
+    """GPU two-way plumbing: a chat loads the model (/api/ps lists it), unload_loaded_sync (the
+    GpuBudget hook) frees it with keep_alive 0."""
+    client = OllamaClient(URL, timeout=300)
+    asyncio.run(
+        client.chat(
+            MODEL,
+            [{"role": "user", "content": "hola"}],
+            keep_alive="60s",
+            extra_options={"num_predict": 4},
+        )
+    )
+    assert model_in(MODEL, asyncio.run(client.loaded_models()))
+    released = client.unload_loaded_sync()
+    assert model_in(MODEL, released)
+    assert not model_in(MODEL, asyncio.run(client.loaded_models()))

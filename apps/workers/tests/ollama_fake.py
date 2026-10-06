@@ -4,7 +4,8 @@ Mirrors the real responses checked against Ollama 0.35.1: ``/api/version`` -> {v
 ``/api/tags`` -> {models: [{name, model, size, …}]}, ``/api/chat`` (stream false) ->
 {model, message: {role, content}, done, eval_count…} or 404 {error: "model 'x' not found"},
 ``/api/pull`` -> NDJSON stream of {status, digest?, total?, completed?} ending in
-{status: "success"} (or a line {error}).
+{status: "success"} (or a line {error}), ``/api/ps`` -> {models: [{name, model, size_vram…}]}
+(a chat loads its model; ``/api/generate`` with ``keep_alive: 0`` unloads it).
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ class FakeOllama:
         self.replies: list[ChatReply] = []
         self.requests: list[dict[str, Any]] = []
         self.pull_lines: list[dict[str, Any]] | None = None
+        self.loaded: list[str] = []  # /api/ps
 
     # --------------------------------------------------------------- scripting
     def reply(self, *contents: ChatReply) -> FakeOllama:
@@ -41,7 +43,16 @@ class FakeOllama:
         return httpx.MockTransport(self.handle)
 
     def client(self, **kw: Any) -> OllamaClient:
-        return OllamaClient("http://127.0.0.1:11434", transport=self.transport(), **kw)
+        url = kw.pop("url", "http://127.0.0.1:11434")
+        return OllamaClient(url, transport=self.transport(), **kw)
+
+    @property
+    def unloads(self) -> list[str]:
+        return [
+            r["body"].get("model")
+            for r in self.requests
+            if r["path"] == "/api/generate" and r["body"].get("keep_alive") == 0
+        ]
 
     # --------------------------------------------------------------- handler
     def handle(self, request: httpx.Request) -> httpx.Response:
@@ -69,6 +80,8 @@ class FakeOllama:
             if not self.replies:
                 return httpx.Response(500, json={"error": "fake: no scripted reply left"})
             reply = self.replies.pop(0)
+            if model not in self.loaded:
+                self.loaded.append(model)
             if callable(reply):
                 reply = reply(body)
             content = reply if isinstance(reply, str) else json.dumps(reply)
@@ -117,6 +130,13 @@ class FakeOllama:
             return httpx.Response(
                 200, content=text.encode(), headers={"content-type": "application/x-ndjson"}
             )
+        if path == "/api/ps":
+            return httpx.Response(
+                200,
+                json={"models": [{"name": m, "model": m, "size_vram": 5000} for m in self.loaded]},
+            )
         if path == "/api/generate":
-            return httpx.Response(200, json={"done": True})
+            if body.get("keep_alive") == 0 and body.get("model") in self.loaded:
+                self.loaded.remove(body["model"])
+            return httpx.Response(200, json={"done": True, "done_reason": "unload"})
         return httpx.Response(404, text="404 page not found")

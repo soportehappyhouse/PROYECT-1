@@ -2,14 +2,17 @@
 
 Per model (docs/trabajo/sprint3-contratos.md)::
 
-    {valid_json_rate, schema_valid_rate, exact_ops_rate, semantic_rate, p50_latency_ms, failures}
+    {valid_json_rate, schema_valid_rate, exact_ops_rate, semantic_rate, semantic_rate_ops_only,
+     p50_latency_ms, failures}
 
 - valid_json_rate: the final answer parsed as JSON (deterministic route counts as valid);
 - schema_valid_rate: the final plan passed the EditPlan schema (not the "rephrase" fallback);
 - exact_ops_rate: same ops with the same arguments (``confirm``/``note_es`` ignored);
 - semantic_rate: same op sequence AND the key arguments of each op match (``KEY_ARGS``: preset,
   target, template, time, text, clip reference…). A questions-only expected plan matches a
-  questions-only answer. Criterion 4 of the plan: ≥ 90 % on golden with the default model.
+  questions-only answer. Criterion 4 of the plan: ≥ 90 % on golden with the default model;
+- semantic_rate_ops_only: the same, only over the examples whose expected plan HAS ops (``n_ops``
+  of them): a model that answers only questions cannot reach it by asking.
 
 The same pipeline as POST /agent/plan runs (router first) unless ``use_router`` is false; the
 evaluated command is excluded from the few-shot examples. Also usable offline for a future LoRA.
@@ -26,7 +29,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .planner import Example, PlannerUnavailableError, load_examples
+from .ollama_client import OllamaError
+from .planner import Example, PlannerUnavailableError, PlanOutcome, fallback_plan, load_examples
 
 EVAL_FILE = "agent-eval.json"
 MAX_FAILURES = 50
@@ -196,6 +200,7 @@ async def evaluate_model(
 ) -> dict[str, Any]:
     n = len(examples)
     valid_json = schema_ok = exact = semantic = 0
+    n_ops = semantic_ops = 0
     latencies: list[int] = []
     attempts: list[int] = []
     routes = {"deterministic": 0, "llm": 0}
@@ -207,6 +212,15 @@ async def evaluate_model(
             out = await plan_fn(ex)
         except PlannerUnavailableError as exc:
             return {"model": model, "n": n, "error": str(exc), "available": False}
+        except OllamaError as exc:  # one bad answer of Ollama is a failed example, not the run
+            out = PlanOutcome(
+                plan=fallback_plan(),
+                route="llm",
+                model=model,
+                valid_json=False,
+                schema_valid=False,
+                errors=[str(exc)[:300]],
+            )
         routes[out.route] = routes.get(out.route, 0) + 1
         latencies.append(out.latency_ms)
         attempts.append(out.attempts)
@@ -223,6 +237,9 @@ async def evaluate_model(
         )
         exact += int(is_exact)
         semantic += int(is_sem)
+        if ops_of(ex.plan):
+            n_ops += 1
+            semantic_ops += int(is_sem)
         if not is_sem and len(failures) < MAX_FAILURES:
             failures.append(
                 {
@@ -242,6 +259,8 @@ async def evaluate_model(
         "schema_valid_rate": _rate(schema_ok, n),
         "exact_ops_rate": _rate(exact, n),
         "semantic_rate": _rate(semantic, n),
+        "semantic_rate_ops_only": _rate(semantic_ops, n_ops),
+        "n_ops": n_ops,
         "p50_latency_ms": int(statistics.median(latencies)) if latencies else 0,
         "mean_attempts": round(statistics.fmean(attempts), 3) if attempts else 0.0,
         "routes": routes,

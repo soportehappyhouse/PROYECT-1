@@ -55,8 +55,9 @@ def test_valid_plan_on_first_try() -> None:
     body = fake.chats[0]
     assert body["format"] == schema.ollama_format()  # structured outputs with the exported schema
     assert "$schema" not in body["format"] and "$defs" in body["format"]
-    assert body["options"] == {"temperature": 0.2, "num_ctx": 8192}
-    assert body["keep_alive"] == "5m" and body["think"] is False and body["stream"] is False
+    assert body["options"] == {"temperature": 0.2, "num_ctx": 4096}
+    assert body["keep_alive"] == "60s" and body["think"] is False and body["stream"] is False
+    assert out.prompt_tokens and out.response()["prompt_tokens"] == out.prompt_tokens
     assert body["messages"][0]["role"] == "system"
     assert "id=c1" in body["messages"][-1]["content"]  # compact project summary goes in
     assert body["messages"][-1]["content"].endswith(
@@ -250,22 +251,103 @@ def test_pull_streams_progress_and_reports_errors() -> None:
 
 
 def test_fixed_fewshot_pairs_go_first_with_their_summary() -> None:
-    from studio_workers.agent.planner import fixed_examples
+    from studio_workers.agent.planner import FIXED_SHOTS, fixed_examples, pick_fixed
 
     fixed = fixed_examples()
-    assert len(fixed) >= 5  # prompts/fewshot_es.jsonl (dataset writer)
+    assert len(fixed) == 8  # prompts/fewshot_es.jsonl keeps 8; the prompt gets 4 of them
     fake = FakeOllama([MODEL]).reply(TITLE_PLAN)
     run(Planner(fake.client(), model=MODEL, examples=[]).plan("poné un título", SUMMARY))
     msgs = fake.chats[0]["messages"]
+    chosen = pick_fixed("poné un título", fixed)
+    assert len(chosen) == FIXED_SHOTS == 4
     assert msgs[1]["content"].startswith("Resumen del proyecto:\n")
-    assert msgs[1]["content"].endswith(f"Pedido: {fixed[0].command}")
-    assert json.loads(msgs[2]["content"]) == fixed[0].plan
-    assert len(msgs) == 1 + 2 * len(fixed) + 1
+    assert msgs[1]["content"].endswith(f"Pedido: {chosen[0].command}")
+    assert json.loads(msgs[2]["content"]) == chosen[0].plan
+    assert len(msgs) == 1 + 2 * FIXED_SHOTS + 1
     # the evaluated command is never among its own examples
     fake.reply(TITLE_PLAN)
     p = Planner(fake.client(), model=MODEL, examples=[])
-    cmd = fixed[0].command
+    cmd = chosen[0].command
     run(p.plan(cmd, SUMMARY, use_router=False, exclude_command=cmd))
     msgs = fake.chats[1]["messages"]
-    assert len(msgs) == 1 + 2 * (len(fixed) - 1) + 1
+    assert len(msgs) == 1 + 2 * FIXED_SHOTS + 1
     assert sum(cmd in m["content"] for m in msgs) == 1  # only the request itself
+
+
+def test_pick_fixed_is_diverse_and_deterministic() -> None:
+    from studio_workers.agent.planner import _features, fixed_examples, pick_fixed
+
+    fixed = fixed_examples()
+    chosen = pick_fixed("exportá para tiktok con subtítulos", fixed)
+    assert chosen == pick_fixed("exportá para tiktok con subtítulos", fixed)
+    feats = [_features(ex) for ex in chosen]
+    # every pick teaches something the others do not (no two with the same op set)
+    assert len({frozenset(f) for f in feats}) == len(chosen) == 4
+    assert any("questions" in f for f in feats)  # asking instead of guessing is shown
+    assert any("export" in f for f in feats)  # ties go to the command's words
+    order = [fixed.index(ex) for ex in chosen]
+    assert order == sorted(order)
+
+
+def test_prompt_fits_num_ctx_4096_with_a_full_summary() -> None:
+    """System + 4 fixed + 2 similar + a summary at the 4000-char budget + the output reserve fit
+    in num_ctx 4096 (6 GB card); the estimate is logged and returned."""
+    from studio_workers.agent import summary as summ
+    from studio_workers.agent.planner import (
+        OUTPUT_RESERVE_TOKENS,
+        build_messages,
+        estimate_tokens,
+        few_shot_pool,
+        fixed_examples,
+        pick_examples,
+        pick_fixed,
+    )
+
+    big = "x" * (summ.MAX_SUMMARY_CHARS + 2000)  # over budget: compact() trims it
+    cmd = "subí la música y poné un título que diga Hola al principio"
+    msgs = build_messages(
+        cmd, big, pick_examples(cmd, few_shot_pool()), pick_fixed(cmd, fixed_examples())
+    )
+    tokens = estimate_tokens(msgs)
+    assert tokens + OUTPUT_RESERVE_TOKENS <= 4096, tokens
+    assert estimate_tokens([{"role": "user", "content": "a" * 350}]) == 100 + 6
+
+
+def test_prompt_over_num_ctx_drops_examples_then_falls_back() -> None:
+    """Ollama 0.35 refuses a prompt longer than num_ctx (400 exceed_context_size_error): the
+    planner drops example pairs until it fits; with no examples left it answers the fallback."""
+    import httpx
+
+    from studio_workers.agent.ollama_client import OllamaClient
+    from studio_workers.agent.planner import fixed_examples
+
+    over = {
+        "error": {
+            "code": 400,
+            "message": "request (4096 tokens) exceeds the available context size (4096 tokens)",
+            "type": "exceed_context_size_error",
+        }
+    }
+
+    def make(limit: int) -> tuple[FakeOllama, Planner]:
+        fake = FakeOllama([MODEL]).reply(TITLE_PLAN)
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/api/chat":
+                body = json.loads(request.content)
+                if len(body["messages"]) > limit:
+                    fake.requests.append({"path": "/api/chat-refused", "body": body})
+                    return httpx.Response(400, json=over)
+            return fake.handle(request)
+
+        client = OllamaClient("http://127.0.0.1:11434", transport=httpx.MockTransport(handle))
+        return fake, Planner(client, model=MODEL, examples=[], fixed=fixed_examples())
+
+    fake, p = make(limit=1 + 2 * 2 + 1)  # only 2 of the 4 fixed pairs fit
+    out = run(p.plan("agregá un título que diga Hola en el segundo 3", SUMMARY))
+    assert out.plan == TITLE_PLAN and "prompt_trimmed" in out.warnings
+    assert len(fake.chats[-1]["messages"]) == 1 + 2 * 2 + 1
+    fake, p = make(limit=1)  # not even the request alone fits
+    out = run(p.plan("agregá un título que diga Hola en el segundo 3", SUMMARY))
+    assert out.schema_valid is False and out.plan["questions"]
+    assert "prompt_over_ctx:4096" in out.warnings

@@ -73,7 +73,7 @@ class PackRequiredError(RuntimeError):
     def __init__(self, pack_id: str, detail: str | None = None) -> None:
         pack = PACKS.get(pack_id)
         self.pack_id = pack_id
-        self.name_es = pack.name_es if pack else pack_id
+        self.name_es = pack.display_name if pack else pack_id
         self.size_bytes = pack.approx_size if pack else 0
         super().__init__(
             detail or f"Hace falta el paquete '{self.name_es}' ({pack_id}). Descargalo en Ajustes."
@@ -128,6 +128,13 @@ class Pack:
     extra_status: Callable[[Path], list[dict[str, Any]]] | None = None
     # Sprint 3: models pulled through the local Ollama service (/api/pull), not our downloader.
     ollama_models: Callable[[], tuple[str, ...]] | None = None
+    # Name that depends on the configuration (agent-llm: after AGENT_MODEL); name_es stays the
+    # static name of models/packs.json.
+    name_fn: Callable[[], str] | None = None
+
+    @property
+    def display_name(self) -> str:
+        return self.name_fn() if self.name_fn is not None else self.name_es
 
     def build_items(
         self, root: Path, catalog: dict | None = None, downloader: WhisperDownloader | None = None
@@ -359,6 +366,19 @@ def _agent_settings() -> tuple[str, str]:
     return st.agent_model, st.ollama_url
 
 
+def _agent_allow_remote() -> bool:
+    from .config import get_settings  # noqa: PLC0415
+
+    return get_settings().agent_allow_remote_ollama
+
+
+def _agent_pack_name() -> str:
+    """'Asistente local (Ollama + Qwen3 8B)' / '(Ollama + Hermes 3 8B)' / '(Ollama + <tag>)'."""
+    from .agent.ollama_client import model_label  # noqa: PLC0415
+
+    return f"Asistente local (Ollama + {model_label(_agent_settings()[0])})"
+
+
 def _agent_models() -> tuple[str, ...]:
     """The model the agent uses (AGENT_MODEL: qwen3:8b by default, hermes3:8b, qwen3:0.6b)."""
     return (_agent_settings()[0],)
@@ -368,7 +388,9 @@ def ollama_installed_models() -> list[str] | None:
     """/api/tags of the local Ollama (None: service not running). Short timeout: GET /packs."""
     from .agent.ollama_client import installed_models_sync  # noqa: PLC0415
 
-    return installed_models_sync(_agent_settings()[1], timeout=1.0)
+    return installed_models_sync(
+        _agent_settings()[1], timeout=1.0, allow_remote=_agent_allow_remote()
+    )
 
 
 def _ollama_status_rows(pack: Pack) -> list[dict[str, Any]]:
@@ -405,6 +427,7 @@ def _install_ollama_pack(
 
     assert pack.ollama_models is not None
     url = _agent_settings()[1]
+    OllamaClient(url, allow_remote=_agent_allow_remote()).check_url()  # remote URL: refused
     installed = ollama_installed_models()
     if installed is None:
         raise RuntimeError(str(OllamaUnavailableError(url)))
@@ -417,7 +440,7 @@ def _install_ollama_pack(
     total = sum(model_size(m) for m in todo)
     done = 0
     progress(0, total, None)
-    client = OllamaClient(url)
+    client = OllamaClient(url, allow_remote=_agent_allow_remote())
     for model in todo:
         say(f"ollama pull {model}")
         base = done
@@ -657,6 +680,7 @@ PACKS: dict[str, Pack] = {
             required_by=("agent.plan", "agent.eval", "agent.bugreport"),
             approx_size=5_225_000_000,
             ollama_models=_agent_models,
+            name_fn=_agent_pack_name,
             notes=(
                 "AGENT_MODEL elige el modelo: qwen3:8b (defecto), hermes3:8b o qwen3:0.6b "
                 "(CI); Ollama verifica los digests de cada capa"
@@ -837,7 +861,7 @@ def pack_status(
     size = sum(f["size"] for f in files) or pack.approx_size
     return {
         "id": pack.id,
-        "name_es": pack.name_es,
+        "name_es": pack.display_name,
         "description_es": pack.description_es,
         "size_bytes": int(size),
         "installed": installed,

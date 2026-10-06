@@ -41,7 +41,8 @@ SCHEMA_CANDIDATES = [
 TRACK_KINDS = {"video", "audio", "text", "motion"}
 ALWAYS_CONFIRM = {"delete_clip", "export"}
 TIME_FIELDS = ("t", "in", "out")
-GOLDEN_SIZE = 50
+GOLDEN_SIZE = 80
+GOLDEN_OP_MIN = 3  # every op at least 3 times in golden (30 multi-op examples, Sprint 3 audit)
 TRAIN_MIN = 200
 FEWSHOT_SIZE = 8
 GOLDEN_MIN_TAGS = {"ambiguo": 8, "multi_op": 5, "typo": 5, "fuera_de_alcance": 5}
@@ -602,7 +603,7 @@ def main() -> int:
             rf_all |= rf
         stats[split + ".ops"] = ops_c
         stats[split + ".tags"] = tags_c
-        need = 2 if split == "golden" else 1
+        need = GOLDEN_OP_MIN if split == "golden" else 1
         for name in sorted(op_names):
             if ops_c[name] < need:
                 errors.append(

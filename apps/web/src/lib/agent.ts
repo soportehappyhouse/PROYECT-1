@@ -83,6 +83,25 @@ export function needsConfirm(op: EditOp): boolean {
   return ALWAYS_CONFIRM.has(op.op) || op.confirm !== false;
 }
 
+/** delete_clip / export: start unchecked and need the separate «Confirmar borrado/exportación». */
+export const isDestructive = (op: Pick<EditOp, "op">): boolean => ALWAYS_CONFIRM.has(op.op);
+
+/** Checked destructive ops (plan indexes): what «Confirmar borrado/exportación» confirms. */
+export function destructiveIndexes(ops: readonly EditOp[], enabled: readonly boolean[]): number[] {
+  return ops.map((op, i) => (enabled[i] && isDestructive(op) ? i : -1)).filter((i) => i >= 0);
+}
+
+/** Label of the confirmation button for the checked destructive ops. */
+export function confirmDestructiveLabel(
+  ops: readonly EditOp[],
+  indexes: readonly number[],
+): string {
+  const kinds = new Set(indexes.map((i) => ops[i]?.op));
+  const del = kinds.has("delete_clip");
+  const exp = kinds.has("export");
+  return `Confirmar ${del && exp ? "borrado/exportación" : del ? "borrado" : "exportación"}`;
+}
+
 // --------------------------------------------------------------------------------------------
 // Time / clip refs
 
@@ -266,14 +285,17 @@ export function buildApplyRequest(
   edited: readonly EditOp[],
   enabled: readonly boolean[],
   cursor?: number,
+  confirmedIndexes: readonly number[] = [],
 ): AgentApplyRequest {
   const ops = edited.map((_, i) => i).filter((i) => enabled[i]);
   const changed = edited.some((op, i) => JSON.stringify(op) !== JSON.stringify(original[i]));
+  const confirmed = ops.filter((i) => confirmedIndexes.includes(i));
   return {
     planId,
     ops,
     ...(changed && { edited_ops: [...edited] }),
     ...(changed && cursor !== undefined && { cursor }),
+    ...(confirmed.length > 0 && { confirmedIndexes: confirmed }),
   };
 }
 
@@ -387,6 +409,7 @@ export function normalizeEvalResults(raw: unknown): AgentEvalModelResult[] {
       "schema_valid_rate",
       "exact_ops_rate",
       "semantic_rate",
+      "semantic_rate_ops_only",
       "p50_latency_ms",
     ] as const) {
       const n = rate(v[k]);

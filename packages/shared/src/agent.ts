@@ -583,7 +583,11 @@ export type EditOpOf<K extends EditOpName> = Extract<EditOp, { op: K }>;
 
 export const EDIT_OP_NAMES = EditOpSchema.options.map((o) => o.shape.op.value) as EditOpName[];
 
-/** Ops that always need confirmation whatever `confirm` says. */
+/**
+ * Ops that always need confirmation whatever `confirm` says (destructive: the web leaves them
+ * unchecked and asks for a separate «Confirmar borrado/exportación» click; the api needs their
+ * indexes in `confirmedIndexes`).
+ */
 export const ALWAYS_CONFIRM_OPS: readonly EditOpName[] = ["delete_clip", "export"];
 
 export const EDIT_PLAN_MAX_OPS = 20;
@@ -676,6 +680,10 @@ export const AgentWorkerStatusSchema = z.object({
   models_installed: z.array(z.string()).default([]),
   ready: z.boolean(),
   gpu_mode: z.string().nullish(),
+  /** The model is resident in Ollama right now (/api/ps): false = the next call loads it first. */
+  loaded: z.boolean().optional(),
+  /** Spanish hint with the exact manual commands (ollama pull …, doctor.cmd). */
+  hint_es: z.string().nullish(),
 });
 export type AgentWorkerStatus = z.infer<typeof AgentWorkerStatusSchema>;
 
@@ -727,6 +735,8 @@ export const WorkerAgentPlanResponseSchema = z.object({
   attempts: z.int().nonnegative().default(1),
   warnings: z.array(z.string()).default([]),
   route: z.enum(["deterministic", "llm"]).default("llm"),
+  /** Prompt size estimate (chars / 3.5) of the LLM route, logged by the api. */
+  prompt_tokens: z.int().nonnegative().optional(),
 });
 export type WorkerAgentPlanResponse = z.infer<typeof WorkerAgentPlanResponseSchema>;
 
@@ -792,12 +802,19 @@ export const AgentApplyRequestSchema = z.object({
   edited_ops: z.array(z.unknown()).max(EDIT_PLAN_MAX_OPS).optional(),
   /** Playhead (seconds) for a Time "cursor" typed in an edited op. */
   cursor: z.number().nonnegative().optional(),
+  /**
+   * Destructive ops (delete_clip / export, ALWAYS_CONFIRM_OPS) the user confirmed with the separate
+   * «Confirmar borrado/exportación» click. The api refuses (409 CONFIRM_REQUIRED) any delete/export
+   * op it would run that is not listed here.
+   */
+  confirmedIndexes: z.array(z.int().nonnegative()).optional(),
 });
 export type AgentApplyRequest = z.infer<typeof AgentApplyRequestSchema>;
 
 export const AgentApplyPayloadSchema = AgentApplyRequestSchema.omit({
   edited_ops: true,
   cursor: true,
+  confirmedIndexes: true,
 }).extend({
   projectId: z.string().min(1),
 });
@@ -849,8 +866,25 @@ export const AgentPlanRecordSchema = AgentPlanValidationSchema.extend({
   undoneAt: z.string().nullish(),
   /** True once POST /api/agent/apply stored the user's inline edits (`edited_ops`). */
   edited: z.boolean().optional(),
+  /**
+   * Content hash (projectContentHash) and updatedAt of the project right after agent.apply. The
+   * undo compares them with the current project: changed -> 409 PROJECT_CHANGED unless force.
+   */
+  postApplyHash: z.string().nullish(),
+  postApplyUpdatedAt: z.string().nullish(),
 });
 export type AgentPlanRecord = z.infer<typeof AgentPlanRecordSchema>;
+
+/**
+ * POST /api/agent/plans/:id/undo. Restores the project saved before agent.apply. When the project
+ * changed after the apply (other edits) it answers 409 PROJECT_CHANGED unless `force: true`.
+ * Undo never deletes files: exported videos and media created by the plan stay on disk.
+ */
+export const AgentUndoRequestSchema = z.object({
+  undoSnapshotId: z.string().min(1).optional(),
+  force: z.boolean().optional(),
+});
+export type AgentUndoRequest = z.infer<typeof AgentUndoRequestSchema>;
 
 /** GET /api/agent/status (workers proxy + pack state). */
 export const AgentStatusSchema = z.object({
@@ -865,6 +899,8 @@ export const AgentStatusSchema = z.object({
     .nullable(),
   /** Spanish hint when something is missing (install Ollama / download the model). */
   hint_es: z.string().nullish(),
+  /** The model is already in memory (Ollama /api/ps): false = the first call has to load it. */
+  loaded: z.boolean().optional(),
 });
 export type AgentStatus = z.infer<typeof AgentStatusSchema>;
 

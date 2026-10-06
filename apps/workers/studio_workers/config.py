@@ -43,8 +43,16 @@ class Settings(BaseSettings):
     agent_model: str = "qwen3:8b"
     # Sampling temperature of the planner when the request does not send one (AGENT_TEMPERATURE).
     agent_temperature: float = 0.2
-    agent_keep_alive: str = "5m"
-    agent_num_ctx: int = 8192
+    # How long Ollama keeps the model in VRAM after /agent/plan, /agent/eval, /agent/bugreport
+    # (AGENT_KEEP_ALIVE, Ollama duration: "60s", "5m", "0"). Short: on a 6 GB card the model must
+    # leave room for Whisper/vision soon after the user stops typing commands.
+    agent_keep_alive: str = "60s"
+    # Context window (AGENT_NUM_CTX). 4096 keeps qwen3:8b Q4 + KV cache inside 6 GB of VRAM; the
+    # prompt (system + 4 fixed + 2 similar few-shots + summary ≤ 4000 chars) is sized for it.
+    agent_num_ctx: int = 4096
+    # OLLAMA_URL must be loopback unless AGENT_ALLOW_REMOTE_OLLAMA=true (the prompt carries the
+    # project summary; decision 8: nothing leaves the PC).
+    agent_allow_remote_ollama: bool = False
     # Seconds for one /api/chat call (an 8B model partly on CPU can take ~30 s per plan).
     agent_timeout_sec: float = 120.0
 

@@ -18,6 +18,7 @@ import {
   type JobEvent,
   type Project,
 } from "@studio/shared";
+import { agentPackName, ollamaHint } from "../src/routes/agent.js";
 import { makeApp, waitFor } from "./helpers.js";
 
 /** Sprint 3 agent routes + agent.apply against a fake workers service (sprint3-contratos.md). */
@@ -77,6 +78,7 @@ describe("agent routes and agent.apply (mocked workers)", () => {
               models_installed: ["qwen3:8b"],
               ready: true,
               gpu_mode: "cpu",
+              loaded: true,
             });
           case "/agent/plan":
             if (state.planStatus) return send(state.planStatus, state.planBody);
@@ -225,7 +227,14 @@ describe("agent routes and agent.apply (mocked workers)", () => {
       const messages: string[] = [];
       const onJob = (e: JobEvent) => e.message && messages.push(e.message);
       app.ctx.queue.on("job", onJob);
-      const apply = await post(API_ROUTES.agentApply, { planId: record.id });
+      // export (index 3) is destructive: it needs the separate confirmation click.
+      const unconfirmed = await post(API_ROUTES.agentApply, { planId: record.id });
+      expect(unconfirmed.statusCode, unconfirmed.body).toBe(409);
+      expect(unconfirmed.json().error).toMatchObject({
+        code: "CONFIRM_REQUIRED",
+        details: { indexes: [3] },
+      });
+      const apply = await post(API_ROUTES.agentApply, { planId: record.id, confirmedIndexes: [3] });
       expect(apply.statusCode, apply.body).toBe(202);
       const job = await jobEnd(apply.json<{ jobId: string }>().jobId);
       app.ctx.queue.off("job", onJob);
@@ -288,6 +297,72 @@ describe("agent routes and agent.apply (mocked workers)", () => {
     },
     90_000,
   );
+
+  it("delete/export need confirmedIndexes; undo refuses (409 PROJECT_CHANGED) after later edits unless force", async () => {
+    state.plan = {
+      version: 1,
+      summary_es: "Borro el clip y pongo un texto.",
+      ops: [
+        { op: "add_text", text: "A", t: 1 },
+        { op: "delete_clip", clip: { id: "c1" } },
+      ],
+    };
+    const projectId = await makeProject();
+    const { record } = await propose(projectId);
+    expect(record.ok).toBe(true);
+    // Only the text: no confirmation needed.
+    const sub = await post(API_ROUTES.agentApply, { planId: record.id, ops: [0, 1] });
+    expect(sub.statusCode).toBe(409);
+    expect(sub.json().error.code).toBe("CONFIRM_REQUIRED");
+    expect(sub.json().error.message).toMatch(/operación 2 \(borrar clip\)/);
+    // confirming another index does not count
+    const wrong = await post(API_ROUTES.agentApply, {
+      planId: record.id,
+      ops: [0, 1],
+      confirmedIndexes: [0],
+    });
+    expect(wrong.statusCode).toBe(409);
+    const ok = await post(API_ROUTES.agentApply, {
+      planId: record.id,
+      ops: [0, 1],
+      confirmedIndexes: [1],
+    });
+    expect(ok.statusCode, ok.body).toBe(202);
+    const job = await jobEnd(ok.json<{ jobId: string }>().jobId);
+    expect((job.result as AgentApplyResult).applied).toBe(2);
+    const applied = app.ctx.repos.agentPlans.get(record.id)!;
+    expect(applied.postApplyHash).toMatch(/^[0-9a-f]{32}$/);
+    expect(applied.postApplyUpdatedAt).toBe(app.ctx.repos.projects.get(projectId)!.updatedAt);
+
+    // Saving the same content again (the web adopting the api copy) is not a change.
+    const same = app.ctx.repos.projects.get(projectId)!;
+    app.ctx.repos.projects.save(projectId, structuredClone(same));
+    // A real edit after the apply: the undo asks first.
+    const edited = app.ctx.repos.projects.get(projectId)!;
+    app.ctx.repos.projects.save(projectId, { ...edited, name: "Renombrado después" });
+    const undoRoute = buildRoute(API_ROUTES.agentPlanUndo, { id: record.id });
+    const refused = await post(undoRoute, {});
+    expect(refused.statusCode, refused.body).toBe(409);
+    expect(refused.json().error.code).toBe("PROJECT_CHANGED");
+    expect(refused.json().error.message).toMatch(/no borra los archivos exportados/);
+    expect(app.ctx.repos.projects.get(projectId)!.name).toBe("Renombrado después");
+    const forced = await post(undoRoute, { force: true });
+    expect(forced.statusCode, forced.body).toBe(200);
+    const back = forced.json<{ project: Project }>().project;
+    expect(back.tracks.find((t) => t.kind === "video")!.clips).toHaveLength(1);
+    expect(back.tracks.find((t) => t.kind === "text")!.clips).toHaveLength(0);
+  });
+
+  it("undo without later edits needs no force", async () => {
+    state.plan = { version: 1, summary_es: "x", ops: [{ op: "add_text", text: "B", t: 1 }] };
+    const projectId = await makeProject();
+    const { record } = await propose(projectId);
+    const res = await post(API_ROUTES.agentApply, { planId: record.id });
+    expect(res.statusCode, res.body).toBe(202);
+    await jobEnd(res.json<{ jobId: string }>().jobId);
+    const undo = await post(buildRoute(API_ROUTES.agentPlanUndo, { id: record.id }), {});
+    expect(undo.statusCode, undo.body).toBe(200);
+  });
 
   it("stops at the first failing op with {index, error} and keeps the applied ones", async () => {
     state.plan = {
@@ -442,9 +517,45 @@ describe("agent routes and agent.apply (mocked workers)", () => {
       expect(b.size_bytes).toBe(5.2e9);
       expect(b.message).toMatch(/instalá Ollama \(winget install Ollama\.Ollama/);
     }
+    // The workers' own text (they probe /api/version) reaches the user as is.
+    const workersText =
+      "Ollama 0.35.1 está corriendo, pero falta el modelo qwen3:8b. Descargalo en Ajustes → " +
+      "Paquetes («Asistente local») o en una terminal: `ollama pull qwen3:8b`. Para revisar la " +
+      "instalación ejecutá scripts\\windows\\doctor.cmd.";
+    state.planStatus = 409;
+    state.planBody = {
+      error: "PACK_REQUIRED",
+      code: "PACK_REQUIRED",
+      packId: "agent-llm",
+      name_es: "Asistente local (Ollama + Qwen3 8B)",
+      size_bytes: 5_225_000_000,
+      detail: workersText,
+    };
+    const flat = (await propose(projectId)).res.json<{ message: string; name_es: string }>();
+    expect(flat.message).toBe(workersText);
+    expect(flat.name_es).toBe("Asistente local (qwen3:8b)"); // GET /packs (workers) wins
+    // A non-loopback OLLAMA_URL refused by the workers is not a missing pack.
+    state.planStatus = 403;
+    state.planBody = {
+      detail: "OLLAMA_URL=http://10.0.0.5:11434 no es local: …",
+      code: "OLLAMA_REMOTE_REFUSED",
+    };
+    const refused = (await propose(projectId)).res;
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json().error.code).toBe("OLLAMA_REMOTE_REFUSED");
     state.planStatus = 500;
     state.planBody = { detail: "otra cosa" };
     expect((await propose(projectId)).res.statusCode).toBe(500);
+  });
+
+  it("agentPackName / ollamaHint name the model and the manual commands", () => {
+    expect(agentPackName("qwen3:8b")).toBe("Asistente local (Ollama + Qwen3 8B)");
+    expect(agentPackName("hermes3:8b")).toBe("Asistente local (Ollama + Hermes 3 8B)");
+    expect(agentPackName("studio-tiny")).toBe("Asistente local (Ollama + studio-tiny)");
+    const hint = ollamaHint("hermes3:8b");
+    expect(hint).toContain("`ollama pull hermes3:8b`");
+    expect(hint).toContain("scripts\\windows\\doctor.cmd");
+    expect(hint).toMatch(/bandeja del sistema/);
   });
 
   it("GET /api/agent/status proxies the workers and the pack", async () => {
@@ -456,6 +567,7 @@ describe("agent routes and agent.apply (mocked workers)", () => {
       model: "qwen3:8b",
       pack: { id: "agent-llm", installed: false },
       hint_es: null,
+      loaded: true,
     });
   });
 

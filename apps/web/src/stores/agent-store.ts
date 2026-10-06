@@ -5,6 +5,8 @@ import { saveProjectNow } from "@/hooks/use-project-sync";
 import {
   appendAnswers,
   buildApplyRequest,
+  destructiveIndexes,
+  isDestructive,
   normalizeEvalResults,
   pushHistory,
   setOpParam,
@@ -42,6 +44,17 @@ export interface PlanDraft {
   ops: EditOp[];
   enabled: boolean[];
   answers: string[];
+  /**
+   * Checked delete_clip / export ops the user confirmed with «Confirmar borrado/exportación» (a
+   * separate click before «Aplicar»). Checking another destructive op asks again.
+   */
+  confirmed: number[];
+}
+
+/** «Deshacer todo» found later edits (409 PROJECT_CHANGED): the dialog asks to restore anyway. */
+export interface UndoConflict {
+  planId: string;
+  message: string;
 }
 
 export type ApplyRunStatus = "starting" | "running" | "done" | "failed" | "undoing" | "undone";
@@ -81,6 +94,7 @@ interface AgentState {
   proposeError: string | undefined;
   draft: PlanDraft | undefined;
   run: ApplyRun | undefined;
+  undoConflict: UndoConflict | undefined;
   lastLatencyMs: number | undefined;
   lastModel: string | undefined;
   lastRoute: AgentPlanRecord["route"];
@@ -100,11 +114,15 @@ interface AgentState {
   propose: (command?: string) => Promise<void>;
   receivePlan: (record: AgentPlanRecord) => void;
   toggleOp: (index: number, on?: boolean) => void;
+  /** «Confirmar borrado/exportación»: confirms the checked destructive ops. */
+  confirmDestructive: () => void;
   setParam: (index: number, key: string, value: unknown) => void;
   setAnswer: (index: number, value: string) => void;
   submitAnswers: () => Promise<void>;
   apply: () => Promise<void>;
-  undoAll: () => Promise<void>;
+  /** `force`: restore even if the project changed after the apply (dialog «¿restaurar igual?»). */
+  undoAll: (force?: boolean) => Promise<void>;
+  dismissUndoConflict: () => void;
   reject: () => Promise<void>;
   openPlan: (id: string) => void;
   loadHistory: () => Promise<void>;
@@ -125,9 +143,11 @@ function draftOf(record: AgentPlanRecord): PlanDraft {
   return {
     record,
     ops: ops.map((op) => ({ ...op })),
-    // An op the api could not resolve (resolved[i] === null) starts unchecked.
-    enabled: ops.map((_, i) => record.resolved?.[i] !== null),
+    // An op the api could not resolve (resolved[i] === null) starts unchecked, and so do the
+    // destructive ones (delete_clip / export): the user checks them and confirms them apart.
+    enabled: ops.map((op, i) => record.resolved?.[i] !== null && !isDestructive(op)),
     answers: (record.plan?.questions ?? []).map(() => ""),
+    confirmed: [],
   };
 }
 
@@ -183,6 +203,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   proposeError: undefined,
   draft: undefined,
   run: undefined,
+  undoConflict: undefined,
   lastLatencyMs: undefined,
   lastModel: undefined,
   lastRoute: undefined,
@@ -246,7 +267,8 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       set({ proposing: false });
     }
   },
-  receivePlan: (record) =>
+  receivePlan: (record) => {
+    const status = get().status;
     set({
       draft: draftOf(record),
       run: undefined,
@@ -254,12 +276,24 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       ...(record.latency_ms != null && { lastLatencyMs: record.latency_ms }),
       ...(record.model && { lastModel: record.model }),
       lastRoute: record.route,
-    }),
+      // The LLM answered: Ollama has the model in memory now (no more «Cargando modelo…»).
+      ...(record.route === "llm" && status && { status: { ...status, loaded: true } }),
+    });
+  },
   toggleOp: (index, on) => {
     const d = get().draft;
     if (!d) return;
     const enabled = d.enabled.map((v, i) => (i === index ? (on ?? !v) : v));
-    set({ draft: { ...d, enabled } });
+    // Checking or unchecking a delete/export op asks for the confirmation again.
+    const confirmed = d.ops[index] && isDestructive(d.ops[index]) ? [] : d.confirmed;
+    set({ draft: { ...d, enabled, confirmed } });
+  },
+  confirmDestructive: () => {
+    const d = get().draft;
+    if (!d) return;
+    const confirmed = destructiveIndexes(d.ops, d.enabled);
+    addBreadcrumb("ui", "Asistente: confirmar borrado/exportación", { ops: confirmed.length });
+    set({ draft: { ...d, confirmed } });
   },
   setParam: (index, key, value) => {
     const d = get().draft;
@@ -290,9 +324,17 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       d.ops,
       d.enabled,
       useProjectStore.getState().playhead,
+      d.confirmed,
     );
     if (req.ops?.length === 0) {
       toast.message("Marcá al menos una operación para aplicar");
+      return;
+    }
+    const pendingConfirm = destructiveIndexes(d.ops, d.enabled).filter(
+      (i) => !d.confirmed.includes(i),
+    );
+    if (pendingConfirm.length > 0) {
+      toast.message("Confirmá el borrado o la exportación antes de aplicar");
       return;
     }
     const planId = d.record.id;
@@ -372,17 +414,22 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       patchRun({ status: "failed", error: errorMessage(err) });
     }
   },
-  undoAll: async () => {
+  dismissUndoConflict: () => set({ undoConflict: undefined }),
+  undoAll: async (force = false) => {
     const run = get().run;
     const d = get().draft;
     const planId = run?.planId ?? d?.record.id;
     if (!planId) return;
     const record = get().plans.find((p) => p.id === planId) ?? d?.record;
     const snapshotId = run?.result?.undoSnapshotId || record?.undoSnapshotId || undefined;
-    addBreadcrumb("ui", "Asistente: deshacer todo", { planId });
+    addBreadcrumb("ui", "Asistente: deshacer todo", { planId, force });
+    set({ undoConflict: undefined });
     if (run) set({ run: { ...run, status: "undoing" } });
     try {
-      const res = await agentApi.undo(planId, snapshotId ?? undefined);
+      // The api compares the project with the state right after the apply: other edits since
+      // then would be lost, so it answers 409 PROJECT_CHANGED and we ask (dialog).
+      await saveProjectNow();
+      const res = await agentApi.undo(planId, snapshotId ?? undefined, force);
       await reloadProject("Asistente: deshizo el plan", res?.project);
       // The api puts the plan back to «proposed»: it can be applied again.
       const back: AgentPlanRecord = res?.plan
@@ -397,6 +444,10 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       toast.success("Plan deshecho: el proyecto volvió a como estaba");
     } catch (err) {
       if (get().run?.planId === planId) set({ run: { ...get().run!, status: "done" } });
+      if (err instanceof ApiRequestError && err.code === "PROJECT_CHANGED" && !force) {
+        set({ undoConflict: { planId, message: errorMessage(err) } });
+        return;
+      }
       toast.error("No se pudo deshacer", { description: errorMessage(err) });
     }
   },

@@ -122,3 +122,28 @@ RVC sin medir: no hay modelos de voz en `models/rvc/`. Criterio 2a (silencios < 
 
 ## Pendiente para la PC real
 Primera corrida: `actualizar.cmd` → Ajustes → Paquetes de IA → descargar `matting`, `matting-image`, `sam2` (requiere Git), `reframe` → Test de rendimiento (ver `Recorte de personas ≈ X fps`) → "Quitar fondo" en un clip de 10 s.
+
+---
+
+# Sprint 3 — 2026-10-06 — Fase D (agente local de edición por comandos)
+
+**Plan:** `docs/01-PLAN-BASE-v2.md`. **Contratos:** `docs/trabajo/sprint3-contratos.md`. **Decisión 8:** solo local, sin API key.
+
+## Entregado
+- Runtime Ollama (instalado por `setup.ps1`), pack `agent-llm` (qwen3:8b por defecto, hermes3:8b alternativo), modelo chico para CI.
+- `EditPlan` como fuente única (22 operaciones, JSON Schema exportado), enrutador determinista para comandos simples (sin LLM), planificador con salida estructurada, reintentos y sin ids inventados, resolución de referencias, vista previa en español, riesgos y controles de calidad (tiempos fuera del proyecto, velocidades, recortes inválidos → pregunta).
+- Job `agent.apply` con snapshot de undo, confirmación explícita para borrar y exportar, undo protegido si el proyecto cambió; `edited_ops` respetados.
+- Dataset generado por Claude: 255 ejemplos de entrenamiento + 80 golden, validador contra esquema e ids reales; evaluador de modelos (`/agent/eval`) con tasa semántica.
+- Web: panel Asistente (`Ctrl+Shift+A`), preguntas como formulario, historial, Ajustes → Asistente local con "Evaluar modelos", "Redactar con IA" en reportes.
+- GPU: liberación en ambos sentidos entre Ollama y visión/Whisper; contexto 4096 para entrar en 6 GB; Ollama solo en loopback.
+- Extra: optimización del recorte de personas (pipeline paralelo, conversión en GPU, lotes de 4) + métricas de fps sostenido y arranque.
+
+## Criterio 4 (≥ 90 % de 80 comandos golden válidos y correctos)
+🟡 No medible en el sandbox (modelo de prueba sin capacidad). Se mide en la PC con "Evaluar modelos" sobre qwen3:8b y hermes3:8b.
+
+## Números
+- Agentes: 4 módulos + integración + auditoría + fixes + perf. Tests: Node 469, Python 290; e2e 48/48; smoke 29/29.
+- Auditoría: 5 riesgos + 2 brechas → 7 corregidos.
+
+## Pendiente para la PC real
+`actualizar.cmd` (instala Ollama) → Ajustes → Paquetes de IA → `agent-llm` (~5 GB) → Asistente local → "Evaluar modelos" → pegar resultados. Test de rendimiento: ver fps sostenido del recorte.

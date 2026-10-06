@@ -11,7 +11,14 @@ from pydantic import BaseModel, Field
 from .. import services
 from ..agent.bugreport import draft_report
 from ..agent.eval import evaluate, load_dataset, read_last, write_result
-from ..agent.ollama_client import ALT_MODEL, DEFAULT_MODEL, OllamaError, model_in
+from ..agent.ollama_client import (
+    ALT_MODEL,
+    DEFAULT_MODEL,
+    OllamaError,
+    OllamaRemoteRefusedError,
+    model_in,
+    pack_required_detail,
+)
 from ..agent.planner import LLM_VRAM_MB, Example, Planner, PlannerUnavailableError
 from ..config import get_settings
 from ..errors import NotFoundError
@@ -71,10 +78,12 @@ def make_planner(model: str | None = None, temperature: float | None = None) -> 
 
 @router.get("/status")
 async def status() -> dict[str, Any]:
-    """{ollama, model, models_installed, ready, gpu_mode} (+ version, defaults, hint_es)."""
+    """{ollama, model, models_installed, ready, gpu_mode} (+ version, defaults, hint_es, loaded:
+    the model is already in memory per /api/ps, so the web knows the first call has to load it)."""
     settings = get_settings()
     client = services.ollama_client()
     model = settings.agent_model
+    loaded = False
     try:
         installed = await client.installed_models(timeout=2.0)
         version: str | None = await client.version(timeout=2.0)
@@ -82,9 +91,18 @@ async def status() -> dict[str, Any]:
     except OllamaError as exc:
         installed, version, up = [], None, False
         hint: str | None = str(exc)
+        refused = isinstance(exc, OllamaRemoteRefusedError)
+        if not refused:
+            hint = pack_required_detail(model, url=settings.ollama_url, version=None)
     ready = up and model_in(model, installed)
     if up:
-        hint = None if ready else f"Falta el modelo {model}: descargá el paquete {AGENT_PACK_ID}."
+        hint = (
+            None if ready else pack_required_detail(model, url=settings.ollama_url, version=version)
+        )
+        try:
+            loaded = model_in(model, await client.loaded_models(timeout=2.0))
+        except OllamaError:
+            loaded = False
     gpu = await asyncio.to_thread(services.gpu_budget().status)
     return {
         "ollama": up,
@@ -93,6 +111,9 @@ async def status() -> dict[str, Any]:
         "ready": ready,
         "gpu_mode": gpu.get("mode"),
         # additive
+        "loaded": loaded,
+        "keep_alive": settings.agent_keep_alive,
+        "num_ctx": settings.agent_num_ctx,
         "ollama_url": settings.ollama_url,
         "ollama_version": version,
         "default_model": DEFAULT_MODEL,
@@ -110,8 +131,23 @@ async def plan(req: PlanRequest) -> dict[str, Any]:
     try:
         outcome = await planner.plan(req.command, req.project_summary)
     except PlannerUnavailableError as exc:
-        raise PackRequiredError(AGENT_PACK_ID, str(exc)) from exc
+        raise await _pack_required(planner.model, exc) from exc
     return outcome.response()
+
+
+async def _pack_required(model: str, exc: PlannerUnavailableError) -> Exception:
+    """PACK_REQUIRED agent-llm with the exact manual commands; /api/version tells "Ollama is not
+    running (open the tray app)" from "the model is missing (ollama pull)". A refused remote
+    OLLAMA_URL stays its own error (403 OLLAMA_REMOTE_REFUSED)."""
+    if isinstance(exc.cause, OllamaRemoteRefusedError):
+        return exc.cause
+    client = services.ollama_client()
+    try:
+        version: str | None = await client.version(timeout=2.0)
+    except OllamaError:
+        version = None
+    url = get_settings().ollama_url
+    return PackRequiredError(AGENT_PACK_ID, pack_required_detail(model, url=url, version=version))
 
 
 @router.post("/eval")

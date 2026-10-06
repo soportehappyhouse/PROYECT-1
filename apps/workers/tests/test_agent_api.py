@@ -33,6 +33,11 @@ def test_status_ready(client, fake: FakeOllama) -> None:
     assert r["ollama"] is True and r["ready"] is True
     assert r["model"] == MODEL and r["models_installed"] == [MODEL]
     assert r["gpu_mode"] == "cpu" and r["ollama_version"] == "0.35.1" and r["hint_es"] is None
+    assert r["loaded"] is False  # /api/ps: the first plan will have to load the model
+    assert r["keep_alive"] == "60s" and r["num_ctx"] == 4096
+    fake.reply(TITLE_PLAN)
+    client.post("/agent/plan", json={"command": "agregá un título que diga Hola en el 3"})
+    assert client.get("/agent/status").json()["loaded"] is True
 
 
 def test_status_without_ollama(client, fake: FakeOllama) -> None:
@@ -45,7 +50,8 @@ def test_status_without_ollama(client, fake: FakeOllama) -> None:
         "models_installed": [],
         "model": MODEL,
     }
-    assert r["hint_es"].startswith("Ollama no está corriendo")
+    assert r["hint_es"].startswith("Ollama no está corriendo") and r["loaded"] is False
+    assert "bandeja del sistema" in r["hint_es"] and "doctor.cmd" in r["hint_es"]
 
 
 def test_status_model_missing(client, fake: FakeOllama, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -54,7 +60,7 @@ def test_status_model_missing(client, fake: FakeOllama, monkeypatch: pytest.Monk
     monkeypatch.setattr(services, "ollama_client", fake.client)
     r = client.get("/agent/status").json()
     assert r["ollama"] is True and r["ready"] is False and r["model"] == "hermes3:8b"
-    assert "agent-llm" in r["hint_es"]
+    assert "`ollama pull hermes3:8b`" in r["hint_es"] and "doctor.cmd" in r["hint_es"]
 
 
 def test_plan_deterministic_needs_no_ollama(client, fake: FakeOllama) -> None:
@@ -98,7 +104,7 @@ def test_plan_with_api_json_summary_uses_fewshot_and_env_temperature(
 ) -> None:
     """The api sends the JSON summary; it reaches the prompt as compact JSON after the fixed
     few-shot pairs of prompts/fewshot_es.jsonl; AGENT_TEMPERATURE is the default temperature."""
-    from studio_workers.agent.planner import fixed_examples
+    from studio_workers.agent.planner import fixed_examples, pick_fixed
 
     monkeypatch.setenv("AGENT_TEMPERATURE", "0.35")
     services.reset()
@@ -113,8 +119,10 @@ def test_plan_with_api_json_summary_uses_fewshot_and_env_temperature(
     assert body["options"]["temperature"] == 0.35
     msgs = body["messages"]
     fixed = fixed_examples()
-    assert len(fixed) == 8  # prompts/fewshot_es.jsonl is really used
-    for i, ex in enumerate(fixed):
+    assert len(fixed) == 8  # prompts/fewshot_es.jsonl is really used (4 picked by diversity)
+    chosen = pick_fixed("poné un título que diga Hola en el 3", fixed)
+    assert len(chosen) == 4 and len(msgs) == 1 + 2 * 4 + 2 * 2 + 1  # + 2 similar from train
+    for i, ex in enumerate(chosen):
         assert msgs[1 + 2 * i]["content"].endswith(f"Pedido: {ex.command}")
     last = msgs[-1]["content"]
     assert '"tracks":[{"kind":"video","clips":[{"id":"c1","name":"playa.mp4"' in last
@@ -142,6 +150,142 @@ def test_plan_llm_unavailable_is_pack_required(client, fake: FakeOllama) -> None
         json={"command": "poné un título", "settings": {"model": "hermes3:8b"}},
     )
     assert r.status_code == 409 and "ollama pull hermes3:8b" in r.json()["detail"]
+
+
+def test_pack_required_text_has_manual_commands(client, fake: FakeOllama) -> None:
+    """First run: Ollama down -> start the tray app (detected with /api/version); Ollama up but
+    no model -> exact `ollama pull <AGENT_MODEL>`; both point to doctor.cmd."""
+    fake.up = False
+    down = client.post("/agent/plan", json={"command": "poné un título"}).json()["detail"]
+    assert "no responde /api/version" in down and "bandeja del sistema" in down
+    assert "`ollama pull qwen3:8b`" in down and "scripts\\windows\\doctor.cmd" in down
+    assert "winget install Ollama.Ollama" in down
+    fake.up = True
+    fake.models = []
+    up = client.post("/agent/plan", json={"command": "poné un título"}).json()
+    assert up["code"] == "PACK_REQUIRED" and up["name_es"] == "Asistente local (Ollama + Qwen3 8B)"
+    assert up["detail"].startswith("Ollama 0.35.1 está corriendo, pero falta el modelo qwen3:8b")
+    assert "`ollama pull qwen3:8b`" in up["detail"] and "doctor.cmd" in up["detail"]
+    assert any(r["path"] == "/api/version" for r in fake.requests)
+
+
+# ------------------------------------------------------------------------------ OLLAMA_URL
+
+
+def test_is_loopback_url() -> None:
+    from studio_workers.agent.ollama_client import is_loopback_url
+
+    for url in (
+        "http://127.0.0.1:11434",
+        "http://localhost:11434",
+        "http://127.0.0.2:8080/",
+        "http://[::1]:11434",
+    ):
+        assert is_loopback_url(url), url
+    for url in (
+        "http://192.168.1.20:11434",
+        "http://0.0.0.0:11434",
+        "https://ollama.example.com",
+        "http://10.0.0.5",
+        "http://localhost.evil.com:11434",
+        "not a url",
+    ):
+        assert not is_loopback_url(url), url
+
+
+def test_remote_ollama_url_is_refused_unless_allowed(
+    client, fake: FakeOllama, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from studio_workers.agent.ollama_client import installed_models_sync
+
+    monkeypatch.setenv("OLLAMA_URL", "http://192.168.1.20:11434")
+    services.reset()
+    monkeypatch.setattr(
+        services,
+        "ollama_client",
+        lambda: fake.client(
+            url="http://192.168.1.20:11434",
+            allow_remote=services.get_settings().agent_allow_remote_ollama,
+        ),
+    )
+    st = client.get("/agent/status").json()
+    assert st["ollama"] is False and "AGENT_ALLOW_REMOTE_OLLAMA=true" in st["hint_es"]
+    r = client.post("/agent/plan", json={"command": "poné un título que diga Hola en el 3"})
+    assert r.status_code == 403 and r.json()["code"] == "OLLAMA_REMOTE_REFUSED"
+    assert fake.requests == []  # nothing was sent to the remote host
+    assert installed_models_sync("http://192.168.1.20:11434") is None
+    bug = client.post("/agent/bugreport", json={"steps_text": "No anda"}).json()
+    assert bug["source"] == "template" and fake.chats == []
+    # deterministic commands never touch Ollama: still fine
+    ok = client.post("/agent/plan", json={"command": "exportá para reels"})
+    assert ok.status_code == 200 and ok.json()["route"] == "deterministic"
+    # explicit opt-in
+    monkeypatch.setenv("AGENT_ALLOW_REMOTE_OLLAMA", "true")
+    services.reset()
+    monkeypatch.setattr(
+        services,
+        "ollama_client",
+        lambda: fake.client(
+            url="http://192.168.1.20:11434",
+            allow_remote=services.get_settings().agent_allow_remote_ollama,
+        ),
+    )
+    fake.reply(TITLE_PLAN)
+    r = client.post("/agent/plan", json={"command": "poné un título que diga Hola en el 3"})
+    assert r.status_code == 200 and r.json()["route"] == "llm"
+
+
+def test_services_client_reads_allow_remote(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OLLAMA_URL", "http://10.0.0.5:11434")
+    services.reset()
+    assert services.ollama_client().allow_remote is False
+    assert services.release_ollama() == []  # refused URL: the GPU hook does nothing
+    monkeypatch.setenv("AGENT_ALLOW_REMOTE_OLLAMA", "1")
+    services.reset()
+    assert services.ollama_client().allow_remote is True
+    services.reset()
+
+
+# ------------------------------------------------------------------------------ GPU two-way
+
+
+def test_whisper_acquire_unloads_ollama_when_vram_is_short(fake: FakeOllama) -> None:
+    """6 GB card: qwen3:8b resident in Ollama (~5 GB) -> loading Whisper turbo (1.8 GB) first
+    unloads it with keep_alive 0 (/api/generate), then Whisper goes to CUDA."""
+    from studio_workers.gpu import GpuBudget, VramInfo
+
+    fake.loaded = [MODEL]
+
+    def probe() -> VramInfo:
+        free = 6144 - 300 - (5000 if fake.loaded else 0)
+        return VramInfo("RTX 4050", 6144, free, "nvidia-smi")
+
+    budget = GpuBudget(use_cuda=True, probe=probe, external_release=services.release_ollama)
+    decision = budget.acquire("whisper", 1800, lambda: None)
+    assert decision.device == "cuda" and decision.warnings == []
+    assert fake.unloads == [MODEL] and fake.loaded == []
+    assert budget.last_external_release == [MODEL]
+    # enough VRAM now: a second engine does not touch Ollama again
+    fake.requests.clear()
+    assert budget.acquire("rvc", 1500, lambda: None).device == "cuda"
+    assert fake.requests == []
+
+
+def test_plan_keep_alive_is_short_and_configurable(
+    client, fake: FakeOllama, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake.reply(TITLE_PLAN)
+    client.post("/agent/plan", json={"command": "agregá un título que diga Hola en el 3"})
+    assert fake.chats[-1]["keep_alive"] == "60s"
+    assert fake.chats[-1]["options"]["num_ctx"] == 4096
+    monkeypatch.setenv("AGENT_KEEP_ALIVE", "15s")
+    monkeypatch.setenv("AGENT_NUM_CTX", "3072")
+    services.reset()
+    monkeypatch.setattr(services, "ollama_client", fake.client)
+    fake.reply(TITLE_PLAN)
+    client.post("/agent/plan", json={"command": "agregá un título que diga Hola en el 3"})
+    assert fake.chats[-1]["keep_alive"] == "15s"
+    assert fake.chats[-1]["options"]["num_ctx"] == 3072
 
 
 def test_plan_validates_request(client, fake: FakeOllama) -> None:
@@ -243,6 +387,26 @@ def test_pack_model_follows_agent_model_env(dirs, monkeypatch: pytest.MonkeyPatc
     row = packs.pack_status(packs.PACKS["agent-llm"], models)
     assert row["installed"] is True
     assert row["files"][1] == {"name": "ollama:qwen3:0.6b", "size": 523_000_000, "present": True}
+    assert row["name_es"] == "Asistente local (Ollama + Qwen3 0.6B)"
+
+
+@pytest.mark.parametrize(
+    ("model", "name"),
+    [
+        ("qwen3:8b", "Asistente local (Ollama + Qwen3 8B)"),
+        ("hermes3:8b", "Asistente local (Ollama + Hermes 3 8B)"),
+        ("studio-tiny", "Asistente local (Ollama + studio-tiny)"),
+    ],
+)
+def test_pack_name_reflects_agent_model(
+    dirs, monkeypatch: pytest.MonkeyPatch, model: str, name: str
+) -> None:
+    monkeypatch.setenv("AGENT_MODEL", model)
+    services.reset()
+    monkeypatch.setattr(packs, "ollama_installed_models", lambda: None)
+    _storage, models = dirs
+    assert packs.pack_status(packs.PACKS["agent-llm"], models)["name_es"] == name
+    assert packs.PackRequiredError("agent-llm").name_es == name
 
 
 def test_pack_download_pulls_through_ollama(client, dirs, fake: FakeOllama, monkeypatch) -> None:

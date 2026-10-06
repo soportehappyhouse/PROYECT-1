@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from typing import Any
 
 TRACK_KINDS = ("video", "audio", "text", "motion")
-MAX_SUMMARY_CHARS = 6000  # ~1500 tokens (contract)
+MAX_SUMMARY_CHARS = 4000  # ≈ 1150 tokens at 3.5 chars/token: fits num_ctx 4096 (planner)
 
 
 @dataclass(frozen=True)

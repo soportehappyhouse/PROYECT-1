@@ -8,7 +8,7 @@ import type { AgentProjectSummary, Clip, MediaAsset, Project } from "@studio/sha
  * same JSON (tracks in project order, clips by start then id, assets used first then by name).
  */
 
-export const SUMMARY_MAX_CHARS = 6000; // ≈ 1500 tokens (≈ 4 chars/token)
+export const SUMMARY_MAX_CHARS = 4000; // ≈ 1150 tokens (≈ 3.5 chars/token): fits num_ctx 4096
 const MAX_CLIPS_PER_TRACK = 20;
 const MAX_ASSETS = 12;
 const MAX_SCENES = 30;

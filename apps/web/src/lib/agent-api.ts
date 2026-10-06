@@ -60,12 +60,16 @@ export const agentApi = {
     ).map(normalizePlanRecord),
   reject: (id: string) =>
     apiFetch<unknown>(AGENT_ROUTES.reject, { method: "POST", params: { id } }),
-  /** «Deshacer todo»: restores the undo snapshot taken before agent.apply -> {project, plan}. */
-  undo: (id: string, undoSnapshotId?: string) =>
+  /**
+   * «Deshacer todo»: restores the undo snapshot taken before agent.apply -> {project, plan}. 409
+   * PROJECT_CHANGED when the project was edited after the apply (resend with `force`). Exported
+   * files and media the plan created are never deleted.
+   */
+  undo: (id: string, undoSnapshotId?: string, force = false) =>
     apiFetch<{ project?: Project; plan?: unknown } | undefined>(AGENT_ROUTES.undo, {
       method: "POST",
       params: { id },
-      json: undoSnapshotId ? { undoSnapshotId } : {},
+      json: { ...(undoSnapshotId && { undoSnapshotId }), ...(force && { force: true }) },
     }),
   /** Job agent.eval -> storage/run/agent-eval.json. */
   evaluate: (body: AgentEvalRequest) =>

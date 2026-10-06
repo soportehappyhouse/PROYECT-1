@@ -6,7 +6,7 @@ Ejemplos `pedido en español → EditPlan` para el agente local (Fase D, sprint 
 | Archivo                       | Líneas | Para qué                                                                    |
 | ----------------------------- | ------ | --------------------------------------------------------------------------- |
 | `train.jsonl`                 | ≥ 200  | Pool de few-shot del planner (`planner.pick_examples`) y futura LoRA.       |
-| `golden.jsonl`                | 50     | Evaluación (`POST /agent/eval`, criterio 4: ≥ 90 % `semantic_rate`).        |
+| `golden.jsonl`                | 80     | Evaluación (`POST /agent/eval`, criterio 4: ≥ 90 % `semantic_rate`).        |
 | `../prompts/system_es.md`     | —      | Prompt de sistema (≤ 900 tokens del tokenizador de Qwen).                   |
 | `../prompts/fewshot_es.jsonl` | 8      | Pares fijos cortos `{command, project_summary, plan}` para pegar al prompt. |
 
@@ -20,7 +20,7 @@ Ejemplos `pedido en español → EditPlan` para el agente local (Fase D, sprint 
   `canvas = {w, h, fps}`, `tracks = [{kind, clips: [{id, name, start, end}]}]`,
   `scenes = [{n, start}]`, `assets = [{id, name, kind}]` y
   `transcript_excerpt = [{start, end, text}]`.
-  La API manda este mismo JSON (`apps/api/src/services/agent/summary.ts`, ≤ 1500 tokens) y los
+  La API manda este mismo JSON (`apps/api/src/services/agent/summary.ts`, ≤ 4000 caracteres ≈ 1150 tokens) y los
   workers lo pegan en el prompt con `summary.as_text()` (JSON compacto).
 - `plan`: un `EditPlan` válido contra `apps/workers/studio_workers/agent/editplan.schema.json`.
 - `tags`: etiquetas a mano (`ambiguo`, `fuera_de_alcance`, `typo`, `reels`, `subtitulos`, …) más
@@ -66,7 +66,7 @@ Convenciones que siguen todos los planes (y que el prompt enseña):
 ## Cómo extenderlo
 
 1. Agregá líneas al final de `train.jsonl` (o reemplazá alguna de `golden.jsonl`, que debe seguir
-   teniendo 50) con un `id` nuevo (`t###` / `g###`). Reusá un `project_summary` existente o armá
+   teniendo 80) con un `id` nuevo (`t###` / `g###`). Reusá un `project_summary` existente o armá
    uno chico y realista (ids tipo `clip_a1b2`, nombres de archivo reales).
 2. Respetá las convenciones de arriba; nunca pongas en el plan ids, tiempos o archivos que no estén
    en el resumen o en el pedido.
@@ -80,24 +80,28 @@ Convenciones que siguen todos los planes (y que el prompt enseña):
    Schema exportado (`pnpm --filter @studio/shared export-schemas`), resuelve cada ClipRef/Time
    contra el `project_summary` del ejemplo, comprueba plantillas y sus `params`, estilos de
    subtítulos, efectos, voces Piper y presets leyendo `packages/shared`, `packages/remotion` y el
-   catálogo Piper, revisa la cobertura del golden (cada op ≥ 2, todas las formas de Time y
+   catálogo Piper, revisa la cobertura del golden (cada op ≥ 3, todas las formas de Time y
    ClipRef, ≥ 8 ambiguos, ≥ 5 multi-op, ≥ 5 con typos, ≥ 5 fuera de alcance) y muestra
    estadísticas por op y por tag. Sale con código ≠ 0 si hay errores.
 
 4. Si cambia el esquema (op nueva, campo nuevo), actualizá `prompts/system_es.md` (el validador
-   exige que nombre todas las ops), agregá ≥ 2 ejemplos golden y varios de train con la op nueva.
+   exige que nombre todas las ops), agregá ≥ 3 ejemplos golden y varios de train con la op nueva.
 
 ## Cómo lo usa la evaluación
 
 `studio_workers/agent/eval.py` (`POST /agent/eval {models?, dataset: "golden"|"all"}`) pasa cada
 `command` + `project_summary` por el mismo pipeline que `POST /agent/plan` (router determinista
-primero, después el LLM con `system_es.md` + few-shot elegidos de `train.jsonl` por solapamiento de
-palabras, excluyendo el comando evaluado) y compara con `plan`:
+primero, después el LLM con `system_es.md` + 4 de los 8 pares de `prompts/fewshot_es.jsonl`
+elegidos por diversidad + 2 ejemplos de `train.jsonl` por solapamiento de palabras, excluyendo el
+comando evaluado; `num_ctx` 4096) y compara con `plan`:
 
 - `exact_ops_rate`: mismas ops con los mismos argumentos (ignora `confirm` / `note_es`);
 - `semantic_rate`: misma secuencia de ops y mismos argumentos clave (`KEY_ARGS`: preset, target,
   template, tiempos con ±0,5 s, texto, referencia de clip…); un plan esperado solo con preguntas
-  coincide con una respuesta solo con preguntas.
+  coincide con una respuesta solo con preguntas;
+- `semantic_rate_ops_only`: lo mismo, solo sobre los ejemplos cuyo plan esperado tiene ops (`n_ops`;
+  en golden, 30 de los 80 se agregaron con 2–3 ops para que cada op aparezca ≥ 3 veces): un modelo
+  que solo pregunta no lo sube.
 
 Resultado en `storage/run/agent-eval.json`. Meta: ≥ 90 % de `semantic_rate` en golden con
 `qwen3:8b`. Las reglas del router (`router.py`) coinciden con los planes esperados en todos los

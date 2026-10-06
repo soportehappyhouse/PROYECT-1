@@ -2112,7 +2112,18 @@ await step(
       `plan ${JSON.stringify(plan).slice(0, 400)}`,
     );
     assert(plan.resolved[0].confirm === true, "export must always ask for confirmation");
-    const { jobId } = await ok("POST", "/api/agent/apply", { planId: plan.id }, [202]);
+    // export is destructive: without the separate confirmation (confirmedIndexes) -> 409
+    const unconfirmed = await api("POST", "/api/agent/apply", { planId: plan.id });
+    assert(
+      unconfirmed.status === 409 && unconfirmed.json?.error?.code === "CONFIRM_REQUIRED",
+      `apply without confirmedIndexes -> ${unconfirmed.status}`,
+    );
+    const { jobId } = await ok(
+      "POST",
+      "/api/agent/apply",
+      { planId: plan.id, confirmedIndexes: [0] },
+      [202],
+    );
     const job = await waitOk(jobId, { timeoutMs: 300_000 });
     assert(job.result.applied === 1 && !job.result.failed, `apply ${JSON.stringify(job.result)}`);
     const exported = job.result.steps[0].result;
@@ -2164,7 +2175,14 @@ await step(
       saved.settings.width === 1080 && saved.settings.height === 1080,
       `canvas ${saved.settings.width}x${saved.settings.height}`,
     );
-    const undo = await ok("POST", `/api/agent/plans/${plan.id}/undo`, {});
+    // An edit after the apply: the undo asks first (409 PROJECT_CHANGED), force restores.
+    await ok("PUT", `/api/projects/${p.id}`, { ...saved, name: `${saved.name} (editado)` });
+    const changed = await api("POST", `/api/agent/plans/${plan.id}/undo`, {});
+    assert(
+      changed.status === 409 && changed.json?.error?.code === "PROJECT_CHANGED",
+      `undo after an edit -> ${changed.status}`,
+    );
+    const undo = await ok("POST", `/api/agent/plans/${plan.id}/undo`, { force: true });
     const back = await ok("GET", `/api/projects/${p.id}`);
     assert(
       undo.plan.status === "proposed" &&
@@ -2222,16 +2240,20 @@ if (AGENT_MODEL) {
         plan.route === "llm" && plan.model === AGENT_MODEL,
         `route ${plan.route} ${plan.model}`,
       );
+      // Ollama has the model in memory now (/api/ps): the web stops showing «Cargando modelo…»
+      const after = await ok("GET", "/api/agent/status");
+      assert(after.loaded === true, `loaded ${after.loaded}`);
       // Any schema-valid plan is fine (plan quality is measured on the user's PC).
       assert(plan.plan && plan.errors.length === 0, `invalid plan ${JSON.stringify(plan.errors)}`);
       assert(plan.preview_es.length === plan.plan.ops.length, "one preview line per op");
       const ready = plan.resolved.map((r, i) => (r ? i : -1)).filter((i) => i >= 0);
       let applied = null;
       if (ready.length) {
+        // the user confirms delete/export apart (confirmedIndexes)
         const { jobId } = await ok(
           "POST",
           "/api/agent/apply",
-          { planId: plan.id, ops: ready },
+          { planId: plan.id, ops: ready, confirmedIndexes: ready },
           [202],
         );
         const job = await waitJob(jobId, { timeoutMs: 300_000 });
@@ -2271,14 +2293,21 @@ if (AGENT_MODEL) {
     const job = await waitOk(jobId, { timeoutMs: 900_000 });
     const res = await ok("GET", "/api/agent/eval");
     const m = res.models?.[AGENT_MODEL];
-    assert(res.n === 50 && m, `eval ${JSON.stringify(res).slice(0, 300)}`);
-    for (const k of ["valid_json_rate", "schema_valid_rate", "exact_ops_rate", "semantic_rate"])
+    assert(res.n === 80 && m, `eval ${JSON.stringify(res).slice(0, 300)}`);
+    for (const k of [
+      "valid_json_rate",
+      "schema_valid_rate",
+      "exact_ops_rate",
+      "semantic_rate",
+      "semantic_rate_ops_only",
+    ])
       assert(typeof m[k] === "number", `${k} missing`);
     if (existsSync(STORAGE))
       assert(existsSync(path.join(STORAGE, "run", "agent-eval.json")), "file");
     return {
       job: job.status,
       semantic_rate: m.semantic_rate,
+      semantic_rate_ops_only: m.semantic_rate_ops_only,
       schema_valid_rate: m.schema_valid_rate,
       routes: m.routes,
       p50_latency_ms: m.p50_latency_ms,

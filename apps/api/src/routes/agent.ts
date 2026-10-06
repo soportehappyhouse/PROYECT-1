@@ -6,6 +6,8 @@ import {
   AgentBugreportRequestSchema,
   AgentEvalRequestSchema,
   AgentPlanRequestSchema,
+  AgentUndoRequestSchema,
+  ALWAYS_CONFIRM_OPS,
   API_ROUTES,
   PACK_REQUIRED,
   validateEditPlan,
@@ -20,33 +22,54 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 import { appendToReport, readAgentEval } from "../jobs/handlers/agent.js";
 import { errorBody, HttpError, PackRequiredError } from "../lib/errors.js";
-import { resolvePlan, type ResolveContext } from "../services/agent/resolve.js";
+import { projectContentHash } from "../services/agent/project-hash.js";
+import { opTitle, resolvePlan, type ResolveContext } from "../services/agent/resolve.js";
 import { buildProjectSummary } from "../services/agent/summary.js";
 import { WorkersError } from "../services/workers-client.js";
 
 /** Spanish hint shown when the local LLM is missing (Ollama + model, decision 8: local only). */
 export function ollamaHint(model = AGENT_DEFAULT_MODEL): string {
   return (
-    `Falta el asistente local: instalá Ollama (winget install Ollama.Ollama, o https://ollama.com), ` +
-    `abrilo y descargá el modelo «${model}» (≈5 GB) desde Ajustes → Paquetes («Asistente local»). ` +
+    `Falta el asistente local: instalá Ollama (winget install Ollama.Ollama, o https://ollama.com) y ` +
+    `abrilo desde el menú Inicio (queda en la bandeja del sistema, junto al reloj). Descargá el ` +
+    `modelo «${model}» una sola vez en Ajustes → Paquetes («Asistente local») o en una terminal: ` +
+    `\`ollama pull ${model}\`. Para revisar la instalación: scripts\\windows\\doctor.cmd. ` +
     `Todo corre en tu PC, sin API key.`
   );
 }
 
-/** PACK_REQUIRED for `agent-llm` with the Ollama instructions as message. */
+const MODEL_LABELS: Record<string, string> = {
+  "qwen3:8b": "Qwen3 8B",
+  "hermes3:8b": "Hermes 3 8B",
+  "qwen3:0.6b": "Qwen3 0.6B",
+};
+
+/** Name of the agent-llm pack after the model (AGENT_MODEL): Qwen3 8B / Hermes 3 8B / custom tag. */
+export const agentPackName = (model = AGENT_DEFAULT_MODEL) =>
+  `Asistente local (Ollama + ${MODEL_LABELS[model.trim()] ?? model.trim()})`;
+
+/**
+ * PACK_REQUIRED for `agent-llm`. The message is the workers' own text when they sent one (they
+ * check /api/version: "Ollama is not running, open the tray app" vs "ollama pull <model>", both
+ * with doctor.cmd); otherwise the generic Ollama instructions.
+ */
 export function agentPackRequired(
   packs: readonly Pack[] | undefined,
   model?: string,
+  detail?: string,
 ): PackRequiredError {
   const pack = packs?.find((p) => p.id === AGENT_LLM_PACK_ID);
   const err = new PackRequiredError(
     AGENT_LLM_PACK_ID,
-    pack?.name_es ?? `Asistente local (${model ?? AGENT_DEFAULT_MODEL})`,
+    pack?.name_es ?? agentPackName(model),
     pack?.size_bytes ?? 5.2e9,
   );
-  err.message = ollamaHint(model);
+  err.message = detail && /ollama/i.test(detail) ? detail : ollamaHint(model);
   return err;
 }
+
+/** The workers refuse a non-loopback OLLAMA_URL unless AGENT_ALLOW_REMOTE_OLLAMA=true. */
+const OLLAMA_REMOTE_REFUSED = "OLLAMA_REMOTE_REFUSED";
 
 const isOllamaError = (err: WorkersError) =>
   /ollama|llm|model.*(not found|missing)|modelo/i.test(`${err.code} ${err.message}`) &&
@@ -140,8 +163,13 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
       });
     } catch (err) {
       if (err instanceof WorkersError) {
+        if (err.code === OLLAMA_REMOTE_REFUSED) throw new HttpError(403, err.code, err.message);
         if (err.code === PACK_REQUIRED || err.packRequired || isOllamaError(err))
-          throw agentPackRequired(await packsP, body.settings?.model ?? config.agent.model);
+          throw agentPackRequired(
+            await packsP,
+            body.settings?.model ?? config.agent.model,
+            err.code === PACK_REQUIRED ? err.message : undefined,
+          );
         throw new HttpError(err.statusCode, err.code, err.message);
       }
       throw err;
@@ -193,6 +221,7 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
         route: record.route,
         model: record.model,
         ops: record.plan?.ops.length,
+        ...(res.prompt_tokens !== undefined && { promptTokens: res.prompt_tokens }),
       },
       "Plan del asistente propuesto",
     );
@@ -248,6 +277,20 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
     const outOfRange = ops.filter((i) => i >= total);
     if (outOfRange.length)
       throw new HttpError(400, "BAD_REQUEST", `Operaciones inexistentes: ${outOfRange.join(", ")}`);
+    // Destructive ops (delete_clip / export) run only with the separate confirmation click.
+    const confirmed = new Set(body.confirmedIndexes ?? []);
+    const unconfirmed = ops.filter(
+      (i) => ALWAYS_CONFIRM_OPS.includes(plan.ops[i]!.op) && !confirmed.has(i),
+    );
+    if (unconfirmed.length)
+      throw new HttpError(
+        409,
+        "CONFIRM_REQUIRED",
+        `Confirmá aparte ${unconfirmed
+          .map((i) => `la operación ${i + 1} (${opTitle(plan.ops[i]!).toLowerCase()})`)
+          .join(" y ")}: borrar y exportar necesitan «Confirmar borrado/exportación».`,
+        { indexes: unconfirmed },
+      );
     const pending = ops.filter((i) => record.resolved[i] == null);
     if (pending.length)
       throw new HttpError(
@@ -299,7 +342,7 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.post<{ Params: { id: string } }>(API_ROUTES.agentPlanUndo, async (req, reply) => {
-    const body = z.object({ undoSnapshotId: z.string().min(1).optional() }).parse(req.body ?? {});
+    const body = AgentUndoRequestSchema.parse(req.body ?? {});
     const record = repos.agentPlans.get(req.params.id);
     if (!record) return reply.code(404).send(notFound());
     const snapId = body.undoSnapshotId ?? record.undoSnapshotId;
@@ -313,11 +356,32 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
         "AGENT_BUSY",
         "Esperá a que termine de aplicarse el plan (o cancelalo)",
       );
+    const current = repos.projects.get(record.projectId);
+    if (!current) return reply.code(404).send(errorBody("NOT_FOUND", "Proyecto no encontrado"));
+    // Edits made after the apply would be lost: ask first (the web: «¿restaurar igual?»).
+    if (
+      !body.force &&
+      record.postApplyHash &&
+      (!body.undoSnapshotId || body.undoSnapshotId === record.undoSnapshotId) &&
+      projectContentHash(current) !== record.postApplyHash
+    )
+      throw new HttpError(
+        409,
+        "PROJECT_CHANGED",
+        "El proyecto cambió después de aplicar el plan; si lo restaurás se pierden esos cambios. " +
+          "Mandá force: true para restaurar igual. (Deshacer no borra los archivos exportados ni " +
+          "los medios que creó el plan.)",
+        {
+          postApplyUpdatedAt: record.postApplyUpdatedAt ?? null,
+          updatedAt: current.updatedAt,
+        },
+      );
     const project = repos.projects.save(record.projectId, snap.project);
     if (!project) return reply.code(404).send(errorBody("NOT_FOUND", "Proyecto no encontrado"));
     const plan = repos.agentPlans.update(record.id, {
       status: "proposed",
       undoneAt: new Date().toISOString(),
+      postApplyHash: null,
     });
     return { project, plan };
   });
@@ -335,7 +399,7 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
       : !st
         ? "Los workers no tienen el asistente (actualizá con setup.ps1 -Update)."
         : !st.ollama || !st.ready
-          ? ollamaHint(model ?? AGENT_DEFAULT_MODEL)
+          ? (st.hint_es ?? ollamaHint(model ?? AGENT_DEFAULT_MODEL))
           : null;
     return {
       workers: reachable,
@@ -346,6 +410,7 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
       gpu_mode: st?.gpu_mode ?? null,
       pack: pack ? { id: pack.id, installed: pack.installed, name_es: pack.name_es } : null,
       hint_es,
+      loaded: st?.loaded ?? false,
     };
   });
 

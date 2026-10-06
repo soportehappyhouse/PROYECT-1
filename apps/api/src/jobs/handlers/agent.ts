@@ -34,6 +34,7 @@ import { LibraryIndex } from "../../library/index-db.js";
 import { buildReport } from "../../reports/builder.js";
 import { collectEnvironment } from "../../reports/environment.js";
 import { resolveOp, canvasSize, type ResolveContext } from "../../services/agent/resolve.js";
+import { projectContentHash } from "../../services/agent/project-hash.js";
 import { clipDuration, clipEnd, round3 } from "../../services/agent/summary.js";
 import { exportBlockersMessage, findExportBlockers } from "../../services/ffmpeg/timeline.js";
 import { resolveStoragePath } from "../../services/storage.js";
@@ -48,7 +49,8 @@ import { requirePack, viaPacks } from "./ai.js";
  * the saved project. Pure timeline edits are done inline (and saved after each op); AI/render work
  * is delegated to the existing jobs (sub-jobs of other lanes, awaited with their progress mapped
  * to "op i/n: <preview_es>"). Stops at the first error ({index, error}); the project as it was
- * before is kept as an undo snapshot (POST /api/agent/plans/:id/undo).
+ * before is kept as an undo snapshot (POST /api/agent/plans/:id/undo), and the content hash of the
+ * project after the run is stored (postApplyHash) so the undo can tell if it changed since.
  */
 
 export interface AgentHandlerOptions {
@@ -911,6 +913,12 @@ export function createAgentApplyHandler(
       };
       const patch: Partial<AgentPlanRecord> = { applyResult: result, undoSnapshotId };
       if (steps.length > 0) patch.status = "applied";
+      // The undo compares the project with this state (409 PROJECT_CHANGED after other edits).
+      const after = repos.projects.get(record.projectId);
+      if (after) {
+        patch.postApplyHash = projectContentHash(after);
+        patch.postApplyUpdatedAt = after.updatedAt;
+      }
       repos.agentPlans.update(record.id, patch);
       ctx.reportProgress(
         1,

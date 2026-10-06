@@ -2,12 +2,17 @@
 
 LLM path (docs/trabajo/sprint3-contratos.md):
 
-1. messages = system prompt (``prompts/system_es.md``) + the fixed pairs of
-   ``prompts/fewshot_es.jsonl`` (summary + command -> plan) + 3 similar pairs (command -> plan, by
-   word overlap from ``train.jsonl``; ``golden.jsonl`` only when there is no train set; never the
-   command being evaluated) + the compact project summary and the command;
+1. messages = system prompt (``prompts/system_es.md``) + 4 of the 8 fixed pairs of
+   ``prompts/fewshot_es.jsonl`` (summary + command -> plan), picked for diversity (they cover the
+   most different ops / questions, ties by word overlap with the command) + 2 similar pairs
+   (command -> plan, by word overlap from ``train.jsonl``; ``golden.jsonl`` only when there is no
+   train set; never the command being evaluated) + the compact project summary (≤ 4000 chars)
+   and the command;
 2. ``/api/chat`` with ``format`` = the exported EditPlan JSON Schema (structured outputs),
-   temperature 0.2, ``num_ctx`` 8192, ``keep_alive`` 5 min, ``think`` off;
+   temperature 0.2, ``num_ctx`` 4096 (AGENT_NUM_CTX: qwen3:8b Q4 + KV cache fit in 6 GB),
+   ``keep_alive`` 60 s (AGENT_KEEP_ALIVE), ``think`` off. The prompt size is estimated
+   (``estimate_tokens``: chars / 3.5, conservative for Spanish + JSON with the Qwen tokenizer) and
+   logged next to Ollama's ``prompt_eval_count``;
 3. validation with jsonschema; on errors the model gets them back (≤ 3 attempts in total);
 4. ids the model wrote that are NOT in the summary are removed (never invented ids): a reference
    left without any other field turns its op into a question for the user.
@@ -20,6 +25,8 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
+import math
 import re
 import time
 import unicodedata
@@ -46,8 +53,15 @@ DATASET_DIR = AGENT_DIR / "dataset"
 PROMPT_PATH = AGENT_DIR / "prompts" / "system_es.md"
 FEWSHOT_PATH = AGENT_DIR / "prompts" / "fewshot_es.jsonl"
 MAX_ATTEMPTS = 3
-FEW_SHOT = 3
+FEW_SHOT = 2  # similar pairs from train.jsonl
+FIXED_SHOTS = 4  # of the 8 curated pairs in prompts/fewshot_es.jsonl
 DEFAULT_TEMPERATURE = 0.2
+DEFAULT_NUM_CTX = 4096
+DEFAULT_KEEP_ALIVE = "60s"
+CHARS_PER_TOKEN = 3.5  # Qwen tokenizer on Spanish text + compact JSON (conservative)
+MESSAGE_OVERHEAD_TOKENS = 6  # chat template tokens per message (<|im_start|>role … <|im_end|>)
+OUTPUT_RESERVE_TOKENS = 700  # a multi-op plan; the prompt must leave this much of num_ctx
+RETRY_ECHO_CHARS = 1500  # how much of a bad answer goes back to the model on a retry
 LLM_VRAM_MB = 5500  # free VRAM below this -> unload the resident Whisper/vision model first
 
 FALLBACK_SYSTEM = (
@@ -65,6 +79,7 @@ FALLBACK_QUESTION = (
 )
 
 BeforeLlm = Callable[[], list[str]]
+log = logging.getLogger("studio_workers")
 
 
 class PlannerUnavailableError(RuntimeError):
@@ -131,6 +146,54 @@ def _words(text: str) -> set[str]:
     text = unicodedata.normalize("NFKD", text.lower())
     text = "".join(c for c in text if not unicodedata.combining(c))
     return {w for w in re.findall(r"[a-z0-9:]+", text) if len(w) > 2}
+
+
+def _features(ex: Example) -> set[str]:
+    """What an example teaches: its op names, plus 'questions' when it asks instead of acting."""
+    feats = {str(op.get("op")) for op in ex.plan.get("ops") or [] if isinstance(op, dict)}
+    if ex.plan.get("questions"):
+        feats.add("questions")
+    return feats
+
+
+def pick_fixed(
+    command: str, pool: tuple[Example, ...] | list[Example], k: int = FIXED_SHOTS
+) -> list[Example]:
+    """k curated pairs by diversity: greedily the one adding most new features (ops / asking,
+    asking weighs 2), ties by word overlap with the command, then file order. Returned in file
+    order."""
+    want = _words(command)
+    chosen: list[int] = []
+    covered: set[str] = set()
+    for _ in range(min(k, len(pool))):
+        best: tuple[int, float, int] | None = None
+        for i, ex in enumerate(pool):
+            if i in chosen:
+                continue
+            have = _words(ex.command)
+            sim = len(want & have) / (len(want | have) or 1)
+            new = _features(ex) - covered
+            # asking instead of guessing counts double: at least one such pair when available
+            key = (len(new) + ("questions" in new), sim, -i)
+            if best is None or key > best:
+                best = key
+        assert best is not None
+        idx = -best[2]
+        chosen.append(idx)
+        covered |= _features(pool[idx])
+    return [pool[i] for i in sorted(chosen)]
+
+
+def is_context_error(exc: Exception) -> bool:
+    """Ollama refused the prompt for being longer than num_ctx."""
+    text = str(exc).lower()
+    return "context" in text and ("exceed" in text or "too long" in text)
+
+
+def estimate_tokens(messages: list[dict[str, str]]) -> int:
+    """Prompt tokens ≈ chars / 3.5 + the chat template per message (no tokenizer download)."""
+    chars = sum(len(m.get("content", "")) for m in messages)
+    return math.ceil(chars / CHARS_PER_TOKEN) + MESSAGE_OVERHEAD_TOKENS * len(messages)
 
 
 def pick_examples(
@@ -269,9 +332,10 @@ class PlanOutcome:
     valid_json: bool = True
     schema_valid: bool = True
     errors: list[str] = field(default_factory=list)
+    prompt_tokens: int | None = None  # estimate (estimate_tokens), LLM route only
 
     def response(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "plan": self.plan,
             "model": self.model,
             "latency_ms": self.latency_ms,
@@ -279,6 +343,9 @@ class PlanOutcome:
             "warnings": self.warnings,
             "route": self.route,
         }
+        if self.prompt_tokens is not None:
+            out["prompt_tokens"] = self.prompt_tokens
+        return out
 
 
 def fallback_plan() -> dict[str, Any]:
@@ -308,8 +375,8 @@ class Planner:
         *,
         model: str,
         temperature: float = DEFAULT_TEMPERATURE,
-        num_ctx: int = 8192,
-        keep_alive: str | int = "5m",
+        num_ctx: int = DEFAULT_NUM_CTX,
+        keep_alive: str | int = DEFAULT_KEEP_ALIVE,
         before_llm: BeforeLlm | None = None,
         examples: tuple[Example, ...] | list[Example] | None = None,
         fixed: tuple[Example, ...] | list[Example] | None = None,
@@ -355,25 +422,63 @@ class Planner:
         warnings = list(self.before_llm() if self.before_llm else [])
         examples = pick_examples(command, self.examples, exclude=exclude_command)
         skip = exclude_command.strip().lower()
-        fixed = [ex for ex in self.fixed if not skip or ex.command.strip().lower() != skip]
+        fixed = pick_fixed(
+            command, [ex for ex in self.fixed if not skip or ex.command.strip().lower() != skip]
+        )
         messages = build_messages(command, summary, examples, fixed)
+        prompt_tokens = estimate_tokens(messages)
+        log.info(
+            "agent prompt ≈ %d tokens (num_ctx %d, %d fixed + %d similar, summary %d chars)",
+            prompt_tokens,
+            self.num_ctx,
+            len(fixed),
+            len(examples),
+            len(summ.compact(summary)),
+        )
+        if prompt_tokens + OUTPUT_RESERVE_TOKENS > self.num_ctx:
+            warnings.append(f"prompt_near_ctx:{prompt_tokens}/{self.num_ctx}")
         errors: list[str] = []
         valid_json = False
         attempts = 0
+        pairs = len(fixed) + len(examples)  # example pairs right after the system prompt
         for attempt in range(1, self.max_attempts + 1):
             attempts = attempt
             try:
-                result = await self.client.chat(
-                    self.model,
-                    messages,
-                    format=ollama_format(),
-                    temperature=self.temperature,
-                    num_ctx=self.num_ctx,
-                    keep_alive=self.keep_alive,
-                    think=False,
-                )
+                while True:
+                    try:
+                        result = await self.client.chat(
+                            self.model,
+                            messages,
+                            format=ollama_format(),
+                            temperature=self.temperature,
+                            num_ctx=self.num_ctx,
+                            keep_alive=self.keep_alive,
+                            think=False,
+                        )
+                        break
+                    except OllamaError as exc:
+                        # Over num_ctx (the real tokenizer counts more than the estimate): drop
+                        # the first example pair and ask again; never cut the request itself.
+                        if not is_context_error(exc) or pairs == 0:
+                            raise
+                        messages = [messages[0], *messages[3:]]
+                        pairs -= 1
+                        if "prompt_trimmed" not in warnings:
+                            warnings.append("prompt_trimmed")
             except (OllamaUnavailableError, OllamaModelMissingError) as exc:
                 raise PlannerUnavailableError(exc) from exc
+            except OllamaError as exc:
+                if not is_context_error(exc):
+                    raise
+                warnings.append(f"prompt_over_ctx:{self.num_ctx}")
+                errors = [str(exc)[:300]]
+                break
+            if result.prompt_eval_count is not None:
+                log.info(
+                    "agent prompt: %s tokens counted by Ollama (estimate %d)",
+                    result.prompt_eval_count,
+                    prompt_tokens,
+                )
             data, errors = parse_plan(result.content)
             valid_json = data is not None
             if data is not None and not errors:
@@ -390,10 +495,11 @@ class Planner:
                         latency_ms=int((time.perf_counter() - start) * 1000),
                         attempts=attempt,
                         warnings=warnings,
+                        prompt_tokens=prompt_tokens,
                     )
             messages = [
                 *messages,
-                {"role": "assistant", "content": result.content[:4000]},
+                {"role": "assistant", "content": result.content[:RETRY_ECHO_CHARS]},
                 {
                     "role": "user",
                     "content": RETRY_TEMPLATE.format(
@@ -413,4 +519,5 @@ class Planner:
             valid_json=valid_json,
             schema_valid=False,
             errors=errors,
+            prompt_tokens=prompt_tokens,
         )

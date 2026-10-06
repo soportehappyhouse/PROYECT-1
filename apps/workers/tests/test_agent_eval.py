@@ -147,6 +147,8 @@ def test_metrics_on_a_tiny_dataset(tmp_path: Path) -> None:
     assert m["valid_json_rate"] == 1.0 and m["schema_valid_rate"] == 1.0
     assert m["exact_ops_rate"] == 0.25  # only the router one is identical
     assert m["semantic_rate"] == 0.75  # title (text/time tolerance) + speed match; preset fails
+    # the miss is the questions-only example: over the 3 with ops the model is right every time
+    assert m["n_ops"] == 3 and m["semantic_rate_ops_only"] == 1.0
     assert m["routes"] == {"deterministic": 1, "llm": 3}
     assert m["failures"][0]["command"] == "exportá en vertical"
     assert "p50_latency_ms" in m and m["mean_attempts"] == 0.75
@@ -196,3 +198,21 @@ def test_eval_endpoint_without_dataset_is_404(client, monkeypatch, tmp_path: Pat
     monkeypatch.setattr(planner_mod, "DATASET_DIR", tmp_path / "empty")
     assert client.post("/agent/eval", json={}).status_code == 404
     assert client.get("/agent/eval/last").status_code == 404
+
+
+def test_an_ollama_error_fails_one_example_not_the_run(tmp_path: Path) -> None:
+    from studio_workers.agent.ollama_client import OllamaError
+
+    write_dataset(tmp_path)
+    examples = ev.load_dataset("golden", tmp_path)
+
+    def plan_fn_for(model: str):
+        async def plan_fn(ex: Example):
+            raise OllamaError("request exceeds the available context size")
+
+        return plan_fn
+
+    m = asyncio.run(ev.evaluate([MODEL], examples, plan_fn_for))["models"][MODEL]
+    assert m["available"] is True and m["n"] == 4
+    assert m["schema_valid_rate"] == 0.0 and m["semantic_rate"] == 0.0
+    assert "context size" in m["failures"][0]["reason"]

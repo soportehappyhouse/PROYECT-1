@@ -326,7 +326,15 @@ export const DEFAULT_STYLE_PRESET: StylePresetDraft = {
 export interface StyleCompileOptions {
   /** Scene starts in timeline seconds (from the assets' detected scenes); [0, ...]. */
   scenes?: readonly number[];
+  /** Asset lookup (name) so voice assets (TTS, stems «voz», voz limpia, RVC) are not «music». */
+  asset?: (id: string) => { name: string } | undefined;
 }
+
+/** Tracks that carry voice, never touched by `music.volume_db`. */
+const VOICE_TRACK = /voz|voice|tts|locuci/i;
+/** Voice assets by id/name: voice-*, tts-*, stem-voc*, «Voz (…)» (TTS), «… (voz)», «… (RVC …)». */
+const VOICE_ASSET = /^(voice-|tts-|stem-voc)|^voz\b|\((voz|voz limpia|rvc\b[^)]*)\)\s*$/i;
+const MUSIC_TRACK = /m[uú]sica|music/i;
 
 const MAX_MUSIC_OPS = 4;
 
@@ -476,9 +484,15 @@ export function compileStylePreset(
     summary.push("rótulo con nombre");
   }
 
-  // 6. music: volume of the audio-track clips (fixed background level)
-  const music = clips
-    .filter((x) => x.t.kind === "audio" && x.c.assetId)
+  // 6. music: volume of the music clips (fixed background level). Voice tracks/assets are skipped;
+  // when a track is named «Música»/«Music» only its clips count.
+  const audioClips = clips.filter((x) => {
+    if (x.t.kind !== "audio" || !x.c.assetId || VOICE_TRACK.test(x.t.name)) return false;
+    const name = opts.asset?.(x.c.assetId)?.name ?? "";
+    return !VOICE_ASSET.test(x.c.assetId) && !VOICE_ASSET.test(name);
+  });
+  const onMusicTracks = audioClips.filter((x) => MUSIC_TRACK.test(x.t.name));
+  const music = (onMusicTracks.length ? onMusicTracks : audioClips)
     .sort((a, b) => a.c.start - b.c.start || a.c.id.localeCompare(b.c.id))
     .slice(0, MAX_MUSIC_OPS);
   for (const { c } of music)

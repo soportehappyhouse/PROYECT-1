@@ -8,6 +8,7 @@ import {
   ClipSchema,
   maskShapeRect,
   moveTrackZ,
+  nextTrackOrder,
   normalizeTrackOrder,
   ProjectSchema,
   TrackSchema,
@@ -114,6 +115,22 @@ describe("sprint 3b layers (blend modes, masks, z-order)", () => {
     const moved = moveTrackZ<Z>([{ id: "v1" }, { id: "v2" }, { id: "v3" }], "v1", 2);
     expect(moved.map((t) => `${t.id}:${t.order}`)).toEqual(["v2:0", "v3:1", "v1:2"]);
     expect(moveTrackZ(moved, "v1", -5).map((t) => t.id)).toEqual(["v1", "v2", "v3"]);
+  });
+
+  it("a new track goes on top: orders 0..3, delete the first two, add one", () => {
+    type Z = { id: string; order?: number };
+    const all: Z[] = [0, 1, 2, 3].map((o) => ({ id: `t${o}`, order: o }));
+    const left = all.slice(2); // t2 (order 2, index 0), t3 (order 3, index 1)
+    const order = nextTrackOrder(left);
+    expect(order).toBe(4);
+    const withNew: Z[] = [...left, { id: "new", order }];
+    expect(tracksInZOrder(withNew).map((t) => t.id)).toEqual(["t2", "t3", "new"]);
+    // without max+1 the index (2) ties with t2 and lands below t3
+    expect(tracksInZOrder<Z>([...left, { id: "new" }]).at(-1)!.id).toBe("t3");
+    // no explicit order in the project: leave it undefined (index z)
+    expect(nextTrackOrder([{}, {}])).toBeUndefined();
+    expect(nextTrackOrder([])).toBeUndefined();
+    expect(nextTrackOrder([{ order: 0 }, {}, { order: 1 }])).toBe(2); // mixed: index 1 counts
   });
 
   it("shape mask rect in canvas px", () => {

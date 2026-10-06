@@ -267,6 +267,16 @@ export function trackZ(track: Pick<Track, "order">, index: number): number {
   return track.order ?? index;
 }
 
+/**
+ * `order` for a track appended to `tracks` so it lands on top: max effective z + 1 when the project
+ * uses explicit `order` (after deleting tracks, its index alone could tie below the top one);
+ * undefined when no track has `order` (the array index already puts it on top).
+ */
+export function nextTrackOrder(tracks: readonly Pick<Track, "order">[]): number | undefined {
+  if (!tracks.some((t) => t.order !== undefined)) return undefined;
+  return tracks.reduce((m, t, i) => Math.max(m, trackZ(t, i)), -1) + 1;
+}
+
 /** Tracks bottom to top (Track.order, else array index; stable). Export and preview use this. */
 export function tracksInZOrder<T extends Pick<Track, "order">>(tracks: readonly T[]): T[] {
   return tracks

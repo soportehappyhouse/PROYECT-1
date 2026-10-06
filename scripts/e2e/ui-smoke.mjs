@@ -1295,6 +1295,127 @@ await step(
   },
 );
 
+// ---- Sprint 3b audit: preview/export parity of EVERY blend mode (shared BLEND_MODES) + an ellipse
+// mask. One project, one export: the top track has one 1 s clip per mode (and a last one with
+// multiply + ellipse); the canvas pixel at each clip's middle must match the FFmpeg export frame
+// within LAYER_PARITY_TOLERANCE (the blendRgb reference is reported too).
+await step(
+  "Sprint 3b: paridad vista previa/exportación de todos los modos de fusión + máscara elíptica (±8)",
+  async () => {
+    if (!shared?.BLEND_MODES) throw new Error("packages/shared/dist missing (pnpm build:packages)");
+    if (!page.url().startsWith(WEB)) {
+      await page.goto(WEB, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+    }
+    const modes = [...shared.BLEND_MODES];
+    const n = modes.length + 1; // + ellipse
+    const hex = (c) => c.map((v) => v.toString(16).padStart(2, "0")).join("");
+    const vp9 = ["-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-crf", "8",
+      "-b:v", "0", "-pix_fmt", "yuv420p"]; // prettier-ignore
+    const base = await lavfiUpload(
+      "ui-par-base.webm",
+      `color=c=0x${hex(shared.LAYER_PARITY_BASE)}:s=640x360:r=25:d=${n}`,
+      vp9,
+    );
+    const top = await lavfiUpload(
+      "ui-par-top.webm",
+      `color=c=0x${hex(shared.LAYER_PARITY_TOP)}:s=640x360:r=25:d=${n}`,
+      vp9,
+    );
+    const p = await apiSend("POST", "/api/projects", {
+      name: "UI paridad capas",
+      settings: { width: 640, height: 360, fps: 25 },
+    });
+    const V = p.tracks.find((t) => t.kind === "video");
+    const V2 = { ...V, id: "trk_ui_par2", name: "Video 2", clips: [] };
+    V.clips = [{ id: "clp_par_base", trackId: V.id, assetId: base.id, start: 0, in: 0, out: n }];
+    V2.clips = [...modes, "ellipse"].map((m, i) => ({
+      id: `clp_par_${i}`,
+      trackId: V2.id,
+      assetId: top.id,
+      start: i,
+      in: i,
+      out: i + 1,
+      ...(m === "ellipse"
+        ? { blendMode: "multiply", maskRef: shared.defaultMaskShape("ellipse") }
+        : m !== "normal" && { blendMode: m }),
+    }));
+    p.tracks = [V, V2, ...p.tracks.filter((t) => t.id !== V.id)];
+    await apiSend("PUT", `/api/projects/${p.id}`, p);
+    await openProject(p.id);
+    await page.waitForFunction(
+      () => [...document.querySelectorAll("video")].filter((v) => v.readyState >= 2).length >= 2,
+      undefined,
+      { timeout: 60_000 },
+    );
+    const next = page
+      .locator("section[aria-label='Vista previa']")
+      .getByRole("button", { name: "Fotograma siguiente" });
+    const preview = [];
+    await gotoFrame(12); // middle of the first 1 s clip
+    for (let i = 0; i < n; i++) {
+      if (i > 0) {
+        for (let k = 0; k < 25; k++) await next.click();
+        await sleep(900);
+      }
+      preview.push({
+        center: await canvasProbe({ at: [0.5, 0.5] }),
+        corner: await canvasProbe({ at: [0.02, 0.03] }),
+      });
+    }
+    await shot(page, "s3b-paridad-capas.png");
+    const ex = await apiSend("POST", `/api/projects/${p.id}/export`, {
+      presetId: "youtube-1080p",
+      fileName: "ui-paridad-capas",
+    });
+    const job = await waitApiJob(ex.jobId);
+    if (job.status !== "succeeded") throw new Error(`export ${job.status}: ${job.error}`);
+    const out = path.join(s2.dir, "ui-paridad-capas.mp4");
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(
+      out,
+      Buffer.from(await (await fetch(`${API}/files/${job.result.path}`)).arrayBuffer()),
+    );
+    const tol = shared.LAYER_PARITY_TOLERANCE;
+    const diff = (a, b) => Math.max(...a.map((v, i) => Math.abs(v - b[i])));
+    const rows = [];
+    const bad = [];
+    for (let i = 0; i < n; i++) {
+      const raw = spawnSync("ffmpeg", ["-v", "error", "-ss", String(i + 0.5), "-i", out, "-frames:v", "1",
+        "-vf", "scale=640:360", "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"], { maxBuffer: 1 << 24 }).stdout; // prettier-ignore
+      const px = ([fx, fy]) => {
+        const j = (Math.round(fy * 359) * 640 + Math.round(fx * 639)) * 3;
+        return [raw[j], raw[j + 1], raw[j + 2]];
+      };
+      const mode = i < modes.length ? modes[i] : "ellipse";
+      const ref = shared.blendRgb(
+        mode === "ellipse" ? "multiply" : mode,
+        shared.LAYER_PARITY_BASE,
+        shared.LAYER_PARITY_TOP,
+      );
+      const e = { center: px([0.5, 0.5]), corner: px([0.02, 0.03]) };
+      const row = {
+        mode,
+        preview: preview[i].center,
+        export: e.center,
+        ref,
+        d: diff(preview[i].center, e.center),
+      };
+      if (row.d > tol) bad.push(`${mode}: preview ${row.preview} export ${row.export}`);
+      if (mode === "ellipse") {
+        row.corner = { preview: preview[i].corner, export: e.corner };
+        if (diff(preview[i].corner, e.corner) > tol)
+          bad.push(`ellipse corner: preview ${preview[i].corner} export ${e.corner}`);
+        if (diff(e.corner, shared.LAYER_PARITY_BASE) > tol)
+          bad.push(`ellipse corner export ${e.corner} (base expected)`);
+      }
+      rows.push(row);
+    }
+    if (bad.length) throw new Error(`${bad.join("; ")} (tolerancia ${tol})`);
+    return { tolerance: tol, rows };
+  },
+);
+
 // ---- Sprint 3b integration: «Perfil de estilo» → «Deducir con Consola Claude» dispatches
 // `studio:console:paste`; the Consola Claude panel shows up, opens a session and pastes the prompt
 // (with a fake `claude` in STUDIO_CLAUDE_BIN the PTY echoes it; without claude the panel still opens).

@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -6,6 +6,8 @@ import type { FastifyInstance } from "fastify";
 import {
   clearClaudeCache,
   commandFor,
+  CONSOLE_SETTINGS_PATH,
+  consoleClaudeArgs,
   executableNames,
   findOnPath,
 } from "../src/console/detect.js";
@@ -27,7 +29,7 @@ function fakeClaude(dir: string): string {
         "@echo off",
         'if "%1"=="--version" (echo 9.9.9 ^(Claude Code^) & exit /b 0)',
         'if "%1"=="auth" (echo {"loggedIn":true,"authMethod":"claude.ai"} & exit /b 0)',
-        "echo FAKE CLAUDE key=%ELEVENLABS_API_KEY% api=%STUDIO_API_URL%",
+        "if defined ELEVENLABS_API_KEY (echo FAKE CLAUDE key=%ELEVENLABS_API_KEY% api=%STUDIO_API_URL%) else (echo FAKE CLAUDE key=none api=%STUDIO_API_URL%)",
         ":loop",
         "set /p line=",
         "echo eco:%line%",
@@ -88,19 +90,30 @@ describe("console helpers", () => {
         GITHUB_TOKEN: "t",
         MY_SECRET: "s",
         ANTHROPIC_BASE_URL: "http://evil",
+        ANTHROPIC_AUTH_TOKEN: "a",
+        AWS_ACCESS_KEY_ID: "k",
+        AWS_SECRET_ACCESS_KEY: "k",
+        AWS_SESSION_TOKEN: "k",
+        GOOGLE_APPLICATION_CREDENTIALS: "/x.json",
         HOME: "/home/u",
       },
       { STUDIO_API_URL: "http://127.0.0.1:3001" },
     );
     expect(env).toMatchObject({ PATH: "/bin", HOME: "/home/u", TERM: "xterm-256color" });
     expect(env.STUDIO_API_URL).toBe("http://127.0.0.1:3001");
+    // The CLI's own subscription login (claude setup-token) is kept; an API key never is.
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe("z");
     for (const k of [
       "ELEVENLABS_API_KEY",
       "ANTHROPIC_API_KEY",
-      "CLAUDE_CODE_OAUTH_TOKEN",
       "GITHUB_TOKEN",
       "MY_SECRET",
       "ANTHROPIC_BASE_URL",
+      "ANTHROPIC_AUTH_TOKEN",
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+      "AWS_SESSION_TOKEN",
+      "GOOGLE_APPLICATION_CREDENTIALS",
     ])
       expect(env[k]).toBeUndefined();
   });
@@ -142,6 +155,60 @@ describe("console helpers", () => {
     expect(b).toContain("npm i -g @anthropic-ai/claude-code");
     expect(b).toContain("claude auth login");
     expect(b).toContain("setup.cmd");
+  });
+
+  it("the console child gets --settings with the deny rules (file ships with the api)", async () => {
+    const settings = JSON.parse(readFileSync(CONSOLE_SETTINGS_PATH, "utf8")) as {
+      permissions: { deny: string[] };
+    };
+    expect(settings.permissions.deny).toEqual(
+      expect.arrayContaining([
+        "Read(./.env*)",
+        "Read(./storage/*.db*)",
+        "Read(./storage/reports/**)",
+        "Edit(./storage/**)",
+        "Write(./storage/**)",
+        "Read(./models/**)",
+        "WebFetch",
+      ]),
+    );
+    // The PNGs studio-mcp hands to Claude (frames, contact sheets) live in storage/: no blanket
+    // Read deny there, only the database and the bug reports.
+    expect(settings.permissions.deny).not.toContain("Read(./storage/**)");
+    expect(path.isAbsolute(CONSOLE_SETTINGS_PATH)).toBe(true);
+    expect(CONSOLE_SETTINGS_PATH).toMatch(/apps[\\/]api[\\/]console[\\/]/);
+
+    const spawned: string[][] = [];
+    const m = new ConsoleManager({
+      cwd: tmpdir(),
+      env: () => ({}),
+      detect: async () => ({ installed: true, bin: "/usr/bin/claude", loggedIn: true }),
+      platform: "linux",
+      spawn: (file, args) => {
+        spawned.push([file, ...args]);
+        throw new Error("no pty in this test");
+      },
+    });
+    const s = m.create();
+    const sock = { send: () => undefined, close: () => undefined, on: () => undefined };
+    await m.attach(s.token, sock);
+    expect(spawned).toEqual([["/usr/bin/claude", "--settings", CONSOLE_SETTINGS_PATH]]);
+
+    // Windows .cmd shim with spaces in both paths: cmd /c keeps one quoted token → relative path.
+    const repo = "C:\\Users\\Luis Perez\\Studio";
+    const abs = `${repo}\\apps\\api\\console\\claude-console-settings.json`;
+    expect(
+      consoleClaudeArgs(
+        "C:\\Users\\Luis Perez\\AppData\\Roaming\\npm\\claude.cmd",
+        repo,
+        "win32",
+        abs,
+      ),
+    ).toEqual(["--settings", "apps\\api\\console\\claude-console-settings.json"]);
+    expect(consoleClaudeArgs("C:\\bin\\claude.exe", repo, "win32", abs)).toEqual([
+      "--settings",
+      abs,
+    ]);
   });
 
   it("session tokens are random, single-use and expire; oldest is evicted", async () => {
@@ -279,6 +346,7 @@ describe("console routes", () => {
     await until(() => rx.text().includes("FAKE CLAUDE"));
     expect(rx.messages.find((m) => m.type === "status")).toMatchObject({ state: "running" });
     expect(rx.text()).toContain("key=none"); // API keys never reach the console
+    expect(rx.text()).not.toContain("super-secret");
     expect(rx.text()).toContain("api=http://127.0.0.1:");
     ws.send(JSON.stringify({ type: "input", data: "hola consola\r" }));
     await until(() => rx.text().includes("eco:hola consola"));

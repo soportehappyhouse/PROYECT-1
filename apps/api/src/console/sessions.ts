@@ -4,6 +4,8 @@ import {
   CLAUDE_INSTALL_COMMAND,
   CLAUDE_LOGIN_COMMAND,
   commandFor,
+  consoleClaudeArgs,
+  CONSOLE_SETTINGS_PATH,
   type ClaudeInfo,
 } from "./detect.js";
 
@@ -64,6 +66,8 @@ export interface ConsoleManagerOptions {
   /** Max live sessions; the oldest is closed when a new one is created (default 4). */
   maxSessions?: number;
   platform?: NodeJS.Platform;
+  /** `--settings` file with the console's deny rules (default CONSOLE_SETTINGS_PATH). */
+  settingsPath?: string;
   log?: (msg: string, extra?: Record<string, unknown>) => void;
 }
 
@@ -204,7 +208,14 @@ export class ConsoleManager {
           "\x1b[33mNo encontramos un inicio de sesión de Claude Code. Si la consola te lo pide, " +
           `escribí \x1b[1m/login\x1b[0;33m o cerrala y corré \x1b[1m${CLAUDE_LOGIN_COMMAND}\x1b[0;33m.\x1b[0m\r\n`,
       });
-    const cmd = commandFor(claude.bin, [], this.o.platform);
+    const platform = this.o.platform ?? process.platform;
+    const args = consoleClaudeArgs(
+      claude.bin,
+      this.o.cwd,
+      platform,
+      this.o.settingsPath ?? CONSOLE_SETTINGS_PATH,
+    );
+    const cmd = commandFor(claude.bin, args, platform);
     try {
       const pty = await (this.o.spawn ?? defaultSpawn)(cmd.file, cmd.args, {
         cwd: this.o.cwd,

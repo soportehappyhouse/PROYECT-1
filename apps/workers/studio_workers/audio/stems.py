@@ -11,10 +11,14 @@ chunk and stream the result to disk (only one chunk of output is kept in memory)
 through ``demucs.apply.apply_model(split=False)`` (HTDemucs padding/trim rules stay demucs').
 
 Weights: ``models/demucs/955717e8-8726e21a.th`` from the official URL of demucs' remote/files.txt
-(the signature htdemucs.yaml points to). demucs names files ``<sig>-<sha256[:8]>.th``: the prefix
-is checked here before loading. The file is a pickled package (class + kwargs + state) that
-torch>=2.6 refuses with its default ``weights_only=True``: it is loaded with ``weights_only=False``
-only after the checksum matched (demucs 4.0.1's own loader predates that default).
+(the signature htdemucs.yaml points to). demucs names files ``<sig>-<sha256[:8]>.th``.
+``verify_weights`` checks exact size + full sha256 when packs.py pins them, otherwise the prefix +
+the size/sha256 recorded at the first download (with a warning). The file is a pickled package
+(class + kwargs + state) that torch>=2.6 refuses with its default ``weights_only=True``: it is
+loaded with ``weights_only=False`` only after that check (demucs 4.0.1's loader predates it).
+
+Long files: the decoded WAV (downmixed to stereo) stays on disk and is read chunk by chunk (the
+normalization is computed block by block first), so RAM stays at a few segments at any duration.
 
 GPU: through the GPU budget (~2 GB, ``STEMS_VRAM_MB``); not enough VRAM or a CUDA failure -> CPU
 with ``warnings: ["gpu_fallback_cpu"]``. Tests inject a fake ``loader`` (no torch in CI).
@@ -24,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
 import tempfile
 import threading
 import wave
@@ -35,6 +40,9 @@ from typing import Any, Literal
 from ..config import Settings
 from ..gpu import GPU_FALLBACK_CPU, GpuBudget
 from ..media import to_wav
+from ..models_manifest import Manifest
+from ..packs import STEMS_WEIGHTS_EXACT_SIZE as WEIGHTS_SIZE
+from ..packs import STEMS_WEIGHTS_SHA256 as WEIGHTS_SHA256
 from ..packs import STEMS_WEIGHTS_SHA256_PREFIX as WEIGHTS_SHA_PREFIX
 from ..packs import PackRequiredError, module_present, stems_weights_path
 
@@ -95,15 +103,72 @@ def triangle_weight(segment_len: int) -> Any:
     return w / w.max()
 
 
-def _read_wav(path: Path) -> Any:
-    """16-bit PCM WAV -> float32 (channels, samples)."""
+# Frames read per block when computing the normalization of a WAV on disk (60 s ≈ 10 MB).
+STATS_BLOCK_FRAMES = SAMPLE_RATE * 60
+
+
+def _pcm_to_float(frames: bytes, channels: int) -> Any:
+    """16-bit PCM -> float32 (CHANNELS, n): mono is duplicated, extra channels are dropped."""
     import numpy as np  # noqa: PLC0415
 
-    with wave.open(str(path), "rb") as wf:
-        channels = wf.getnchannels()
-        frames = wf.readframes(wf.getnframes())
     pcm = np.frombuffer(frames, dtype="<i2").astype(np.float32) / 32768.0
-    return pcm.reshape(-1, channels).T.copy()
+    data = pcm.reshape(-1, channels).T
+    if channels == 1:
+        data = data.repeat(CHANNELS, axis=0)
+    return np.ascontiguousarray(data[:CHANNELS])
+
+
+class _ArrayMix:
+    """Audio already in memory, (C, n) float32."""
+
+    def __init__(self, mix: Any) -> None:
+        self.mix = mix
+        self.channels, self.length = mix.shape
+
+    def stats(self) -> tuple[float, float]:
+        ref = self.mix.mean(axis=0)
+        return (float(ref.mean()), float(ref.std())) if self.length else (0.0, 1.0)
+
+    def read(self, offset: int, n: int) -> Any:
+        return self.mix[:, offset : offset + n]
+
+
+class _WavMix:
+    """16-bit PCM WAV read by ranges, so a long file never sits whole in RAM."""
+
+    def __init__(self, path: Path) -> None:
+        self._wf = wave.open(str(path), "rb")  # noqa: SIM115 - closed in close()
+        self._src_channels = self._wf.getnchannels()
+        self.channels = CHANNELS
+        self.length = self._wf.getnframes()
+
+    def __enter__(self) -> _WavMix:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        self._wf.close()
+
+    def read(self, offset: int, n: int) -> Any:
+        n = max(0, min(n, self.length - offset))
+        self._wf.setpos(offset)
+        return _pcm_to_float(self._wf.readframes(n), self._src_channels)
+
+    def stats(self) -> tuple[float, float]:
+        """Mean/std of the mono reference (same as ``mix.mean(0)``), block by block in float64."""
+        import numpy as np  # noqa: PLC0415
+
+        if not self.length:
+            return 0.0, 1.0
+        total = total_sq = 0.0
+        for start in range(0, self.length, STATS_BLOCK_FRAMES):
+            ref = self.read(start, STATS_BLOCK_FRAMES).mean(axis=0).astype(np.float64)
+            total += float(ref.sum())
+            total_sq += float(np.square(ref).sum())
+        mean = total / self.length
+        return mean, math.sqrt(max(total_sq / self.length - mean * mean, 0.0))
 
 
 class _StemWriters:
@@ -132,7 +197,7 @@ class _StemWriters:
 
 
 def separate_array(
-    mix: Any,
+    mix: Any | _ArrayMix | _WavMix,
     separator: Separator,
     stems: Sequence[str],
     writers: _StemWriters,
@@ -141,7 +206,10 @@ def separate_array(
     progress: Progress | None = None,
     sample_rate: int = SAMPLE_RATE,
 ) -> int:
-    """Overlap-add separation of ``mix`` (C, n) streamed to ``writers``. Returns the chunk count.
+    """Overlap-add separation of ``mix`` streamed to ``writers``. Returns the chunk count.
+
+    ``mix`` is a (C, n) array or a ``_WavMix`` (read chunk by chunk from disk: memory stays at a few
+    segments whatever the duration).
 
     Same normalization as ``demucs.separate`` (mono reference mean/std) and the same triangular
     cross-fade as ``apply_model(split=True)``. A sample is final once the next chunk starts after
@@ -149,12 +217,10 @@ def separate_array(
     """
     import numpy as np  # noqa: PLC0415
 
-    channels, length = mix.shape
-    ref = mix.mean(axis=0)
-    mean = float(ref.mean()) if length else 0.0
-    std = float(ref.std()) if length else 1.0
+    src = mix if isinstance(mix, (_ArrayMix, _WavMix)) else _ArrayMix(mix)
+    channels, length = src.channels, src.length
+    mean, std = src.stats()
     std = std if std > 1e-8 else 1.0
-    x = ((mix - mean) / std).astype(np.float32)
     seg = max(1, int(sample_rate * segment_s))
     weight = triangle_weight(seg)
     offsets = chunk_offsets(length, seg)
@@ -180,7 +246,7 @@ def separate_array(
         base = upto
 
     for i, offset in enumerate(offsets):
-        chunk = x[:, offset : offset + seg]
+        chunk = ((src.read(offset, seg) - mean) / std).astype(np.float32)
         n = chunk.shape[-1]
         y = np.asarray(separator.run(np.ascontiguousarray(chunk), segment_s), dtype=np.float32)
         if y.shape != (n_src, channels, n):
@@ -203,12 +269,51 @@ def separate_array(
     return len(offsets)
 
 
-def _sha256_prefix(path: Path, n: int) -> str:
+def _sha256(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as fh:
         for block in iter(lambda: fh.read(1 << 20), b""):
             h.update(block)
-    return h.hexdigest()[:n]
+    return h.hexdigest()
+
+
+def verify_weights(path: Path, models_root: Path) -> str:
+    """Integrity of the htdemucs weights BEFORE ``torch.load`` (it unpickles the file).
+
+    Exact size + full sha256 when packs.py pins them; until then (TODO there: the official host was
+    blocked when the pack was written) the demucs file-name prefix plus the size + sha256 recorded
+    in models/manifest.json at the first download (trust on first download), with a warning.
+    Returns the full sha256.
+    """
+    size = path.stat().st_size
+    bad = "volvé a descargar el paquete «Separar audio» (Ajustes → Paquetes de IA)"
+    if WEIGHTS_SIZE is not None and size != WEIGHTS_SIZE:
+        raise RuntimeError(
+            f"Pesos htdemucs dañados (pesan {size} bytes, se esperaban {WEIGHTS_SIZE}): {bad}"
+        )
+    got = _sha256(path)
+    if not got.startswith(WEIGHTS_SHA_PREFIX) or (WEIGHTS_SHA256 and got != WEIGHTS_SHA256):
+        want = WEIGHTS_SHA256 or f"{WEIGHTS_SHA_PREFIX}…"
+        raise RuntimeError(
+            f"Pesos htdemucs dañados (sha256 {got[:16]}…, se esperaba {want}): {bad}"
+        )
+    if WEIGHTS_SHA256:
+        return got
+    rel = path.relative_to(models_root).as_posix() if path.is_relative_to(models_root) else None
+    entry = Manifest.load(models_root).get(rel) if rel else None
+    recorded = (entry or {}).get("sha256")
+    if recorded and (recorded != got or entry.get("size") != size):
+        raise RuntimeError(
+            f"Pesos htdemucs cambiaron desde la descarga (sha256 {got[:16]}…, registrado "
+            f"{str(recorded)[:16]}…): {bad}"
+        )
+    log.warning(
+        "stems: sha256 completo de htdemucs sin fijar en packs.py (TODO); se comprobó el prefijo "
+        "%s%s",
+        WEIGHTS_SHA_PREFIX,
+        " y el registro de la primera descarga" if recorded else " (sin registro en manifest.json)",
+    )
+    return got
 
 
 class StemsEngine:
@@ -252,12 +357,7 @@ class StemsEngine:
         from demucs.states import load_model  # noqa: PLC0415
 
         path = stems_weights_path(self.settings.models_root)
-        got = _sha256_prefix(path, len(WEIGHTS_SHA_PREFIX))
-        if got != WEIGHTS_SHA_PREFIX:
-            raise RuntimeError(
-                f"Pesos htdemucs dañados (sha256 {got}…, se esperaba {WEIGHTS_SHA_PREFIX}…): "
-                "volvé a descargar el paquete «Separar audio»"
-            )
+        verify_weights(path, self.settings.models_root)
         package = torch.load(str(path), map_location="cpu", weights_only=False)
         model = load_model(package)
         model.eval()
@@ -313,12 +413,35 @@ class StemsEngine:
         step(0.01, "Decodificando el audio (44,1 kHz estéreo)")
         with tempfile.TemporaryDirectory(dir=out_base.parent) as tmp:
             wav = Path(tmp) / "mix.wav"
-            to_wav(src, wav, sample_rate=SAMPLE_RATE)
-            mix = _read_wav(wav)
-        if mix.shape[0] == 1:
-            mix = mix.repeat(CHANNELS, axis=0)
-        mix = mix[:CHANNELS]
-        duration = mix.shape[-1] / SAMPLE_RATE
+            # 5.1/7.1 sources are downmixed by ffmpeg (htdemucs is a stereo model).
+            to_wav(src, wav, sample_rate=SAMPLE_RATE, channels=CHANNELS)
+            with _WavMix(wav) as mix:
+                device, chunks, duration = self._run(
+                    mix, paths, mode, device, segment, step, warnings
+                )
+        if self.budget is not None and device == "cuda":
+            self.budget.touch(BUDGET_KEY)
+        return {
+            "paths": paths,
+            "device": device,
+            "segment": segment,
+            "chunks": chunks,
+            "duration_s": round(duration, 3),
+            "warnings": list(dict.fromkeys(warnings)),
+        }
+
+    def _run(
+        self,
+        mix: _WavMix,
+        paths: dict[str, Path],
+        mode: Mode,
+        device: str,
+        segment: float,
+        step: Progress,
+        warnings: list[str],
+    ) -> tuple[str, int, float]:
+        """Separate the decoded WAV (read chunk by chunk); CUDA failure -> CPU retry."""
+        duration = mix.length / SAMPLE_RATE
 
         def attempt(dev: str) -> int:
             step(0.04, f"Cargando htdemucs ({'GPU' if dev == 'cuda' else 'CPU'})")
@@ -349,13 +472,4 @@ class StemsEngine:
                 warnings.append(GPU_FALLBACK_CPU)
             device = "cpu"
             chunks = attempt(device)
-        if self.budget is not None and device == "cuda":
-            self.budget.touch(BUDGET_KEY)
-        return {
-            "paths": paths,
-            "device": device,
-            "segment": segment,
-            "chunks": chunks,
-            "duration_s": round(duration, 3),
-            "warnings": list(dict.fromkeys(warnings)),
-        }
+        return device, chunks, duration

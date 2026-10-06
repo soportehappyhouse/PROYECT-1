@@ -227,6 +227,35 @@ def test_rvm_gets_vram_budget_after_unloading_resident(
     assert budget.resident is None  # released after the subprocess
 
 
+@needs_ffmpeg
+def test_rvm_vram_budget_is_measured_after_acquire(dirs, monkeypatch: pytest.MonkeyPatch) -> None:
+    storage, _ = dirs
+    clip = lavfi_video(storage / "media" / "q.mp4", "testsrc2=s=64x36:r=10:d=1")
+    monkeypatch.setenv("USE_CUDA", "true")
+    monkeypatch.setenv("STUDIO_MOCK_CUDA", "1")
+    # VRAM frees up while the budget makes room (e.g. a model unloaded lazily): the first probe
+    # sees 1500 MB free, every later one 5000 MB.
+    probes: list[int] = []
+
+    def probe() -> VramInfo:
+        probes.append(1)
+        return VramInfo("GPU", 6144, 1500 if len(probes) == 1 else 5000, "t")
+
+    budget = GpuBudget(use_cuda=True, probe=probe)
+    engine = _rvm_engine(monkeypatch, budget)
+    seen: list[dict] = []
+    real = gpl.run_rvm
+
+    def spy(*a, **k):
+        seen.append({"vram": k["vram_budget_mb"], "device": k["device"]})
+        return real(*a, **k)
+
+    monkeypatch.setattr(gpl, "run_rvm", spy)
+    res = engine.matte_video(clip, storage / "renders" / "q.webm", model="rvm", chunk=5)
+    assert len(probes) >= 2
+    assert seen == [{"vram": 5000 - budget.reserve_mb, "device": res["device"]}]
+
+
 def _cli(*args: str, env: dict | None = None) -> tuple[int, list[dict]]:
     proc = subprocess.run(
         [sys.executable, "-m", "vision_gpl.rvm", *args],

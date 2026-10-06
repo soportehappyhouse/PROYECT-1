@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * Sprint 3b — Consola Claude: where is the Claude Code CLI (`claude`) and is there a login?
@@ -10,6 +11,35 @@ import path from "node:path";
 
 export const CLAUDE_INSTALL_COMMAND = "npm i -g @anthropic-ai/claude-code";
 export const CLAUDE_LOGIN_COMMAND = "claude auth login";
+
+/**
+ * Settings file passed to the console child with `--settings` (ships with the api:
+ * `apps/api/console/`, same relative path from `src/console/` and `dist/console/`). It only adds
+ * `permissions.deny` rules (`.env*`, `storage/`, `models/`, WebFetch); the repo's own
+ * `.claude/settings.json` and `.mcp.json` are not touched.
+ */
+export const CONSOLE_SETTINGS_PATH = fileURLToPath(
+  new URL("../../console/claude-console-settings.json", import.meta.url),
+);
+
+/**
+ * Arguments of the interactive console session. Windows `.cmd` shims go through `cmd /c`, which
+ * only keeps the quotes of ONE quoted token: if both the shim and the settings path have spaces,
+ * the settings path is passed relative to the session cwd (the repo root).
+ */
+export function consoleClaudeArgs(
+  bin: string,
+  cwd: string,
+  platform: NodeJS.Platform = process.platform,
+  settingsPath: string = CONSOLE_SETTINGS_PATH,
+): string[] {
+  let p = settingsPath;
+  if (isWin(platform) && /\.(cmd|bat)$/i.test(bin) && /\s/.test(bin) && /\s/.test(p)) {
+    const rel = path.win32.relative(cwd, p);
+    if (rel && !/\s/.test(rel) && !path.win32.isAbsolute(rel)) p = rel;
+  }
+  return ["--settings", p];
+}
 
 export interface ClaudeInfo {
   installed: boolean;

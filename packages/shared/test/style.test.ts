@@ -171,6 +171,45 @@ describe("StylePreset schema", () => {
 });
 
 describe("compileStylePreset", () => {
+  it("music volume only touches music clips, never the voice track or voice assets", () => {
+    const base = project();
+    const music = base.tracks[1]!;
+    const audioTrack = (id: string, name: string, clipId: string, assetId: string) => ({
+      ...music,
+      id,
+      name,
+      clips: [{ ...music.clips[0]!, id: clipId, trackId: id, assetId, start: 0 }],
+    });
+    const p = project({
+      tracks: [
+        base.tracks[0]!,
+        audioTrack("tvoz", "Voz", "v1", "a9"),
+        audioTrack("tm", "Música", "mus", "lib1"),
+        audioTrack("tx", "Audio 2", "tts", "a10"),
+      ],
+    });
+    const names: Record<string, string> = { a9: "Entrevista (voz)", a10: "Voz (es): hola" };
+    const plan = compileStylePreset(REELS, p, { asset: (id) => ({ name: names[id] ?? id }) });
+    const vols = plan.ops.filter((o) => o.op === "set_volume");
+    expect(vols).toEqual([expect.objectContaining({ clip: { id: "mus" }, volume_db: -16 })]);
+
+    // No «Música» track: any audio clip that is not voice (by track name, asset id or name).
+    const q = project({
+      tracks: [
+        base.tracks[0]!,
+        audioTrack("t1", "Locución", "l1", "a1"),
+        audioTrack("t2", "Audio 1", "s1", "stem-vocals-1"),
+        audioTrack("t3", "Audio 2", "r1", "a11"),
+        audioTrack("t4", "Audio 3", "bg", "a12"),
+      ],
+    });
+    const qn: Record<string, string> = { a11: "Toma 3 (RVC luis)", a12: "Pista lofi" };
+    const qplan = compileStylePreset(REELS, q, { asset: (id) => ({ name: qn[id] ?? id }) });
+    expect(qplan.ops.filter((o) => o.op === "set_volume").map((o) => o.clip)).toEqual([
+      { id: "bg" },
+    ]);
+  });
+
   it("maps every preset section to ops in a fixed order", () => {
     const plan = compileStylePreset(REELS, project(), { scenes: [0, 6.5, 13] });
     expect(EditPlanSchema.safeParse(plan).success).toBe(true);

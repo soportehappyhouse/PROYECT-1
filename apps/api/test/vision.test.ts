@@ -25,6 +25,7 @@ import {
 import { trackPropsFor } from "../src/jobs/handlers/motion-render.js";
 import { segmentHash } from "../src/services/ffmpeg/segments.js";
 import { compileExport } from "../src/services/ffmpeg/timeline.js";
+import { requireMaskAsset } from "../src/voice-ai/media-bridge.js";
 import { makeApp, multipart, waitFor } from "./helpers.js";
 
 /** Sprint 2 vision routes and jobs against a fake workers service (sprint2-contratos.md). */
@@ -295,6 +296,27 @@ describe("vision routes and jobs (mocked workers)", () => {
       sizeBytes: 0,
       createdAt: new Date().toISOString(),
     });
+    // a video (or any non-mask asset) as the guide → 400 INVALID_MASK_ASSET
+    addAsset("notmask");
+    const bad = await post(API_ROUTES.aiVisionMatte, {
+      assetId: "hq",
+      quality: "high",
+      maskAssetId: "notmask",
+    });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json()).toMatchObject({
+      error: { code: "INVALID_MASK_ASSET", message: expect.stringMatching(/no es una máscara/) },
+    });
+    const png = app.ctx.repos.media.insert({
+      id: "pngmask",
+      kind: "image",
+      name: "mascara.png",
+      path: "media/mascara.png",
+      mimeType: "image/png",
+      sizeBytes: 10,
+      createdAt: new Date().toISOString(),
+    });
+    expect(requireMaskAsset(app.ctx, png.id).id).toBe("pngmask"); // a PNG image is accepted
     const res = await post(API_ROUTES.aiVisionMatte, {
       assetId: "hq",
       quality: "high",

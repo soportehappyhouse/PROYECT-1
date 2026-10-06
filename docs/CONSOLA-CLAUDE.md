@@ -71,9 +71,24 @@ Lo que aplica queda en el historial del panel Asistente y se deshace con **Desha
   imágenes que abre) se envía a Anthropic para responder, según la configuración de privacidad de
   tu cuenta de Claude.ai. Tus videos no se suben enteros: solo lo que Claude abre.
 - La consola y las herramientas solo aceptan conexiones de tu propia PC (`127.0.0.1`).
-- Studio quita del entorno de Claude Code todas las API keys y tokens del `.env`; Claude tiene la
-  regla (en `CLAUDE.md`) de no leer `.env` ni tocar `storage/` a mano.
-- Para borrar las conversaciones locales de Claude Code: `claude purge <carpeta de Studio>`.
+- Studio quita del entorno de Claude Code las variables con pinta de clave: las que terminan en
+  `_API_KEY` (incluida `ANTHROPIC_API_KEY`), las que contienen `TOKEN`, `SECRET`, `PASSWORD` o
+  `CREDENTIAL`, `ANTHROPIC_AUTH_*` / `ANTHROPIC_BASE_URL`, `AWS_ACCESS_KEY_ID`,
+  `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` y `GOOGLE_APPLICATION_CREDENTIALS`. Solo deja
+  `CLAUDE_CODE_OAUTH_TOKEN` (el inicio de sesión de tu suscripción con `claude setup-token`, no una
+  API key).
+- Además, la consola arranca Claude Code con
+  `--settings apps/api/console/claude-console-settings.json`, que **bloquea** (`permissions.deny`)
+  leer `.env*` y `models/`, crear o modificar archivos en `storage/`, leer la base
+  (`storage/studio.db*`) y los reportes (`storage/reports/`), y `WebFetch`. Claude sí puede **abrir**
+  las imágenes que le devuelven las herramientas (fotogramas, hojas de contactos, miniaturas), que
+  están en `storage/`. No toca tu `.claude/settings.json` ni `.mcp.json`; las herramientas `studio_*`
+  pasan por la API. Si cambiaste `STORAGE_DIR` a otra carpeta, estas reglas de `storage/` no la
+  cubren. Claude también tiene la regla (en `CLAUDE.md`) de no leer `.env` ni tocar `storage/` a
+  mano.
+- Para borrar las conversaciones locales de Claude Code de este proyecto:
+  `claude purge <carpeta de Studio>` (agregá `--dry-run` para ver antes qué borra; detalle en
+  `claude --help`).
 
 ## Problemas comunes
 

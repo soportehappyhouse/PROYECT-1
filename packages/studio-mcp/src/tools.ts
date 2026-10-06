@@ -40,7 +40,11 @@ const defineTool = <S extends z.ZodRawShape>(t: ToolDef<S>): ToolDef<S> => t;
 
 const TERMINAL = new Set(["succeeded", "failed", "canceled"]);
 
-/** Jobs studio_run_job may start: type → route (+ how the payload is sent). */
+/**
+ * Jobs studio_run_job may start: type → route (+ how the payload is sent). Nothing destructive:
+ * cutting the timeline (`timeline.apply-cuts`) is left out on purpose, it would skip the
+ * confirmation gate; cuts go through an EditPlan (`cut_silences`, `delete_clip`) + studio_apply_plan.
+ */
 export const RUNNABLE_JOBS: Record<string, { route: string; note_es: string; param?: string }> = {
   "subtitles.transcribe": {
     route: "/api/subtitles/transcribe",
@@ -53,11 +57,6 @@ export const RUNNABLE_JOBS: Record<string, { route: string; note_es: string; par
   "analyze.silences": {
     route: "/api/ai/analyze/silences",
     note_es: "Analizar silencios/muletillas. payload: {projectId, clipId, options?}",
-  },
-  "timeline.apply-cuts": {
-    route: "/api/ai/timeline/apply-cuts",
-    note_es:
-      "Aplicar cortes (segundos de la fuente). payload: {projectId, clipId, cuts:[{start,end}]}",
   },
   "audio.denoise": {
     route: "/api/ai/audio/denoise",
@@ -317,7 +316,8 @@ export const TOOLS = [
       Object.entries(RUNNABLE_JOBS)
         .map(([k, v]) => `${k} — ${v.note_es}`)
         .join("; ") +
-      ". Si falta un paquete de IA responde PACK_REQUIRED con instrucciones.",
+      ". No corta ni borra clips: para eso armá un plan (cut_silences, delete_clip) y aplicalo con " +
+      "studio_apply_plan. Si falta un paquete de IA responde PACK_REQUIRED con instrucciones.",
     input: {
       type: z.enum(Object.keys(RUNNABLE_JOBS) as [string, ...string[]]),
       payload: z.record(z.string(), z.unknown()).describe("Cuerpo JSON del pedido."),

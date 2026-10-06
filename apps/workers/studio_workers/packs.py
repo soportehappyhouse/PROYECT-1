@@ -692,12 +692,19 @@ PACKS: dict[str, Pack] = {
 # ---------------------------------------------------------------- BEGIN sprint 3b: pack "stems"
 # Demucs v4 htdemucs (code MIT, weights MIT: facebookresearch/demucs). Weights file = the signature
 # remote/htdemucs.yaml names (955717e8) in demucs 4.0.1's remote/files.txt, on the official
-# dl.fbaipublicfiles.com root (blocked in the build sandbox: no exact size; demucs encodes the
-# sha256 prefix in the file name and audio/stems.py checks it before loading). [V PyPI 2026-10-06]
+# dl.fbaipublicfiles.com root; demucs puts the sha256 prefix in the file name. [V PyPI 2026-10-06]
+# Integrity (audio/stems.py verify_weights, before torch.load): exact size + full sha256 when pinned
+# below, like matting-hq. TODO(sha256): the official host answered 403 to the build sandbox again on
+# 2026-10-06 (audit fix), so the full hash/size could not be measured: fill STEMS_WEIGHTS_SHA256 and
+# STEMS_WEIGHTS_EXACT_SIZE from a verified download. Until then: the name prefix + the size and
+# sha256 recorded in models/manifest.json at the first download (trust on first download), and a
+# warning in the workers log every time the model loads.
 STEMS_WEIGHTS_FILE = "955717e8-8726e21a.th"
 STEMS_WEIGHTS_SHA256_PREFIX = "8726e21a"
+STEMS_WEIGHTS_SHA256: str | None = None  # TODO(sha256): full hex digest of STEMS_WEIGHTS_FILE
+STEMS_WEIGHTS_EXACT_SIZE: int | None = None  # TODO(sha256): exact byte size of STEMS_WEIGHTS_FILE
 STEMS_WEIGHTS_URL = f"https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/{STEMS_WEIGHTS_FILE}"
-STEMS_WEIGHTS_SIZE = 84_000_000  # [S] ~80 MiB (torch hub progress bar "80.2M")
+STEMS_WEIGHTS_SIZE = STEMS_WEIGHTS_EXACT_SIZE or 84_000_000  # [S] ~80 MiB (torch hub "80.2M")
 
 
 def stems_weights_path(root: Path) -> Path:
@@ -711,7 +718,11 @@ def _stems_items(root: Path, _catalog: dict | None) -> list[Item]:
             STEMS_WEIGHTS_FILE,
             f"demucs/{STEMS_WEIGHTS_FILE}",
             STEMS_WEIGHTS_URL,
-            Expected(min_bytes=70_000_000),
+            Expected(
+                min_bytes=None if STEMS_WEIGHTS_EXACT_SIZE else 70_000_000,
+                size_bytes=STEMS_WEIGHTS_EXACT_SIZE,
+                sha256=STEMS_WEIGHTS_SHA256,
+            ),
         )
     ]
 
@@ -752,7 +763,8 @@ PACKS["stems"] = Pack(
     items=_stems_items,
     installed_check=lambda root: stems_weights_path(root).is_file(),
     notes=(
-        "htdemucs 955717e8 (sha256 8726e21a…, comprobado al cargar) de dl.fbaipublicfiles.com; "
+        "htdemucs 955717e8 (prefijo sha256 8726e21a + sha256 de la primera descarga, comprobados "
+        "antes de cargar) de dl.fbaipublicfiles.com; "
         "demucs 4.0.1 --no-deps (torch del venv)"
     ),
 )

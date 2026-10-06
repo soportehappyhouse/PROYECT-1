@@ -4421,7 +4421,7 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
               </tr>
               <tr>
                 <td>Música</td>
-                <td>Volumen de cada clip de la pista de audio</td>
+                <td>Volumen de los clips de música (no toca la voz: ver abajo)</td>
               </tr>
               <tr>
                 <td>Etiqueta de IA</td>
@@ -4437,6 +4437,12 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
             </tbody>
           </table>
         </div>
+        <p>
+          El volumen de <strong>música</strong> se aplica solo a clips de música: si hay una pista
+          llamada «Música», a los clips de esa pista; si no, a los clips de audio que no sean voz.
+          Nunca toca pistas llamadas «Voz», «Locución» o «TTS», ni audios de voz generados por
+          Studio (texto a voz, la voz separada con stems, <em>voz limpia</em> o RVC).
+        </p>
         <p>
           Las <strong>transiciones</strong> y el <strong>zoom de golpe</strong> todavía no se
           agregan solos: el plan te deja una <strong>nota</strong> con lo que hace la referencia
@@ -4554,6 +4560,17 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
           <li>
             Solo funciona en clips con audio. Las pistas nuevas se exportan como cualquier pista de
             audio.
+          </li>
+          <li>
+            <strong>Duración</strong>: no hay tope. El audio se decodifica a un WAV temporal en
+            disco (unos 10 MB por minuto) y se separa de a tramos leídos del disco, así que la
+            memoria no crece con la duración; lo que crece es el tiempo (ver §21.2) y el espacio
+            libre que necesitás en <code>storage/</code> mientras dura (el WAV temporal + las pistas
+            nuevas).
+          </li>
+          <li>
+            Audio <strong>5.1 o 7.1</strong>: se mezcla a <strong>estéreo</strong> antes de separar
+            (el modelo es estéreo); las pistas nuevas salen en estéreo.
           </li>
           <li>
             No reemplaza a <em>Limpiar voz (IA)</em> (<a
@@ -4757,8 +4774,24 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
           </li>
           <li>
             Lo que Claude lee (pedidos, resumen del proyecto, fotogramas que abre) se envía a
-            Anthropic. La consola solo acepta conexiones de tu propia PC y Studio quita del entorno
-            de Claude todas las claves del <code>.env</code>.
+            Anthropic. La consola solo acepta conexiones de tu propia PC.
+          </li>
+          <li>
+            Studio quita del entorno de Claude las variables con pinta de clave:
+            <code>*_API_KEY</code> (incluida <code>ANTHROPIC_API_KEY</code>), las que contienen
+            <code>TOKEN</code>, <code>SECRET</code>, <code>PASSWORD</code> o
+            <code>CREDENTIAL</code>, <code>ANTHROPIC_AUTH_*</code> /
+            <code>ANTHROPIC_BASE_URL</code> y las credenciales de AWS y Google Cloud. Solo deja
+            <code>CLAUDE_CODE_OAUTH_TOKEN</code> (el inicio de sesión de tu suscripción, no una API
+            key).
+          </li>
+          <li>
+            La consola arranca Claude Code con un archivo de ajustes propio
+            (<code>apps/api/console/claude-console-settings.json</code>, opción
+            <code>--settings</code>) que le <strong>prohíbe</strong> leer <code>.env*</code> y
+            <code>models/</code>, modificar archivos de <code>storage/</code>, leer la base y los
+            reportes de error, y usar <code>WebFetch</code>. Puede abrir las imágenes que le dan las
+            herramientas (fotogramas, hojas de contactos); todo lo demás pasa por la API.
           </li>
         </ul>
       </main>

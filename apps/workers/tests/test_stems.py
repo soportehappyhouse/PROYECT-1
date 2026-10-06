@@ -227,3 +227,153 @@ def test_stems_pack_detection(dirs, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(packs, "module_present", lambda m: m != "demucs")
     st = packs.pack_status(pack, models, use_cuda=False)
     assert st["installed"] is False
+
+
+# --------------------------------------------------------------- audit fixes (sprint 3b review)
+def _write_wav(path: Path, mix: np.ndarray) -> None:
+    pcm = (np.clip(mix, -1, 1) * 32767).round().astype("<i2")
+    with wave.open(str(path), "wb") as wf:
+        wf.setnchannels(mix.shape[0])
+        wf.setsampwidth(2)
+        wf.setframerate(SAMPLE_RATE)
+        wf.writeframes(pcm.T.copy().tobytes())
+
+
+def test_wav_streaming_matches_in_memory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Long files are read chunk by chunk from disk; same output as the whole array in RAM."""
+    n = int(SAMPLE_RATE * 12.4)
+    t = np.arange(n) / SAMPLE_RATE
+    mix = np.stack([0.4 * np.sin(2 * math.pi * 200 * t) + 0.05, 0.3 * np.cos(2 * math.pi * 90 * t)])
+    _write_wav(tmp_path / "mix.wav", mix.astype(np.float32))
+    monkeypatch.setattr(stems_mod, "STATS_BLOCK_FRAMES", 40_000)  # several stats blocks
+    with stems_mod._WavMix(tmp_path / "mix.wav") as src:
+        in_ram = src.read(0, src.length)  # what the old code loaded at once
+        assert in_ram.shape == (2, n)
+        mean, std = src.stats()
+        ref = in_ram.mean(axis=0)
+        assert abs(mean - float(ref.mean())) < 1e-6 and abs(std - float(ref.std())) < 1e-6
+        names = stems_mod.STEMS["four"]
+        w1 = _StemWriters({k: tmp_path / f"disk-{k}.wav" for k in names})
+        chunks = separate_array(src, fake_separator(), names, w1, segment_s=7.0)
+        w1.close()
+    w2 = _StemWriters({k: tmp_path / f"ram-{k}.wav" for k in names})
+    separate_array(in_ram, fake_separator(), names, w2, segment_s=7.0)
+    w2.close()
+    assert chunks == 3
+    for k in names:
+        a, _, _ = _read(tmp_path / f"disk-{k}.wav")
+        b, _, _ = _read(tmp_path / f"ram-{k}.wav")
+        assert a.shape == b.shape == (2, n) and np.abs(a - b).max() < 1e-4, k
+
+
+def test_wav_mix_upmixes_mono(tmp_path: Path) -> None:
+    _write_wav(tmp_path / "m.wav", np.full((1, 100), 0.25, dtype=np.float32))
+    with stems_mod._WavMix(tmp_path / "m.wav") as src:
+        assert (src.channels, src.length) == (2, 100)
+        assert src.read(90, 50).shape == (2, 10)  # clipped at the end
+
+
+def test_to_wav_downmixes_to_stereo(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from studio_workers import media
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(media, "run_ffmpeg", lambda args, **_k: calls.append(list(args)))
+    media.to_wav(tmp_path / "in.mov", tmp_path / "o.wav", sample_rate=44_100, channels=2)
+    media.to_wav(tmp_path / "in.mov", tmp_path / "o.wav", mono=True)
+    media.to_wav(tmp_path / "in.mov", tmp_path / "o.wav")
+    assert calls[0][calls[0].index("-ac") + 1] == "2" and "-ar" in calls[0]
+    assert calls[1][calls[1].index("-ac") + 1] == "1"
+    assert "-ac" not in calls[2]
+
+
+def test_stems_decodes_51_as_stereo(dirs, monkeypatch: pytest.MonkeyPatch) -> None:
+    storage, _ = dirs
+    seen: list[dict] = []
+
+    def fake_to_wav(src: Path, dst: Path, **kw) -> None:
+        seen.append(kw)
+        _write_wav(dst, np.zeros((2, SAMPLE_RATE), dtype=np.float32))
+
+    monkeypatch.setattr(stems_mod, "to_wav", fake_to_wav)
+    engine = StemsEngine(get_settings(), loader=lambda _d: fake_separator())
+    monkeypatch.setattr(engine, "require", lambda: None)
+    res = engine.separate(storage / "media" / "x.mov", storage / "renders" / "s", "two")
+    assert seen == [{"sample_rate": SAMPLE_RATE, "channels": 2}]
+    assert res["duration_s"] == 1.0 and all(p.is_file() for p in res["paths"].values())
+
+
+def _weights(models: Path, payload: bytes) -> tuple[Path, str]:
+    import hashlib
+
+    path = packs.stems_weights_path(models)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(payload)
+    return path, hashlib.sha256(payload).hexdigest()
+
+
+def test_verify_weights_prefix_manifest_and_pinned(
+    dirs, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    _, models = dirs
+    path, sha = _weights(models, b"htdemucs weights")
+    # wrong name prefix -> refused
+    with pytest.raises(RuntimeError, match="Pesos htdemucs dañados"):
+        stems_mod.verify_weights(path, models)
+    # right prefix, no full hash pinned: accepted with a warning (TODO in packs.py)
+    monkeypatch.setattr(stems_mod, "WEIGHTS_SHA_PREFIX", sha[:8])
+    with caplog.at_level("WARNING", logger="studio_workers"):
+        assert stems_mod.verify_weights(path, models) == sha
+    assert "sin fijar" in caplog.text
+    # first download recorded in models/manifest.json; a later change is refused
+    from studio_workers.models_manifest import Manifest
+
+    man = Manifest.load(models)
+    man.record(
+        "demucs/955717e8-8726e21a.th", name="w", group="stems:htdemucs", source="t", sha256=sha
+    )
+    man.save()
+    assert stems_mod.verify_weights(path, models) == sha
+    man.files["demucs/955717e8-8726e21a.th"]["sha256"] = "0" * 64
+    man.save()
+    with pytest.raises(RuntimeError, match="cambiaron"):
+        stems_mod.verify_weights(path, models)
+    # pinned exact size + full sha256 (like matting-hq)
+    monkeypatch.setattr(stems_mod, "WEIGHTS_SHA256", sha)
+    monkeypatch.setattr(stems_mod, "WEIGHTS_SIZE", path.stat().st_size)
+    assert stems_mod.verify_weights(path, models) == sha
+    monkeypatch.setattr(stems_mod, "WEIGHTS_SIZE", path.stat().st_size + 1)
+    with pytest.raises(RuntimeError, match="bytes"):
+        stems_mod.verify_weights(path, models)
+    monkeypatch.setattr(stems_mod, "WEIGHTS_SIZE", path.stat().st_size)
+    monkeypatch.setattr(stems_mod, "WEIGHTS_SHA256", sha[:8] + "f" * 56)
+    with pytest.raises(RuntimeError, match="dañados"):
+        stems_mod.verify_weights(path, models)
+
+
+def test_demucs_loader_checks_before_torch_load(dirs, monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+    import types
+
+    _, models = dirs
+    _weights(models, b"tampered pickle")
+    loads: list[str] = []
+    fake_torch = types.ModuleType("torch")
+    fake_torch.load = lambda *a, **k: loads.append(a[0])  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    for name in ("demucs", "demucs.apply", "demucs.states"):
+        mod = types.ModuleType(name)
+        mod.apply_model = mod.load_model = lambda *a, **k: None  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, name, mod)
+    engine = StemsEngine(get_settings())
+    with pytest.raises(RuntimeError, match="dañados"):
+        engine._demucs_loader("cpu")
+    assert loads == []  # never unpickled
+
+
+def test_stems_pack_integrity_fields() -> None:
+    (item,) = packs.PACKS["stems"].build_items(Path("/m"))
+    if packs.STEMS_WEIGHTS_SHA256 is None:  # TODO(sha256) in packs.py
+        assert item.expected.min_bytes == 70_000_000 and item.expected.sha256 is None
+    else:
+        assert item.expected.sha256 == packs.STEMS_WEIGHTS_SHA256
+        assert item.expected.size_bytes == packs.STEMS_WEIGHTS_EXACT_SIZE

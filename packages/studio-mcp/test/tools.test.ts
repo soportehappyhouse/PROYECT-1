@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { createStudioApi, type FetchLike } from "../src/api.js";
 import { collectFiles, compactProject } from "../src/compact.js";
 import { createStudioMcpServer } from "../src/server.js";
-import { TOOLS, TOOL_NAMES, type ToolDeps } from "../src/tools.js";
+import { RUNNABLE_JOBS, TOOLS, TOOL_NAMES, type ToolDeps } from "../src/tools.js";
 
 const CONTRACT_TOOLS = [
   "studio_get_project",
@@ -212,6 +212,16 @@ describe("studio-mcp tools", () => {
       deps,
     );
     expect(calls.map((c) => c.url)).toEqual(["/api/media/a1/proxy", "/api/subtitles/transcribe"]);
+  });
+
+  it("studio_run_job cannot cut the timeline (destructive: goes through a confirmed plan)", () => {
+    expect(Object.keys(RUNNABLE_JOBS)).not.toContain("timeline.apply-cuts");
+    const shape = tool("studio_run_job").input as Record<
+      string,
+      { safeParse: (v: unknown) => { success: boolean } }
+    >;
+    expect(shape.type!.safeParse("timeline.apply-cuts").success).toBe(false);
+    expect(shape.type!.safeParse("analyze.silences").success).toBe(true);
   });
 
   it("studio_export requires the explicit confirmation flag (schema)", () => {

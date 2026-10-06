@@ -174,6 +174,7 @@ export const styleRoutes: FastifyPluginAsync = async (app) => {
     const media = (id: string) => repos.media.get(id);
     const plan = compileStylePreset(preset, project, {
       scenes: projectSceneStarts(project, media),
+      asset: media,
     });
     const validation = validateEditPlan(plan);
     if (!validation.ok)

@@ -20,7 +20,7 @@ import { errorBody, HttpError } from "../lib/errors.js";
 import { resolveStoragePath } from "../services/storage.js";
 import { copyIntoMasks, MASKS_SUBDIR, safeSegment } from "../services/vision-assets.js";
 import { WorkersError } from "../services/workers-client.js";
-import { requireMediaAsset } from "../voice-ai/media-bridge.js";
+import { requireMaskAsset, requireMediaAsset } from "../voice-ai/media-bridge.js";
 
 /** Proxy a workers call: PACK_REQUIRED -> 409 body, other worker errors -> ApiError. */
 async function proxy<T>(fn: () => Promise<T>): Promise<T> {
@@ -79,7 +79,7 @@ export const visionRoutes: FastifyPluginAsync = async (app) => {
         !!v && (body.background?.type === "image" || body.background?.type === "video"),
     ))
       requireMediaAsset(app.ctx, id);
-    if (body.maskAssetId) requireMediaAsset(app.ctx, body.maskAssetId);
+    if (body.maskAssetId) requireMaskAsset(app.ctx, body.maskAssetId);
     await requirePack(
       workers,
       asset.kind === "image"
@@ -181,7 +181,7 @@ export const visionRoutes: FastifyPluginAsync = async (app) => {
     const asset = requireMediaAsset(app.ctx, body.assetId);
     if (asset.kind !== "video")
       throw new HttpError(400, "BAD_REQUEST", "El seguimiento necesita un video");
-    if (body.maskAssetId) requireMediaAsset(app.ctx, body.maskAssetId);
+    if (body.maskAssetId) requireMaskAsset(app.ctx, body.maskAssetId);
     if (body.target) requireClip(body.target.projectId, body.target.clipId);
     if (body.method === "sam2") await requirePack(workers, FEATURE_PACKS.sam2);
     // "auto": SAM 2 when its pack is installed, else CSRT/template (decided here, kept in the job)

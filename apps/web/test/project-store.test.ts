@@ -1,4 +1,4 @@
-import type { MediaAsset } from "@studio/shared";
+import { tracksInZOrder, type MediaAsset } from "@studio/shared";
 import { beforeEach, describe, expect, it } from "vitest";
 import { clipEnd } from "@/lib/timeline";
 import {
@@ -133,6 +133,28 @@ describe("project store", () => {
   it("falls back to an empty project when localStorage is corrupted", () => {
     window.localStorage.setItem("studio.project.v1", "{not json");
     expect(loadLocalProject().tracks).toHaveLength(4);
+  });
+});
+
+describe("new tracks go on top of an explicit z-order (audit sprint 3b)", () => {
+  it("orders 0..3, delete the first two, add a track → it is the top one", () => {
+    const s = useProjectStore.getState();
+    const p = s.project;
+    s.loadProject({ ...p, tracks: p.tracks.map((t, i) => ({ ...t, order: i })) });
+    const [a, b] = useProjectStore.getState().project.tracks;
+    useProjectStore.getState().removeTrack(a!.id);
+    useProjectStore.getState().removeTrack(b!.id);
+    const id = useProjectStore.getState().addTrack("video");
+    const tracks = useProjectStore.getState().project.tracks;
+    expect(tracks.find((t) => t.id === id)!.order).toBe(4);
+    expect(tracksInZOrder(tracks).at(-1)!.id).toBe(id);
+  });
+
+  it("projects without order keep new tracks without order", () => {
+    const id = useProjectStore.getState().addTrack("audio");
+    expect(useProjectStore.getState().project.tracks.find((t) => t.id === id)!.order).toBe(
+      undefined,
+    );
   });
 });
 

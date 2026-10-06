@@ -1490,9 +1490,14 @@ El plan es siempre el mismo para el mismo perfil y proyecto (no usa IA):
 | Ritmo            | Detectar escenas (y dividir el clip si la referencia corta cada 3 s o menos) |
 | Subtítulos       | Transcribir y poner subtítulos con el estilo elegido (animados o no)         |
 | Título / rótulo  | Título al inicio; rótulo en el comienzo de la 2.ª escena (o a los 2 s)       |
-| Música           | Volumen de cada clip de la pista de audio                                    |
+| Música           | Volumen de los clips de música (no toca la voz: ver abajo)                   |
 | Etiqueta de IA   | Revisión para redes con la etiqueta «alterado con IA»                        |
 | Exportar         | Exportar con el preset del perfil (pide **Confirmar exportación** aparte)    |
+
+El volumen de **música** se aplica solo a clips de música: si hay una pista llamada «Música», a
+los clips de esa pista; si no, a los clips de audio que no sean voz. Nunca toca pistas llamadas
+«Voz», «Locución» o «TTS», ni audios de voz generados por Studio (texto a voz, la voz separada con
+stems, _voz limpia_ o RVC).
 
 Las **transiciones** y el **zoom de golpe** todavía no se agregan solos: el plan te deja una
 **nota** con lo que hace la referencia (por ejemplo «fundido cada 3 cortes» o «zoom ×1,2 cada
@@ -1557,6 +1562,12 @@ La primera vez se abre _Paquete requerido_ para bajar **Separar audio (Demucs ht
 - Separa el audio **completo** del medio (aunque el clip esté recortado), así podés estirar el
   clip después sin volver a separar.
 - Solo funciona en clips con audio. Las pistas nuevas se exportan como cualquier pista de audio.
+- **Duración**: no hay tope. El audio se decodifica a un WAV temporal en disco (unos 10 MB por
+  minuto) y se separa de a tramos leídos del disco, así que la memoria no crece con la duración;
+  lo que crece es el tiempo (ver §21.2) y el espacio libre que necesitás en `storage/` mientras
+  dura (el WAV temporal + las pistas nuevas).
+- Audio **5.1 o 7.1**: se mezcla a **estéreo** antes de separar (el modelo es estéreo); las pistas
+  nuevas salen en estéreo.
 - No reemplaza a _Limpiar voz (IA)_ ([§17](#17-ia-local-paquetes-gpu-silencios-escenas-y-redes)):
   para ruido de fondo (ventilador, calle) usá esa; para separar voz de **música**, esta.
 
@@ -1663,5 +1674,13 @@ largos, mira fotogramas y hojas de contactos y encadena muchos pasos. Guía comp
 - Comparte el cupo de uso de tu plan con claude.ai; `/status` dentro de la consola muestra la
   cuenta y el modelo.
 - Lo que Claude lee (pedidos, resumen del proyecto, fotogramas que abre) se envía a Anthropic. La
-  consola solo acepta conexiones de tu propia PC y Studio quita del entorno de Claude todas las
-  claves del `.env`.
+  consola solo acepta conexiones de tu propia PC.
+- Studio quita del entorno de Claude las variables con pinta de clave: `*_API_KEY` (incluida
+  `ANTHROPIC_API_KEY`), las que contienen `TOKEN`, `SECRET`, `PASSWORD` o `CREDENTIAL`,
+  `ANTHROPIC_AUTH_*` / `ANTHROPIC_BASE_URL` y las credenciales de AWS y Google Cloud. Solo deja
+  `CLAUDE_CODE_OAUTH_TOKEN` (el inicio de sesión de tu suscripción, no una API key).
+- La consola arranca Claude Code con un archivo de ajustes propio
+  (`apps/api/console/claude-console-settings.json`, opción `--settings`) que le **prohíbe** leer
+  `.env*` y `models/`, modificar archivos de `storage/`, leer la base y los reportes de error, y
+  usar `WebFetch`. Puede abrir las imágenes que le dan las herramientas (fotogramas, hojas de
+  contactos); todo lo demás pasa por la API.

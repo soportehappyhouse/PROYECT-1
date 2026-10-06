@@ -46,7 +46,7 @@ import {
   registerTrackAsset,
 } from "../../services/vision-assets.js";
 import { WorkersError, type WorkersClient } from "../../services/workers-client.js";
-import { requireMediaAsset } from "../../voice-ai/media-bridge.js";
+import { requireMaskAsset, requireMediaAsset } from "../../voice-ai/media-bridge.js";
 import { JobAbortedError } from "../state.js";
 import type { JobContext, JobHandler } from "../types.js";
 import { toPackRequired, viaPacks, type AiDeps, type AiHandlerOptions } from "./ai.js";
@@ -179,9 +179,7 @@ export function createVisionMatteHandler(
           `Quitando el fondo (RobustVideoMatting${high ? ", alta calidad" : ""})`,
         );
         // sprint 3b: quality / refinement / SAM mask guide pass straight to the workers
-        const maskPath = req.maskAssetId
-          ? requireMediaAsset(deps, req.maskAssetId).path
-          : undefined;
+        const maskPath = req.maskAssetId ? requireMaskAsset(deps, req.maskAssetId).path : undefined;
         const r = req.refine;
         const refine = r && {
           ...(r.erode !== undefined && { erode: r.erode }),

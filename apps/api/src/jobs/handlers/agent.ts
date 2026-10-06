@@ -8,6 +8,7 @@ import {
   CreateReportRequestSchema,
   FEATURE_PACKS,
   MotionSpecSchema,
+  nextTrackOrder,
   PACK_REQUIRED,
   reframeWindow,
   VOICE_EFFECT_PRESETS,
@@ -118,6 +119,7 @@ function freeTrack(project: Project, kind: TrackKind, a: number, b: number): Tra
   if (hit) return hit;
   const n = project.tracks.filter((t) => t.kind === kind).length + 1;
   const name = { video: "Video", audio: "Audio", text: "Texto", motion: "Motion" }[kind];
+  const order = nextTrackOrder(project.tracks); // on top of the z-order
   const track: Track = {
     id: nanoid(),
     kind,
@@ -126,6 +128,7 @@ function freeTrack(project: Project, kind: TrackKind, a: number, b: number): Tra
     locked: false,
     hidden: false,
     clips: [],
+    ...(order !== undefined && { order }),
   };
   project.tracks.push(track);
   return track;

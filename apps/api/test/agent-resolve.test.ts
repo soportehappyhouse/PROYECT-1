@@ -368,11 +368,18 @@ describe("set_volume / move_clip timeline edits", () => {
       trackId: "new1",
       start: 10,
     });
-    // explicit z-order (sprint 3b layers): the new track does not copy the source's `order`
+    // explicit z-order (sprint 3b layers): the new track does not copy the source's `order`,
+    // it gets max(order) + 1 (on top)
     const zp = { ...p, tracks: p.tracks.map((t, i) => ({ ...t, order: i })) };
     const zMoved = moveClip(zp, "c2", 10, () => "z1");
-    expect(zMoved.project.tracks[3]!.order).toBeUndefined();
+    expect(zMoved.project.tracks[3]!.order).toBe(3);
     expect(tracksInZOrder(zMoved.project.tracks).at(-1)!.id).toBe("z1"); // on top
+    // orders 0..4 and the two lowest tracks deleted: remaining 2,3,4 at indexes 0..2. The new
+    // track (index 3) would tie with order 3 without max+1 and end up below the top track.
+    const gap = { ...p, tracks: p.tracks.map((t, i) => ({ ...t, order: i + 2 })) };
+    const gMoved = moveClip(gap, "c2", 10, () => "g1");
+    expect(gMoved.project.tracks[3]!.order).toBe(5);
+    expect(tracksInZOrder(gMoved.project.tracks).at(-1)!.id).toBe("g1");
     // free range on the same track: stays there
     const same = moveClip(p, "c2", 45, () => "x");
     expect(same.trackId).toBe("tv");

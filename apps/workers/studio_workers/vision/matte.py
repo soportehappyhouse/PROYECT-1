@@ -342,12 +342,14 @@ class MatteEngine:
         budget = self.budget
         if self.settings.use_cuda and budget is not None:
             budget.release()  # one resident model: free the GPU before the subprocess
-            info = budget.vram(fresh=True)
-            vram_left = (info.free_mb - budget.reserve_mb) if info else None
             need = RVM_HQ_VRAM_MB if quality == "high" else RVM_VRAM_MB
             decision = budget.acquire("rvm", need, self._kill_rvm)
             device = decision.device
             warnings += decision.warnings
+            # Measured after acquire (it may have unloaded models / VRAM may have moved meanwhile):
+            # what the subprocess really has to size its chunks.
+            info = budget.vram(fresh=True)
+            vram_left = (info.free_mb - budget.reserve_mb) if info else None
 
         def on_event(ev: dict[str, Any]) -> None:
             if ev.get("event") == "progress":

@@ -237,8 +237,6 @@ export function SettingsDialog() {
   }, [open, requestedTab]);
   return (
     <>
-      {/* Sprint 4 M1: licence dialog + «Cambiar cara» wizard (global, mounted with Ajustes). */}
-      <FaceDialogs />
       <Dialog
         open={open}
         onClose={() => useSettingsStore.getState().setSettingsOpen(false)}
@@ -272,6 +270,9 @@ export function SettingsDialog() {
           )}
         </div>
       </Dialog>
+      {/* Sprint 4 M1: licence dialog + «Cambiar cara» wizard (global; after Ajustes so the licence
+          dialog opened from Paquetes de IA shows on top). */}
+      <FaceDialogs />
     </>
   );
 }

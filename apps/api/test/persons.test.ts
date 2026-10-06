@@ -275,4 +275,58 @@ describe("sprint 4 M1: Personas + consent", () => {
       ),
     ).not.toMatch(/persons/);
   });
+
+  it("error reports never carry storage/consent/ (files or paths)", async () => {
+    const { mkdirSync, writeFileSync, readdirSync: ls } = await import("node:fs");
+    const rel = "consent/persons/pX/photos/f1.png";
+    mkdirSync(path.join(storage, "consent/persons/pX/photos"), { recursive: true });
+    writeFileSync(path.join(storage, rel), pngHeader(10, 10));
+    app.ctx.repos.media.insert({
+      id: "leak1",
+      kind: "image",
+      name: "foto",
+      path: rel,
+      sizeBytes: 64,
+      createdAt: new Date().toISOString(),
+    });
+    const proj = (
+      await app.inject({ method: "POST", url: "/api/projects", payload: { name: "R" } })
+    ).json();
+    const V = proj.tracks.find((t: { kind: string }) => t.kind === "video");
+    V.clips = [
+      {
+        id: "c1",
+        trackId: V.id,
+        assetId: "leak1",
+        start: 0,
+        in: 0,
+        out: 1,
+        speed: 1,
+        volume: 1,
+        opacity: 1,
+        voiceEffects: [],
+      },
+    ];
+    await app.inject({ method: "PUT", url: `/api/projects/${proj.id}`, payload: proj });
+    const job = app.ctx.jobs.create({ type: "face.swap", payload: { personId: "pX" } });
+    app.ctx.jobs.update(job.id, { status: "failed", error: `no se pudo leer ${rel}` });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/reports",
+      payload: { title: "Cara", projectId: proj.id, includeMedia: true, jobIds: [job.id] },
+    });
+    expect(res.statusCode).toBe(201);
+    const dir = path.join(storage, "reports", res.json().id);
+    const files: string[] = [];
+    const walk = (d: string, pre = ""): void => {
+      for (const e of ls(d, { withFileTypes: true })) {
+        if (e.isDirectory()) walk(path.join(d, e.name), `${pre}${e.name}/`);
+        else files.push(`${pre}${e.name}`);
+      }
+    };
+    walk(dir);
+    expect(files.some((f) => f.includes("consent"))).toBe(false);
+    for (const f of files.filter((x) => /\.(json|md)$/.test(x)))
+      expect(readFileSync(path.join(dir, f), "utf8")).not.toMatch(/consent\/persons/);
+  });
 });

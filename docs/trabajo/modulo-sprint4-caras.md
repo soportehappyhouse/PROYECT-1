@@ -94,8 +94,37 @@ Contrato: `sprint4-contratos.md` («M1», «Gate», «Códigos de error nuevos»
 - **MCP**: `studio_list_persons` (solo lectura, sin rutas) y `studio_face_swap` (`confirmed:
   z.literal(true)`, descripción con la pregunta obligatoria); `X-Studio-Client: mcp` en todo pedido.
   `CLAUDE.md`: filas, op `face_swap` y regla «nunca registres consentimientos ni aceptes licencias».
+- Progreso: el % que imprime FaceFusion (barras tqdm); no hay estimación por `facefusion_fps` cuando no
+  imprime nada (el asistente muestra la estimación antes de aplicar).
 - **Dataset**: 3 golden + 6 train con `face_swap` (+ 2 de solo preguntas); ver
   `apps/workers/studio_workers/agent/dataset/README.md`; `system_es.md` menciona la op.
+
+## Pruebas
+
+- Unitarias: shared `consent.test.ts` 7; api `persons.test.ts` 9 (CRUD, límites, sniffer, muestras
+  de voz con ffmpeg real, `HUMAN_ONLY` sin Origin / con `X-Studio-Client: mcp` / Origin ajeno,
+  `TEXT_OUTDATED`, `/files/consent/…` → 404, revocación, baja, reporte sin `consent/`) +
+  `face-swap.test.ts` 9 (licencias + espejo + descarga de pack con gate, orden del chequeo previo,
+  vista previa, swap con `target` → asset `aiAltered` + `faceSwap.prev` + `aiFace` + deshacer,
+  revocación y licencia retirada con el job en cola, NSFW → `CONTENT_BLOCKED`, `TOOL_FAILED` con
+  `logTail`, detect, op `face_swap` del Asistente con 409 sin confirmar y sub-job); workers
+  `test_face_runner.py` 10 + `test_face_router.py` 6 (con el `facefusion.py` falso: argv, entorno sin
+  `HF_TOKEN`, cwd, `--temp-path`, tramo + intensidad + audio, vista previa, `NO_FACE`, NSFW,
+  `TOOL_FAILED`, licencia/venv/modelos antes de lanzar, CRC32 y sello, GPU CUDA/CPU, cancelar mata el
+  árbol, espejo, `consent_id`, `..`, códigos de tarea, registro de packs, puente a `toolvenv`);
+  studio-mcp +4; web `face.test.tsx` 9 (helpers, flujo completo del asistente, licencia, error con
+  «Abrir Personas», diálogo de licencia, pestaña Personas).
+- e2e (sandbox Linux, sin GPU; api `:3101` desde `dist/`, workers `:8101` con
+  `scripts/e2e/workers-with-mocks.py`, web `next build` + `next start :3100`, Playwright Chromium):
+  `run-e2e.mjs` 6/6 pasos «sprint4» de M1 (también re-ejecutados sobre el mismo storage);
+  `ui-smoke.mjs` 2/2 («Ajustes → Personas: crear, firmar en pantalla, consentimiento vigente»,
+  «Cambiar cara (mock): vista previa, aplicar, insignia IA, deshacer»). La corrida completa de
+  `run-e2e.mjs --skip-motion` (después de los commits de M2 y M3) da 60 PASS y 6 FAIL requeridos,
+  todos del entorno: 5 exportaciones con `EXPORT_BLOCKED` porque los motion quedan sin renderizar
+  (sin Chrome Headless Shell para Remotion) y el paso RVC de M3 (`rvc-base` no instalado). Pasan
+  los 6 pasos de M1 y el de licencia de punta a punta de M3.
+- Arreglos que salieron del smoke: el `SignaturePad` se borraba en cada re-render (callback del padre en
+  una ref) y el diálogo de licencia quedaba debajo del asistente / de Ajustes (ahora se monta después).
 
 ## Desvíos del contrato
 
@@ -135,6 +164,10 @@ Contrato: `sprint4-contratos.md` («M1», «Gate», «Códigos de error nuevos»
    simulado). `doctor`: la licencia se lee de `storage/consent/licences.json`.
 6. `tools/launch.py --preload-ort` con `FACEFUSION_PYTHON` del venv principal (e2e): si el `onnxruntime`
    del venv principal no tiene `preload_dlls()`, el lanzador no debería fallar en modo CPU.
+7. `perf.run` en la corrida e2e completa midió FaceFusion con la foto de la Persona del paso NSFW
+   (marcador `NSFW-TEST`) y por el camino propio de `perf.py`, que reporta «Processing to video
+   failed» como error genérico: conviene elegir una Persona sin bloqueo previo y, si se usa ese
+   camino, clasificar con `face.runner.classify` (→ `CONTENT_BLOCKED`).
 
 ## Borrador manual §24 — Personas y consentimiento
 

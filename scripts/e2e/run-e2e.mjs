@@ -3702,12 +3702,14 @@ await step("sprint4: NSFW mock → CONTENT_BLOCKED", async () => {
 
 await step("sprint4: EditPlan face_swap sin confirmedIndexes → 409", async () => {
   await m1Licence(true);
-  const person = await m1Person("E2E Plan Lucía");
+  // unique name: a re-run on the same storage must not make the name ambiguous (a question)
+  const name = `E2E Plan Lucía ${id("r")}`;
+  const person = await m1Person(name);
   const { project, clipId } = await m1Clip();
   const plan = {
     version: 1,
     summary_es: "Cara de Lucía en el doble.",
-    ops: [{ op: "face_swap", clip: { id: clipId }, person: { name: "plan lucia" } }],
+    ops: [{ op: "face_swap", clip: { id: clipId }, person: { name: name.toLowerCase() } }],
   };
   const rec = await ok("POST", "/api/console/plans", { plan, projectId: project.id }, [201]);
   assert(

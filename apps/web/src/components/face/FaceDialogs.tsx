@@ -7,8 +7,9 @@ import { FaceSwapWizard } from "./FaceSwapWizard";
 export function FaceDialogs() {
   return (
     <>
-      <LicenceDialog />
       <FaceSwapWizard />
+      {/* after the wizard: it opens on top of it (first swap without the licence) */}
+      <LicenceDialog />
     </>
   );
 }

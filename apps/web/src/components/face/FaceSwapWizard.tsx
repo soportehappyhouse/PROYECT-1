@@ -404,7 +404,7 @@ export function FaceSwapWizard() {
           {step === "apply" ? (
             result ? (
               <Button size="sm" onClick={() => store.close()}>
-                Cerrar
+                Terminar
               </Button>
             ) : (
               <Button

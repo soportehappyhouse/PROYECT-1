@@ -25,6 +25,12 @@ export function SignaturePad({
   const drawing = useRef(false);
   const last = useRef<{ x: number; y: number } | undefined>(undefined);
   const [empty, setEmpty] = useState(true);
+  // The parent passes an inline callback: keep the latest in a ref so the canvas is only cleared
+  // on mount and on «Borrar firma», never on a re-render.
+  const changed = useRef(onChange);
+  useEffect(() => {
+    changed.current = onChange;
+  }, [onChange]);
 
   const ctx = () => canvas.current?.getContext("2d") ?? null;
   const reset = useCallback(() => {
@@ -34,8 +40,8 @@ export function SignaturePad({
     g.fillStyle = "#ffffff";
     g.fillRect(0, 0, c.width, c.height);
     setEmpty(true);
-    onChange?.(true);
-  }, [onChange]);
+    changed.current?.(true);
+  }, []);
 
   useEffect(() => {
     reset();
@@ -93,7 +99,7 @@ export function SignaturePad({
             g.stroke();
             if (empty) {
               setEmpty(false);
-              onChange?.(false);
+              changed.current?.(false);
             }
           }
           last.current = p;

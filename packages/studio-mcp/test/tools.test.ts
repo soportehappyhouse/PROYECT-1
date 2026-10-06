@@ -1,3 +1,4 @@
+import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it } from "vitest";
@@ -5,6 +6,10 @@ import { createStudioApi, type FetchLike } from "../src/api.js";
 import { collectFiles, compactProject } from "../src/compact.js";
 import { createStudioMcpServer } from "../src/server.js";
 import { RUNNABLE_JOBS, TOOLS, TOOL_NAMES, type ToolDeps } from "../src/tools.js";
+
+// Las rutas absolutas salen con el separador nativo (\ en Windows): comparamos con path.join.
+const STORAGE = "/data/storage";
+const abs = (...rel: string[]) => path.join(STORAGE, ...rel);
 
 const CONTRACT_TOOLS = [
   "studio_get_project",
@@ -75,7 +80,7 @@ function mockApi(routes: Record<string, (body: unknown, url: URL) => unknown>) {
   };
   const deps: ToolDeps = {
     api: createStudioApi("http://127.0.0.1:3001", fetchImpl),
-    storageDir: async () => "/data/storage",
+    storageDir: async () => STORAGE,
     sleep: async () => undefined,
     pollMs: 1,
   };
@@ -142,8 +147,8 @@ describe("studio-mcp tools", () => {
     const out = await run("studio_list_assets", { kind: "video" }, deps);
     expect(calls[0]!.url).toBe("/api/media?kind=video&limit=100");
     expect(out.assets[0]).toMatchObject({
-      file: "/data/storage/media/a1.mp4",
-      thumbnail: "/data/storage/media/a1.jpg",
+      file: abs("media/a1.mp4"),
+      thumbnail: abs("media/a1.jpg"),
       duration_s: 61.24,
       size: "1080x1920",
     });
@@ -194,7 +199,7 @@ describe("studio-mcp tools", () => {
     });
     const out = await run("studio_apply_plan", { planId: "plan1", confirmedIndexes: [0] }, deps);
     expect(calls[0]!.body).toEqual({ planId: "plan1", confirmedIndexes: [0] });
-    expect(out.job).toMatchObject({ status: "succeeded", files: ["/data/storage/exports/x.mp4"] });
+    expect(out.job).toMatchObject({ status: "succeeded", files: [abs("exports/x.mp4")] });
     expect(polls).toBe(3);
   });
 
@@ -267,8 +272,8 @@ describe("studio-mcp tools", () => {
     const out = await run("studio_style_analyze", { assetId: "a1" }, deps);
     expect(out).toMatchObject({
       analysisId: "an1",
-      contactSheet: "/data/storage/renders/an1-sheet.png",
-      thumbnails: ["/data/storage/renders/t1.jpg"],
+      contactSheet: abs("renders/an1-sheet.png"),
+      thumbnails: [abs("renders/t1.jpg")],
       analysis: { duration_s: 60 },
     });
     expect(out.analysis.thumbnails).toBeUndefined();
@@ -292,7 +297,7 @@ describe("studio-mcp tools", () => {
         { a: { outputPath: "renders/a.wav" }, list: [{ maskPath: "/abs/m.png" }], n: 1 },
         "/s",
       ),
-    ).toEqual(["/s/renders/a.wav", "/abs/m.png"]);
+    ).toEqual([path.join("/s", "renders/a.wav"), "/abs/m.png"]);
     expect(compactProject({ ...PROJECT, tracks: [] }).duration_s).toBe(0);
   });
 });

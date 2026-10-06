@@ -217,6 +217,68 @@
             "properties": {
               "op": {
                 "type": "string",
+                "const": "set_volume",
+                "description": "Cambiar el volumen de un clip que ya está en el proyecto."
+              },
+              "clip": {
+                "description": "Clip de audio o video cuyo volumen cambia.",
+                "$ref": "#/$defs/ClipRef"
+              },
+              "volume_db": {
+                "type": "number",
+                "minimum": -60,
+                "maximum": 12,
+                "description": "Volumen en dB respecto del original: 0 = original, -12 = de fondo, -60 = silenciado, +6 = más fuerte."
+              },
+              "confirm": {
+                "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
+                "type": "boolean"
+              },
+              "note_es": {
+                "description": "Aclaración breve en español para el usuario.",
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": ["op", "clip", "volume_db"],
+            "additionalProperties": false,
+            "description": "Cambiar volumen."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "move_clip",
+                "description": "Mover un clip a otro momento de la línea de tiempo (misma pista)."
+              },
+              "clip": {
+                "description": "Clip a mover.",
+                "$ref": "#/$defs/ClipRef"
+              },
+              "t": {
+                "description": "Nuevo inicio del clip en la línea de tiempo.",
+                "$ref": "#/$defs/Time"
+              },
+              "confirm": {
+                "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
+                "type": "boolean"
+              },
+              "note_es": {
+                "description": "Aclaración breve en español para el usuario.",
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": ["op", "clip", "t"],
+            "additionalProperties": false,
+            "description": "Mover clip."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
                 "const": "add_text",
                 "description": "Agregar un texto o rótulo simple en la pista de texto."
               },
@@ -234,7 +296,7 @@
                 "description": "Duración en pantalla, en segundos (por defecto 3).",
                 "type": "number",
                 "exclusiveMinimum": 0,
-                "maximum": 600
+                "maximum": 3600
               },
               "style": {
                 "type": "object",
@@ -313,7 +375,7 @@
                 "description": "Duración en segundos (por defecto la de la plantilla).",
                 "type": "number",
                 "exclusiveMinimum": 0,
-                "maximum": 600
+                "maximum": 3600
               },
               "params": {
                 "description": "Parámetros de la plantilla (p. ej. {title, subtitle} o {name, role}).",
@@ -451,9 +513,13 @@
                   "radio",
                   "reverb",
                   "echo",
-                  "clean-voice"
+                  "clean-voice",
+                  "monstruo",
+                  "catedral",
+                  "bajo-agua",
+                  "megafono"
                 ],
-                "description": "Efecto de voz: pitch-up (tono +4), pitch-down (tono -4), chipmunk (ardilla), deep (grave), robot, telephone (teléfono), radio (radio AM), reverb (sala), echo (eco), clean-voice (voz limpia: reduce ruido y normaliza)."
+                "description": "Efecto de voz: pitch-up (tono +4), pitch-down (tono -4), chipmunk (ardilla), deep (grave), robot, telephone (teléfono), radio (radio AM), reverb (sala), echo (eco), clean-voice (voz limpia: reduce ruido y normaliza), monstruo (tono -10 + reverberación), catedral (reverberación grande), bajo-agua (bajo el agua), megafono (megáfono)."
               },
               "confirm": {
                 "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
@@ -493,9 +559,13 @@
                   "radio",
                   "reverb",
                   "echo",
-                  "clean-voice"
+                  "clean-voice",
+                  "monstruo",
+                  "catedral",
+                  "bajo-agua",
+                  "megafono"
                 ],
-                "description": "Efecto de voz: pitch-up (tono +4), pitch-down (tono -4), chipmunk (ardilla), deep (grave), robot, telephone (teléfono), radio (radio AM), reverb (sala), echo (eco), clean-voice (voz limpia: reduce ruido y normaliza)."
+                "description": "Efecto de voz: pitch-up (tono +4), pitch-down (tono -4), chipmunk (ardilla), deep (grave), robot, telephone (teléfono), radio (radio AM), reverb (sala), echo (eco), clean-voice (voz limpia: reduce ruido y normaliza), monstruo (tono -10 + reverberación), catedral (reverberación grande), bajo-agua (bajo el agua), megafono (megáfono)."
               },
               "confirm": {
                 "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",

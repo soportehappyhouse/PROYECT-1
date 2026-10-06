@@ -92,7 +92,8 @@ def matte(req: MatteRequest) -> dict[str, Any]:
             progress=_step(task),
         )
         result = {
-            "alpha_path": settings.storage_relative(out),
+            # the file really written (split alpha codec = .mkv, see docs/trabajo/perf-rvm.md)
+            "alpha_path": settings.storage_relative(Path(res.get("output") or out)),
             "preview_path": settings.storage_relative(res["preview"]),
             "fps": res["fps"],
             "frames": res.get("frames"),
@@ -101,7 +102,8 @@ def matte(req: MatteRequest) -> dict[str, Any]:
         }
         if res.get("proc_fps"):
             result["proc_fps"] = res["proc_fps"]
-        for key in ("precision", "downsample"):  # RVM: fp16|fp32 and downsample_ratio used
+        # RVM: fp16|fp32, downsample_ratio, vp9|split and the stage timings of the run
+        for key in ("precision", "downsample", "alpha_codec", "timings"):
             if res.get(key):
                 result[key] = res[key]
         if res.get("warnings"):

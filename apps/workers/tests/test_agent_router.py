@@ -197,6 +197,56 @@ def test_json_summaries_are_read_too() -> None:
     ]
 
 
+JSON_MUSIC = (
+    '{"canvas":{"w":1080,"h":1920},"cursor_s":4,"tracks":[{"kind":"video","clips":'
+    '[{"id":"v1","name":"receta.mov","start":0,"end":30}]},{"kind":"text","clips":'
+    '[{"id":"t1","name":"Tarta","start":0,"end":3}]},{"kind":"audio","clips":'
+    '[{"id":"a1","name":"musica-cocina.mp3","start":0,"end":30}]}]}'
+)
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        (
+            "bajá la música",
+            {"op": "set_volume", "clip": {"name": "musica-cocina"}, "volume_db": -12},
+        ),
+        (
+            "bajale el volumen a la música a 6 dB",
+            {"op": "set_volume", "clip": {"name": "musica-cocina"}, "volume_db": -6},
+        ),
+        ("subí la música", {"op": "set_volume", "clip": {"name": "musica-cocina"}, "volume_db": 6}),
+        (
+            "silenciá la música",
+            {"op": "set_volume", "clip": {"name": "musica-cocina"}, "volume_db": -60},
+        ),
+        ("mové el texto al segundo 5", {"op": "move_clip", "clip": {"name": "Tarta"}, "t": 5}),
+        ("pasá el texto al 1:20", {"op": "move_clip", "clip": {"name": "Tarta"}, "t": 80}),
+        (
+            "llevá el texto hasta el cursor",
+            {"op": "move_clip", "clip": {"name": "Tarta"}, "t": "cursor"},
+        ),
+        (
+            "mové la música al inicio",
+            {"op": "move_clip", "clip": {"name": "musica-cocina"}, "t": "start"},
+        ),
+    ],
+)
+def test_volume_and_move_synonyms(command: str, expected: dict) -> None:
+    assert ops(command, JSON_MUSIC) == [expected]
+
+
+def test_volume_and_move_ask_or_defer() -> None:
+    assert route("mové el texto más tarde", JSON_MUSIC) is None  # no time: the LLM asks
+    two = JSON_MUSIC.replace(
+        '"start":0,"end":30}]}]}',
+        '"start":0,"end":30},{"id":"a2","name":"aplausos.wav","start":5,"end":7}]}]}',
+    )
+    plan = route("bajá la música", two)
+    assert plan["ops"] == [] and "musica-cocina.mp3" in plan["questions"][0]
+
+
 def test_normalize_strips_accents_politeness_and_punctuation() -> None:
     assert normalize("¡Por favor, Exportá para Reels!") == "exporta para reels"
     assert normalize("pasalo a 9 / 16") == "pasalo a 9:16"

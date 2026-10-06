@@ -366,7 +366,10 @@ def test_perf_rvm_measures_1080p_5s_through_gpl(dirs, monkeypatch: pytest.Monkey
         def matte_video(self, src: Path, out: Path, *, model: str, chunk: int) -> dict:
             self.calls.append(model)  # the real engine runs vision_gpl.rvm in .venv-gpl
             return {"frames": 125, "device": "cuda", "proc_fps": 31.5, "precision": "fp16",
-                    "downsample": 0.2667, "warnings": []}  # fmt: skip
+                    "downsample": 0.2667, "warnings": [], "alpha_codec": "vp9",
+                    "timings": {"startup_s": 3.0, "first_batch_s": 0.5, "process_s": 3.0,
+                                "preview_s": 0.2, "bottleneck": "encode",
+                                "ms_per_frame": {"encode": 20.0}}}  # fmt: skip
 
     engine = Engine()
     monkeypatch.setattr(bench, "_clip", fake_clip)
@@ -379,3 +382,7 @@ def test_perf_rvm_measures_1080p_5s_through_gpl(dirs, monkeypatch: pytest.Monkey
     assert result["rvm_precision"] == "fp16" and result["rvm_downsample"] == 0.2667
     assert result["rvm_device"] == "cuda" and result["rvm_target_fps"] == 15
     assert "rvm" not in result["skipped"] and "rvm" not in result["errors"]
+    # sustained rate without the first batch (4 frames on CUDA) + fixed startup (perf-rvm.md)
+    assert result["rvm_steady_fps"] == round(121 / 2.5, 1)
+    assert result["rvm_startup_s"] == 3.7 and result["rvm_bottleneck"] == "encode"
+    assert result["rvm_stage_ms"] == {"encode": 20.0} and result["rvm_alpha_codec"] == "vp9"

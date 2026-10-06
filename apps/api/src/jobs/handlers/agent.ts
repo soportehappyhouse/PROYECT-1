@@ -37,7 +37,7 @@ import { resolveOp, canvasSize, type ResolveContext } from "../../services/agent
 import { clipDuration, clipEnd, round3 } from "../../services/agent/summary.js";
 import { exportBlockersMessage, findExportBlockers } from "../../services/ffmpeg/timeline.js";
 import { resolveStoragePath } from "../../services/storage.js";
-import { applyCuts } from "../../services/timeline-edit.js";
+import { applyCuts, dbToVolume, moveClip, setClipVolume } from "../../services/timeline-edit.js";
 import { registerAudioAsset } from "../../voice-ai/media-bridge.js";
 import { isAbortError, JobAbortedError } from "../state.js";
 import type { JobContext, JobHandler } from "../types.js";
@@ -432,6 +432,16 @@ export function createAgentApplyHandler(
         env.save(project);
         return { clipId: clip.id, speed: op.speed };
       }
+      case "set_volume": {
+        const r = setClipVolume(env.load(), op.clip.id!, op.volume_db);
+        env.save(r.project);
+        return { clipId: op.clip.id, volume: r.volume };
+      }
+      case "move_clip": {
+        const r = moveClip(env.load(), op.clip.id!, op.t as number, nanoid);
+        env.save(r.project);
+        return { clipId: op.clip.id, trackId: r.trackId, start: r.start };
+      }
       case "add_text": {
         const project = env.load();
         const t = op.t as number;
@@ -689,8 +699,7 @@ export function createAgentApplyHandler(
           dur = item.durationSec ?? asset.durationSec;
         }
         if (!dur) throw new OpError("No se conoce la duración del audio (esperá a que se analice)");
-        const db = op.volume_db ?? (op.duck ? -12 : 0);
-        const volume = Math.min(4, Math.max(0, Math.round(10 ** (db / 20) * 1000) / 1000));
+        const volume = dbToVolume(op.volume_db ?? (op.duck ? -12 : 0));
         const clip = await placeAudio(env, assetId, op.t as number, dur, {
           volume,
           out: round3(dur),

@@ -258,3 +258,80 @@ export function applyCuts(
     pieceIds: pieces.map((p) => p.id),
   };
 }
+
+function findClip(project: Project, clipId: string): { track: Track; clip: Clip } {
+  for (const track of project.tracks) {
+    const clip = track.clips.find((c) => c.id === clipId);
+    if (clip) {
+      if (track.locked)
+        throw new HttpError(409, "TRACK_LOCKED", `La pista «${track.name}» está bloqueada`);
+      return { track, clip };
+    }
+  }
+  throw new HttpError(404, "NOT_FOUND", "Clip no encontrado en el proyecto");
+}
+
+/** dB -> Clip.volume (linear gain 0..4); -60 dB or less = muted (0). */
+export function dbToVolume(db: number): number {
+  if (db <= -60) return 0;
+  return Math.min(4, Math.max(0, Math.round(10 ** (db / 20) * 1000) / 1000));
+}
+
+/**
+ * Sprint 3 `set_volume`: the clip's gain relative to the original (0 dB = 1). Returns a new
+ * project (the caller saves it). Throws HttpError 404/409 for a missing clip or a locked track.
+ */
+export function setClipVolume(
+  project: Project,
+  clipId: string,
+  volumeDb: number,
+): { project: Project; volume: number } {
+  findClip(project, clipId);
+  const volume = dbToVolume(volumeDb);
+  const tracks = project.tracks.map((t) => ({
+    ...t,
+    clips: t.clips.map((c) => (c.id === clipId ? { ...c, volume } : c)),
+  }));
+  return { project: { ...project, tracks }, volume };
+}
+
+/**
+ * Sprint 3 `move_clip`: new timeline start for a clip (content, keyframes and in/out unchanged).
+ * It stays on its track when that range is free there; otherwise it goes to the first unlocked
+ * track of the same kind that is free (a new track when none is). Returns a new project.
+ */
+export function moveClip(
+  project: Project,
+  clipId: string,
+  t: number,
+  newId: () => string,
+): { project: Project; trackId: string; start: number } {
+  const { track, clip } = findClip(project, clipId);
+  const start = round(Math.max(0, t));
+  const end = start + clipDur(clip);
+  const free = (x: Track) =>
+    !x.locked &&
+    !x.clips.some((c) => c.id !== clipId && c.start < end - EPS && clipEnd(c) > start + EPS);
+  const tracks = project.tracks.map((x) => ({ ...x, clips: [...x.clips] }));
+  let target = free(track) ? tracks[project.tracks.indexOf(track)]! : undefined;
+  target ??= tracks.find((x) => x.kind === track.kind && free(x));
+  if (!target) {
+    const n = tracks.filter((x) => x.kind === track.kind).length + 1;
+    const name = { video: "Video", audio: "Audio", text: "Texto", motion: "Motion" }[track.kind];
+    target = {
+      ...track,
+      id: newId(),
+      name: `${name} ${n}`,
+      muted: false,
+      hidden: false,
+      clips: [],
+    };
+    tracks.push(target);
+  }
+  const source = tracks[project.tracks.indexOf(track)]!;
+  source.clips = source.clips.filter((c) => c.id !== clipId);
+  target.clips = [...target.clips, { ...clip, trackId: target.id, start }].sort(
+    (a, b) => a.start - b.start,
+  );
+  return { project: { ...project, tracks }, trackId: target.id, start };
+}

@@ -28,8 +28,10 @@ class LlmSettings(BaseModel):
 
 class PlanRequest(BaseModel):
     command: str = Field(min_length=1, max_length=2000)
-    # The api sends a string (services/agent/summary.ts); objects are accepted for tools/tests.
-    project_summary: str | dict[str, Any] | list[Any] = ""
+    # The api sends the dataset JSON shape (services/agent/summary.ts: {canvas, cursor_s, tracks,
+    # scenes?, assets?, transcript_excerpt?}); summary.as_text renders it for the prompt. A plain
+    # string is still accepted (tools, old api).
+    project_summary: dict[str, Any] | str | list[Any] = ""
     settings: LlmSettings = Field(default_factory=LlmSettings)
 
 
@@ -46,6 +48,7 @@ class BugreportRequest(BaseModel):
     breadcrumbs: list[Any] = Field(default_factory=list)
     errors: list[Any] = Field(default_factory=list)
     env: dict[str, Any] = Field(default_factory=dict)
+    model: str | None = None  # default AGENT_MODEL
 
 
 def _release_gpu() -> list[str]:
@@ -59,7 +62,7 @@ def make_planner(model: str | None = None, temperature: float | None = None) -> 
     return Planner(
         services.ollama_client(),
         model=model or settings.agent_model,
-        temperature=0.2 if temperature is None else temperature,
+        temperature=settings.agent_temperature if temperature is None else temperature,
         num_ctx=settings.agent_num_ctx,
         keep_alive=settings.agent_keep_alive,
         before_llm=_release_gpu,
@@ -180,9 +183,10 @@ async def bugreport(req: BugreportRequest) -> dict[str, Any]:
     """{markdown_es, source: llm|template}: LLM draft when the model is there, else template."""
     settings = get_settings()
     return await draft_report(
-        req.model_dump(),
+        req.model_dump(exclude={"model"}),
         services.ollama_client(),
-        settings.agent_model,
+        req.model or settings.agent_model,
+        temperature=settings.agent_temperature,
         keep_alive=settings.agent_keep_alive,
         num_ctx=settings.agent_num_ctx,
         before_llm=_release_gpu,

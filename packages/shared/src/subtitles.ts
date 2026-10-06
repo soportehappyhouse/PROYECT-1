@@ -65,10 +65,17 @@ export const CaptionStyleSchema = z.object({
 export type CaptionStyle = z.infer<typeof CaptionStyleSchema>;
 
 /**
- * Built-in caption presets (same as the web Subtítulos panel). Used by the agent's
- * `add_captions {style}` (CAPTION_STYLE_IDS in agent.ts).
+ * Ids of the built-in caption presets: the SINGLE list (the agent's `add_captions {style}` enum in
+ * agent.ts, the web Subtítulos panel and the dataset validator all read it).
  */
-export const CAPTION_STYLE_PRESETS: readonly CaptionStyle[] = [
+export const CAPTION_STYLE_IDS = ["clasico", "reels", "karaoke", "minimal", "titular"] as const;
+export type CaptionStylePresetId = (typeof CAPTION_STYLE_IDS)[number];
+
+/**
+ * Built-in caption presets (the web Subtítulos panel uses these objects directly). Used by the
+ * agent's `add_captions {style}`; one preset per CAPTION_STYLE_IDS entry, same order.
+ */
+export const CAPTION_STYLE_PRESETS: readonly (CaptionStyle & { id: CaptionStylePresetId })[] = [
   {
     id: "clasico",
     name: "Clásico",

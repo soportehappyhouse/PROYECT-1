@@ -284,7 +284,13 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   apply: async () => {
     const d = get().draft;
     if (!d || d.record.status !== "proposed") return;
-    const req = buildApplyRequest(d.record.id, d.record.plan?.ops ?? [], d.ops, d.enabled);
+    const req = buildApplyRequest(
+      d.record.id,
+      d.record.plan?.ops ?? [],
+      d.ops,
+      d.enabled,
+      useProjectStore.getState().playhead,
+    );
     if (req.ops?.length === 0) {
       toast.message("Marcá al menos una operación para aplicar");
       return;
@@ -293,6 +299,15 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     const selected = req.ops ?? [];
     addBreadcrumb("ui", "Asistente: aplicar", { planId, ops: selected.length });
     set({ run: { planId, selected, status: "starting" } });
+    /** Keep the user's edits and checkboxes; take preview/risks/resolved from the api. */
+    const adoptRecord = (record: AgentPlanRecord) => {
+      const cur = get().draft;
+      if (cur?.record.id !== planId) return;
+      set({
+        draft: { ...cur, record, ops: (record.plan?.ops ?? cur.ops).map((op) => ({ ...op })) },
+        plans: upsertPlan(get().plans, record),
+      });
+    };
     const patchRun = (patch: Partial<ApplyRun>) => {
       const run = get().run;
       if (run?.planId === planId) set({ run: { ...run, ...patch } });
@@ -305,6 +320,8 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         return;
       }
       patchRun({ jobId: accepted.jobId, status: "running" });
+      // Inline edits: the api resolved them again; show its preview / risks for what runs now.
+      if (accepted.plan) adoptRecord(normalizePlanRecord(accepted.plan));
       let raw: unknown;
       let failure: string | undefined;
       try {
@@ -322,8 +339,9 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         if (pack) usePacksStore.getState().openRequest(pack);
       }
       if ((result?.applied ?? 0) > 0 || !failure) await reloadProject("Asistente: aplicó un plan");
+      const latest = get().draft?.record.id === planId ? get().draft!.record : d.record;
       const applied: AgentPlanRecord = {
-        ...d.record,
+        ...latest,
         status: "applied",
         ...(result?.undoSnapshotId && { undoSnapshotId: result.undoSnapshotId }),
       };
@@ -346,6 +364,11 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         });
       else toast.success(`Plan aplicado: ${result?.applied ?? selected.length} operación(es)`);
     } catch (err) {
+      // PLAN_UNRESOLVED after inline edits: the api sends the re-resolved plan (new questions).
+      const details = (err as ApiRequestError).body?.error.details as
+        { plan?: unknown } | undefined;
+      if (err instanceof ApiRequestError && details?.plan)
+        adoptRecord(normalizePlanRecord(details.plan));
       patchRun({ status: "failed", error: errorMessage(err) });
     }
   },

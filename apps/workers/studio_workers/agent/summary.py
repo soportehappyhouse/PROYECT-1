@@ -1,13 +1,16 @@
-"""Reading the compact project summary the api sends (``project_summary``: a string).
+"""Reading the compact project summary the api sends (``project_summary``).
 
-The api builds it (apps/api/src/services/agent/summary.ts); the workers only need two things from
-it, and must survive any format change:
+The api builds it (apps/api/src/services/agent/summary.ts) in the dataset's JSON shape
+``{canvas, cursor_s, tracks: [{kind, clips: [{id, name, start, end}]}], scenes?, assets?,
+transcript_excerpt?}``; ``as_text`` renders it for the prompt as compact JSON (the same text the
+few-shot pairs of ``prompts/fewshot_es.jsonl`` and the dataset show the model). The workers only
+need two more things from it, and must survive any format change:
 
 - ``known_ids``: is an id the model wrote really in the project? (substring as a whole token, so
-  it works for JSON, YAML-ish or plain text summaries);
+  it works for JSON or plain text summaries);
 - ``clips``: the clips (id, name, track kind) for the deterministic router's "single candidate"
-  decisions. The api format (track lines ``- V1 video "…": n clips`` + clip lines
-  ``  1. id=c1 "playa.mp4" 0-12.5s``) is read line by line; JSON summaries are walked. When nothing
+  decisions. JSON summaries are walked; the older text format (track lines ``- V1 video "…": n
+  clips`` + clip lines ``  1. id=c1 "playa.mp4" 0-12.5s``) is still read line by line. When nothing
   can be read the router leaves the command to the LLM rather than guessing.
 """
 

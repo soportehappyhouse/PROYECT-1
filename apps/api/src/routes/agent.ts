@@ -13,13 +13,14 @@ import {
   type AgentPlanRecord,
   type AgentStatus,
   type Pack,
+  type Project,
 } from "@studio/shared";
 import type { FastifyPluginAsync } from "fastify";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { appendToReport, readAgentEval } from "../jobs/handlers/agent.js";
 import { errorBody, HttpError, PackRequiredError } from "../lib/errors.js";
-import { resolvePlan } from "../services/agent/resolve.js";
+import { resolvePlan, type ResolveContext } from "../services/agent/resolve.js";
 import { buildProjectSummary } from "../services/agent/summary.js";
 import { WorkersError } from "../services/workers-client.js";
 
@@ -102,6 +103,17 @@ function bugreportTemplate(req: {
 export const agentRoutes: FastifyPluginAsync = async (app) => {
   const { workers, queue, repos, config } = app.ctx;
   const notFound = () => errorBody("NOT_FOUND", "Plan no encontrado");
+  const resolveContext = (
+    project: Project,
+    cursor?: number,
+    assets = repos.media.list({ limit: 500 }),
+  ): ResolveContext => ({
+    project,
+    media: (id) => repos.media.get(id),
+    ...(cursor !== undefined && { cursor }),
+    presets: repos.presets.list(),
+    assets,
+  });
 
   app.post(API_ROUTES.agentPlan, async (req, reply) => {
     const body = AgentPlanRequestSchema.parse(req.body);
@@ -120,12 +132,16 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
       res = await workers.agentPlan({
         command: body.command,
         project_summary: summary,
-        settings: { temperature: 0.2, ...body.settings },
+        settings: {
+          model: config.agent.model,
+          temperature: config.agent.temperature,
+          ...body.settings,
+        },
       });
     } catch (err) {
       if (err instanceof WorkersError) {
         if (err.code === PACK_REQUIRED || err.packRequired || isOllamaError(err))
-          throw agentPackRequired(await packsP, body.settings?.model);
+          throw agentPackRequired(await packsP, body.settings?.model ?? config.agent.model);
         throw new HttpError(err.statusCode, err.code, err.message);
       }
       throw err;
@@ -158,11 +174,7 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
       };
     } else {
       const r = resolvePlan(validation.plan, {
-        project,
-        media,
-        ...(body.cursor !== undefined && { cursor: body.cursor }),
-        presets: repos.presets.list(),
-        assets,
+        ...resolveContext(project, body.cursor, assets),
         ...(packs && { packs }),
       });
       record = {
@@ -189,17 +201,49 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
 
   app.post(API_ROUTES.agentApply, async (req, reply) => {
     const body = AgentApplyRequestSchema.parse(req.body);
-    const record = repos.agentPlans.get(body.planId);
+    let record = repos.agentPlans.get(body.planId);
     if (!record) return reply.code(404).send(notFound());
     if (record.status === "rejected")
       throw new HttpError(409, "PLAN_REJECTED", "El plan fue descartado");
     if (!record.plan) throw new HttpError(409, "PLAN_INVALID", "El plan no es válido: pedí otro");
-    if (!repos.projects.get(record.projectId))
-      return reply.code(404).send(errorBody("NOT_FOUND", "Proyecto no encontrado"));
-    const total = record.plan.ops.length;
-    const ops = body.ops
-      ? [...new Set(body.ops)].sort((a, b) => a - b)
-      : record.plan.ops.map((_, i) => i);
+    const project = repos.projects.get(record.projectId);
+    if (!project) return reply.code(404).send(errorBody("NOT_FOUND", "Proyecto no encontrado"));
+    if (body.edited_ops) {
+      // Inline edits of the web: validate each op, resolve again on the current project and store
+      // them as the plan's final ops (agent.apply runs exactly what the user saw).
+      const current = record.plan;
+      if (body.edited_ops.length !== current.ops.length)
+        throw new HttpError(
+          400,
+          "BAD_REQUEST",
+          `edited_ops tiene ${body.edited_ops.length} operaciones y el plan ${current.ops.length}`,
+        );
+      const validation = validateEditPlan({ ...current, ops: body.edited_ops });
+      if (!validation.ok)
+        throw new HttpError(
+          400,
+          "PLAN_INVALID",
+          `Los cambios no son válidos: ${validation.errors.join("; ")}`,
+          { errors: validation.errors },
+        );
+      const packs = await workers.packs().catch(() => undefined);
+      const r = resolvePlan(validation.plan, {
+        ...resolveContext(project, body.cursor),
+        ...(packs && { packs }),
+      });
+      record =
+        repos.agentPlans.update(record.id, {
+          plan: validation.plan,
+          ...r,
+          ok: r.unresolved.length === 0 && validation.plan.ops.length > 0,
+          errors: [],
+          edited: true,
+        }) ?? record;
+      req.log.info({ plan: record.id, ok: record.ok }, "Plan del asistente editado");
+    }
+    const plan = record.plan!;
+    const total = plan.ops.length;
+    const ops = body.ops ? [...new Set(body.ops)].sort((a, b) => a - b) : plan.ops.map((_, i) => i);
     if (ops.length === 0) throw new HttpError(400, "BAD_REQUEST", "No hay operaciones confirmadas");
     const outOfRange = ops.filter((i) => i >= total);
     if (outOfRange.length)
@@ -210,7 +254,7 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
         409,
         "PLAN_UNRESOLVED",
         `Faltan datos en las operaciones ${pending.map((i) => i + 1).join(", ")}: respondé las preguntas o desmarcalas`,
-        { unresolved: record.unresolved },
+        { unresolved: record.unresolved, plan: record },
       );
     const active = queue.activeJob("agent.apply", (p) => p.projectId === record.projectId);
     if (active)
@@ -228,8 +272,9 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
       projectId: record.projectId,
       priority: 2,
     });
-    repos.agentPlans.update(record.id, { applyJobId: job.id });
-    return reply.code(202).send({ jobId: job.id });
+    const stored = repos.agentPlans.update(record.id, { applyJobId: job.id });
+    // `plan`: the stored record (with the re-resolved preview when edited_ops were sent).
+    return reply.code(202).send({ jobId: job.id, plan: stored });
   });
 
   app.get(API_ROUTES.agentPlans, async (req) => {
@@ -329,6 +374,7 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
         steps_text: body.steps_text,
         breadcrumbs: body.breadcrumbs,
         errors: body.errors,
+        ...(body.model && { model: body.model }),
         env: {
           platform: process.platform,
           arch: process.arch,
@@ -337,6 +383,8 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
         },
       });
       markdown = res.markdown_es.trim() || undefined;
+      // The workers fall back to their own template when the model is missing.
+      if (res.source === "template") source = "template";
     } catch (err) {
       req.log.warn({ err: String(err) }, "Asistente sin respuesta: plantilla de reporte");
     }

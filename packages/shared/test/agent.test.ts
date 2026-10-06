@@ -31,6 +31,8 @@ const FULL: EditPlanInput = {
     { op: "trim", clip: { name: "entrevista" }, in: "start", out: { scene: 3 } },
     { op: "delete_clip", clip: { id: "c1" } },
     { op: "set_speed", clip: { at: "cursor" }, speed: 2 },
+    { op: "set_volume", clip: { track: "audio", index: 1 }, volume_db: -12 },
+    { op: "move_clip", clip: { name: "intro" }, t: { after_clip: { index: -1 } } },
     {
       op: "add_text",
       text: "Hola",
@@ -57,11 +59,15 @@ const FULL: EditPlanInput = {
 
 describe("EditPlan schema (Sprint 3)", () => {
   it("accepts a plan with every op kind", () => {
-    const r = validateEditPlan(FULL);
-    expect(r.errors).toEqual([]);
-    expect(r.ok).toBe(true);
+    // EDIT_PLAN_MAX_OPS (20) < number of op kinds: validate the full list in two plans.
+    for (const ops of [FULL.ops.slice(0, 11), FULL.ops.slice(11)]) {
+      const r = validateEditPlan({ ...FULL, ops });
+      expect(r.errors).toEqual([]);
+      expect(r.ok).toBe(true);
+    }
+    expect(validateEditPlan(FULL).errors[0]).toMatch(/^ops: /);
     expect(new Set(FULL.ops.map((o) => o.op))).toEqual(new Set(EDIT_OP_NAMES));
-    expect(EDIT_OP_NAMES).toHaveLength(20);
+    expect(EDIT_OP_NAMES).toHaveLength(22);
   });
 
   it("accepts a questions-only plan and rejects an empty one", () => {
@@ -146,7 +152,7 @@ describe("EditPlan schema (Sprint 3)", () => {
     ]);
     expect(schema.required).toEqual(["version", "summary_es", "ops"]);
     const variants = schema.properties.ops.items.oneOf;
-    expect(variants).toHaveLength(20);
+    expect(variants).toHaveLength(22);
     for (const v of variants)
       for (const [key, prop] of Object.entries(v.properties))
         expect(prop.description, `${key} sin descripción`).toMatch(/[a-záéíóúñ]/i);

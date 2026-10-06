@@ -82,9 +82,11 @@ def load_catalog() -> dict[str, set[str]]:
     export = _read(SHARED / "export.ts")
     voice = _read(SHARED / "voice.ts")
     vision = _read(SHARED / "vision.ts")
+    subtitles = _read(SHARED / "subtitles.ts")
     cat = {
         "templates": set(ts_const_array(motion, "REMOTION_TEMPLATE_IDS")),
-        "caption_styles": set(ts_const_array(agent, "CAPTION_STYLE_IDS")),
+        "caption_styles": set(ts_const_array(subtitles, "CAPTION_STYLE_IDS"))
+        or set(ts_const_array(agent, "CAPTION_STYLE_IDS")),
         "voice_effects": set(ts_block_ids(voice, "VOICE_EFFECT_PRESETS")),
         "agent_voice_effects": set(ts_const_array(agent, "VOICE_EFFECT_IDS")),
         "presets": set(ts_block_ids(export, "DEFAULT_EXPORT_PRESETS"))
@@ -93,11 +95,6 @@ def load_catalog() -> dict[str, set[str]]:
         "track_aware": set(ts_const_array(vision, "TRACK_AWARE_TEMPLATES")),
         "voices": set(re.findall(r'CatalogVoice\(\s*"([^"]+)"', _read(PIPER_CATALOG))),
     }
-    if not cat[
-        "caption_styles"
-    ]:  # agent.ts not there yet: web presets are the same ids
-        web = _read(ROOT / "apps/web/src/stores/caption-style-store.ts")
-        cat["caption_styles"] = set(re.findall(r'\bid:\s*"([^"]+)"', web))
     return cat
 
 

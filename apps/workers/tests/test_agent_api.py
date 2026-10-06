@@ -83,6 +83,52 @@ def test_plan_llm(client, fake: FakeOllama) -> None:
     assert fake.chats[0]["options"]["temperature"] == 0.5
 
 
+API_SUMMARY = {  # the api's JSON shape (apps/api services/agent/summary.ts) = dataset rows
+    "canvas": {"w": 1920, "h": 1080, "fps": 30},
+    "cursor_s": 3,
+    "tracks": [
+        {"kind": "video", "clips": [{"id": "c1", "name": "playa.mp4", "start": 0, "end": 12.5}]},
+        {"kind": "audio", "clips": [{"id": "m1", "name": "musica.mp3", "start": 0, "end": 12.5}]},
+    ],
+}
+
+
+def test_plan_with_api_json_summary_uses_fewshot_and_env_temperature(
+    client, fake: FakeOllama, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The api sends the JSON summary; it reaches the prompt as compact JSON after the fixed
+    few-shot pairs of prompts/fewshot_es.jsonl; AGENT_TEMPERATURE is the default temperature."""
+    from studio_workers.agent.planner import fixed_examples
+
+    monkeypatch.setenv("AGENT_TEMPERATURE", "0.35")
+    services.reset()
+    monkeypatch.setattr(services, "ollama_client", fake.client)
+    fake.reply(TITLE_PLAN)
+    r = client.post(
+        "/agent/plan",
+        json={"command": "poné un título que diga Hola en el 3", "project_summary": API_SUMMARY},
+    )
+    assert r.status_code == 200, r.text
+    body = fake.chats[0]
+    assert body["options"]["temperature"] == 0.35
+    msgs = body["messages"]
+    fixed = fixed_examples()
+    assert len(fixed) == 8  # prompts/fewshot_es.jsonl is really used
+    for i, ex in enumerate(fixed):
+        assert msgs[1 + 2 * i]["content"].endswith(f"Pedido: {ex.command}")
+    last = msgs[-1]["content"]
+    assert '"tracks":[{"kind":"video","clips":[{"id":"c1","name":"playa.mp4"' in last
+    assert last.endswith("Pedido: poné un título que diga Hola en el 3")
+    # deterministic route with the same JSON: one audio clip -> set_volume by name
+    r = client.post(
+        "/agent/plan", json={"command": "bajá la música", "project_summary": API_SUMMARY}
+    )
+    assert r.json()["route"] == "deterministic"
+    assert r.json()["plan"]["ops"] == [
+        {"op": "set_volume", "clip": {"name": "musica"}, "volume_db": -12}
+    ]
+
+
 def test_plan_llm_unavailable_is_pack_required(client, fake: FakeOllama) -> None:
     fake.up = False
     r = client.post("/agent/plan", json={"command": "poné un título", "project_summary": ""})
@@ -125,6 +171,12 @@ def test_bugreport_template_when_no_model(client, fake: FakeOllama) -> None:
     assert f"{H_ACTUAL}\nApareció el error: EXPORT_FAILED ffmpeg exited with code 1" in md
     assert "- 12:00:01 nav abrió editor" in md and "- click export" in md
     assert "- gpu: RTX 4050" in md and "Plantilla automática" in md
+
+
+def test_bugreport_requested_model_missing_is_template(client, fake: FakeOllama) -> None:
+    r = client.post("/agent/bugreport", json={**REQ, "model": "no-existe:1b"}).json()
+    assert r["source"] == "template" and r["warning"] == "model_missing:no-existe:1b"
+    assert fake.chats == []
 
 
 def test_bugreport_template_when_ollama_down(client, fake: FakeOllama) -> None:

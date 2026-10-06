@@ -10,6 +10,7 @@ import {
   buildRoute,
   type AgentApplyResult,
   type AgentPlanRecord,
+  type AgentProjectSummary,
   type AgentStatus,
   type EditPlanInput,
   type ExportJobResult,
@@ -91,6 +92,8 @@ describe("agent routes and agent.apply (mocked workers)", () => {
             if (state.bugFail) return send(500, { detail: "boom" });
             return send(200, {
               markdown_es: `## ${String(json.title)}\n\n1. ${String(json.steps_text)}`,
+              // the workers' own template when the requested model is not installed
+              ...(json.model === "no-existe:1b" && { source: "template" }),
             });
           default:
             return send(404, { detail: "Not Found" });
@@ -208,9 +211,13 @@ describe("agent routes and agent.apply (mocked workers)", () => {
       expect(record.risks.join(" ")).toMatch(/nunca sobrescribe/);
       const sent = state.seen["/agent/plan"]!;
       expect(sent.command).toBe("dividí, título, vertical y exportá");
-      expect(String(sent.project_summary)).toContain('1. id=c1 "prueba lavfi.mp4" 0-4s (4s)');
-      expect(String(sent.project_summary)).toContain("cursor 1s");
-      expect(sent.settings).toEqual({ temperature: 0.2 });
+      // JSON summary (dataset shape) + defaults from .env (AGENT_MODEL / AGENT_TEMPERATURE).
+      const summary = sent.project_summary as AgentProjectSummary;
+      expect(summary.cursor_s).toBe(1);
+      expect(summary.tracks.find((t) => t.kind === "video")!.clips).toEqual([
+        { id: "c1", name: "prueba lavfi.mp4", start: 0, end: 4 },
+      ]);
+      expect(sent.settings).toEqual({ model: "qwen3:8b", temperature: 0.2 });
 
       const list = await app.inject({ url: `${API_ROUTES.agentPlans}?projectId=${projectId}` });
       expect(list.json<AgentPlanRecord[]>().map((p) => p.id)).toEqual([record.id]);
@@ -336,6 +343,67 @@ describe("agent routes and agent.apply (mocked workers)", () => {
     expect((job.result as AgentApplyResult).applied).toBe(1);
   });
 
+  it("edited_ops: validated, re-resolved (preview/risks) and stored before agent.apply; set_volume + move_clip", async () => {
+    state.plan = {
+      version: 1,
+      summary_es: "x",
+      ops: [
+        { op: "add_text", text: "Hola", t: 0.5 },
+        { op: "set_volume", clip: { name: "prueba" }, volume_db: -6 },
+        { op: "move_clip", clip: { index: 1, track: "video" }, t: 1 },
+      ],
+    };
+    const projectId = await makeProject();
+    const { record } = await propose(projectId);
+    expect(record.ok, JSON.stringify(record)).toBe(true);
+    expect(record.preview_es).toEqual([
+      "Agregar texto «Hola» en 0,5 s durante 3 s (abajo)",
+      "Volumen de «prueba lavfi.mp4»: -6 dB",
+      "Mover «prueba lavfi.mp4» a 1 s",
+    ]);
+    const edited = structuredClone(record.plan!.ops) as Record<string, unknown>[];
+
+    // invalid edit -> 400 with the Spanish path; wrong length -> 400
+    const bad = await post(API_ROUTES.agentApply, {
+      planId: record.id,
+      edited_ops: edited.map((o, i) => (i === 1 ? { ...o, volume_db: 99 } : o)),
+    });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json<{ error: { message: string } }>().error.message).toMatch(
+      /ops\[1\]\.volume_db: Demasiado grande/,
+    );
+    const short = await post(API_ROUTES.agentApply, {
+      planId: record.id,
+      edited_ops: edited.slice(1),
+    });
+    expect(short.statusCode).toBe(400);
+
+    edited[0] = { ...edited[0], text: "Chau", t: "cursor" };
+    const res = await post(API_ROUTES.agentApply, {
+      planId: record.id,
+      edited_ops: edited,
+      cursor: 2,
+    });
+    expect(res.statusCode, res.body).toBe(202);
+    const { jobId, plan } = res.json<{ jobId: string; plan: AgentPlanRecord }>();
+    expect(plan.edited).toBe(true);
+    expect(plan.plan!.ops[0]).toMatchObject({ text: "Chau", t: "cursor" });
+    expect(plan.resolved[0]).toMatchObject({ text: "Chau", t: 2 });
+    expect(plan.preview_es[0]).toBe("Agregar texto «Chau» en 2 s durante 3 s (abajo)");
+    expect(app.ctx.repos.agentPlans.get(record.id)!.preview_es[0]).toBe(plan.preview_es[0]);
+    const job = await jobEnd(jobId);
+    expect(job.status, job.error).toBe("succeeded");
+    expect((job.result as AgentApplyResult).applied).toBe(3);
+    const after = app.ctx.repos.projects.get(projectId)!;
+    expect(after.tracks.find((t) => t.kind === "text")!.clips[0]).toMatchObject({
+      text: "Chau",
+      start: 2,
+    });
+    const c1 = after.tracks.find((t) => t.kind === "video")!.clips[0]!;
+    expect(c1.start).toBe(1);
+    expect(c1.volume).toBeCloseTo(0.501, 3);
+  });
+
   it("invalid plans come back with Spanish errors and cannot be applied; reject works", async () => {
     state.plan = {
       version: 1,
@@ -415,6 +483,14 @@ describe("agent routes and agent.apply (mocked workers)", () => {
     });
     const md = readFileSync(path.join(storage, "reports", reportId, "reporte.md"), "utf8");
     expect(md).toContain("## Redactado por el asistente local\n\n## Export colgado");
+
+    const tpl = await post(API_ROUTES.agentBugreport, {
+      title: "X",
+      steps_text: "y",
+      model: "no-existe:1b",
+    });
+    expect(tpl.json<{ source: string }>().source).toBe("template");
+    expect(state.seen["/agent/bugreport"]).toMatchObject({ model: "no-existe:1b" });
 
     state.bugFail = true;
     const fb = await post(API_ROUTES.agentBugreport, {

@@ -1018,36 +1018,9 @@ await step(
   },
 );
 
-// Sprint 3: the assistant panel against a mocked /api/agent/* (no Ollama needed in CI).
-const AGENT_PLAN = {
-  id: "e2e-plan-1",
-  projectId: "e2e",
-  command: "Poné un título 'Hola' en el segundo 3 y exportá para TikTok",
-  status: "proposed",
-  created_at: new Date().toISOString(),
-  ok: true,
-  plan: {
-    version: 1,
-    summary_es: "Agrego el título «Hola» en el segundo 3 y exporto para TikTok.",
-    ops: [
-      { op: "add_text", text: "Hola", t: 3, duration_s: 3 },
-      { op: "export", preset: "reels-tiktok" },
-    ],
-  },
-  resolved: [
-    { op: "add_text", text: "Hola", t: 3, duration_s: 3 },
-    { op: "export", preset: "reels-tiktok" },
-  ],
-  preview_es: ["Texto «Hola» en 00:03 durante 3 s", "Exportar con «Reels / TikTok»"],
-  risks: ["La exportación escribe un archivo nuevo"],
-  unresolved: [],
-  errors: [],
-  model: "qwen3:8b",
-  route: "llm",
-  latency_ms: 1800,
-  warnings: [],
-};
-let agentJobPolls = 0;
+// Sprint 3: the assistant panel against the REAL api + workers (deterministic route: no Ollama
+// needed); only the questions flow mocks /api/agent/plan (a plan with questions).
+const agentPanel = () => page.locator("section[aria-label='Asistente']");
 const agentJson = (route, json, status = 200) =>
   route.fulfill({
     status,
@@ -1055,87 +1028,183 @@ const agentJson = (route, json, status = 200) =>
     headers: { "access-control-allow-origin": "*" },
     body: JSON.stringify(json),
   });
-async function mockAgentApi(p) {
-  await p.route(`${API}/api/agent/**`, (route) => {
-    const url = new URL(route.request().url());
-    if (route.request().method() === "OPTIONS")
-      return route.fulfill({
-        status: 204,
-        headers: {
-          "access-control-allow-origin": "*",
-          "access-control-allow-headers": "content-type",
-          "access-control-allow-methods": "GET,POST,PUT,DELETE",
-        },
-      });
-    if (url.pathname === "/api/agent/status")
-      return agentJson(route, {
-        workers: true,
-        ollama: true,
-        model: "qwen3:8b",
-        models_installed: ["qwen3:8b"],
-        ready: true,
-        gpu_mode: "gpu",
-        pack: { id: "agent-llm", installed: true },
-        hint_es: null,
-      });
-    if (url.pathname === "/api/agent/plans") return agentJson(route, []);
-    if (url.pathname === "/api/agent/plan") return agentJson(route, AGENT_PLAN, 201);
-    if (url.pathname === "/api/agent/apply")
-      return agentJson(route, { jobId: "e2e-agent-job" }, 202);
-    return agentJson(route, { error: { code: "NOT_FOUND", message: "mock" } }, 404);
-  });
-  await p.route(`${API}/api/jobs/e2e-agent-job`, (route) => {
-    agentJobPolls += 1;
-    const done = agentJobPolls > 2;
-    return agentJson(route, {
-      id: "e2e-agent-job",
-      type: "agent.apply",
-      status: done ? "succeeded" : "running",
-      progress: done ? 1 : 0.5,
-      message: done ? "Aplicadas 2/2 operaciones" : "op 2/2: Exportar con «Reels / TikTok»",
-      payload: {},
-      createdAt: new Date().toISOString(),
-      ...(done && { result: { applied: 2, undoSnapshotId: "e2e-snap", steps: [] } }),
-    });
-  });
-}
-
-await step("Sprint 3: Asistente opens with Ctrl+Shift+A and renders a mocked plan", async () => {
-  await mockAgentApi(page);
+async function openAssistant() {
   await page.keyboard.press("Escape");
   await page.mouse.click(5, 5);
   await page.keyboard.press("Control+Shift+A");
-  const panel = page.locator("section[aria-label='Asistente']");
+  const panel = agentPanel();
   await panel.waitFor({ timeout: 10_000 });
-  await panel.getByText("Listo", { exact: true }).waitFor({ timeout: 10_000 });
+  return panel;
+}
+async function proposeCommand(panel, command) {
   const input = panel.getByRole("textbox", { name: "Comando para el asistente" });
-  if (!(await input.evaluate((el) => el === document.activeElement)))
-    throw new Error("Ctrl+Shift+A did not focus the command input");
-  await input.fill(AGENT_PLAN.command);
+  await input.fill(command);
   await panel.getByRole("button", { name: /Proponer/ }).click();
-  const plan = panel.getByTestId("agent-plan");
-  await plan.waitFor({ timeout: 15_000 });
-  const ops = await panel.getByTestId("agent-op").count();
-  if (ops !== 2) throw new Error(`expected 2 ops, got ${ops}`);
-  if (!(await plan.innerText()).includes("La exportación escribe un archivo nuevo"))
-    throw new Error("risk not shown");
-  await shot(page, "s3-asistente-plan.png");
-  return { ops };
+}
+const agentState = {};
+
+await step(
+  "Sprint 3: Ctrl+Shift+A + real plan from the api (deterministic route, no LLM)",
+  async () => {
+    const panel = await openAssistant();
+    const status = panel.getByTestId("assistant-status");
+    await status.getByText(/^(Listo|Falta Ollama|Falta el modelo)$/).waitFor({ timeout: 15_000 });
+    const input = panel.getByRole("textbox", { name: "Comando para el asistente" });
+    if (!(await input.evaluate((el) => el === document.activeElement)))
+      throw new Error("Ctrl+Shift+A did not focus the command input");
+    await proposeCommand(panel, "poné el lienzo vertical");
+    const plan = panel.getByTestId("agent-plan");
+    await plan.waitFor({ timeout: 20_000 });
+    const ops = await panel.getByTestId("agent-op").count();
+    if (ops !== 1) throw new Error(`expected 1 op, got ${ops}`);
+    const text = await plan.innerText();
+    if (!/Lienzo \d+×\d+/.test(text)) throw new Error(`preview missing: ${text.slice(0, 200)}`);
+    const [record] = await apiJson("/api/agent/plans?limit=1");
+    if (record?.route !== "deterministic") throw new Error(`route ${record?.route}`);
+    agentState.record = record;
+    agentState.before = (await apiJson(`/api/projects/${record.projectId}`)).settings;
+    await shot(page, "s3-asistente-plan.png");
+    return { ops, route: record.route, status: (await status.innerText()).split("\n")[0] };
+  },
+);
+
+await step(
+  "Sprint 3: inline edit -> Aplicar (real agent.apply) -> re-resolved preview -> Deshacer todo",
+  async () => {
+    const panel = agentPanel();
+    const { record, before } = agentState;
+    if (!record) throw new Error("no plan from the previous step");
+    await panel.getByRole("combobox", { name: "Lienzo (Cambiar lienzo)" }).selectOption("1:1");
+    await panel.getByRole("button", { name: /Aplicar \(1\)/ }).click();
+    await panel.getByTestId("agent-run").waitFor({ timeout: 10_000 });
+    await panel.getByText(/Listo: 1 operación/).waitFor({ timeout: 30_000 });
+    const side = Math.min(before.width, before.height);
+    // the api resolved the edited op again: its preview replaces the 9:16 one
+    await panel.getByText(`Lienzo ${side}×${side}`).first().waitFor({ timeout: 5_000 });
+    const stored = await apiJson(`/api/agent/plans?projectId=${record.projectId}&limit=1`);
+    if (!stored[0]?.edited) throw new Error("the api did not store the edited ops");
+    const after = (await apiJson(`/api/projects/${record.projectId}`)).settings;
+    if (after.width !== side || after.height !== side)
+      throw new Error(`canvas after apply ${after.width}x${after.height}`);
+    await panel.getByRole("button", { name: /Deshacer todo/ }).click();
+    let back;
+    for (let i = 0; i < 40; i++) {
+      back = (await apiJson(`/api/projects/${record.projectId}`)).settings;
+      if (back.width === before.width && back.height === before.height) break;
+      await sleep(250);
+    }
+    if (back.width !== before.width || back.height !== before.height)
+      throw new Error(`undo left ${back.width}x${back.height}`);
+    return { applied: `${side}x${side}`, undone: `${back.width}x${back.height}` };
+  },
+);
+
+await step("Sprint 3: questions form -> answers -> the command is re-sent", async () => {
+  const sent = [];
+  const base = {
+    id: "e2e-q",
+    projectId: agentState.record?.projectId ?? "e2e",
+    status: "proposed",
+    created_at: new Date().toISOString(),
+    resolved: [],
+    preview_es: [],
+    risks: [],
+    unresolved: [],
+    errors: [],
+    model: "qwen3:8b",
+    route: "llm",
+    latency_ms: 900,
+    warnings: [],
+  };
+  await page.route(`${API}/api/agent/plan`, (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    const body = JSON.parse(route.request().postData() ?? "{}");
+    sent.push(body);
+    if (sent.length === 1)
+      return agentJson(
+        route,
+        {
+          ...base,
+          command: body.command,
+          ok: false,
+          plan: {
+            version: 1,
+            summary_es: "Falta el clip y el momento.",
+            ops: [],
+            questions: ["¿Qué clip corto y en qué segundo?"],
+          },
+        },
+        201,
+      );
+    const op = { op: "add_text", text: "Hola", t: 2 };
+    return agentJson(
+      route,
+      {
+        ...base,
+        id: "e2e-q2",
+        command: body.command,
+        ok: true,
+        plan: { version: 1, summary_es: "Texto en el segundo 2.", ops: [op] },
+        resolved: [op],
+        preview_es: ["Agregar texto «Hola» en 2 s durante 3 s (abajo)"],
+      },
+      201,
+    );
+  });
+  try {
+    const panel = await openAssistant();
+    await proposeCommand(panel, "Cortá el clip");
+    const form = panel.getByRole("form", { name: "Preguntas del asistente" });
+    await form.waitFor({ timeout: 10_000 });
+    await form.getByPlaceholder("Tu respuesta").fill("el primero, en el segundo 2");
+    await form.getByRole("button", { name: /Responder y volver a proponer/ }).click();
+    await panel
+      .getByText("Agregar texto «Hola» en 2 s durante 3 s (abajo)")
+      .waitFor({ timeout: 10_000 });
+    if (sent.length !== 2) throw new Error(`${sent.length} plan requests`);
+    if (
+      !/Respuestas: ¿Qué clip corto y en qué segundo\? → el primero, en el segundo 2/.test(
+        sent[1].command,
+      )
+    )
+      throw new Error(`re-sent command: ${sent[1].command}`);
+    return { resent: sent[1].command };
+  } finally {
+    await page.unroute(`${API}/api/agent/plan`);
+  }
 });
 
-await step("Sprint 3: Aplicar with a mocked api shows progress per op", async () => {
-  const panel = page.locator("section[aria-label='Asistente']");
-  await panel.getByRole("button", { name: /Aplicar \(2\)/ }).click();
-  const run = panel.getByTestId("agent-run");
-  await run.waitFor({ timeout: 10_000 });
-  await panel.getByText(/Listo: 2 operación/).waitFor({ timeout: 20_000 });
-  const done = await panel.getByLabel("Hecha").count();
-  if (done !== 2) throw new Error(`expected 2 ops done, got ${done}`);
-  await panel.getByRole("button", { name: /Deshacer todo/ }).waitFor();
-  await page.unroute(`${API}/api/agent/**`);
-  await page.unroute(`${API}/api/jobs/e2e-agent-job`);
-  return { polls: agentJobPolls, done };
-});
+await step(
+  "Sprint 3: PACK_REQUIRED (bogus model, real api/workers) -> «Paquete requerido» + Ollama",
+  async () => {
+    await page.evaluate(() =>
+      localStorage.setItem(
+        "studio.agent.v1",
+        JSON.stringify({ model: "no-existe:1b", temperature: 0.2 }),
+      ),
+    );
+    await page.reload({ waitUntil: "domcontentloaded" });
+    try {
+      const panel = await openAssistant();
+      await proposeCommand(panel, "poné un texto que diga Hola en el segundo 1");
+      const dialog = page.getByRole("dialog").filter({ hasText: "Paquete requerido" });
+      await dialog.waitFor({ timeout: 20_000 });
+      const text = await dialog.innerText();
+      if (!/Ollama/.test(text) || !/no-existe:1b/.test(text))
+        throw new Error(`dialog: ${text.slice(0, 300)}`);
+      await shot(page, "s3-asistente-ollama.png");
+      await page.keyboard.press("Escape");
+      return {
+        hint: text
+          .split("\n")
+          .find((l) => /Ollama/.test(l))
+          ?.slice(0, 120),
+      };
+    } finally {
+      await page.evaluate(() => localStorage.removeItem("studio.agent.v1"));
+    }
+  },
+);
 
 await browser.close();
 console.log(

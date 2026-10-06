@@ -23,6 +23,8 @@ detectá escenas             detect_scenes {}  ("…y cortá" / "dividí por esc
 limpiá el audio / el ruido  denoise {clip}    (only when the project has ONE candidate clip)
 quitá el fondo              remove_background {clip, background: color} (desenfocá -> blur)
 poné la etiqueta IA         set_publish {for_social: true, ai_label: true} (sacá -> false)
+bajá / subí la música       set_volume {clip, volume_db: -12 | +6 | "a -6 dB"} (silenciá -> -60)
+mové el texto al segundo 5  move_clip {clip, t} (texto / cartel / música; inicio, cursor, 1:20)
 ==========================  =================================================================
 """
 
@@ -324,6 +326,70 @@ AI_LABEL_RX = (
 )
 
 
+MUSIC = r"(?:la )?(?:musica|cancion)(?: de fondo)?"
+DB = r"(?P<{}>[-+]?\d{{1,2}}) ?(?:db|decibeles?)"
+VOLUME_RX = (
+    rf"(?P<down>{_v('baj')})(?: (?:el )?(?:volumen|sonido))?(?: (?:a|de))? {MUSIC}"
+    rf"(?: (?:a|en|unos) {DB.format('db')}| (?:al )?(?:fondo|minimo)| un poco)?"
+    rf"|(?P<up>{_vi('sub')})(?: (?:el )?(?:volumen|sonido))?(?: (?:a|de))? {MUSIC}"
+    rf"(?: (?:a|en|unos) {DB.format('db2')}| un poco)?"
+    rf"|(?P<mute>{_v('silenci', 'mute', 'mut')}) {MUSIC}"
+    rf"|(?:{_v('sac', 'quit')})(?:le)? (?:el )?(?:sonido|volumen) a {MUSIC}"
+)
+
+
+def _volume(m: re.Match[str], s: str) -> tuple[list[Op], list[str]] | None:
+    clip = _single_clip(s, ("audio",))
+    if clip is None:
+        return None
+    if isinstance(clip, list):
+        return [], [_which_clip_q("le cambio el volumen", clip)]
+    db_text = m.group("db") or m.group("db2")
+    if m.group("mute") or not (m.group("down") or m.group("up")):
+        db = -60.0
+    elif db_text:
+        db = abs(float(db_text)) * (1 if m.group("up") else -1)
+    else:
+        db = 6.0 if m.group("up") else -12.0
+    db = max(-60.0, min(12.0, db))
+    return [{"op": "set_volume", "clip": clip, "volume_db": int(db) if db.is_integer() else db}], []
+
+
+def _volume_label(m: re.Match[str]) -> str:
+    if m.group("mute") or not (m.group("down") or m.group("up")):
+        return "Silenciar la música."
+    return "Subir la música." if m.group("up") else "Bajar la música."
+
+
+MOVE_OBJ = {"el texto": ("text",), "el cartel": ("text",), "la musica": ("audio",)}
+MOVE_RX = (
+    rf"{_v('mov', 'llev', 'corr', 'pas')}(?: (?P<obj>el texto|el cartel|la musica))"
+    r" (?:al|a|hasta el|hasta|para el) ?(?:"
+    r"(?P<start>inicio|principio|comienzo)"
+    r"|(?P<cursor>cursor|donde esta el cursor|cabezal)"
+    r"|(?:segundo )?(?P<mm>\d{1,2}):(?P<ss>\d{2})"
+    r"|segundo (?P<sec>\d{1,4})|los (?P<sec2>\d{1,4}) segundos)"
+)
+
+
+def _move(m: re.Match[str], s: str) -> tuple[list[Op], list[str]] | None:
+    clip = _single_clip(s, MOVE_OBJ[m.group("obj")])
+    if clip is None:
+        return None
+    if isinstance(clip, list):
+        return [], [_which_clip_q("muevo", clip)]
+    t: Any
+    if m.group("start"):
+        t = "start"
+    elif m.group("cursor"):
+        t = "cursor"
+    elif m.group("mm"):
+        t = int(m.group("mm")) * 60 + int(m.group("ss"))
+    else:
+        t = int(m.group("sec") or m.group("sec2"))
+    return [{"op": "move_clip", "clip": clip, "t": t}], []
+
+
 def _label(text: str) -> Callable[[re.Match[str]], str]:
     return lambda _m: text
 
@@ -374,6 +440,8 @@ RULES: list[Rule] = [
             "Desenfocar el fondo." if (m.group("blur") or m.group("blur2")) else "Quitar el fondo."
         ),
     ),
+    Rule("set_volume", _rx(VOLUME_RX), _volume, _volume_label),
+    Rule("move_clip", _rx(MOVE_RX), _move, _label("Mover el clip.")),
     Rule(
         "ai_label",
         _rx(AI_LABEL_RX),

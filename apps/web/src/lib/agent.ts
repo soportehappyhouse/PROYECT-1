@@ -24,6 +24,8 @@ export const OP_LABELS: Record<EditOpKind, string> = {
   trim: "Recortar clip",
   delete_clip: "Eliminar clip",
   set_speed: "Cambiar velocidad",
+  set_volume: "Cambiar volumen",
+  move_clip: "Mover clip",
   add_text: "Agregar texto",
   add_motion: "Agregar motion graphic",
   add_captions: "Agregar subtítulos",
@@ -199,6 +201,8 @@ const OP_PARAMS: Partial<Record<EditOpKind, readonly ParamSpec[]>> = {
     { key: "out", label: "Hasta", kind: "time" },
   ],
   set_speed: [{ key: "speed", label: "Velocidad", kind: "number", step: 0.25, min: 0.1 }],
+  set_volume: [{ key: "volume_db", label: "Volumen (dB)", kind: "number", step: 1 }],
+  move_clip: [{ key: "t", label: "A", kind: "time" }],
   cut_silences: [
     { key: "min_silence_ms", label: "Silencio mínimo (ms)", kind: "number", step: 50, min: 100 },
   ],
@@ -261,10 +265,16 @@ export function buildApplyRequest(
   original: readonly EditOp[],
   edited: readonly EditOp[],
   enabled: readonly boolean[],
+  cursor?: number,
 ): AgentApplyRequest {
   const ops = edited.map((_, i) => i).filter((i) => enabled[i]);
   const changed = edited.some((op, i) => JSON.stringify(op) !== JSON.stringify(original[i]));
-  return { planId, ops, ...(changed && { edited_ops: [...edited] }) };
+  return {
+    planId,
+    ops,
+    ...(changed && { edited_ops: [...edited] }),
+    ...(changed && cursor !== undefined && { cursor }),
+  };
 }
 
 /** The questions form re-sends the command with the answers appended. */

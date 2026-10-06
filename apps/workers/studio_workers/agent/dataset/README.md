@@ -16,9 +16,12 @@ Ejemplos `pedido en español → EditPlan` para el agente local (Fase D, sprint 
 {"id": "g001", "command": "…", "project_summary": {…}, "plan": {EditPlan}, "tags": ["…"]}
 ```
 
-- `project_summary`: `{canvas: {w, h, fps}, cursor_s, tracks: [{kind, clips: [{id, name, start, end}]}],
-  scenes?: [{n, start}], assets?: [{id, name, kind}], transcript_excerpt?: [{start, end, text}]}`.
-  Los workers lo reciben como texto: `summary.as_text()` lo serializa a JSON compacto.
+- `project_summary`: `{canvas, cursor_s, tracks, scenes?, assets?, transcript_excerpt?}` con
+  `canvas = {w, h, fps}`, `tracks = [{kind, clips: [{id, name, start, end}]}]`,
+  `scenes = [{n, start}]`, `assets = [{id, name, kind}]` y
+  `transcript_excerpt = [{start, end, text}]`.
+  La API manda este mismo JSON (`apps/api/src/services/agent/summary.ts`, ≤ 1500 tokens) y los
+  workers lo pegan en el prompt con `summary.as_text()` (JSON compacto).
 - `plan`: un `EditPlan` válido contra `apps/workers/studio_workers/agent/editplan.schema.json`.
 - `tags`: etiquetas a mano (`ambiguo`, `fuera_de_alcance`, `typo`, `reels`, `subtitulos`, …) más
   etiquetas derivadas del plan (`op:<op>`, `time:<forma>`, `ref:<campo>`, `multi_op`, `questions`,
@@ -50,14 +53,15 @@ Convenciones que siguen todos los planes (y que el prompt enseña):
 - Ops con clip opcional (`cut_silences`, `detect_scenes`, `add_captions`, `transcribe`) omiten
   `clip` cuando el pedido se refiere al video principal.
 - `delete_clip` y `export` llevan siempre `"confirm": true`; el resto usa el valor por defecto.
-- "De fondo" / "bajita" = `volume_db: -12`; "que baje cuando hablo" = `duck: true`.
+- "De fondo" / "bajita" / "bajá la música" = `volume_db: -12`; "silenciá" = `set_volume` con
+  `volume_db: -60`; "que baje cuando hablo" = `duck: true`.
+- `set_volume` cambia el volumen de un clip que ya está; `move_clip` cambia su inicio (`t`).
 - `add_captions`: `style` solo si el usuario lo pide; `animated: true` para palabra a palabra,
   TikTok, reels o karaoke.
 - "Título" → `title-card`; "rótulo / lower third" → `lower-third`; "texto / cartel" → `add_text`.
 - **Preguntas**: `ops: []` + `questions` cuando falta un dato (clip, momento, texto) o hay varios
   candidatos; ops claras + `questions` cuando solo falta una parte. **Fuera de alcance** (cambio de
-  cara, publicar en redes, color/LUT, estabilizar, traducir, volumen de un clip existente, mover
-  clips…): `ops: []` y una pregunta que explica qué no se puede y ofrece una alternativa real.
+  cara, publicar en redes, color/LUT, estabilizar, traducir…): `ops: []` y una pregunta que explica qué no se puede y ofrece una alternativa real.
 
 ## Cómo extenderlo
 
@@ -79,6 +83,7 @@ Convenciones que siguen todos los planes (y que el prompt enseña):
    catálogo Piper, revisa la cobertura del golden (cada op ≥ 2, todas las formas de Time y
    ClipRef, ≥ 8 ambiguos, ≥ 5 multi-op, ≥ 5 con typos, ≥ 5 fuera de alcance) y muestra
    estadísticas por op y por tag. Sale con código ≠ 0 si hay errores.
+
 4. Si cambia el esquema (op nueva, campo nuevo), actualizá `prompts/system_es.md` (el validador
    exige que nombre todas las ops), agregá ≥ 2 ejemplos golden y varios de train con la op nueva.
 

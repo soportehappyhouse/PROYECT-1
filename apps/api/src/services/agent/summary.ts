@@ -1,10 +1,11 @@
-import type { Clip, MediaAsset, Project, Track } from "@studio/shared";
+import type { AgentProjectSummary, Clip, MediaAsset, Project } from "@studio/shared";
 
 /**
  * Sprint 3: compact, deterministic project summary sent to the local LLM as `project_summary`
- * (docs/trabajo/sprint3-contratos.md: ≤ ~1500 tokens — canvas, tracks, clips with id/name/duration,
- * scenes, assets, first 10 transcript lines, cursor). Plain text lines in Spanish; same input →
- * same text (tracks in project order, clips by start then id, assets by name then id).
+ * (docs/trabajo/sprint3-contratos.md: ≤ ~1500 tokens). Same JSON shape as the dataset rows
+ * (AgentProjectSummary: canvas, cursor_s, tracks with clips {id, name, start, end}, scenes, assets,
+ * first transcript lines); the workers render it as prompt text (`summary.as_text`). Same input →
+ * same JSON (tracks in project order, clips by start then id, assets used first then by name).
  */
 
 export const SUMMARY_MAX_CHARS = 6000; // ≈ 1500 tokens (≈ 4 chars/token)
@@ -92,83 +93,47 @@ export function timelineScenes(project: Pick<Project, "tracks">, media: MediaLoo
   return [...out].sort((a, b) => a - b);
 }
 
-function aspectLabel(w: number, h: number): string {
-  const r = w / h;
-  const known: [string, number][] = [
-    ["16:9", 16 / 9],
-    ["9:16", 9 / 16],
-    ["1:1", 1],
-    ["4:5", 4 / 5],
-    ["4:3", 4 / 3],
-  ];
-  const hit = known.find(([, v]) => Math.abs(v - r) < 0.01);
-  return hit ? hit[0] : `${w}:${h}`;
-}
-
-function clipLine(clip: Clip, index: number, media: MediaLookup): string {
-  const parts = [
-    `${index}. id=${clip.id}`,
-    `"${clipLabel(clip, media)}"`,
-    `${sec(clip.start)}-${sec(clipEnd(clip))}s (${sec(clipDuration(clip))}s)`,
-  ];
-  if ((clip.speed || 1) !== 1) parts.push(`x${clip.speed}`);
-  if (clip.volume === 0) parts.push("mudo");
-  if (clip.matte) parts.push("fondo-quitado");
-  if (clip.trackRef) parts.push("sigue-objeto");
-  if (clip.voiceEffects?.length) parts.push(`efectos:${clip.voiceEffects.map((e) => e.type)}`);
-  if (clip.motion && !clip.renderedAssetId) parts.push("sin-render");
-  return `  ${parts.join(" ")}`;
-}
-
-function trackBlock(track: Track, code: string, media: MediaLookup): string[] {
-  const flags = [track.muted && "silenciada", track.locked && "bloqueada", track.hidden && "oculta"]
-    .filter(Boolean)
-    .join(",");
-  const clips = sortClips(track.clips);
-  const head = `- ${code} ${track.kind} "${clean(track.name, 30)}"${flags ? ` [${flags}]` : ""}: ${
-    clips.length
-  } clip${clips.length === 1 ? "" : "s"}`;
-  const lines = [head];
-  clips.slice(0, MAX_CLIPS_PER_TRACK).forEach((c, i) => lines.push(clipLine(c, i + 1, media)));
-  if (clips.length > MAX_CLIPS_PER_TRACK)
-    lines.push(`  … y ${clips.length - MAX_CLIPS_PER_TRACK} clips más`);
-  return lines;
-}
+const r2 = (t: number) => Math.round(t * 100) / 100;
 
 export interface SummaryOptions {
-  /** Playhead in seconds (Time "cursor"). */
+  /** Playhead in seconds (Time "cursor"; 0 when unknown). */
   cursor?: number;
   /** Assets of the library to list (default: the ones used by the project). */
   assets?: readonly MediaAsset[];
+  /** Budget of the serialized JSON (default SUMMARY_MAX_CHARS ≈ 1500 tokens). */
   maxChars?: number;
 }
 
-/** Build the compact summary (see module doc). */
+/** Size the workers paste in the prompt (summary.as_text = compact JSON). */
+export const summaryChars = (s: AgentProjectSummary) => JSON.stringify(s).length;
+
+/**
+ * Build the compact summary (see module doc) in the dataset's JSON shape. Over budget, it trims in
+ * this order: transcript lines, unused assets, all assets, scenes, then the last clips of the
+ * longest tracks (clips are what the model needs most to reference things).
+ */
 export function buildProjectSummary(
   project: Project,
   media: MediaLookup,
   opts: SummaryOptions = {},
-): string {
+): AgentProjectSummary {
   const { width, height, fps } = project.settings;
-  const lines: string[] = [];
-  lines.push(
-    `PROYECTO "${clean(project.name, 60)}" · lienzo ${width}x${height} (${aspectLabel(width, height)}) · ${fps} fps · duración ${sec(projectDuration(project))}s · cursor ${
-      opts.cursor !== undefined ? `${sec(opts.cursor)}s` : "desconocido"
-    }`,
-  );
-  const codes = trackCodes(project);
-  lines.push("PISTAS (clips por orden de inicio; tiempos en segundos de la línea de tiempo):");
-  for (const t of project.tracks) lines.push(...trackBlock(t, codes.get(t.id)!, media));
+  const max = opts.maxChars ?? SUMMARY_MAX_CHARS;
+  const tracks = project.tracks.map((t) => ({
+    kind: t.kind,
+    clips: sortClips(t.clips)
+      .slice(0, MAX_CLIPS_PER_TRACK)
+      .map((c) => ({
+        id: c.id,
+        name: clipLabel(c, media),
+        start: r2(c.start),
+        end: r2(clipEnd(c)),
+      })),
+  }));
 
-  const scenes = timelineScenes(project, media);
-  lines.push(
-    scenes.length
-      ? `ESCENAS: ${scenes
-          .slice(0, MAX_SCENES)
-          .map((s, i) => `${i + 1}@${sec(s)}`)
-          .join(" ")}${scenes.length > MAX_SCENES ? ` … (${scenes.length})` : ""}`
-      : "ESCENAS: sin detectar",
-  );
+  const scenes = timelineScenes(project, media)
+    .slice(0, MAX_SCENES)
+    .map((start, i) => ({ n: i + 1, start: r2(start) }));
 
   const used = new Set(project.tracks.flatMap((t) => t.clips.map((c) => c.assetId ?? "")));
   const pool = (opts.assets ?? [...used].map((id) => (id ? media(id) : undefined)))
@@ -177,37 +142,44 @@ export function buildProjectSummary(
       (a, b) =>
         Number(used.has(b.id)) - Number(used.has(a.id)) ||
         (a.name < b.name ? -1 : a.name > b.name ? 1 : a.id < b.id ? -1 : 1),
-    );
-  lines.push(
-    pool.length
-      ? `ARCHIVOS: ${pool
-          .slice(0, MAX_ASSETS)
-          .map(
-            (a) =>
-              `${a.kind} "${clean(a.name, 40)}" id=${a.id}${a.durationSec ? ` ${sec(a.durationSec)}s` : ""}${
-                used.has(a.id) ? "" : " (sin usar)"
-              }`,
-          )
-          .join(" · ")}${pool.length > MAX_ASSETS ? ` … (${pool.length})` : ""}`
-      : "ARCHIVOS: ninguno",
-  );
+    )
+    .slice(0, MAX_ASSETS);
+  let assets = pool.map((a) => ({ id: a.id, name: clean(a.name, 60), kind: a.kind }));
 
-  const subs = [...project.subtitles].sort((a, b) => a.start - b.start);
-  if (subs.length) {
-    lines.push(`TRANSCRIPCIÓN (${subs.length} segmentos; primeras ${MAX_TRANSCRIPT_LINES}):`);
-    for (const s of subs.slice(0, MAX_TRANSCRIPT_LINES))
-      lines.push(`  [${sec(s.start)}-${sec(s.end)}] ${clean(s.text, 90)}`);
-  } else lines.push("TRANSCRIPCIÓN: no hay");
+  let transcript = [...project.subtitles]
+    .sort((a, b) => a.start - b.start)
+    .slice(0, MAX_TRANSCRIPT_LINES)
+    .map((s) => ({ start: r2(s.start), end: r2(s.end), text: clean(s.text, 90) }));
 
-  const pub = project.publish;
-  lines.push(
-    `ESTADO: subtítulos-quemados=${project.burnSubtitles ?? "auto"} · reencuadre=${
-      project.reframe ? project.reframe.target : "no"
-    } · para-redes=${pub?.forSocial ? "sí" : "no"} · etiqueta-IA=${pub?.aiLabel ? "sí" : "no"}`,
-  );
+  let sceneList = scenes;
+  const build = (): AgentProjectSummary => ({
+    canvas: { w: width, h: height, fps },
+    cursor_s: r2(opts.cursor ?? 0),
+    tracks,
+    ...(sceneList.length && { scenes: sceneList }),
+    ...(assets.length && { assets }),
+    ...(transcript.length && { transcript_excerpt: transcript }),
+  });
 
-  let text = lines.join("\n");
-  const max = opts.maxChars ?? SUMMARY_MAX_CHARS;
-  if (text.length > max) text = `${text.slice(0, max - 20).trimEnd()}\n… (resumen recortado)`;
-  return text;
+  let out = build();
+  while (summaryChars(out) > max && transcript.length) {
+    transcript = transcript.slice(0, -1);
+    out = build();
+  }
+  while (summaryChars(out) > max && assets.length) {
+    const unused = assets.findLastIndex((a) => !used.has(a.id));
+    assets = assets.filter((_, i) => i !== (unused >= 0 ? unused : assets.length - 1));
+    out = build();
+  }
+  if (summaryChars(out) > max) {
+    sceneList = sceneList.slice(0, 5);
+    out = build();
+  }
+  while (summaryChars(out) > max) {
+    const longest = tracks.reduce((a, b) => (b.clips.length > a.clips.length ? b : a));
+    if (longest.clips.length <= 1) break;
+    longest.clips = longest.clips.slice(0, -1);
+    out = build();
+  }
+  return out;
 }

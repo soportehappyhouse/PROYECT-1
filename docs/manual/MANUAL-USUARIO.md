@@ -1128,8 +1128,10 @@ En **Ajustes → Paquetes de IA → Test de rendimiento IA** Studio mide en tu P
 Whisper, Piper, RVC, la detección de escenas y, con el paquete **matting**, el recorte de personas,
 y guarda el resultado. La tabla muestra cada velocidad y al lado los **tiempos estimados**, por
 ejemplo _Transcribir 10 min de audio ≈ 25 s_ o _Detectar escenas en 10 min a 30 fps ≈ 1 min_. La
-fila **Recorte de personas ≈ X fps (meta 15)** mide un clip 1080p de 5 s y dice la precisión (fp16
-en GPU, fp32 en CPU) y la reducción interna usada. Volvé a correrlo si cambiás de placa o de driver.
+fila **Recorte de personas ≈ X fps sostenido (arranque Y s) · meta 15** mide un clip 1080p de 5 s:
+la velocidad una vez en marcha y, aparte, lo que tarda en arrancar (cargar la IA, la primera
+tanda); abajo dice la precisión (fp16 en GPU, fp32 en CPU), la reducción interna, los fps de
+punta a punta y qué etapa limita. Volvé a correrlo si cambiás de placa o de driver.
 
 ### 17.4 Quitar silencios y muletillas
 
@@ -1317,6 +1319,7 @@ siquiera pasan por la IA: las reconoce una regla directa y responden al instante
 | _Subtítulos animados estilo Reels_                     | Transcribir y agregar subtítulos con estilo                                 |
 | _Leé este texto con voz de robot_                      | Texto a voz, efectos de voz, limpiar voz                                    |
 | _Agregá música alegre de fondo bajita_                 | Audio de la biblioteca (con volumen y ducking)                              |
+| _Bajá la música_ · _mové el texto al segundo 5_        | Cambiar el volumen de un clip (o silenciarlo) y moverlo a otro momento      |
 | _Quitá el fondo y poné uno azul_                       | Quitar fondo                                                                |
 | _Pasalo a vertical siguiendo la cara_                  | Reencuadrar a 9:16, 1:1 o 4:5; cambiar el lienzo                            |
 | _Exportá para TikTok_                                  | Exportar con el preset que corresponde (siempre pide confirmar)             |
@@ -1334,7 +1337,9 @@ siquiera pasan por la IA: las reconoce una regla directa y responden al instante
    usa IA y puede tardar). Los **riesgos** generales aparecen en rojo arriba.
 4. Corregí lo que haga falta **sin volver a escribir**: el texto, el momento (`3`, `3,5`,
    `inicio`, `final` o `cursor`), la duración, el preset, la plantilla o el estilo se editan en
-   la misma lista. Destildá las operaciones que no quieras.
+   la misma lista (también el volumen o el momento al que se mueve un clip). Destildá las
+   operaciones que no quieras. Al tocar **Aplicar**, Studio vuelve a revisar lo que cambiaste y
+   actualiza la descripción de cada operación; si algo ya no se puede ubicar, te lo pregunta.
 5. Si el asistente **pregunta** algo (por ejemplo _¿Qué clip querés cortar?_), respondé en el
    formulario y tocá **Responder y volver a proponer**.
 6. **Aplicar** ejecuta solo lo tildado, en orden, con una barra de progreso y una marca por
@@ -1369,6 +1374,8 @@ Atajos del asistente:
   **Descargar modelo** baja el paquete `agent-llm` (~5 GB, una sola vez) con su progreso en
   **Trabajos**.
 - **Temperatura**: más baja = respuestas más predecibles (recomendado 0,2).
+- Si no elegís nada, se usan los valores de `.env`: `AGENT_MODEL` (modelo), `AGENT_TEMPERATURE`
+  y `OLLAMA_URL` (dónde escucha Ollama, normalmente `http://127.0.0.1:11434`).
 - **Evaluar modelos**: corre 50 comandos de prueba con cada modelo instalado y muestra una tabla
   con **Válido %** (el plan es correcto como formato), **Correcto %** (hace lo pedido) y la
   **latencia p50**. Sirve para elegir el mejor modelo para tu PC.

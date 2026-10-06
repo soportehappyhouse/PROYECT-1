@@ -28,12 +28,19 @@ export type {
 } from "@studio/shared";
 
 /**
- * POST /api/agent/apply. `edited_ops` (additive): the ops with the params the user edited inline,
- * same order as plan.ops; the api validates them again before running.
- * TODO(integration): confirm the api honors `edited_ops` (AgentApplyRequestSchema strips it today).
+ * POST /api/agent/apply. `edited_ops`: the ops with the params the user edited inline, same order
+ * as plan.ops; the api validates them, resolves them again (new preview_es / risks), stores them
+ * as the plan's final ops and answers `{jobId, plan}` with the re-resolved record.
  */
-export interface AgentApplyRequest extends SharedApplyRequest {
+export interface AgentApplyRequest extends Omit<SharedApplyRequest, "edited_ops"> {
   edited_ops?: EditOp[];
+}
+
+/** 202 of POST /api/agent/apply. */
+export interface AgentApplyAccepted {
+  jobId: string;
+  /** Stored record (re-resolved when edited_ops were sent). */
+  plan?: unknown;
 }
 
 /** Per-model metrics of the eval (storage/run/agent-eval.json). */

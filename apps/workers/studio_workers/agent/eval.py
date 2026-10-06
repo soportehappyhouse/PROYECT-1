@@ -40,6 +40,8 @@ KEY_ARGS: dict[str, tuple[str, ...]] = {
     "trim": ("clip", "in", "out"),
     "delete_clip": ("clip",),
     "set_speed": ("clip", "speed"),
+    "set_volume": ("clip", "volume_db"),
+    "move_clip": ("clip", "t"),
     "add_text": ("text", "t"),
     "add_motion": ("template", "t"),
     "add_captions": ("animated", "style"),

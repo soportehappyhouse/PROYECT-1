@@ -1,6 +1,7 @@
-import type { AgentPlanRequest, JobAccepted, Project } from "@studio/shared";
+import type { AgentPlanRequest, Project } from "@studio/shared";
 import {
   AGENT_ROUTES,
+  type AgentApplyAccepted,
   type AgentApplyRequest,
   type AgentBugreportRequest,
   type AgentBugreportResponse,
@@ -52,7 +53,7 @@ export const agentApi = {
     normalizePlanRecord(await apiFetch<unknown>(AGENT_ROUTES.plan, { method: "POST", json: body })),
   /** Job agent.apply (lane edit); result {applied, failed?, undoSnapshotId}. */
   apply: (body: AgentApplyRequest) =>
-    apiFetch<JobAccepted>(AGENT_ROUTES.apply, { method: "POST", json: body }),
+    apiFetch<AgentApplyAccepted>(AGENT_ROUTES.apply, { method: "POST", json: body }),
   plans: async (projectId?: string) =>
     listOf<unknown>(
       await apiFetch<unknown>(AGENT_ROUTES.plans, { query: { projectId, limit: 50 } }),

@@ -379,6 +379,41 @@ function resolveInner(op: EditOp, ctx: Ctx): Out {
         risks,
       };
     }
+    case "set_volume": {
+      const l = resolveClip(op.clip, ctx, {
+        what: "para cambiar el volumen",
+        filter: hasAudio,
+        need: "con audio",
+      });
+      if (l.track.locked) risks.push(`La pista «${l.track.name}» está bloqueada: va a fallar.`);
+      const level =
+        op.volume_db <= -60
+          ? "silenciado"
+          : `${op.volume_db > 0 ? "+" : ""}${String(op.volume_db).replace(".", ",")} dB`;
+      return {
+        op: { ...op, clip: ref(l) },
+        preview: `Volumen de ${label(l)}: ${level}`,
+        risks,
+      };
+    }
+    case "move_clip": {
+      const l = resolveClip(op.clip, ctx, { what: "para mover" });
+      const t = seconds(op.t, ctx, "del nuevo inicio");
+      const end = t + clipDuration(l.clip);
+      const hit = l.track.clips.find(
+        (c) => c.id !== l.clip.id && c.start < end - 1e-3 && clipEnd(c) > t + 1e-3,
+      );
+      if (hit)
+        risks.push(
+          `En ${fmtSec(t)} se superpone con «${clipLabel(hit, media)}»: va a una pista libre.`,
+        );
+      if (l.track.locked) risks.push(`La pista «${l.track.name}» está bloqueada: va a fallar.`);
+      return {
+        op: { ...op, clip: ref(l), t },
+        preview: `Mover ${label(l)} a ${fmtSec(t)}`,
+        risks,
+      };
+    }
     case "add_text": {
       const t = seconds(op.t, ctx, "del texto");
       const dur = op.duration_s ?? 3;
@@ -654,6 +689,8 @@ const TITLES: Record<EditOp["op"], string> = {
   trim: "Recortar clip",
   delete_clip: "Borrar clip",
   set_speed: "Cambiar velocidad",
+  set_volume: "Cambiar volumen",
+  move_clip: "Mover clip",
   add_text: "Agregar texto",
   add_motion: "Agregar motion",
   add_captions: "Agregar subtítulos",

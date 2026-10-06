@@ -81,6 +81,17 @@ export const VOICE_EFFECT_PRESETS: readonly { id: string; name: string; effects:
         { type: "loudnorm", integrated: -16, truePeak: -1.5, lra: 11, twoPass: true },
       ],
     },
+    {
+      id: "monstruo",
+      name: "Monstruo",
+      effects: [
+        { type: "pitch", semitones: -10 },
+        { type: "reverb", roomSize: 0.6, wet: 0.35 },
+      ],
+    },
+    { id: "catedral", name: "Catedral", effects: [{ type: "reverb", roomSize: 0.9, wet: 0.5 }] },
+    { id: "bajo-agua", name: "Bajo el agua", effects: [{ type: "underwater" }] },
+    { id: "megafono", name: "Megáfono", effects: [{ type: "megaphone" }] },
   ];
 
 export const TtsProviderSchema = z.enum(["piper", "elevenlabs", "openai"]);

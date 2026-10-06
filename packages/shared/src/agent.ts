@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { PackRequiredBodySchema } from "./ai.js";
 import { REMOTION_TEMPLATE_IDS } from "./motion.js";
+import { CAPTION_STYLE_IDS } from "./subtitles.js";
 
 /**
  * Sprint 3 (docs/trabajo/sprint3-contratos.md): local command agent. The local LLM (Ollama) only
@@ -30,8 +31,8 @@ export const TemplateIdSchema = z
   );
 export type TemplateId = z.infer<typeof TemplateIdSchema>;
 
-/** Same ids as the web caption presets (CAPTION_STYLE_PRESETS in subtitles.ts). */
-export const CAPTION_STYLE_IDS = ["clasico", "reels", "karaoke", "minimal", "titular"] as const;
+// CAPTION_STYLE_IDS (the single list of caption style ids) lives next to CAPTION_STYLE_PRESETS
+// in subtitles.ts.
 export const CaptionStyleIdSchema = z
   .enum(CAPTION_STYLE_IDS)
   .describe(
@@ -52,13 +53,18 @@ export const VOICE_EFFECT_IDS = [
   "reverb",
   "echo",
   "clean-voice",
+  "monstruo",
+  "catedral",
+  "bajo-agua",
+  "megafono",
 ] as const;
 export const VoiceEffectIdSchema = z
   .enum(VOICE_EFFECT_IDS)
   .describe(
     "Efecto de voz: pitch-up (tono +4), pitch-down (tono -4), chipmunk (ardilla), deep (grave), " +
       "robot, telephone (teléfono), radio (radio AM), reverb (sala), echo (eco), clean-voice " +
-      "(voz limpia: reduce ruido y normaliza).",
+      "(voz limpia: reduce ruido y normaliza), monstruo (tono -10 + reverberación), catedral " +
+      "(reverberación grande), bajo-agua (bajo el agua), megafono (megáfono).",
   );
 export type VoiceEffectId = z.infer<typeof VoiceEffectIdSchema>;
 
@@ -331,6 +337,33 @@ export const SetSpeedOpSchema = z
   .strict()
   .describe("Cambiar velocidad.");
 
+export const SetVolumeOpSchema = z
+  .object({
+    op: op("set_volume", "Cambiar el volumen de un clip que ya está en el proyecto."),
+    clip: ClipRefSchema.describe("Clip de audio o video cuyo volumen cambia."),
+    volume_db: z
+      .number()
+      .min(-60)
+      .max(12)
+      .describe(
+        "Volumen en dB respecto del original: 0 = original, -12 = de fondo, -60 = silenciado, " +
+          "+6 = más fuerte.",
+      ),
+    ...common,
+  })
+  .strict()
+  .describe("Cambiar volumen.");
+
+export const MoveClipOpSchema = z
+  .object({
+    op: op("move_clip", "Mover un clip a otro momento de la línea de tiempo (misma pista)."),
+    clip: ClipRefSchema.describe("Clip a mover."),
+    t: TimeSchema.describe("Nuevo inicio del clip en la línea de tiempo."),
+    ...common,
+  })
+  .strict()
+  .describe("Mover clip.");
+
 export const AddTextOpSchema = z
   .object({
     op: op("add_text", "Agregar un texto o rótulo simple en la pista de texto."),
@@ -339,7 +372,7 @@ export const AddTextOpSchema = z
     duration_s: z
       .number()
       .positive()
-      .max(600)
+      .max(3600)
       .optional()
       .describe("Duración en pantalla, en segundos (por defecto 3)."),
     style: TextStyleArgSchema.optional(),
@@ -357,7 +390,7 @@ export const AddMotionOpSchema = z
     duration_s: z
       .number()
       .positive()
-      .max(600)
+      .max(3600)
       .optional()
       .describe("Duración en segundos (por defecto la de la plantilla)."),
     params: z
@@ -525,6 +558,8 @@ export const EditOpSchema = z
     TrimOpSchema,
     DeleteClipOpSchema,
     SetSpeedOpSchema,
+    SetVolumeOpSchema,
+    MoveClipOpSchema,
     AddTextOpSchema,
     AddMotionOpSchema,
     AddCaptionsOpSchema,
@@ -650,9 +685,36 @@ export const AgentLlmSettingsSchema = z.object({
 });
 export type AgentLlmSettings = z.infer<typeof AgentLlmSettingsSchema>;
 
+/**
+ * Compact project summary sent to the workers as `project_summary` (same JSON shape as the dataset
+ * rows, apps/workers/studio_workers/agent/dataset/README.md). The workers render it as prompt text
+ * (`summary.as_text`: compact JSON). Built by the api (services/agent/summary.ts), ≤ ~1500 tokens.
+ */
+export const AgentProjectSummarySchema = z
+  .object({
+    canvas: z.object({ w: z.number(), h: z.number(), fps: z.number().optional() }),
+    cursor_s: z.number(),
+    tracks: z.array(
+      z.object({
+        kind: AgentTrackKindSchema,
+        clips: z.array(
+          z.object({ id: z.string(), name: z.string(), start: z.number(), end: z.number() }),
+        ),
+      }),
+    ),
+    scenes: z.array(z.object({ n: z.int(), start: z.number() })).optional(),
+    assets: z.array(z.object({ id: z.string(), name: z.string(), kind: z.string() })).optional(),
+    transcript_excerpt: z
+      .array(z.object({ start: z.number(), end: z.number(), text: z.string() }))
+      .optional(),
+  })
+  .strict();
+export type AgentProjectSummary = z.infer<typeof AgentProjectSummarySchema>;
+
 export const WorkerAgentPlanRequestSchema = z.object({
   command: z.string().min(1),
-  project_summary: z.string(),
+  /** JSON shape above (a plain string is still accepted by the workers). */
+  project_summary: z.union([AgentProjectSummarySchema, z.string()]),
   settings: AgentLlmSettingsSchema.default({}),
 });
 export type WorkerAgentPlanRequest = z.infer<typeof WorkerAgentPlanRequestSchema>;
@@ -674,10 +736,16 @@ export const WorkerBugreportRequestSchema = z.object({
   breadcrumbs: z.array(z.unknown()).default([]),
   errors: z.array(z.unknown()).default([]),
   env: z.record(z.string(), z.unknown()).default({}),
+  /** Model to draft with (default: the workers' AGENT_MODEL). */
+  model: z.string().min(1).optional(),
 });
 export type WorkerBugreportRequest = z.infer<typeof WorkerBugreportRequestSchema>;
 
-export const BugreportResponseSchema = z.object({ markdown_es: z.string() });
+export const BugreportResponseSchema = z.object({
+  markdown_es: z.string(),
+  /** "template" when the workers had no model (deterministic draft). */
+  source: z.enum(["llm", "template"]).optional(),
+});
 export type BugreportResponse = z.infer<typeof BugreportResponseSchema>;
 
 // ---------- api contract ----------
@@ -716,10 +784,21 @@ export type AgentPlanValidation = z.infer<typeof AgentPlanValidationSchema>;
 export const AgentApplyRequestSchema = z.object({
   planId: z.string().min(1),
   ops: z.array(z.int().nonnegative()).optional(),
+  /**
+   * Ops with the params the user edited inline (same order and length as plan.ops). The api
+   * validates each one with EditOpSchema, resolves them again, recomputes preview/risks and stores
+   * them as the plan's final ops before queuing agent.apply.
+   */
+  edited_ops: z.array(z.unknown()).max(EDIT_PLAN_MAX_OPS).optional(),
+  /** Playhead (seconds) for a Time "cursor" typed in an edited op. */
+  cursor: z.number().nonnegative().optional(),
 });
 export type AgentApplyRequest = z.infer<typeof AgentApplyRequestSchema>;
 
-export const AgentApplyPayloadSchema = AgentApplyRequestSchema.extend({
+export const AgentApplyPayloadSchema = AgentApplyRequestSchema.omit({
+  edited_ops: true,
+  cursor: true,
+}).extend({
   projectId: z.string().min(1),
 });
 export type AgentApplyPayload = z.infer<typeof AgentApplyPayloadSchema>;
@@ -768,6 +847,8 @@ export const AgentPlanRecordSchema = AgentPlanValidationSchema.extend({
   applyResult: AgentApplyResultSchema.nullish(),
   /** Set by POST /api/agent/plans/:id/undo (the plan goes back to "proposed"). */
   undoneAt: z.string().nullish(),
+  /** True once POST /api/agent/apply stored the user's inline edits (`edited_ops`). */
+  edited: z.boolean().optional(),
 });
 export type AgentPlanRecord = z.infer<typeof AgentPlanRecordSchema>;
 
@@ -795,6 +876,8 @@ export const AgentBugreportRequestSchema = z.object({
   errors: z.array(z.unknown()).max(200).default([]),
   /** Appends the markdown to storage/reports/<reportId>/reporte.md when given. */
   reportId: z.string().min(1).optional(),
+  /** Model to draft with (Ajustes → «Asistente local»; default AGENT_MODEL). */
+  model: z.string().min(1).optional(),
 });
 export type AgentBugreportRequest = z.infer<typeof AgentBugreportRequestSchema>;
 

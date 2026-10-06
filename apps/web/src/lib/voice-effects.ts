@@ -115,26 +115,11 @@ export interface VoicePreset {
   effects: EditableEffect[];
 }
 
-const LOCAL_PRESETS: readonly VoicePreset[] = [
-  {
-    id: "monstruo",
-    name: "Monstruo",
-    effects: [
-      { type: "pitch", semitones: -10 },
-      { type: "reverb", roomSize: 0.6, wet: 0.35 },
-    ],
-  },
-  { id: "catedral", name: "Catedral", effects: [{ type: "reverb", roomSize: 0.9, wet: 0.5 }] },
-  { id: "bajo-agua", name: "Bajo el agua", effects: [{ type: "underwater" }] },
-  { id: "megafono", name: "Megáfono", effects: [{ type: "megaphone" }] },
-];
-
-/** One-click presets: the api's shared presets first, then local extras. */
+/** One-click presets: the shared VOICE_EFFECT_PRESETS (same ids as the agent's VOICE_EFFECT_IDS). */
 export const VOICE_PRESETS: readonly VoicePreset[] = [
   ...VOICE_EFFECT_PRESETS.map((p) => ({
     id: p.id,
     name: p.name,
     effects: p.effects.filter((e): e is EditableEffect => e.type !== "ducking"),
   })),
-  ...LOCAL_PRESETS.filter((l) => !VOICE_EFFECT_PRESETS.some((p) => p.name === l.name)),
 ];

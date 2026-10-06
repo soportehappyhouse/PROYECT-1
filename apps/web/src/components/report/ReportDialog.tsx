@@ -17,6 +17,7 @@ import { agentApi } from "@/lib/agent-api";
 import { api, errorMessage } from "@/lib/api";
 import { lastClientError } from "@/lib/global-errors";
 import { buildReportRequest, copyText, failedJobIds, STEPS_TEMPLATE } from "@/lib/report";
+import { useAgentStore } from "@/stores/agent-store";
 import { getBreadcrumbs, useBreadcrumbsStore } from "@/stores/breadcrumbs-store";
 import { useJobsStore } from "@/stores/jobs-store";
 import { useReportStore, type ReportPrefill } from "@/stores/report-store";
@@ -73,11 +74,13 @@ function ReportForm({
           .filter((j) => j !== undefined)
           .map((j) => ({ kind: "job", type: j.type, error: j.error ?? j.message ?? "" })),
       ];
+      const agentModel = useAgentStore.getState().settings.model;
       const res = await agentApi.bugreport({
         ...(title.trim() && { title: title.trim() }),
         steps_text: steps.trim() === STEPS_TEMPLATE.trim() ? "" : steps,
         breadcrumbs: getBreadcrumbs(),
         errors,
+        ...(agentModel && { model: agentModel }),
       });
       const drafted = parseDraftedReport(res.markdown_es);
       if (drafted.title) setTitle(drafted.title.slice(0, 200));

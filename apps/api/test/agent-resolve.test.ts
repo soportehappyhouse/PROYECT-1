@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  AgentProjectSummarySchema,
   DEFAULT_EXPORT_PRESETS,
   ProjectSchema,
   validateEditPlan,
@@ -8,9 +9,11 @@ import {
   type Project,
 } from "@studio/shared";
 import { canvasSize, nameScore, resolveOp, resolvePlan } from "../src/services/agent/resolve.js";
+import { dbToVolume, moveClip, setClipVolume } from "../src/services/timeline-edit.js";
 import {
   buildProjectSummary,
   SUMMARY_MAX_CHARS,
+  summaryChars,
   timelineScenes,
 } from "../src/services/agent/summary.js";
 
@@ -97,30 +100,50 @@ const plan = (ops: EditPlanInput["ops"]) => {
 };
 
 describe("agent project summary", () => {
-  it("is compact, deterministic and lists canvas, tracks, clips, scenes, assets, transcript", () => {
+  it("has the dataset JSON shape, is deterministic and lists canvas, clips, scenes, assets, transcript", () => {
     const p = project();
     const s = buildProjectSummary(p, media, { cursor: 10, assets: Object.values(MEDIA) });
-    expect(s).toBe(
+    expect(s).toEqual(
       buildProjectSummary(structuredClone(p), media, {
         cursor: 10,
         assets: Object.values(MEDIA).reverse(),
       }),
     );
-    expect(s.split("\n")[0]).toBe(
-      'PROYECTO "Mi video" · lienzo 1920x1080 (16:9) · 30 fps · duración 60s · cursor 10s',
-    );
-    expect(s).toContain('- V1 video "Video 1": 2 clips');
-    expect(s).toContain('  1. id=c1 "entrevista.mp4" 0-40s (40s)');
-    expect(s).toContain('  1. id=t1 "Bienvenidos" 5-8s (3s)');
-    expect(s).toContain("ESCENAS: 1@0 2@12 3@30 4@40");
-    expect(s).toMatch(/ARCHIVOS: video "entrevista.mp4" id=a1 60s · audio "musica alegre.mp3"/);
-    expect(s).toContain('image "playa.jpg" id=bg (sin usar)');
-    expect(s).toContain("TRANSCRIPCIÓN (2 segmentos; primeras 10):");
-    expect(s).toContain("  [1-3] Hola a todos");
-    expect(s.length).toBeLessThan(SUMMARY_MAX_CHARS);
+    // Same shape the dataset/validator and the workers use (strict: no extra keys).
+    expect(AgentProjectSummarySchema.parse(s)).toEqual(s);
+    expect(Object.keys(s)).toEqual([
+      "canvas",
+      "cursor_s",
+      "tracks",
+      "scenes",
+      "assets",
+      "transcript_excerpt",
+    ]);
+    expect(s.canvas).toEqual({ w: 1920, h: 1080, fps: 30 });
+    expect(s.cursor_s).toBe(10);
+    expect(s.tracks.map((t) => t.kind)).toEqual(["video", "text", "audio"]);
+    expect(s.tracks[0]!.clips).toEqual([
+      { id: "c1", name: "entrevista.mp4", start: 0, end: 40 },
+      { id: "c2", name: "toma-b.mp4", start: 40, end: 60 },
+    ]);
+    expect(s.tracks[1]!.clips).toEqual([{ id: "t1", name: "Bienvenidos", start: 5, end: 8 }]);
+    expect(s.scenes).toEqual([
+      { n: 1, start: 0 },
+      { n: 2, start: 12 },
+      { n: 3, start: 30 },
+      { n: 4, start: 40 },
+    ]);
+    // used assets first, then by name
+    expect(s.assets!.map((a) => a.id)).toEqual(["a1", "m1", "a2", "bg"]);
+    expect(s.assets![3]).toEqual({ id: "bg", name: "playa.jpg", kind: "image" });
+    expect(s.transcript_excerpt).toEqual([
+      { start: 1, end: 3, text: "Hola a todos" },
+      { start: 3, end: 6, text: "hoy hablamos de edición" },
+    ]);
+    expect(summaryChars(s)).toBeLessThan(SUMMARY_MAX_CHARS);
   });
 
-  it("stays under the budget with a huge project", () => {
+  it("stays under the budget with a huge project (trims transcript and assets first)", () => {
     const p = project();
     p.tracks[0]!.clips = Array.from({ length: 300 }, (_, i) => ({
       ...p.tracks[0]!.clips[0]!,
@@ -135,9 +158,14 @@ describe("agent project summary", () => {
       text: "bla ".repeat(40),
     }));
     const s = buildProjectSummary(p, media);
-    expect(s.length).toBeLessThanOrEqual(SUMMARY_MAX_CHARS);
-    expect(s).toContain("… y 280 clips más");
-    expect(s).toContain("cursor desconocido");
+    expect(summaryChars(s)).toBeLessThanOrEqual(SUMMARY_MAX_CHARS);
+    expect(s.tracks[0]!.clips).toHaveLength(20);
+    expect(s.transcript_excerpt).toHaveLength(10);
+    expect(s.cursor_s).toBe(0);
+    const tight = buildProjectSummary(p, media, { maxChars: 1500 });
+    expect(summaryChars(tight)).toBeLessThanOrEqual(1500);
+    expect(tight.transcript_excerpt).toBeUndefined();
+    expect(tight.tracks[0]!.clips.length).toBeGreaterThan(5);
   });
 });
 
@@ -270,5 +298,44 @@ describe("agent resolver", () => {
     expect(canvasSize(p, "1:1")).toEqual({ w: 1080, h: 1080 });
     expect(canvasSize(p, "16:9")).toEqual({ w: 1920, h: 1080 });
     expect(canvasSize(p, { w: 720, h: 1280 })).toEqual({ w: 720, h: 1280 });
+  });
+});
+
+describe("set_volume / move_clip timeline edits", () => {
+  it("dB to gain (≤ -60 = muted) and move to a free track when the range is taken", () => {
+    expect(dbToVolume(0)).toBe(1);
+    expect(dbToVolume(-12)).toBeCloseTo(0.251, 3);
+    expect(dbToVolume(-60)).toBe(0);
+    expect(dbToVolume(12)).toBeCloseTo(3.981, 3);
+    const p = project();
+    const v = setClipVolume(p, "m", -6);
+    expect(v.project.tracks[2]!.clips[0]!.volume).toBeCloseTo(0.501, 3);
+    expect(p.tracks[2]!.clips[0]!.volume).toBe(0.5); // pure
+    // c2 (40-60) to 10 overlaps c1 (0-40) on V1 -> new video track
+    let n = 0;
+    const moved = moveClip(p, "c2", 10, () => `new${++n}`);
+    expect(moved.trackId).toBe("new1");
+    expect(moved.project.tracks.map((t) => t.id)).toEqual(["tv", "tt", "ta", "new1"]);
+    expect(moved.project.tracks[3]!.clips[0]).toMatchObject({
+      id: "c2",
+      trackId: "new1",
+      start: 10,
+    });
+    // free range on the same track: stays there
+    const same = moveClip(p, "c2", 45, () => "x");
+    expect(same.trackId).toBe("tv");
+    expect(same.project.tracks[0]!.clips.find((c) => c.id === "c2")!.start).toBe(45);
+    const r = resolveOp(
+      plan([{ op: "move_clip", clip: { name: "toma-b" }, t: 10 }]).ops[0]!,
+      ctx(),
+    );
+    expect(r.preview_es).toBe("Mover «toma-b.mp4» a 10 s");
+    expect(r.risks.join(" ")).toMatch(/se superpone con «entrevista.mp4»/);
+    const vol = resolveOp(
+      plan([{ op: "set_volume", clip: { track: "audio", index: 1 }, volume_db: -60 }]).ops[0]!,
+      ctx(),
+    );
+    expect(vol.op).toMatchObject({ clip: { id: "m" } });
+    expect(vol.preview_es).toBe("Volumen de «musica alegre.mp3»: silenciado");
   });
 });

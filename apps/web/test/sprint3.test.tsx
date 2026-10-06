@@ -230,7 +230,16 @@ describe("Panel Asistente", () => {
     const calls = mockFetch((path, method) => {
       if (path === "/api/agent/status") return { json: READY };
       if (path === "/api/agent/plan" && method === "POST") return { json: plan() };
-      if (path === "/api/agent/apply" && method === "POST") return { json: { jobId: "ap1" } };
+      if (path === "/api/agent/apply" && method === "POST") {
+        // The api resolves the edited ops again and answers the stored record.
+        const edited = plan();
+        edited.plan!.ops[0] = { op: "add_text", text: "Chau", t: 4.5, duration_s: 3 };
+        edited.preview_es = [
+          "Agregar texto «Chau» en 4,5 s durante 3 s (abajo)",
+          ...edited.preview_es.slice(1),
+        ];
+        return { json: { jobId: "ap1", plan: { ...edited, edited: true } } };
+      }
       if (path === "/api/jobs/ap1")
         return {
           json: {
@@ -281,6 +290,12 @@ describe("Panel Asistente", () => {
     expect(body.ops).toEqual([0, 2]);
     expect(body.edited_ops[0]).toMatchObject({ op: "add_text", text: "Chau", t: 4.5 });
     expect(body.edited_ops[2]).toMatchObject({ op: "export", preset: "youtube-shorts" });
+    expect(typeof (body as { cursor?: unknown }).cursor).toBe("number");
+    // the re-resolved preview of the api replaces the old line
+    expect(
+      await screen.findByText("Agregar texto «Chau» en 4,5 s durante 3 s (abajo)"),
+    ).toBeTruthy();
+    expect(screen.queryByText("Texto «Hola» en 00:03 durante 3 s")).toBeNull();
 
     // Progress by SSE: op 1 done, op 3 running ("Paso 2/2").
     await waitFor(() => expect(useJobsStore.getState().jobs.ap1).toBeTruthy());

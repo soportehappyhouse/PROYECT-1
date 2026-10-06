@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     # hermes3:8b alternative, qwen3:0.6b for CI/sandbox); OLLAMA_URL is the local service.
     ollama_url: str = "http://127.0.0.1:11434"
     agent_model: str = "qwen3:8b"
+    # Sampling temperature of the planner when the request does not send one (AGENT_TEMPERATURE).
+    agent_temperature: float = 0.2
     agent_keep_alive: str = "5m"
     agent_num_ctx: int = 8192
     # Seconds for one /api/chat call (an 8B model partly on CPU can take ~30 s per plan).

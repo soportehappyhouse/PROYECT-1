@@ -99,7 +99,12 @@ export function perfEstimates(r: Partial<PerfResult>): PerfEstimate[] {
     });
   if (r.rvc_s_per_min != null)
     out.push({ label: "Convertir 1 min de voz con RVC", seconds: r.rvc_s_per_min });
-  if (r.rvm_fps != null && r.rvm_fps > 0)
+  if (r.rvm_steady_fps != null && r.rvm_steady_fps > 0)
+    out.push({
+      label: "Recorte de personas: 1 min de video a 30 fps",
+      seconds: (r.rvm_startup_s ?? 0) + (60 * 30) / r.rvm_steady_fps,
+    });
+  else if (r.rvm_fps != null && r.rvm_fps > 0)
     out.push({
       label: "Recorte de personas: 1 min de video a 30 fps",
       seconds: (60 * 30) / r.rvm_fps,
@@ -112,14 +117,32 @@ export function perfEstimates(r: Partial<PerfResult>): PerfEstimate[] {
   return out;
 }
 
-/** «Recorte de personas ≈ 18,2 fps (meta 15)»: RVM on a 1080p 5 s clip (GPL subprocess). */
-export function rvmFpsLabel(r: Pick<PerfResult, "rvm_fps" | "rvm_target_fps">): string {
+const dec1 = (n: number) => n.toFixed(1).replace(".", ",");
+
+/**
+ * «Recorte de personas ≈ 42,0 fps sostenido (arranque 5,1 s) · meta 15» when the GPL run reported
+ * its timings (docs/trabajo/perf-rvm.md); otherwise «≈ 18,2 fps (meta 15)» end to end on 5 s.
+ */
+export function rvmFpsLabel(
+  r: Pick<PerfResult, "rvm_fps" | "rvm_target_fps"> &
+    Partial<Pick<PerfResult, "rvm_steady_fps" | "rvm_startup_s">>,
+): string {
+  const target = r.rvm_target_fps ?? 15;
+  if (r.rvm_steady_fps != null) {
+    const startup = r.rvm_startup_s != null ? ` (arranque ${dec1(r.rvm_startup_s)} s)` : "";
+    return `≈ ${dec1(r.rvm_steady_fps)} fps sostenido${startup} · meta ${target}`;
+  }
   if (r.rvm_fps == null) return "—";
-  const fps = r.rvm_fps.toFixed(1).replace(".", ",");
-  return `≈ ${fps} fps (meta ${r.rvm_target_fps ?? 15})`;
+  return `≈ ${dec1(r.rvm_fps)} fps (meta ${target})`;
 }
 
-/** "1920×1080 · fp16 · reducción 0,27 · CUDA". */
+const RVM_BOTTLENECK: Record<string, string> = {
+  decode: "decodificar",
+  inference: "modelo",
+  encode: "codificar",
+};
+
+/** "1920×1080 · fp16 · reducción 0,27 · CUDA" (+ end-to-end fps and bottleneck when timed). */
 export function rvmDetail(r: Partial<PerfResult>): string {
   const parts = [
     r.rvm_resolution,
@@ -128,6 +151,12 @@ export function rvmDetail(r: Partial<PerfResult>): string {
       ? `reducción ${String(r.rvm_downsample).replace(".", ",")}`
       : undefined,
     r.rvm_device ? r.rvm_device.toUpperCase() : undefined,
+    r.rvm_steady_fps != null && r.rvm_fps != null
+      ? `${dec1(r.rvm_fps)} fps de punta a punta en 5 s`
+      : undefined,
+    r.rvm_bottleneck
+      ? `cuello: ${RVM_BOTTLENECK[r.rvm_bottleneck] ?? r.rvm_bottleneck}`
+      : undefined,
   ];
   return parts.filter(Boolean).join(" · ");
 }

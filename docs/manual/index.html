@@ -3551,8 +3551,10 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
           cada velocidad y al lado los <strong>tiempos estimados</strong>, por ejemplo
           <em>Transcribir 10 min de audio ≈ 25 s</em> o
           <em>Detectar escenas en 10 min a 30 fps ≈ 1 min</em>. La fila
-          <strong>Recorte de personas ≈ X fps (meta 15)</strong> mide un clip 1080p de 5 s y dice la
-          precisión (fp16 en GPU, fp32 en CPU) y la reducción interna usada. Volvé a correrlo si
+          <strong>Recorte de personas ≈ X fps sostenido (arranque Y s) · meta 15</strong> mide un
+          clip 1080p de 5 s: la velocidad una vez en marcha y, aparte, lo que tarda en arrancar
+          (cargar la IA, la primera tanda); abajo dice la precisión (fp16 en GPU, fp32 en CPU), la
+          reducción interna, los fps de punta a punta y qué etapa limita. Volvé a correrlo si
           cambiás de placa o de driver.
         </p>
         <h3 id="174-quitar-silencios-y-muletillas">17.4 Quitar silencios y muletillas</h3>
@@ -3973,6 +3975,10 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
                 <td>Audio de la biblioteca (con volumen y ducking)</td>
               </tr>
               <tr>
+                <td><em>Bajá la música</em> · <em>mové el texto al segundo 5</em></td>
+                <td>Cambiar el volumen de un clip (o silenciarlo) y moverlo a otro momento</td>
+              </tr>
+              <tr>
                 <td><em>Quitá el fondo y poné uno azul</em></td>
                 <td>Quitar fondo</td>
               </tr>
@@ -4013,7 +4019,10 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
             Corregí lo que haga falta <strong>sin volver a escribir</strong>: el texto, el momento
             (<code>3</code>, <code>3,5</code>, <code>inicio</code>, <code>final</code> o
             <code>cursor</code>), la duración, el preset, la plantilla o el estilo se editan en la
-            misma lista. Destildá las operaciones que no quieras.
+            misma lista (también el volumen o el momento al que se mueve un clip). Destildá las
+            operaciones que no quieras. Al tocar <strong>Aplicar</strong>, Studio vuelve a revisar
+            lo que cambiaste y actualiza la descripción de cada operación; si algo ya no se puede
+            ubicar, te lo pregunta.
           </li>
           <li>
             Si el asistente <strong>pregunta</strong> algo (por ejemplo
@@ -4096,6 +4105,12 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
           </li>
           <li>
             <strong>Temperatura</strong>: más baja = respuestas más predecibles (recomendado 0,2).
+          </li>
+          <li>
+            Si no elegís nada, se usan los valores de <code>.env</code>:
+            <code>AGENT_MODEL</code> (modelo), <code>AGENT_TEMPERATURE</code> y
+            <code>OLLAMA_URL</code> (dónde escucha Ollama, normalmente
+            <code>http://127.0.0.1:11434</code>).
           </li>
           <li>
             <strong>Evaluar modelos</strong>: corre 50 comandos de prueba con cada modelo instalado

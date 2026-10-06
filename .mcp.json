@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "studio-mcp": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["packages/studio-mcp/dist/index.js"],
+      "env": {
+        "STUDIO_API_URL": "${STUDIO_API_URL:-http://127.0.0.1:3001}"
+      }
+    }
+  }
+}

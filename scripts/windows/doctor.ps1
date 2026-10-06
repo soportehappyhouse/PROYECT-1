@@ -327,6 +327,38 @@ if ($ollamaVer) {
     Add-Result 'Ollama' skip 'no instalado (setup.ps1 o winget install -e --id Ollama.Ollama); Asistente local deshabilitado'
 }
 
+# ------------------------------------------------------------------ Claude Code (Consola Claude)
+Write-Step 'Consola Claude (Claude Code)'
+$claudeExe = Find-ClaudeExe
+$claudeVer = Get-ClaudeVersion $claudeExe
+if ($claudeVer) {
+    Add-Result 'Claude Code' ok ("{0}  {1}" -f $claudeVer, $claudeExe)
+    # `claude auth status`: documented JSON + exit code (0 = logged in, 1 = not).
+    $auth = Get-ClaudeAuthStatus $claudeExe
+    if ($auth.LoggedIn -eq $true) {
+        $method = $auth.Method
+        if (-not $method) { $method = 'sesion' }
+        $authState = 'ok'
+        $authText = "sesion iniciada ($method)"
+        if ($method -match 'api_key') {
+            $authState = 'warn'
+            $authText = "usa una API key ($method): Studio usa la suscripcion; corre claude auth login"
+        }
+        Add-Result '  inicio de sesion' $authState $authText
+    } elseif ($auth.LoggedIn -eq $false) {
+        Add-Result '  inicio de sesion' warn 'sin iniciar sesion: corre  claude auth login  (una vez, con tu cuenta de Claude.ai)'
+    } else {
+        Add-Result '  inicio de sesion' skip 'desconocido (version sin claude auth status): si la consola lo pide, escribi /login'
+    }
+} else {
+    Add-Result 'Claude Code' skip 'no instalado: setup.ps1 (-WithClaude) o npm i -g @anthropic-ai/claude-code'
+}
+$mcpBuilt = Test-Path (Join-Path $RepoRoot 'packages\studio-mcp\dist\index.js')
+$mcpJson = Test-Path (Join-Path $RepoRoot '.mcp.json')
+if ($mcpBuilt -and $mcpJson) { Add-Result '  herramientas studio-mcp' ok '.mcp.json + packages\studio-mcp\dist' }
+elseif (-not $mcpJson) { Add-Result '  herramientas studio-mcp' warn 'falta .mcp.json en la raiz del repo' }
+else { Add-Result '  herramientas studio-mcp' warn 'sin compilar: pnpm build:packages (o setup.ps1)' }
+
 # ------------------------------------------------------------------ ports / services
 Write-Step 'Puertos y servicios'
 $ports = Get-Ports

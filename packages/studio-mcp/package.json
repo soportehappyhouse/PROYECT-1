@@ -1,0 +1,31 @@
+{
+  "name": "@studio/studio-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Servidor MCP (stdio) de Studio para Claude Code: herramientas que llaman a la API local",
+  "type": "module",
+  "bin": {
+    "studio-mcp": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run --passWithNoTests",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@studio/shared": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "~6.0.3",
+    "vitest": "^4.1.11"
+  }
+}

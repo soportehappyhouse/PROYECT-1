@@ -569,3 +569,55 @@ function Start-OllamaService([string]$Exe) {
     else { Start-Process -FilePath $Exe -ArgumentList 'serve' -WindowStyle Hidden | Out-Null }
     return (Wait-HttpOk ((Get-OllamaUrl) + '/api/version') 30)
 }
+
+# ------------------------------------------------------------------ Claude Code (Sprint 3b)
+# Consola Claude: Claude Code CLI con la suscripcion de Claude.ai (claude auth login). Sin API key.
+
+$script:ClaudeNpmPackage = '@anthropic-ai/claude-code'
+
+function Find-ClaudeExe {
+    # PATH first; then the native installer dir (~\.local\bin) and the npm global prefix
+    # (`npm root -g` -> its parent holds claude.cmd, usually %APPDATA%\npm).
+    $cmd = Get-Command claude -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($cmd) { return $cmd.Source }
+    $candidates = @()
+    if ($env:USERPROFILE) { $candidates += (Join-Path $env:USERPROFILE '.local\bin\claude.exe') }
+    if ($env:APPDATA) { $candidates += (Join-Path $env:APPDATA 'npm\claude.cmd') }
+    $npmRoot = Get-CmdOutput 'npm' @('root', '-g')
+    if ($npmRoot) { $candidates += (Join-Path (Split-Path $npmRoot -Parent) 'claude.cmd') }
+    foreach ($c in $candidates) { if ($c -and (Test-Path $c)) { return $c } }
+    return $null
+}
+
+function Get-ClaudeVersion([string]$Exe = '') {
+    # "2.1.290 (Claude Code)" or $null.
+    if (-not $Exe) { $Exe = Find-ClaudeExe }
+    if (-not $Exe) { return $null }
+    return Get-CmdOutput $Exe @('--version')
+}
+
+function Get-ClaudeAuthStatus([string]$Exe = '') {
+    # `claude auth status` (documented: JSON, exit 0 = logged in, 1 = not). Returns
+    # @{ LoggedIn = $true/$false/$null; Method = 'claude.ai' | ... }. $null LoggedIn = unknown
+    # (older CLI without the subcommand).
+    $result = @{ LoggedIn = $null; Method = '' }
+    if (-not $Exe) { $Exe = Find-ClaudeExe }
+    if (-not $Exe) { return $result }
+    $ErrorActionPreference = 'Continue'
+    try {
+        $out = (& $Exe auth status 2>$null) -join "`n"
+        $code = $LASTEXITCODE
+        if ($out) {
+            try {
+                $json = $out | ConvertFrom-Json -ErrorAction Stop
+                if ($null -ne $json.loggedIn) { $result.LoggedIn = [bool]$json.loggedIn }
+                if ($json.authMethod) { $result.Method = [string]$json.authMethod }
+                if ($null -eq $result.LoggedIn -and $result.Method) { $result.LoggedIn = ($result.Method -ne 'none') }
+            } catch { }
+        }
+        if ($null -eq $result.LoggedIn -and ($code -eq 0 -or $code -eq 1) -and $out) {
+            $result.LoggedIn = ($code -eq 0)
+        }
+    } catch { }
+    return $result
+}

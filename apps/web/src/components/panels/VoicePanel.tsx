@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/misc";
 import { useApiResource } from "@/hooks/use-api-resource";
 import { aiApi, api, ApiRequestError, errorMessage, fileUrl, isNotImplemented } from "@/lib/api";
+import { PERSONS_CHANGED_EVENT } from "@/lib/api-persons";
 import { JobFailedError, waitForJob } from "@/lib/job-runner";
 import { cn } from "@/lib/utils";
 import {
@@ -371,6 +372,7 @@ function ChatterboxOptions({ text }: { text: string }) {
         <Select
           aria-label="Voz a clonar"
           value={source}
+          onFocus={() => void store().loadPersons()}
           onChange={(e) => store().setSource(e.target.value as CloneSource)}
         >
           {options.map((o) => (
@@ -454,6 +456,10 @@ function TtsForm() {
 
   useEffect(() => {
     void useVoiceCloneStore.getState().load();
+    // The panel stays mounted: Persons registered or revoked meanwhile must show up / go away.
+    const reload = () => void useVoiceCloneStore.getState().loadPersons();
+    window.addEventListener(PERSONS_CHANGED_EVENT, reload);
+    return () => window.removeEventListener(PERSONS_CHANGED_EVENT, reload);
   }, []);
 
   const chatterbox = chatterboxRow(providers);
@@ -544,7 +550,14 @@ function TtsForm() {
         <Select
           aria-label="Motor"
           value={provider}
-          onChange={(e) => useVoiceCloneStore.getState().setProvider(e.target.value as TtsProvider)}
+          onChange={(e) => {
+            const next = e.target.value as TtsProvider;
+            useVoiceCloneStore.getState().setProvider(next);
+            if (next === "chatterbox") {
+              void useVoiceCloneStore.getState().loadPersons();
+              void useVoiceCloneStore.getState().loadSelfRefs();
+            }
+          }}
         >
           <option value="piper">Piper (local, rápido)</option>
           <option value="chatterbox">

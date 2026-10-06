@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { VoicePanel } from "@/components/panels/VoicePanel";
 import type { GpuStatus, PerfResult } from "@/lib/ai-types";
+import { PERSONS_CHANGED_EVENT, personsApi } from "@/lib/api-persons";
 import { usePacksStore } from "@/stores/packs-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import {
@@ -100,6 +101,7 @@ function apiFor(opts: {
   perf?: Partial<PerfResult>;
   tts?: Reply;
   upload?: Reply;
+  persons?: () => PersonSummary[];
 }) {
   return mockFetch((path, method) => {
     if (path === "/api/config") return { json: { providers: {}, useCuda: false } };
@@ -120,7 +122,8 @@ function apiFor(opts: {
     if (path === "/api/voice/self-refs" && method === "GET") return { json: opts.selfRefs ?? [] };
     if (path === "/api/voice/self-refs" && method === "POST")
       return opts.upload ?? { status: 201, json: SELF };
-    if (path === "/api/persons") return { json: PERSONS };
+    if (path === "/api/persons") return { json: opts.persons ? opts.persons() : PERSONS };
+    if (path.startsWith("/api/persons/") && method === "POST") return { json: { id: "c1" } };
     if (path === "/api/ai/gpu") return { json: opts.gpu ?? GPU_OK };
     if (path === "/api/ai/perf") return { json: { chatterbox_rtf: 0.5, ...opts.perf } };
     if (path === "/api/voice/tts" && method === "POST")
@@ -374,6 +377,35 @@ describe("Voces panel: Chatterbox", () => {
       cfg: 0.3,
       exaggeration: 0.5,
     });
+  });
+
+  it("a Person registered or revoked while the panel is open is picked up (event, focus, engine)", async () => {
+    let persons: PersonSummary[] = [];
+    apiFor({ persons: () => persons });
+    render(<VoicePanel />);
+    await screen.findByTestId("chatterbox-options");
+    const texts = () =>
+      [...(screen.getByLabelText("Voz a clonar") as HTMLSelectElement).options].map((o) => o.text);
+    expect(texts()).not.toContain("Persona: Ana");
+    // Ajustes → Personas (M1) announces every change; the Voz panel (M2) stays mounted
+    persons = PERSONS;
+    const heard = vi.fn();
+    window.addEventListener(PERSONS_CHANGED_EVENT, heard);
+    await act(async () => {
+      await personsApi.revokeConsent("p3", "c1");
+    });
+    window.removeEventListener(PERSONS_CHANGED_EVENT, heard);
+    expect(heard).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(texts()).toContain("Persona: Ana"));
+    // changed elsewhere (api / console): focusing «Voz a clonar» reloads
+    persons = [];
+    fireEvent.focus(screen.getByLabelText("Voz a clonar"));
+    await waitFor(() => expect(texts()).not.toContain("Persona: Ana"));
+    // choosing the Chatterbox engine reloads too
+    persons = PERSONS;
+    fireEvent.change(screen.getByLabelText("Motor"), { target: { value: "piper" } });
+    fireEvent.change(screen.getByLabelText("Motor"), { target: { value: "chatterbox" } });
+    await waitFor(() => expect(texts()).toContain("Persona: Ana"));
   });
 
   it("CONSENT_REQUIRED offers «Abrir Personas»", async () => {

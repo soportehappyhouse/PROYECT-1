@@ -80,12 +80,18 @@ Lo que aplica queda en el historial del panel Asistente y se deshace con **Desha
 - Además, la consola arranca Claude Code con
   `--settings apps/api/console/claude-console-settings.json`, que **bloquea** (`permissions.deny`)
   leer `.env*` y `models/`, crear o modificar archivos en `storage/`, leer la base
-  (`storage/studio.db*`) y los reportes (`storage/reports/`), y `WebFetch`. Claude sí puede **abrir**
+  (`storage/studio.db*`), los reportes (`storage/reports/`) y el registro de Personas
+  (`storage/consent/`: fotos, muestras de voz, firmas), y `WebFetch`. Claude sí puede **abrir**
   las imágenes que le devuelven las herramientas (fotogramas, hojas de contactos, miniaturas), que
   están en `storage/`. No toca tu `.claude/settings.json` ni `.mcp.json`; las herramientas `studio_*`
   pasan por la API. Si cambiaste `STORAGE_DIR` a otra carpeta, estas reglas de `storage/` no la
   cubren. Claude también tiene la regla (en `CLAUDE.md`) de no leer `.env` ni tocar `storage/` a
   mano.
+- **Personas y licencias (sprint 4)**: desde la consola Claude puede listar las Personas
+  (`studio_list_persons`, sin rutas) y cambiar la cara de un clip (`studio_face_swap`, siempre
+  preguntándote antes), pero **no** registrar consentimientos ni aceptar licencias: no hay
+  herramienta y la API los rechaza (`403 HUMAN_ONLY`, `studio-mcp` manda `X-Studio-Client: mcp`).
+  Eso se hace solo desde la pantalla de Studio (Ajustes → Personas, Paquetes de IA).
 - Para borrar las conversaciones locales de Claude Code de este proyecto:
   `claude purge <carpeta de Studio>` (agregá `--dry-run` para ver antes qué borra; detalle en
   `claude --help`).

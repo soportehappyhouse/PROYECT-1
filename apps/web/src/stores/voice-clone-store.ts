@@ -59,6 +59,8 @@ interface VoiceCloneState {
   lastError: string | undefined;
   load: () => Promise<void>;
   loadSelfRefs: () => Promise<void>;
+  /** Persons with a valid voice consent again (Ajustes → Personas changed, engine chosen…). */
+  loadPersons: () => Promise<void>;
   setProvider: (p: TtsProvider) => void;
   setSource: (s: CloneSource) => void;
   setSelfRefId: (id: string | undefined) => void;
@@ -265,6 +267,20 @@ export const useVoiceCloneStore = create<VoiceCloneState>()((set, get) => ({
   loadSelfRefs: async () => {
     try {
       set({ selfRefs: await apiFetch<MediaAsset[]>(API_ROUTES.voiceSelfRefs) });
+    } catch {
+      // keep the current list
+    }
+  },
+
+  loadPersons: async () => {
+    try {
+      const persons = await apiFetch<PersonSummary[]>(API_ROUTES.persons, {
+        query: { scope: "voice" },
+      });
+      set({ persons });
+      const s = get();
+      if (!cloneOptions(s.selfRefs, s.persons).some((o) => o.value === s.source))
+        set({ source: "none" });
     } catch {
       // keep the current list
     }

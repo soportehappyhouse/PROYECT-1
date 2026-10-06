@@ -37,37 +37,64 @@ function form(field: string, file: Blob, name: string): FormData {
   return fd;
 }
 
+/**
+ * Window event fired after every change to the Personas registry made from the web (create, edit,
+ * delete, photos, voice samples, consents). Other panels that list Persons (Voz → «Voz a clonar»)
+ * reload on it: dockview keeps them mounted, so a list loaded once would go stale.
+ */
+export const PERSONS_CHANGED_EVENT = "studio:persons:changed";
+
+async function changed<T>(p: Promise<T>): Promise<T> {
+  const out = await p;
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(PERSONS_CHANGED_EVENT));
+  return out;
+}
+
 export const personsApi = {
   list: (scope?: "face" | "voice") =>
     apiFetch<PersonSummary[]>(API_ROUTES.persons, { ...(scope && { query: { scope } }) }),
   create: (body: PersonCreate) =>
-    apiFetch<Person>(API_ROUTES.persons, { method: "POST", json: body }),
+    changed(apiFetch<Person>(API_ROUTES.persons, { method: "POST", json: body })),
   get: (id: string) => apiFetch<Person>(API_ROUTES.person, { params: { id } }),
   patch: (id: string, body: PersonPatch) =>
-    apiFetch<Person>(API_ROUTES.person, { method: "PATCH", params: { id }, json: body }),
+    changed(apiFetch<Person>(API_ROUTES.person, { method: "PATCH", params: { id }, json: body })),
   /** Deletes photos and samples, archives the consents (needs the explicit confirmation). */
   remove: (id: string) =>
-    apiFetch<void>(API_ROUTES.person, { method: "DELETE", params: { id }, query: { confirm: 1 } }),
+    changed(
+      apiFetch<void>(API_ROUTES.person, {
+        method: "DELETE",
+        params: { id },
+        query: { confirm: 1 },
+      }),
+    ),
   uploadPhoto: (id: string, file: Blob, name = "foto.jpg") =>
-    apiFetch<Person>(API_ROUTES.personPhotos, {
-      method: "POST",
-      params: { id },
-      body: form("photo", file, name),
-    }),
+    changed(
+      apiFetch<Person>(API_ROUTES.personPhotos, {
+        method: "POST",
+        params: { id },
+        body: form("photo", file, name),
+      }),
+    ),
   deletePhoto: (id: string, photoId: string) =>
-    apiFetch<Person>(API_ROUTES.personPhoto, { method: "DELETE", params: { id, photoId } }),
+    changed(
+      apiFetch<Person>(API_ROUTES.personPhoto, { method: "DELETE", params: { id, photoId } }),
+    ),
   photoUrl: (id: string, photoId: string) => apiUrl(API_ROUTES.personPhoto, { id, photoId }),
   uploadVoice: (id: string, file: Blob, name = "muestra.webm") =>
-    apiFetch<Person>(API_ROUTES.personVoiceSamples, {
-      method: "POST",
-      params: { id },
-      body: form("audio", file, name),
-    }),
+    changed(
+      apiFetch<Person>(API_ROUTES.personVoiceSamples, {
+        method: "POST",
+        params: { id },
+        body: form("audio", file, name),
+      }),
+    ),
   deleteVoice: (id: string, sampleId: string) =>
-    apiFetch<Person>(API_ROUTES.personVoiceSample, {
-      method: "DELETE",
-      params: { id, sampleId },
-    }),
+    changed(
+      apiFetch<Person>(API_ROUTES.personVoiceSample, {
+        method: "DELETE",
+        params: { id, sampleId },
+      }),
+    ),
   voiceUrl: (id: string, sampleId: string) =>
     apiUrl(API_ROUTES.personVoiceSample, { id, sampleId }),
   addConsent: (id: string, c: ConsentInput) => {
@@ -79,17 +106,21 @@ export const personsApi = {
     if (c.expiresAt) fd.append("expires_at", c.expiresAt);
     fd.append("accept", "true");
     fd.append("evidence", c.evidence, c.evidenceName);
-    return apiFetch<Consent>(API_ROUTES.personConsents, {
-      method: "POST",
-      params: { id },
-      body: fd,
-    });
+    return changed(
+      apiFetch<Consent>(API_ROUTES.personConsents, {
+        method: "POST",
+        params: { id },
+        body: fd,
+      }),
+    );
   },
   revokeConsent: (id: string, consentId: string) =>
-    apiFetch<Consent>(API_ROUTES.personConsentRevoke, {
-      method: "POST",
-      params: { id, consentId },
-    }),
+    changed(
+      apiFetch<Consent>(API_ROUTES.personConsentRevoke, {
+        method: "POST",
+        params: { id, consentId },
+      }),
+    ),
   evidenceUrl: (id: string, consentId: string) =>
     apiUrl(API_ROUTES.personConsentEvidence, { id, consentId }),
 };

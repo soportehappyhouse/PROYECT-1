@@ -5,7 +5,10 @@ python -m studio_workers.models_cli --update --piper es_AR-daniela-high --whispe
 
 python -m studio_workers.models_cli --packs list
 python -m studio_workers.models_cli --packs download core whisper-turbo
-python -m studio_workers.models_cli --packs all          (setup.ps1 -Full: every pack, in sequence)
+python -m studio_workers.models_cli --packs all          (setup.ps1 -Full: every pack, in sequence;
+                                                          licence-gated packs only when accepted)
+python -m studio_workers.models_cli --tool-venv facefusion|chatterbox status|ensure|verify [--json]
+python -m studio_workers.models_cli --licences --json    (read-only licence mirror, doctor.ps1)
 
 --check   lists what is present/missing (offline; nothing is downloaded) and exits 0.
 --update  downloads only what is missing, also re-checking every group already recorded in
@@ -189,6 +192,15 @@ def run_packs(actions: list[str], root: Path, args: argparse.Namespace) -> int:
             for pid in ids:
                 pack = packs_mod.PACKS[pid]
                 _out(f"[{pid}] {pack.name_es}")
+                gate = getattr(pack, "licence_gate", None)
+                if gate and not _licence_ok(gate):
+                    # Criterion 5: nothing of the face swap on disk without the on-screen licence.
+                    reason = "requiere aceptar la licencia en Studio (Ajustes > Paquetes de IA)"
+                    _out(f"  se omite: {reason}")
+                    action = "skipped" if verb == "all" else "failed"
+                    results.append({"id": pid, "action": action, "reason": "licence_required",
+                                    "licence": gate, "error": reason})  # fmt: skip
+                    continue
                 if (
                     verb == "all"
                     and pack.ollama_models is not None
@@ -231,6 +243,79 @@ def run_packs(actions: list[str], root: Path, args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(summary, ensure_ascii=False))
     return code
+
+
+def _licence_ok(licence_id: str) -> bool:
+    from .toolvenv import licence_accepted  # noqa: PLC0415
+
+    return licence_accepted(licence_id)
+
+
+def run_tool_venv(tool: str, action: str, args: argparse.Namespace) -> int:
+    """--tool-venv facefusion|chatterbox status|ensure|verify (setup.ps1 «Herramientas aisladas»
+    and doctor.ps1). Same code as the packs (toolvenv.ensure). verify --no-write: doctor."""
+    from . import toolvenv  # noqa: PLC0415
+
+    settings = get_settings()
+    summary: dict[str, Any] = {"mode": f"tool-venv-{action}", "tool": tool}
+    code = 0
+    if action == "ensure":
+        try:
+            summary["action"] = toolvenv.ensure(
+                tool,  # type: ignore[arg-type]
+                use_cuda=settings.use_cuda,
+                on_line=lambda line: _out("  " + line.rstrip()),
+                force=args.force,
+            )
+        except Exception as exc:
+            summary["action"] = "failed"
+            summary["error"] = str(exc)
+            print(f"ERROR: {exc}", file=sys.stderr)
+            code = 1
+    elif action == "verify":
+        res = toolvenv.verify(tool, record=not args.no_write)  # type: ignore[arg-type]
+        summary.update({k: v for k, v in res.items() if k not in ("check",)})
+        summary["check"] = res.get("check")
+    summary.update({k: v for k, v in toolvenv.status(tool).items() if k not in summary})  # type: ignore[arg-type]
+    summary["state"] = summary.get("state") or "missing"
+    base = toolvenv.find_base_python(tool)  # type: ignore[arg-type]
+    summary["base_python"] = base[0] if base else None
+    summary["base_python_version"] = base[1] if base else None
+    pack_id = toolvenv.spec_of(tool).pack_id
+    summary["pack_id"] = pack_id
+    gate = getattr(_pack_or_none(pack_id), "licence_gate", None)
+    summary["licence"] = gate
+    summary["licence_accepted"] = toolvenv.licence_accepted(gate) if gate else None
+    if action == "verify" and summary.get("state") == "broken" and code == 0:
+        code = 1
+    _out(
+        f"  tools/{tool}/.venv: {toolvenv.STATE_ES.get(summary['state'], summary['state'])}"
+        f" ({summary.get('dir') or summary.get('python')})"
+    )
+    if args.report:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        args.report.write_text(json.dumps(summary, ensure_ascii=False, indent=2), "utf-8")
+    if args.json:
+        print(json.dumps(summary, ensure_ascii=False))
+    return code
+
+
+def _pack_or_none(pack_id: str) -> Any:
+    from . import packs as packs_mod  # noqa: PLC0415
+
+    return packs_mod.PACKS.get(pack_id)
+
+
+def run_licences(args: argparse.Namespace) -> int:
+    """--licences: the read-only licence mirror storage/consent/licences.json (doctor.ps1)."""
+    from .toolvenv import licence_status  # noqa: PLC0415
+
+    st = licence_status()
+    for lid, row in st["licences"].items():
+        _out(f"  licencia {lid}: {'aceptada' if row['accepted'] else 'no aceptada'}")
+    if args.json:
+        print(json.dumps(st, ensure_ascii=False))
+    return 0
 
 
 def run_gpl_venv(action: str, args: argparse.Namespace) -> int:
@@ -291,7 +376,23 @@ def main(argv: list[str] | None = None) -> int:
         choices=("status", "ensure"),
         help="entorno aislado GPL apps/workers/.venv-gpl (recorte RVM): status | ensure",
     )
+    parser.add_argument(
+        "--tool-venv",
+        nargs=2,
+        metavar=("HERRAMIENTA", "ACCION"),
+        help="entorno aislado tools/<id>/.venv: facefusion|chatterbox status|ensure|verify",
+    )
+    parser.add_argument(
+        "--licences", action="store_true", help="estado del espejo de licencias (doctor)"
+    )
     args = parser.parse_args(argv)
+    if args.tool_venv:
+        tool, action = args.tool_venv
+        if tool not in ("facefusion", "chatterbox") or action not in ("status", "ensure", "verify"):
+            parser.error("--tool-venv facefusion|chatterbox status|ensure|verify")
+        return run_tool_venv(tool, action, args)
+    if args.licences:
+        return run_licences(args)
     if args.gpl_venv:
         return run_gpl_venv(args.gpl_venv, args)
     if args.packs:

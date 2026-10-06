@@ -91,6 +91,17 @@ export interface CompileExportOptions {
    * resolved to position keyframes before compiling (resolveTrackRefs). Absent = already resolved.
    */
   tracks?: ReadonlyMap<string, TrackFile>;
+  /**
+   * Sprint 4: `-metadata comment=` of the full (single pass) export, from aiContentComment()
+   * (decision 9). Ignored for segment windows and audio-only renders (added at the final mux).
+   */
+  metadataComment?: string;
+}
+
+/** `-metadata comment=<text>` (one argv element: spawn without a shell, no quoting needed). */
+export function metadataArgs(comment: string | undefined): string[] {
+  const text = comment?.replace(/[\r\n]+/g, " ").trim();
+  return text ? ["-metadata", `comment=${text}`] : [];
 }
 
 export interface CompiledExport {
@@ -1205,6 +1216,7 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
           ...(gif ? [] : ["-map", "[aout]"]),
           ...enc.video,
           ...enc.audio,
+          ...(gif ? [] : metadataArgs(o.metadataComment)),
           ...enc.container,
         ];
   const args = [

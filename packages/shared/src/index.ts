@@ -25,3 +25,4 @@ export * from "./stems.js";
 export * from "./consent.js";
 export * from "./face.js";
 export * from "./voice-clone.js";
+export * from "./ai-content.js";

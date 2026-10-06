@@ -266,6 +266,44 @@ function Find-Python311 {
     return $null
 }
 
+function Find-Python312 {
+    # Sprint 4: base interpreter of tools\facefusion\.venv (FaceFusion 3.9.1 needs Python >= 3.12).
+    # FACEFUSION_BASE_PYTHON (.env) wins; then the py launcher, the per-user / machine installs and
+    # PATH (never the Microsoft Store alias). The workers resolve it the same way (toolvenv.py).
+    $explicit = Get-EnvSetting 'FACEFUSION_BASE_PYTHON' ''
+    if ($explicit) {
+        if ((Test-Path $explicit) -and ((Get-CmdOutput $explicit @('-c', $script:PyVersionCode)) -eq '3.12')) { return $explicit }
+        return $null
+    }
+    if (Test-Cmd 'py') {
+        $exe = Get-CmdOutput 'py' @('-3.12', '-c', 'import sys; print(sys.executable)')
+        if ($exe -and (Test-Path $exe)) { return $exe }
+    }
+    $candidates = @(
+        (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe'),
+        (Join-Path $env:ProgramFiles 'Python312\python.exe')
+    )
+    foreach ($c in $candidates) {
+        if ((Test-Path $c) -and ((Get-CmdOutput $c @('-c', $script:PyVersionCode)) -eq '3.12')) { return $c }
+    }
+    foreach ($name in @('python3.12', 'python')) {
+        $cmd = Get-Command $name -ErrorAction SilentlyContinue
+        if ($cmd -and $cmd.Source -notmatch 'WindowsApps') {
+            $v = Get-CmdOutput $cmd.Source @('-c', $script:PyVersionCode)
+            if ($v -eq '3.12') { return $cmd.Source }
+        }
+    }
+    return $null
+}
+
+$script:ToolsDir = Join-Path $script:RepoRoot 'tools'
+$script:ToolRuntimesFile = Join-Path $script:ToolsDir 'runtimes.json'
+
+function Get-ToolVenvPython([string]$Tool) {
+    # tools\<id>\.venv\Scripts\python.exe (sprint 4 isolated tools: facefusion, chatterbox)
+    return (Join-Path $script:ToolsDir "$Tool\.venv\Scripts\python.exe")
+}
+
 function Find-FfmpegExe {
     $configured = Get-EnvSetting 'FFMPEG_PATH' ''
     if ($configured -and (Test-Path $configured)) { return $configured }

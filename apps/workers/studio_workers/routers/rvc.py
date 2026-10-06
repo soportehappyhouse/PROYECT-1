@@ -1,15 +1,17 @@
+import logging
+
 from fastapi import APIRouter
 
 from ..config import get_settings
-from ..errors import NotFoundError, require_module
-from ..gpu import GPU_FALLBACK_CPU
+from ..errors import CodedError, NotFoundError, require_module
 from ..packs import PackRequiredError
 from ..progress import registry
-from ..rvc_engine import BUDGET_KEY, ConvertParams, base_ready, discover_models
+from ..rvc_engine import ConvertParams, base_ready, discover_models
 from ..schemas import RvcConvertRequest, RvcModel, RvcResult
 from ..services import rvc_engine
 
 router = APIRouter(prefix="/rvc", tags=["rvc"])
+log = logging.getLogger("studio_workers")
 
 
 @router.get(
@@ -32,7 +34,9 @@ def list_models() -> list[RvcModel]:
 def convert(req: RvcConvertRequest) -> RvcResult:
     """Sync. CPU works but is slow (~audio duration or more); CUDA is optional.
 
-    409 PACK_REQUIRED (``rvc-base``) when hubert/rmvpe are missing."""
+    409 PACK_REQUIRED (``rvc-base``) when hubert/rmvpe are missing; 422 RVC_MODEL_INCOMPATIBLE
+    when torch.load (weights_only) refuses the voice model. ``device`` = where it really ran;
+    ``warnings``: torch_cpu_build (USE_CUDA with a CPU torch), gpu_fallback_cpu."""
     settings = get_settings()
     model = next((m for m in discover_models(settings.models_root) if m.id == req.model_id), None)
     if model is None:
@@ -61,12 +65,14 @@ def convert(req: RvcConvertRequest) -> RvcResult:
         progress = lambda p, m: registry.update(req.job_id, p, m)  # noqa: E731
         try:
             path, rate, duration = engine.convert(model, src, out, params, device, progress)
-        except Exception:
+        except CodedError:
+            raise  # RVC_MODEL_INCOMPATIBLE: the CPU would refuse the same pickle
+        except Exception as exc:
             if device != "cuda":
                 raise
-            engine.unload_device("cuda")
-            warnings = [*warnings, *(engine.budget.failed(BUDGET_KEY) if engine.budget else [])]
-            warnings = list(dict.fromkeys(warnings or [GPU_FALLBACK_CPU]))
+            # CUDA failed (DLLs, out of memory): run it on the CPU and say so.
+            log.warning("RVC on CUDA failed (%s): retrying on CPU", exc)
+            warnings = list(dict.fromkeys([*warnings, *engine.cuda_failed()]))
             device = "cpu"
             path, rate, duration = engine.convert(model, src, out, params, device, progress)
     return RvcResult(

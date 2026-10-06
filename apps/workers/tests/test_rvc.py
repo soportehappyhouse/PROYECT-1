@@ -178,12 +178,8 @@ def test_download_base_assets_skips_legacy(dirs, monkeypatch) -> None:
 
     monkeypatch.setattr(rvc_mod, "download", fake_download)
     rvc_mod.download_base_assets(models)
-    assert fetched == [
-        "rmvpe.pt",
-        "hubert_base/config.json",
-        "hubert_base/preprocessor_config.json",
-        "hubert_base/pytorch_model.bin",
-    ]
+    # sprint 4: preprocessor_config.json is not read by transformers' HubertModel: not fetched
+    assert fetched == ["rmvpe.pt", "hubert_base/config.json", "hubert_base/pytorch_model.bin"]
     fetched.clear()
     rvc_mod.download_base_assets(models, include_legacy=True, force=True)
     assert "hubert_base.pt" in fetched

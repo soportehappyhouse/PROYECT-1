@@ -1744,7 +1744,9 @@ await step(
     const form = page.getByLabel("Registrar consentimiento", { exact: true });
     const text = await form.getByTestId("consent-text").innerText();
     if (!text.includes(`Yo, ${name}, mayor de edad`)) throw new Error(`consent text: ${text}`);
-    const pad = await form.getByLabel("Recuadro para firmar").boundingBox();
+    const canvas = form.getByLabel("Recuadro para firmar");
+    await canvas.scrollIntoViewIfNeeded();
+    const pad = await canvas.boundingBox();
     await page.mouse.move(pad.x + 20, pad.y + pad.height * 0.7);
     await page.mouse.down();
     for (const [fx, fy] of [
@@ -1823,7 +1825,7 @@ await step(
     await wizard.getByRole("checkbox", { name: /nadie en el video es menor de edad/ }).check();
     await apply.click();
     await wizard.getByText(/^Listo:/).waitFor({ timeout: 120_000 });
-    await wizard.getByRole("button", { name: "Cerrar" }).click();
+    await wizard.getByRole("button", { name: "Terminar" }).click();
     const clipBox = page.locator("[data-clip-id='uiface']");
     await clipBox.getByText("IA cara").waitFor({ timeout: 10_000 });
     await clipBox.click();
@@ -1844,6 +1846,117 @@ await step(
   },
 );
 // ------------------------------------------------------------------ END sprint4:M1
+
+// ---------------------------------------------------------------- BEGIN sprint4:M3
+// «Herramientas»: «Revisión para redes» detects the AI media of the project (face swap of the M1
+// step, cloned / synthetic voices of the M2 step; if none, a Chatterbox --mock voice is generated
+// here) and Ajustes → Paquetes de IA shows the faceswap licence gate + the isolated tool state.
+async function m3UiProject() {
+  const id = await page.evaluate(() => JSON.parse(localStorage.getItem("studio.project.v1")).id);
+  const project = await apiJson(`/api/projects/${id}`);
+  const kinds = { face: 0, cloned: 0, synthetic: 0 };
+  for (const t of project.tracks ?? []) {
+    const visible = t.kind !== "audio" && !t.hidden;
+    const audible = t.kind === "audio" ? !t.muted : t.kind === "video" && !t.hidden && !t.muted;
+    for (const c of t.clips ?? []) {
+      for (const assetId of [c.assetId, c.renderedAssetId, c.matte?.assetId].filter(Boolean)) {
+        const a = await apiJson(`/api/media/${assetId}`);
+        const k = a?.aiProvenance?.kind;
+        if (k === "face" && visible) kinds.face++;
+        if (k === "voice-cloned" && audible) kinds.cloned++;
+        if (k === "voice-synthetic" && audible) kinds.synthetic++;
+      }
+    }
+  }
+  return { project, kinds };
+}
+
+await step(
+  "Sprint 4: Revisión para redes detecta cara y voz IA; etiqueta al marcar redes",
+  async () => {
+    if (!page.url().startsWith(WEB)) await page.goto(WEB, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+    await sleep(2_000); // autosave of the previous steps
+    let { kinds } = await m3UiProject();
+    if (kinds.face + kinds.cloned + kinds.synthetic === 0) {
+      const pack = (await apiJson("/api/ai/packs")).find((p) => p.id === "tts-chatterbox");
+      if (!pack?.installed) return { skipped: "no AI media and tts-chatterbox not installed" };
+      await page.locator(".dv-tab", { hasText: "Voz y audio" }).click();
+      const voice = page.locator("section[aria-label='Voz y audio']");
+      await voice.getByRole("tab", { name: "Texto a voz" }).click();
+      await voice.getByLabel("Motor").selectOption("chatterbox");
+      await voice.getByRole("textbox").first().fill("Voz sintética para la revisión de redes.");
+      await voice.getByRole("button", { name: /Generar y añadir al cursor/ }).click();
+      for (let i = 0; i < 120 && kinds.synthetic === 0; i++) {
+        await sleep(1_000);
+        ({ kinds } = await m3UiProject());
+      }
+      if (kinds.synthetic === 0)
+        throw new Error("the synthetic voice clip did not reach the project");
+    }
+    await page.locator(".dv-tab", { hasText: "Exportar" }).click();
+    const panel = page.locator("section[aria-label='Exportar']");
+    const social = panel.getByRole("checkbox", { name: "Voy a subirlo a redes" });
+    if (await social.isChecked()) await social.uncheck();
+    // internal use: label off, detection visible (the export records it in its metadata anyway)
+    await panel.getByTestId("ai-label-off").waitFor({ timeout: 10_000 });
+    await panel.getByTestId("ai-detected").waitFor({ timeout: 10_000 });
+    await social.check();
+    const rows = {
+      face: await panel.getByTestId("ai-detected-face").count(),
+      cloned: await panel.getByTestId("ai-detected-voice-cloned").count(),
+      synthetic: await panel.getByTestId("ai-detected-voice-synthetic").count(),
+    };
+    for (const k of ["face", "cloned", "synthetic"])
+      if (Boolean(rows[k]) !== Boolean(kinds[k]))
+        throw new Error(
+          `detected rows ${JSON.stringify(rows)} vs project ${JSON.stringify(kinds)}`,
+        );
+    const face = panel.getByRole("checkbox", { name: /Cara generada o cambiada/ });
+    const voiceBox = panel.getByRole("checkbox", { name: /Voz generada o clonada/ });
+    if (kinds.face && !((await face.isChecked()) && (await face.isDisabled())))
+      throw new Error("«Cara» is not checked + locked with a face swap in the project");
+    if (kinds.cloned && !((await voiceBox.isChecked()) && (await voiceBox.isDisabled())))
+      throw new Error("«Voz» is not checked + locked with a cloned voice in the project");
+    if (!kinds.cloned && kinds.synthetic && !(await voiceBox.isChecked()))
+      throw new Error("synthetic voice not marked when going to social media");
+    const label = panel.getByRole("checkbox", { name: /Etiqueta «Contenido alterado con IA»/ });
+    if (!(await label.isChecked()))
+      throw new Error("AI label not proposed when marking social media");
+    const s = await shot(page, "s4-revision-redes-ia.png");
+    return { kinds, rows, shot: s };
+  },
+);
+
+await step("Sprint 4: Paquetes de IA: faceswap pide aceptar la licencia", async () => {
+  const packs = await apiJson("/api/ai/packs");
+  const faceswap = packs.find((p) => p.id === "faceswap");
+  if (!faceswap) throw new Error("pack faceswap not listed by /api/ai/packs");
+  await page.getByRole("button", { name: "Ajustes" }).click();
+  await page.getByRole("tab", { name: "Paquetes de IA" }).click();
+  const row = page.locator("[data-testid='pack-row'][data-pack-id='faceswap']");
+  await row.waitFor({ timeout: 15_000 });
+  const text = (await row.innerText()).replace(/\s+/g, " ");
+  if (!text.includes("No comercial: requiere aceptar licencia"))
+    throw new Error(`faceswap row without the licence badge: ${text.slice(0, 200)}`);
+  if (faceswap.tool && !/Entorno aislado \(tools\\facefusion\)/.test(text))
+    throw new Error(`faceswap row without the tool state: ${text.slice(0, 200)}`);
+  const licences = await apiJson("/api/ai/licences");
+  const accepted = licences.find((l) => l.id === "faceswap")?.accepted;
+  const button = row.getByRole("button", { name: accepted ? /Ver licencia/ : /Leer y aceptar/ });
+  await button.click();
+  const dialog = page
+    .getByRole("dialog")
+    .filter({ hasText: /Cambio de cara/ })
+    .last();
+  await dialog.waitFor({ timeout: 10_000 });
+  const s = await shot(page, "s4-paquetes-licencia.png");
+  await page.keyboard.press("Escape");
+  await sleep(300);
+  if (await page.getByRole("dialog").count()) await page.keyboard.press("Escape");
+  return { accepted: Boolean(accepted), tool: faceswap.tool ?? null, shot: s };
+});
+// ------------------------------------------------------------------ END sprint4:M3
 
 await browser.close();
 console.log(

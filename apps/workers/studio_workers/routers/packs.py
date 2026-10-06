@@ -22,6 +22,7 @@ def download(pack_id: str) -> dict[str, Any]:
     """Queue the pack (sequential, resumable, verified). Poll GET /packs/tasks/{task_id}."""
     if pack_id not in PACKS:
         raise NotFoundError(f"Paquete desconocido: {pack_id}")
+    require_licence(pack_id)
     root = get_settings().models_root
 
     def run(task: Task) -> dict[str, Any]:
@@ -47,6 +48,25 @@ def download(pack_id: str) -> dict[str, Any]:
 
     task = pack_queue().submit("packs.download", pack_id, run)
     return {"task_id": task.id, "status": task.status}
+
+
+def require_licence(pack_id: str) -> None:
+    """Sprint 4 (criterion 5): a pack with ``licence_gate`` is not downloaded until its licence is
+    accepted on screen (mirror storage/consent/licences.json, written by the api) -> 403
+    LICENCE_REQUIRED. The api checks it first; this is the defence in depth for direct calls."""
+    gate = getattr(PACKS[pack_id], "licence_gate", None)
+    if not gate:
+        return
+    from ..errors import CodedError  # noqa: PLC0415
+    from ..toolvenv import LICENCE_TEXT_VERSIONS, licence_accepted  # noqa: PLC0415
+
+    if not licence_accepted(gate):
+        raise CodedError(
+            "LICENCE_REQUIRED",
+            "Para usar el cambio de cara tenés que leer y aceptar su licencia (modelos no "
+            "comerciales + OpenRAIL-AS) en pantalla: Ajustes → Paquetes de IA.",
+            details={"licenceId": gate, "text_version": LICENCE_TEXT_VERSIONS.get(gate, "")},
+        )
 
 
 @router.get("/tasks/{task_id}")

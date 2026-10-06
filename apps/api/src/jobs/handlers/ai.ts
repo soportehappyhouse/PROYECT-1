@@ -27,6 +27,8 @@ import {
 import { nanoid } from "nanoid";
 import type { AppContext } from "../../context.js";
 import { HttpError, PackRequiredError } from "../../lib/errors.js";
+import { applyInheritedAiProvenance } from "../../services/ai-provenance.js";
+import { createConsentGate } from "../../services/persons/gate.js";
 import { resolveStoragePath } from "../../services/storage.js";
 import { applyCuts } from "../../services/timeline-edit.js";
 import { WorkersError, type WorkersClient } from "../../services/workers-client.js";
@@ -317,11 +319,13 @@ export function createDenoiseHandler(deps: AiDeps): JobHandler<DenoiseRequest, A
         ),
       );
       for (const w of res.warnings ?? []) ctx.log(`AVISO: ${w}`);
-      const asset = await registerAudioAsset(deps, {
+      const registered = await registerAudioAsset(deps, {
         path: res.path,
         name: `${source.name} (voz limpia)`,
         ...(source.durationSec !== undefined && { durationSec: source.durationSec }),
       });
+      // Sprint 4: a cleaned synthetic/cloned voice keeps its AI provenance.
+      const asset = applyInheritedAiProvenance(deps, registered, source, { jobId: job.id });
       return {
         assetId: asset.id,
         path: res.path,
@@ -332,14 +336,38 @@ export function createDenoiseHandler(deps: AiDeps): JobHandler<DenoiseRequest, A
   };
 }
 
-/** Last perf test result (storage/run/perf.json) or undefined. */
+/**
+ * Last perf test result (storage/run/perf.json) or undefined. Unknown keys are kept (sprint 4:
+ * `tools` = states of the isolated tool venvs, shown by Ajustes → Paquetes de IA).
+ */
 export async function readPerfResult(storageDir: string): Promise<PerfResult | undefined> {
   try {
     const raw = await readFile(resolveStoragePath(storageDir, PERF_RESULT_PATH), "utf8");
-    return PerfResultSchema.parse(JSON.parse(raw));
+    return PerfResultSchema.loose().parse(JSON.parse(raw));
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Sprint 4 (M3) body of POST /perf/run: the photo of the first Person with a valid face consent
+ * and the accepted licences, so the workers measure FaceFusion only with both (never a face-swap
+ * model without the on-screen acceptance). The handler gets the full AppContext in app.ts.
+ */
+export function perfRunBody(deps: AiDeps): {
+  face_source_path?: string;
+  face_consent_id?: string;
+  licences: string[];
+} {
+  const db = (deps as Partial<Pick<AppContext, "db">>).db;
+  if (!db) return { licences: [] };
+  const gate = createConsentGate(db, deps.config.storageDir);
+  const licences = gate.isLicenceAccepted("faceswap") ? ["faceswap"] : [];
+  const source = licences.length > 0 ? gate.benchFaceSource() : null;
+  return {
+    ...(source && { face_source_path: source.photoPath, face_consent_id: source.consentId }),
+    licences,
+  };
 }
 
 async function perfMtime(storageDir: string): Promise<number> {
@@ -363,7 +391,7 @@ export function createPerfRunHandler(
       const storage = deps.config.storageDir;
       const before = await perfMtime(storage);
       ctx.reportProgress(0.02, "Iniciando test de rendimiento IA");
-      const { task_id } = await viaPacks(() => deps.workers.perfRun());
+      const { task_id } = await viaPacks(() => deps.workers.perfRun(perfRunBody(deps)));
       const pollMs = o.pollMs ?? 1000;
       const timeoutMs = o.timeoutMs ?? 30 * 60_000;
       try {

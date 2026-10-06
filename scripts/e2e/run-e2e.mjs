@@ -3781,6 +3781,175 @@ await step("sprint4: studio_face_swap por stdio sin confirmed → rechazado", as
 });
 // ------------------------------------------------------------------ END sprint4:M1
 
+// ---------------------------------------------------------------- BEGIN sprint4:M3
+// «Herramientas»: licence-gated face swap packs end to end, perf.json sprint 4 fields, the AI
+// `comment` metadata of exports and the RVC device. With scripts/e2e/workers-with-mocks.py the
+// faceswap pack download is a fake install (still behind the workers licence check), Chatterbox
+// runs its --mock bridge and RVC has a fake voice «e2e-voz» (STUDIO_MOCK_RVC=0 turns it off).
+const M3_WEB = { origin: "http://localhost:3000" }; // assertHumanOrigin: the Studio web
+async function m3Licence() {
+  const all = await ok("GET", "/api/ai/licences");
+  const lic = all.find((l) => l.id === "faceswap");
+  assert(lic, "GET /api/ai/licences without «faceswap»");
+  return lic;
+}
+async function m3SetLicence(accepted) {
+  const lic = await m3Licence();
+  if (lic.accepted === accepted) return lic;
+  const route = `/api/ai/licences/faceswap/${accepted ? "accept" : "revoke"}`;
+  const r = await api(
+    "POST",
+    route,
+    accepted ? { text_version: lic.text_version, accept: true } : {},
+    { headers: M3_WEB },
+  );
+  assert(r.status === 200, `${route} -> ${r.status} ${JSON.stringify(r.json)?.slice(0, 300)}`);
+  return m3Licence();
+}
+
+await step(
+  "sprint4: licencia de cambio de cara de punta a punta (pack 403 → aceptar con Origin → descarga mock → revocar → face.swap 403)",
+  async () => {
+    const before = await m3Licence();
+    await m3SetLicence(false);
+    const pack = (await ok("GET", "/api/ai/packs")).find((p) => p.id === "faceswap");
+    assert(
+      pack?.licence_gate === "faceswap",
+      `pack faceswap licence_gate: ${JSON.stringify(pack)}`,
+    );
+    const denied = await api("POST", "/api/ai/packs/faceswap/download", {});
+    assert(
+      denied.status === 403 && JSON.stringify(denied.json).includes("LICENCE_REQUIRED"),
+      `download without licence -> ${denied.status} ${JSON.stringify(denied.json)?.slice(0, 300)}`,
+    );
+    // the MCP / console can never accept it (HUMAN_ONLY), the web can
+    const mcp = await api(
+      "POST",
+      "/api/ai/licences/faceswap/accept",
+      { text_version: before.text_version, accept: true },
+      { headers: { ...M3_WEB, "x-studio-client": "mcp" } },
+    );
+    assert(mcp.status === 403, `accept from mcp -> ${mcp.status}`);
+    const accepted = await m3SetLicence(true);
+    assert(accepted.accepted && accepted.acceptance?.accepted_at, "licence not accepted");
+    const { jobId } = await ok("POST", "/api/ai/packs/faceswap/download", {}, [202]);
+    const job = await waitOk(jobId, { timeoutMs: 120_000 });
+    await m3SetLicence(false);
+    const swap = await api("POST", "/api/face/swap", {
+      personId: "e2e-nadie",
+      assetId: ctx.vAsset?.id ?? "e2e-nada",
+      confirmed: true,
+    });
+    assert(
+      swap.status === 403 && JSON.stringify(swap.json).includes("LICENCE_REQUIRED"),
+      `face.swap after revoking -> ${swap.status} ${JSON.stringify(swap.json)?.slice(0, 300)}`,
+    );
+    if (before.accepted) await m3SetLicence(true); // leave it as it was
+    return { download: job.status, mcpAccept: mcp.status, swapAfterRevoke: swap.status };
+  },
+);
+
+await step("sprint4: perf.json con campos nuevos y motivos", async () => {
+  const { jobId } = await ok("POST", "/api/ai/perf/run", {}, [202]);
+  await waitOk(jobId, { timeoutMs: 1_200_000 });
+  const perf = await ok("GET", "/api/ai/perf");
+  for (const key of [
+    "rvc_device",
+    "chatterbox_rtf",
+    "chatterbox_device",
+    "facefusion_fps",
+    "facefusion_enh_fps",
+    "facefusion_device",
+  ])
+    assert(key in perf, `perf.json without ${key}: ${JSON.stringify(perf).slice(0, 300)}`);
+  assert(
+    perf.tools?.facefusion?.state && perf.tools?.chatterbox?.state,
+    `perf.json tools: ${JSON.stringify(perf.tools)}`,
+  );
+  // every component is either measured or has a Spanish reason
+  const cb = perf.chatterbox_rtf ?? perf.skipped?.chatterbox ?? perf.errors?.chatterbox;
+  const ff = perf.facefusion_fps ?? perf.skipped?.facefusion ?? perf.errors?.facefusion;
+  assert(cb != null && ff != null, `chatterbox/facefusion without value nor reason`);
+  const lic = await m3Licence();
+  if (!lic.accepted && perf.facefusion_fps == null && perf.skipped?.facefusion)
+    assert(
+      /licencia no aceptada|no instalado|Persona/.test(perf.skipped.facefusion),
+      `facefusion reason: ${perf.skipped.facefusion}`,
+    );
+  return { chatterbox: cb, facefusion: ff, tools: perf.tools, rvc: perf.rvc_device ?? null };
+});
+
+await step("sprint4: export con metadato comment de IA", async () => {
+  const pack = (await ok("GET", "/api/ai/packs")).find((p) => p.id === "tts-chatterbox");
+  const src = path.join(WORK, "e2e-m3-gris.mp4");
+  await run(FFMPEG, [
+    "-y",
+    "-v",
+    "error",
+    "-f",
+    "lavfi",
+    "-i",
+    "color=c=0x404040:s=640x360:r=25:d=3",
+    "-c:v",
+    "libx264",
+    "-pix_fmt",
+    "yuv420p",
+    src,
+  ]);
+  const video = await upload(src, "video/mp4");
+  await waitAssetJobs(video.id, ["media.probe"]);
+  const p = await ok("POST", "/api/projects", { name: "E2E metadato IA" }, [201]);
+  const V = p.tracks.find((t) => t.kind === "video");
+  const A = p.tracks.find((t) => t.kind === "audio");
+  V.clips = [{ id: id("c"), trackId: V.id, assetId: video.id, start: 0, in: 0, out: 3 }];
+  const exportComment = async (name) => {
+    await ok("PUT", `/api/projects/${p.id}`, p);
+    const { jobId } = await ok("POST", `/api/projects/${p.id}/export`, {
+      presetId: "youtube-1080p",
+      fileName: name,
+    });
+    const job = await waitOk(jobId);
+    const file = await download(job.result.path, `${name}.mp4`);
+    return (await ffprobe(file)).format?.tags?.comment;
+  };
+  const plain = await exportComment("m3-sin-ia");
+  assert(plain === undefined, `comment without AI content: ${plain}`);
+  if (!pack?.installed) return "tts-chatterbox not installed (mocks off): only the no-AI case";
+  const r = await ok("POST", "/api/voice/tts", {
+    provider: "chatterbox",
+    voice: "chatterbox:multilingual",
+    text: "Hola, esto es una voz sintética.",
+  });
+  const tts = await waitOk(r.jobId, { timeoutMs: 180_000 });
+  const voice = await ok("GET", `/api/media/${tts.result.assetId}`);
+  assert(voice.aiProvenance?.kind === "voice-synthetic", `tts asset ${JSON.stringify(voice)}`);
+  A.clips = [{ id: id("c"), trackId: A.id, assetId: voice.id, start: 0, in: 0, out: 2 }];
+  // the visible label stays OFF (internal use): the comment is there anyway (decision 9)
+  const comment = await exportComment("m3-con-ia");
+  assert(
+    comment ===
+      "Editado con Studio; contenido alterado con IA: cara sintética: no; voz clonada: no; voz sintética: sí",
+    `comment: ${comment}`,
+  );
+  return { comment };
+});
+
+await step("sprint4: RVC informa device (cpu en CI)", async () => {
+  const models = await ok("GET", "/api/voice/rvc/models");
+  if (!models.some((m) => m.id === "e2e-voz"))
+    return "sin el mock de RVC (STUDIO_MOCK_RVC=0): no hay voz de prueba";
+  const { jobId } = await ok("POST", "/api/voice/rvc", {
+    assetId: ctx.sAsset.id,
+    modelId: "e2e-voz",
+    pitchShift: 2,
+    f0Method: "pm",
+  });
+  const job = await waitOk(jobId, { timeoutMs: 120_000 });
+  assert(["cpu", "cuda"].includes(job.result.device), `device: ${JSON.stringify(job.result)}`);
+  return { device: job.result.device, warnings: job.result.warnings ?? [] };
+});
+// ------------------------------------------------------------------ END sprint4:M3
+
 // ---------------------------------------------------------------- report
 sse.controller.abort();
 const required = results.filter((r) => r.kind === "required");

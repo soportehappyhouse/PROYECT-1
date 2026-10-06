@@ -5,6 +5,7 @@ import {
   type FileJobResult,
 } from "@studio/shared";
 import type { AppContext } from "../../context.js";
+import { inheritAiProvenance } from "../../services/ai-provenance.js";
 import { storageRelative } from "../../services/storage.js";
 import type { JobHandler } from "../types.js";
 import { absPath, fileSize, requireAsset } from "./util.js";
@@ -60,6 +61,8 @@ export function createVoiceEffectHandler(
         ...(info?.durationSec !== undefined && { durationSec: info.durationSec }),
         ...(info?.sampleRate !== undefined && { sampleRate: info.sampleRate }),
         ...(info?.channels !== undefined && { channels: info.channels }),
+        // Sprint 4: an effect over a synthetic/cloned voice is still that voice (Revisión para redes)
+        ...inheritAiProvenance(source, { jobId: job.id }),
         createdAt: new Date().toISOString(),
       });
       app.queue.enqueue({ type: "media.probe", payload: { assetId: asset.id }, priority: 1 });

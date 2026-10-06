@@ -175,7 +175,12 @@ export interface WorkersClient {
     req: { path: string; output_base: string },
     opts?: WorkerCallOptions,
   ): Promise<z.infer<typeof DenoiseResultSchema>>;
-  perfRun(): Promise<WorkerTaskAccepted>;
+  /** Sprint 4: `face_source_path` (gate.benchFaceSource) and accepted `licences` for FaceFusion. */
+  perfRun(body?: {
+    face_source_path?: string;
+    face_consent_id?: string;
+    licences?: string[];
+  }): Promise<WorkerTaskAccepted>;
   // ---- Sprint 2 (vision) ----
   visionMatte(req: WorkerMatteRequest): Promise<WorkerTaskAccepted>;
   visionMatteImage(
@@ -479,7 +484,7 @@ export function createWorkersClient(baseUrl: string): WorkersClient {
       call("POST", WORKER_AI_ROUTES.analyzeSilences, SilenceCutsSchema, req, opts?.signal, true),
     audioDenoise: (req, opts) =>
       call("POST", WORKER_AI_ROUTES.audioDenoise, DenoiseResultSchema, req, opts?.signal, true),
-    perfRun: () => call("POST", WORKER_AI_ROUTES.perfRun, WorkerTaskAcceptedSchema, {}),
+    perfRun: (body = {}) => call("POST", WORKER_AI_ROUTES.perfRun, WorkerTaskAcceptedSchema, body),
     visionMatte: (req) =>
       call("POST", WORKER_AI_ROUTES.visionMatte, WorkerTaskAcceptedSchema, req, undefined, true),
     visionMatteImage: (req, opts) =>

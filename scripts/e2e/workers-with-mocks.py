@@ -306,6 +306,66 @@ if MOCK_FACE:
     packs.pack_status = pack_status_face
 # --------------------------------------------------------------- END sprint4:M1 face swap mock
 
+
+# ------------------------------------------------------------- BEGIN sprint4:M3 tools mock
+# STUDIO_MOCK_TOOLS=0 turns it off. Isolated tool venvs: with the M1/M2 mocks FACEFUSION_PYTHON /
+# CHATTERBOX_PYTHON point to this interpreter, so toolvenv.status() reports them "ready"
+# (override). Licence-gated pack downloads (faceswap*) never touch the network: the workers route
+# still checks the licence mirror (403 LICENCE_REQUIRED) and then a fake install returns at once.
+# The perf test talks to the Chatterbox bridge with --mock. STUDIO_MOCK_RVC=0 keeps the real RVC:
+# by default a fake voice model "e2e-voz" (no torch / infer-rvc-python) converts with ffmpeg, so
+# /rvc/convert runs the real device selection (USE_CUDA, GPU budget) and reports `device`.
+MOCK_TOOLS = os.environ.get("STUDIO_MOCK_TOOLS", "1") != "0"
+if MOCK_TOOLS:
+    from studio_workers import perf as _m3_perf
+    from studio_workers import toolvenv as _m3_tv
+    from studio_workers.routers import packs as _m3_packs_router
+
+    if os.environ.get("STUDIO_MOCK_CHATTERBOX", "1") != "0":
+        _m3_perf.CHATTERBOX_EXTRA_ARGS = ["--mock"]
+    _m3_install = _m3_packs_router.install_pack
+
+    def _m3_fake_install(pack_id, root, **kw):  # type: ignore[no-untyped-def]
+        if packs.PACKS[pack_id].licence_gate:
+            line = kw.get("on_line") or (lambda _l: None)
+            line(f"e2e mock: {pack_id} (licencia aceptada) sin descargar nada")
+            return packs.InstallReport(pack_id, skipped=["e2e-mock"])
+        return _m3_install(pack_id, root, **kw)
+
+    _m3_packs_router.install_pack = _m3_fake_install
+    for _m3_tool in _m3_tv.TOOL_IDS:
+        print(f"[mocks] tool venv {_m3_tool}: {_m3_tv.status_summary(_m3_tool)['state']}")
+
+MOCK_RVC = os.environ.get("STUDIO_MOCK_RVC", "1") != "0"
+if MOCK_RVC:
+    from studio_workers.routers import rvc as _m3_rvc_router
+    from studio_workers.schemas import RvcModel as _M3RvcModel
+
+    _m3_fake_model = _M3RvcModel(id="e2e-voz", name="e2e voz", model_path="rvc/e2e-voz/e2e-voz.pth")
+    _m3_real_discover = _m3_rvc_router.discover_models
+    _m3_rvc_router.discover_models = lambda root: [*_m3_real_discover(root), _m3_fake_model]
+    _m3_rvc_router.base_ready = lambda root, f0="rmvpe": True
+    _m3_rvc_router.require_module = lambda *_a, **_k: None
+    _m3_engine = services.rvc_engine()
+    _m3_real_convert = _m3_engine.convert
+
+    def _m3_convert(model, input_audio, output, params, device, on_progress=None):  # type: ignore[no-untyped-def]
+        if model.id != "e2e-voz":
+            return _m3_real_convert(model, input_audio, output, params, device, on_progress)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-i", str(input_audio), "-af",
+             f"asetrate=44100*{2 ** (params.pitch_shift / 12):.4f},aresample=40000", "-ac", "1",
+             str(output)],
+            check=True,
+        )  # fmt: skip
+        if device == "cuda":
+            _m3_engine.idle.touch()
+        return output, 40000, 1.0
+
+    _m3_engine.convert = _m3_convert  # type: ignore[method-assign]
+# --------------------------------------------------------------- END sprint4:M3 tools mock
+
 settings = get_settings()
 uvicorn.run(
     with_agent_mock(app) if MOCK_AGENT else app,

@@ -244,3 +244,42 @@ def test_launch_failed_from_a_real_process(tmp_path: Path) -> None:
     event = json.loads(proc.stdout.strip())
     assert event == {"event": "error", "code": "LAUNCH_FAILED", "message": event["message"]}
     assert "studio_tts_server.py" in event["message"]
+
+
+# ---------------------------------------------- opt-in: a REAL tool venv (never in CI, no pip)
+
+
+@pytest.mark.tool_venv
+@pytest.mark.skipif(
+    os.environ.get("STUDIO_TOOL_VENV_TESTS") != "1",
+    reason="creates a real venv: set STUDIO_TOOL_VENV_TESTS=1 (CI never does)",
+)
+def test_real_python312_venv_runs_launch_py(tmp_path: Path) -> None:
+    """`python3.12 -m venv` + tools/launch.py inside it (stdlib only, nothing downloaded)."""
+    import shutil
+
+    base = shutil.which("python3.12") or shutil.which("py")
+    if base is None:
+        pytest.skip("no Python 3.12 on this machine")
+    venv = tmp_path / "tool venv"
+    argv = [base, "-m", "venv", "--without-pip", str(venv)]
+    if Path(base).name.startswith("py") and "python" not in Path(base).name:
+        argv = [base, "-3.12", "-m", "venv", "--without-pip", str(venv)]
+    subprocess.run(argv, check=True, timeout=120)  # noqa: S603
+    py = toolvenv.venv_python(venv)
+    app = tmp_path / "app"
+    app.mkdir()
+    (app / "tool.py").write_text(
+        "import json, os, sys\nprint(json.dumps({'v': sys.version_info[:2], 'prefix': sys.prefix,"
+        " 'offline': os.environ.get('HF_HUB_OFFLINE'), 'tok': os.environ.get('HF_TOKEN')}))\n",
+        "utf-8",
+    )
+    env = toolvenv.scrubbed_env({**os.environ, "HF_TOKEN": "hf_x"})
+    proc = subprocess.run(  # noqa: S603
+        [str(py), str(LAUNCH), "--tool", "facefusion", "--chdir", str(app), "--", "tool.py"],
+        env={**env, "HF_TOKEN": "hf_x"}, capture_output=True, text=True, timeout=60,
+    )  # fmt: skip
+    assert proc.returncode == 0, proc.stderr
+    data = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert data["v"] == [3, 12] and Path(data["prefix"]) == venv
+    assert data["offline"] == "1" and data["tok"] is None

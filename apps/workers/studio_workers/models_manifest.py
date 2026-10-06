@@ -557,23 +557,10 @@ def piper_items(root: Path, voice_id: str, catalog: dict | None) -> list[FileIte
 
 
 def rvc_items(root: Path, *, legacy: bool) -> list[FileItem]:
-    from .rvc_engine import BASE_ASSETS, RVC_ASSETS_BASE, base_dir  # noqa: PLC0415
+    """Pack rvc-base (sprint 4: official URL + mirror fallback, see rvc_engine.BASE_ASSETS)."""
+    from .rvc_engine import base_items  # noqa: PLC0415
 
-    items = []
-    for asset in BASE_ASSETS:
-        if asset.legacy and not legacy:
-            continue
-        dst = base_dir(root) / asset.local
-        items.append(
-            FileItem(
-                "rvc:legacy" if asset.legacy else "rvc:base",
-                asset.local,
-                dst.relative_to(root).as_posix(),
-                f"{RVC_ASSETS_BASE}/{asset.remote}",
-                asset.expected,
-            )
-        )
-    return items
+    return base_items(root, legacy=legacy)
 
 
 def build_plan(

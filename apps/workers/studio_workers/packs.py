@@ -55,7 +55,8 @@ DEFAULT_VOICE = "es_AR-daniela-high"
 WHISPER_SIZES = {"base": 145_000_000, "large-v3-turbo": 1_620_000_000}
 PIPER_QUALITY_SIZES = {"high": 114_000_000, "medium": 63_000_000, "low": 63_000_000}
 PIPER_X_LOW = 28_000_000
-RVC_SIZES = {"rmvpe.pt": 181_000_000, "hubert_base/pytorch_model.bin": 190_000_000}
+# rvc-base: rmvpe.pt exact size [S] (rvc_engine.RMVPE_SIZE); hubert transformers weights ~190 MB [S]
+RVC_SIZES = {"rmvpe.pt": 181_189_687, "hubert_base/pytorch_model.bin": 190_000_000}
 
 DEEPFILTER_MODEL = "DeepFilterNet3"
 # Same file df.enhance.maybe_download_model fetches (deepfilternet 0.5.6 on PyPI [V]); size and
@@ -525,10 +526,15 @@ PACKS: dict[str, Pack] = {
                 "Codificador de contenido y estimador de tono para convertir voces con RVC."
             ),
             group="voice",
-            license="MIT (lj1995/VoiceConversionWebUI)",
+            license="MIT (lj1995/VoiceConversionWebUI; respaldo r3gm/hubert_base)",
             required_by=("rvc",),
             approx_size=sum(RVC_SIZES.values()),
             items=_rvc_items,
+            notes=(
+                "hubert_base/{config.json, pytorch_model.bin} (formato transformers) y rmvpe.pt "
+                "de lj1995/VoiceConversionWebUI; si esa ruta responde 404 se usa r3gm/hubert_base "
+                "(el que carga infer-rvc-python). models/manifest.json guarda el origen."
+            ),
         ),
         Pack(
             id="scenes",

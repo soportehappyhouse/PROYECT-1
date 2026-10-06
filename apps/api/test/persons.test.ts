@@ -89,12 +89,15 @@ describe("sprint 4 M1: Personas + consent", () => {
     });
     expect(mcp.statusCode).toBe(403);
     expect(mcp.json().error.code).toBe("HUMAN_ONLY");
-    for (const url of [
-      `/files/${p.photos[0]!.path}`,
-      "/files/consent/licences.json",
-      `/files/CONSENT/persons/${person.id}/photos/${p.photos[0]!.id}.png`,
-    ])
+    for (const url of [`/files/${p.photos[0]!.path}`, "/files/consent/licences.json"])
       expect((await app.inject({ method: "GET", url })).statusCode).toBe(404);
+    // Another spelling of the folder is never served either: allowedPath ignores case (404) and,
+    // on case-insensitive filesystems (Windows), @fastify/static refuses the alias first (403).
+    const alias = await app.inject({
+      method: "GET",
+      url: `/files/CONSENT/persons/${person.id}/photos/${p.photos[0]!.id}.png`,
+    });
+    expect([403, 404]).toContain(alias.statusCode);
 
     for (let i = 1; i < 10; i++) expect((await upload(pngHeader(10, 10))).statusCode).toBe(200);
     const eleventh = await upload(pngHeader(10, 10));

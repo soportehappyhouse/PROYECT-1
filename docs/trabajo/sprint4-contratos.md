@@ -382,3 +382,45 @@ Criterio 5 del plan: un cambio de cara solo corre con consentimiento registrado 
 
 ## Cambios en integración
 
+(2026-10-06; detalle, resultados y procedimiento en `docs/trabajo/integracion-sprint4.md`)
+
+- **Junctions en Windows (bug real)**: `toolvenv._is_dir_link` usaba `os.path.isjunction`, que
+  recién existe en Python 3.12; los workers corren 3.11.9, así que una junction
+  `tools/facefusion/app/.assets/models` se veía como carpeta común y el segundo `link_dir` (un
+  `ensure` repetido: `-Update` con receta cambiada, `-Force`, entorno `stale`) fallaba con
+  `WinError 183`. Ahora también se detecta por `lstat` (reparse point + `IO_REPARSE_TAG_MOUNT_POINT`).
+  Test nuevo `test_junction_detected_without_isjunction` (corre en Linux con `lstat` simulado) + el
+  existente `test_symlink_relinked_when_target_changes` en windows-latest.
+- **CI windows-latest (pruebas)**: `test_find_base_python_order` usa intérpretes falsos que existen
+  (en Windows `C:/Py312/python.exe` es absoluta y el buscador la salteaba con razón);
+  `test_tool_bridge_fallback_and_m3_delegation` separa `PATH` con `os.pathsep`; `persons.test.ts`
+  acepta 403 o 404 para `/files/CONSENT/...` (en un sistema de archivos sin mayúsculas
+  `@fastify/static` rechaza el alias con 403 antes de `allowedPath`; lo que importa, que no se
+  sirve, se mantiene); `agent.test.ts` codifica el clip de prueba una sola vez por archivo (un
+  `ffmpeg` síncrono por test bloqueaba el event loop) y el test de `PACK_REQUIRED` (5 pedidos en
+  serie) tiene 30 s en lugar de 5.
+- **Procedencia en RVC (M2 ↔ M3)**: `voice.rvc` usa `inheritAiProvenance(source, {jobId})` de
+  `services/ai-provenance.ts` (se quitó `inheritVoiceProvenance`): el asset derivado guarda el
+  `jobId` del RVC como el resto de las herencias (antes quedaba el del TTS de origen).
+- **Reportes sin el registro de Personas**: `reportar-error.ps1` ya no copia `studio.db` entera
+  como último recurso (tiene `persons`, `ai_licences` y `consent_audit`) y oculta las rutas
+  `consent/persons|archive/…` con la misma regla que `reports/builder.ts`. `REPORTAR-ERRORES.md`
+  (Privacidad) lo dice.
+- **studio-mcp**: el smoke exige ≥ 18 herramientas (antes ≥ 16; + `studio_list_persons`,
+  `studio_face_swap`).
+- **Tamaños**: Chatterbox ≈ 6,2 GB en todos lados (lo que calcula el pack y muestra la UI);
+  `setup.ps1`, `doctor.ps1` e `INSTALACION-WINDOWS.md` decían 6,5. `-Force` documentado también
+  para los entornos aislados.
+- **E2E** (+2 pasos «sprint4 integración»): cara (M1) + voz clonada (M2) → `voice.effect` y RVC
+  heredan `voice-cloned` (M3) → `comment` del export «cara sintética: sí; voz clonada: sí» y, tras
+  deshacer el cambio de cara, «cara sintética: no»; `perf.run` (M3) mide FaceFusion por el
+  `FaceEngine` de los workers (M1) con la Persona que elige `benchFaceSource()` (una «0 E2E Banco»
+  limpia: por orden alfabético la primera era «E2E Contenido», la de la foto NSFW, y el bench
+  terminaba en `CONTENT_BLOCKED` sin medir nunca).
+- **Docs**: manual §24–§27 (+ §4.1 pestañas de Ajustes, §9 enlace, §11 variables nuevas, §17.1
+  paquetes, §17.3, §17.7 detección y `comment`, §23.2–23.3), `index.html` a mano y PDF regenerado
+  (76 páginas); `ARQUITECTURA.md` (componentes, flujos de voz y cara, rutas s4, códigos, workers,
+  jobs, almacenamiento, tablas, §5.4 herramientas aisladas + consentimiento + procedencia,
+  decisiones, secretos); `fuentes.md` (FaceFusion OpenRAIL-AS + licencia de cada modelo,
+  Chatterbox MIT + PerTh, onnxruntime, ruedas NVIDIA cu12 con su EULA, torch 2.6, Python 3.12,
+  hubert/rmvpe).

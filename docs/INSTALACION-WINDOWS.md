@@ -92,26 +92,26 @@ Re-ejecutarlo con todo instalado: alrededor de un minuto (verificaciones, sin de
 
 ### Opciones útiles
 
-| Opción                                        | Para qué                                                                                    |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `-Update`                                     | Después de bajar una versión nueva: todo incremental (ver [9](#9-actualizar-y-desinstalar)) |
-| `-Force`                                      | Ignora los sellos: rehace `pnpm install`, `pip install`, el build y re-descarga modelos     |
-| `-WithCuda`                                   | GPU NVIDIA: torch CUDA 12.8 (cu128) y `USE_CUDA=true` (automático si se detecta la GPU)     |
-| `-NoCuda` (o `-WithCuda:$false`)              | Perfil CPU aunque haya GPU NVIDIA (`USE_CUDA=false`)                                        |
-| `-WhisperModel small`                         | Otro modelo de subtítulos (`tiny`, `base`, `small`, `medium`, `large-v3-turbo`)             |
-| `-PiperVoice es_MX-claude-high`               | Otra voz por defecto                                                                        |
-| `-SkipRvc` / `-SkipRvc:$false`                | Sin dependencias de RVC en el `.venv` (torch/RVC; se recuerda) / volver a instalarlas       |
-| `-SkipModels` / `-SkipBuild` / `-SkipBrowser` | Saltear pasos                                                                               |
-| `-SkipWinget`                                 | No usa winget: Git, Node 22, Python 3.11 y FFmpeg ya deben estar en el PATH (3.12: aviso)   |
-| `-SkipOllama`                                 | No instala ni inicia Ollama (el Asistente local queda deshabilitado)                        |
-| `-SkipClaude` (o `-WithClaude:$false`)        | No instala Claude Code (la Consola Claude explica cómo instalarlo después)                  |
-| `-Full`                                       | Descarga todos los paquetes de IA en secuencia (ver abajo)                                  |
+| Opción                                        | Para qué                                                                                                                                    |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-Update`                                     | Después de bajar una versión nueva: todo incremental (ver [9](#9-actualizar-y-desinstalar))                                                 |
+| `-Force`                                      | Ignora los sellos: rehace `pnpm install`, `pip install`, el build, los entornos aislados existentes (`tools\*\.venv`) y re-descarga modelos |
+| `-WithCuda`                                   | GPU NVIDIA: torch CUDA 12.8 (cu128) y `USE_CUDA=true` (automático si se detecta la GPU)                                                     |
+| `-NoCuda` (o `-WithCuda:$false`)              | Perfil CPU aunque haya GPU NVIDIA (`USE_CUDA=false`)                                                                                        |
+| `-WhisperModel small`                         | Otro modelo de subtítulos (`tiny`, `base`, `small`, `medium`, `large-v3-turbo`)                                                             |
+| `-PiperVoice es_MX-claude-high`               | Otra voz por defecto                                                                                                                        |
+| `-SkipRvc` / `-SkipRvc:$false`                | Sin dependencias de RVC en el `.venv` (torch/RVC; se recuerda) / volver a instalarlas                                                       |
+| `-SkipModels` / `-SkipBuild` / `-SkipBrowser` | Saltear pasos                                                                                                                               |
+| `-SkipWinget`                                 | No usa winget: Git, Node 22, Python 3.11 y FFmpeg ya deben estar en el PATH (3.12: aviso)                                                   |
+| `-SkipOllama`                                 | No instala ni inicia Ollama (el Asistente local queda deshabilitado)                                                                        |
+| `-SkipClaude` (o `-WithClaude:$false`)        | No instala Claude Code (la Consola Claude explica cómo instalarlo después)                                                                  |
+| `-Full`                                       | Descarga todos los paquetes de IA en secuencia (ver abajo)                                                                                  |
 
 ### Paquetes de IA (`-Full`)
 
 Por defecto `setup.ps1` instala solo el paquete **core** (Whisper base + voz Daniela). Los demás se
 descargan al usar cada función (Ajustes → Paquetes de IA, con barra de progreso). Con `-Full` se
-bajan todos ahora, uno por uno (~4,3 GB + 5,2 GB del Asistente si Ollama está instalado + ~6,5 GB de
+bajan todos ahora, uno por uno (~4,3 GB + 5,2 GB del Asistente si Ollama está instalado + ~6,2 GB de
 la voz avanzada Chatterbox; el **cambio de cara** (~4 GB) solo si ya aceptaste su licencia en
 pantalla; repetirlo omite lo que ya está y reanuda lo parcial):
 
@@ -129,7 +129,7 @@ pantalla; repetirlo omite lo que ya está y reanuda lo parcial):
 | `sam2`           | SAM 2.1 tiny + small + código `sam2` (desde GitHub, **requiere Git**)       | 0,34 GB                                           | máscara por clic, seguir objeto (SAM 2)       |
 | `reframe`        | YuNet (caras) + OpenCV                                                      | 0,04 GB                                           | reencuadrar, seguir objeto (rápido)           |
 | `agent-llm`      | Modelo del Asistente local vía Ollama (`qwen3:8b`, Q4)                      | 5,2 GB                                            | Asistente (comandos en español), reporte      |
-| `tts-chatterbox` | Chatterbox multilingüe V3 + entorno `tools\chatterbox\.venv` (torch 2.6)    | ≈ 6,5 GB (≈ 3,2 GB modelos + ≈ 3 GB entorno CUDA) | voz avanzada en español y clonación           |
+| `tts-chatterbox` | Chatterbox multilingüe V3 + entorno `tools\chatterbox\.venv` (torch 2.6)    | ≈ 6,2 GB (≈ 3,2 GB modelos + ≈ 3 GB entorno CUDA) | voz avanzada en español y clonación           |
 | `faceswap`       | FaceFusion 3.9.1 + modelos + entorno `tools\facefusion\.venv` (Python 3.12) | ≈ 4 GB (≈ 1,8 GB modelos + ≈ 2,2 GB entorno CUDA) | cambio de cara (**pide aceptar la licencia**) |
 | `faceswap-extra` | Modelos extra de cambio de cara (Ghost, InSwapper)                          | 0,8 GB                                            | cambio de cara (otros modelos)                |
 
@@ -365,7 +365,7 @@ apps\workers\.venv\Scripts\python.exe -m studio_workers.models_cli --check --upd
 | Opción      | Qué hace                                                                                                                                                                                                                                                                     |
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `-Update`   | Incremental tras bajar una versión nueva; conserva el perfil anterior (con o sin RVC). Si la instalación estaba en CPU y ahora se detecta una GPU NVIDIA, **cambia a CUDA sola** (torch CUDA, ~2,5 GB una vez, y `USE_CUDA=true` en `.env`, sin tocar el resto del archivo). |
-| `-Full`     | Baja **todos** los paquetes de IA ahora, en secuencia (~4,3 GB + 5,2 GB del Asistente + ~6,5 GB de Chatterbox; el cambio de cara, ~4 GB, solo con su licencia ya aceptada). Sin `-Full` solo se instala `core`.                                                              |
+| `-Full`     | Baja **todos** los paquetes de IA ahora, en secuencia (~4,3 GB + 5,2 GB del Asistente + ~6,2 GB de Chatterbox; el cambio de cara, ~4 GB, solo con su licencia ya aceptada). Sin `-Full` solo se instala `core`.                                                              |
 | `-WithCuda` | Perfil GPU: torch CUDA 12.8 y `USE_CUDA=true`. No hace falta pasarlo: es **automático** si se detecta una GPU NVIDIA (`nvidia-smi` o el nombre del adaptador de video contiene «NVIDIA»), en la primera instalación y en `-Update`.                                          |
 | `-NoCuda`   | Perfil CPU aunque haya GPU NVIDIA (`USE_CUDA=false`). La elección queda registrada en `apps\workers\.venv\.studio-install`: los `-Update` siguientes no vuelven a cambiar a CUDA (para volver: `-WithCuda`).                                                                 |
 

@@ -31,6 +31,10 @@
 21. [Separar audio (stems)](#21-separar-audio-stems)
 22. [Capas y fusiones](#22-capas-y-fusiones)
 23. [Consola Claude](#23-consola-claude)
+24. [Personas y consentimiento](#24-personas-y-consentimiento)
+25. [Cambiar cara](#25-cambiar-cara)
+26. [Voces: Chatterbox y clonación](#26-voces-chatterbox-y-clonación)
+27. [Rendimiento e instalación de herramientas](#27-rendimiento-e-instalación-de-herramientas)
 
 ---
 
@@ -156,7 +160,8 @@ De izquierda a derecha:
 - **Layouts** (ícono de cuadrícula): _Restaurar layout_, _Guardar layout actual…_, tus layouts
   guardados y _Gestionar layouts…_.
 - **Tema** (sol / luna / monitor): Claro, Oscuro o Sistema.
-- **Ajustes** (engranaje): pestañas _Apariencia_, _Atajos_, _Layouts_ y _Paquetes de IA_.
+- **Ajustes** (engranaje): pestañas _Apariencia_, _Atajos_, _Layouts_, _Paquetes de IA_,
+  _Asistente local_ y _Personas_ (ver [§24](#24-personas-y-consentimiento)).
 - **🐞 Reportar error**: abre el formulario de reporte (ver [§13](#13-cómo-reportar-un-error)).
 
 ### 4.2 Los 13 paneles
@@ -634,6 +639,9 @@ Ejemplo de parámetros de un **Rótulo** (lo que la API recibe en `POST /api/mot
 
 ## 9. Voz: Piper, efectos y RVC
 
+> Voz en español más natural y clonación de voz (Chatterbox): ver
+> [§26](#26-voces-chatterbox-y-clonación).
+
 ### 9.1 Voces Piper (texto a voz local)
 
 | Voz (id)                | Nombre en el panel               | Idioma | Calidad                           |
@@ -751,36 +759,41 @@ El archivo `.env` está en la carpeta del proyecto (lo crea `setup.ps1` copiando
 Abrilo con el Bloc de notas. **Después de cambiarlo, cerrá Studio (`stop.ps1`) y volvé a abrirlo
 con `start.ps1`.** Nunca lo compartas ni lo subas a internet: puede tener tus claves.
 
-| Variable                                 | Por defecto                           | Para qué                                                                                                                  |
-| ---------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `WEB_PORT`, `API_PORT`, `WORKERS_PORT`   | 3000, 3001, 8001                      | Puertos. Cambialos si otro programa los usa.                                                                              |
-| `NEXT_PUBLIC_API_URL`                    | `http://127.0.0.1:3001`               | Dirección de la API que usa el dashboard. Si cambiás `API_PORT`, cambiala igual (`start.ps1` recompila la web).           |
-| `WORKERS_URL`                            | `http://127.0.0.1:8001`               | Dirección de los workers. Si cambiás `WORKERS_PORT`, cambiala igual.                                                      |
-| `STORAGE_DIR`                            | `./storage`                           | Carpeta de tus medios, renders, exportaciones y base de datos (podés usar otro disco).                                    |
-| `MODELS_DIR`                             | `./models`                            | Carpeta de los modelos Whisper, Piper y RVC.                                                                              |
-| `FFMPEG_PATH`, `FFPROBE_PATH`            | vacío (usa el del PATH)               | Ruta completa a `ffmpeg.exe` / `ffprobe.exe` si querés otro.                                                              |
-| `USE_CUDA`                               | `false`                               | `true` para usar la GPU NVIDIA en Whisper y RVC (requiere instalar con `-WithCuda`).                                      |
-| `WHISPER_MODEL`                          | `base` si lo creó `setup.ps1`         | Modelo de subtítulos por defecto: `tiny`, `base`, `small`, `medium`, `large-v3`, `large-v3-turbo`.                        |
-| `WHISPER_COMPUTE_TYPE`                   | `auto`                                | `auto` = int8 en CPU, float16 en GPU.                                                                                     |
-| `PIPER_DEFAULT_VOICE`                    | `es_AR-daniela-high`                  | Voz Piper por defecto (la que descarga `setup.ps1`).                                                                      |
-| `LOG_LEVEL`                              | `info`                                | Detalle de los registros: `error`, `warn`, `info`, `debug`.                                                               |
-| `HW_ENCODER`                             | `auto`                                | `off` para exportar siempre con CPU (`libx264`) si el codificador de la GPU da problemas.                                 |
-| `QUEUE_FFMPEG_CONCURRENCY`               | `2` (1–8)                             | Exportaciones/efectos/proxies al mismo tiempo.                                                                            |
-| `QUEUE_MOTION_CONCURRENCY`               | `1` (1–4)                             | Renders de motion al mismo tiempo.                                                                                        |
-| `QUEUE_WORKERS_CONCURRENCY`              | `1` (1–4)                             | Trabajos de IA (Whisper, TTS, RVC) al mismo tiempo.                                                                       |
-| `REMOTION_CONCURRENCY`                   | vacío (= 50 % de los hilos)           | Pestañas de navegador por render (número o porcentaje). Bajalo si la PC se pone lenta.                                    |
-| `REMOTION_BROWSER_EXECUTABLE`            | vacío (autodetecta)                   | Ruta al Chrome Headless Shell si no lo encuentra solo.                                                                    |
-| `REMOTION_HW_ACCEL`                      | `false`                               | `true` para intentar codificar motion con la GPU.                                                                         |
-| `REMOTION_FONTS`                         | `system`                              | `system` no descarga nada; `google` baja Google Fonts la primera vez (necesita internet).                                 |
-| `REMOTION_BUNDLE_CACHE`                  | vacío (`storage/tmp/remotion-bundle`) | Carpeta de caché de Remotion.                                                                                             |
-| `REMOTION_TIMEOUT_MS`                    | vacío (60000)                         | Espera máxima por fotograma para cargar fuentes y medios.                                                                 |
-| `STYLE_VISION_MODEL`                     | `qwen2.5vl:3b`                        | Modelo de visión local para **Deducir con modelo local** en Perfil de estilo (`qwen2.5vl:7b` es mejor pero usa más VRAM). |
-| `STYLE_NUM_CTX`                          | `8192`                                | Contexto (tokens) de esa deducción.                                                                                       |
-| `STUDIO_CLAUDE_BIN`                      | vacío (autodetecta)                   | Ruta completa a `claude` si la Consola Claude no lo encuentra solo.                                                       |
-| `ELEVENLABS_API_KEY`, `ELEVENLABS_MODEL` | vacío, `eleven_multilingual_v2`       | Voces de ElevenLabs (opcional, pago).                                                                                     |
-| `OPENAI_API_KEY`, `OPENAI_TTS_MODEL`     | vacío, `gpt-4o-mini-tts`              | Voces de OpenAI (opcional, pago).                                                                                         |
-| `FREESOUND_API_KEY`                      | vacío                                 | Búsqueda en Freesound desde la Biblioteca (se descargan las versiones _preview_).                                         |
-| `ANTHROPIC_API_KEY`, `PIXABAY_API_KEY`   | vacío                                 | Reservadas: hoy **no habilitan ninguna función** en el dashboard.                                                         |
+| Variable                                  | Por defecto                           | Para qué                                                                                                                  |
+| ----------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `WEB_PORT`, `API_PORT`, `WORKERS_PORT`    | 3000, 3001, 8001                      | Puertos. Cambialos si otro programa los usa.                                                                              |
+| `NEXT_PUBLIC_API_URL`                     | `http://127.0.0.1:3001`               | Dirección de la API que usa el dashboard. Si cambiás `API_PORT`, cambiala igual (`start.ps1` recompila la web).           |
+| `WORKERS_URL`                             | `http://127.0.0.1:8001`               | Dirección de los workers. Si cambiás `WORKERS_PORT`, cambiala igual.                                                      |
+| `STORAGE_DIR`                             | `./storage`                           | Carpeta de tus medios, renders, exportaciones y base de datos (podés usar otro disco).                                    |
+| `MODELS_DIR`                              | `./models`                            | Carpeta de los modelos Whisper, Piper y RVC.                                                                              |
+| `FFMPEG_PATH`, `FFPROBE_PATH`             | vacío (usa el del PATH)               | Ruta completa a `ffmpeg.exe` / `ffprobe.exe` si querés otro.                                                              |
+| `USE_CUDA`                                | `false`                               | `true` para usar la GPU NVIDIA en Whisper y RVC (requiere instalar con `-WithCuda`).                                      |
+| `WHISPER_MODEL`                           | `base` si lo creó `setup.ps1`         | Modelo de subtítulos por defecto: `tiny`, `base`, `small`, `medium`, `large-v3`, `large-v3-turbo`.                        |
+| `WHISPER_COMPUTE_TYPE`                    | `auto`                                | `auto` = int8 en CPU, float16 en GPU.                                                                                     |
+| `PIPER_DEFAULT_VOICE`                     | `es_AR-daniela-high`                  | Voz Piper por defecto (la que descarga `setup.ps1`).                                                                      |
+| `LOG_LEVEL`                               | `info`                                | Detalle de los registros: `error`, `warn`, `info`, `debug`.                                                               |
+| `HW_ENCODER`                              | `auto`                                | `off` para exportar siempre con CPU (`libx264`) si el codificador de la GPU da problemas.                                 |
+| `QUEUE_FFMPEG_CONCURRENCY`                | `2` (1–8)                             | Exportaciones/efectos/proxies al mismo tiempo.                                                                            |
+| `QUEUE_MOTION_CONCURRENCY`                | `1` (1–4)                             | Renders de motion al mismo tiempo.                                                                                        |
+| `QUEUE_WORKERS_CONCURRENCY`               | `1` (1–4)                             | Trabajos de IA (Whisper, TTS, RVC) al mismo tiempo.                                                                       |
+| `REMOTION_CONCURRENCY`                    | vacío (= 50 % de los hilos)           | Pestañas de navegador por render (número o porcentaje). Bajalo si la PC se pone lenta.                                    |
+| `REMOTION_BROWSER_EXECUTABLE`             | vacío (autodetecta)                   | Ruta al Chrome Headless Shell si no lo encuentra solo.                                                                    |
+| `REMOTION_HW_ACCEL`                       | `false`                               | `true` para intentar codificar motion con la GPU.                                                                         |
+| `REMOTION_FONTS`                          | `system`                              | `system` no descarga nada; `google` baja Google Fonts la primera vez (necesita internet).                                 |
+| `REMOTION_BUNDLE_CACHE`                   | vacío (`storage/tmp/remotion-bundle`) | Carpeta de caché de Remotion.                                                                                             |
+| `REMOTION_TIMEOUT_MS`                     | vacío (60000)                         | Espera máxima por fotograma para cargar fuentes y medios.                                                                 |
+| `STYLE_VISION_MODEL`                      | `qwen2.5vl:3b`                        | Modelo de visión local para **Deducir con modelo local** en Perfil de estilo (`qwen2.5vl:7b` es mejor pero usa más VRAM). |
+| `STYLE_NUM_CTX`                           | `8192`                                | Contexto (tokens) de esa deducción.                                                                                       |
+| `STUDIO_CLAUDE_BIN`                       | vacío (autodetecta)                   | Ruta completa a `claude` si la Consola Claude no lo encuentra solo.                                                       |
+| `FACEFUSION_BASE_PYTHON`                  | vacío (el que anotó `setup.ps1`)      | Python 3.12 con el que se crea el entorno del cambio de cara (si no lo encuentra solo).                                   |
+| `FACEFUSION_PYTHON`, `FACEFUSION_APP_DIR` | vacío                                 | Avanzado / pruebas: otro intérprete y otra carpeta de FaceFusion en vez de `tools\facefusion`.                            |
+| `CHATTERBOX_PYTHON`                       | vacío                                 | Avanzado / pruebas: otro intérprete para Chatterbox en vez de `tools\chatterbox\.venv`.                                   |
+| `CHATTERBOX_IDLE_S`                       | `120`                                 | Segundos sin uso antes de que Chatterbox se apague y devuelva la GPU.                                                     |
+| `RVC_IDLE_S`                              | `300`                                 | Segundos sin uso antes de que RVC devuelva la GPU.                                                                        |
+| `ELEVENLABS_API_KEY`, `ELEVENLABS_MODEL`  | vacío, `eleven_multilingual_v2`       | Voces de ElevenLabs (opcional, pago).                                                                                     |
+| `OPENAI_API_KEY`, `OPENAI_TTS_MODEL`      | vacío, `gpt-4o-mini-tts`              | Voces de OpenAI (opcional, pago).                                                                                         |
+| `FREESOUND_API_KEY`                       | vacío                                 | Búsqueda en Freesound desde la Biblioteca (se descargan las versiones _preview_).                                         |
+| `ANTHROPIC_API_KEY`, `PIXABAY_API_KEY`    | vacío                                 | Reservadas: hoy **no habilitan ninguna función** en el dashboard.                                                         |
 
 ## 12. Solución de problemas
 
@@ -1097,19 +1110,22 @@ puede tener que bajar su modelo (un **paquete**).
 Los modelos se bajan **a pedido**, uno por función, a la carpeta `models\`. `setup.ps1` instala
 solo el paquete **core**; `setup.ps1 -Full` baja todos en secuencia.
 
-| Paquete           | Contenido                      | Tamaño aprox. | Lo usa                      |
-| ----------------- | ------------------------------ | ------------- | --------------------------- |
-| **core**          | Whisper base + voz Piper es_AR | 0,3 GB        | Transcribir, texto a voz    |
-| **whisper-turbo** | Whisper large-v3-turbo (GPU)   | 1,6 GB        | Transcribir (más preciso)   |
-| **voces-es**      | Las otras 7 voces Piper        | 0,5 GB        | Texto a voz                 |
-| **rvc-base**      | hubert_base + rmvpe            | 0,4 GB        | RVC                         |
-| **scenes**        | PySceneDetect                  | 0,05 GB       | Detectar escenas            |
-| **voz-limpia**    | DeepFilterNet                  | 0,2 GB        | Limpiar voz (IA)            |
-| **matting**       | RobustVideoMatting             | 0,01 GB       | Quitar fondo (video)        |
-| **matting-hq**    | RobustVideoMatting resnet50    | 0,16 GB       | Quitar fondo (alta calidad) |
-| **matting-image** | BiRefNet-lite (swin_v1_tiny)   | 0,28 GB       | Quitar fondo (imagen)       |
-| **sam2**          | SAM 2.1 tiny + small           | 0,2 GB        | Máscara, seguir objeto      |
-| **reframe**       | YuNet (caras)                  | < 0,01 GB     | Reencuadrar                 |
+| Paquete            | Contenido                      | Tamaño aprox. | Lo usa                                                             |
+| ------------------ | ------------------------------ | ------------- | ------------------------------------------------------------------ |
+| **core**           | Whisper base + voz Piper es_AR | 0,3 GB        | Transcribir, texto a voz                                           |
+| **whisper-turbo**  | Whisper large-v3-turbo (GPU)   | 1,6 GB        | Transcribir (más preciso)                                          |
+| **voces-es**       | Las otras 7 voces Piper        | 0,5 GB        | Texto a voz                                                        |
+| **rvc-base**       | hubert_base + rmvpe            | 0,4 GB        | RVC                                                                |
+| **scenes**         | PySceneDetect                  | 0,05 GB       | Detectar escenas                                                   |
+| **voz-limpia**     | DeepFilterNet                  | 0,2 GB        | Limpiar voz (IA)                                                   |
+| **matting**        | RobustVideoMatting             | 0,01 GB       | Quitar fondo (video)                                               |
+| **matting-hq**     | RobustVideoMatting resnet50    | 0,16 GB       | Quitar fondo (alta calidad)                                        |
+| **matting-image**  | BiRefNet-lite (swin_v1_tiny)   | 0,28 GB       | Quitar fondo (imagen)                                              |
+| **sam2**           | SAM 2.1 tiny + small           | 0,2 GB        | Máscara, seguir objeto                                             |
+| **reframe**        | YuNet (caras)                  | < 0,01 GB     | Reencuadrar                                                        |
+| **tts-chatterbox** | Chatterbox V3 + su entorno     | 6,2 GB        | Voz avanzada y clonación ([§26](#26-voces-chatterbox-y-clonación)) |
+| **faceswap**       | FaceFusion 3.9.1 + su entorno  | 4 GB          | Cambiar cara ([§25](#25-cambiar-cara)); pide aceptar la licencia   |
+| **faceswap-extra** | Ghost + InSwapper              | 0,8 GB        | Cambiar cara (modelos extra); pide la licencia                     |
 
 - **Paquete requerido**: si tocás una función cuyo paquete falta, aparece una ventana con el
   nombre, el tamaño y la licencia. **Descargar** muestra el progreso; al terminar, Studio
@@ -1142,7 +1158,9 @@ ejemplo _Transcribir 10 min de audio ≈ 25 s_ o _Detectar escenas en 10 min a 3
 fila **Recorte de personas ≈ X fps sostenido (arranque Y s) · meta 15** mide un clip 1080p de 5 s:
 la velocidad una vez en marcha y, aparte, lo que tarda en arrancar (cargar la IA, la primera
 tanda); abajo dice la precisión (fp16 en GPU, fp32 en CPU), la reducción interna, los fps de
-punta a punta y qué etapa limita. Volvé a correrlo si cambiás de placa o de driver.
+punta a punta y qué etapa limita. Desde el sprint 4 mide también RVC en GPU, Chatterbox y el
+cambio de cara ([§27.5](#275-test-de-rendimiento)). Volvé a correrlo si cambiás de placa o de
+driver.
 
 ### 17.4 Quitar silencios y muletillas
 
@@ -1192,6 +1210,14 @@ video. Cada casilla muestra qué puede pasar en YouTube, TikTok o Instagram:
 - **Etiqueta «Contenido alterado con IA»**: se prende sola cuando marcás algo de IA; el texto se
   puede editar y se quema chico en la esquina inferior izquierda durante todo el video. Podés
   apagarla (aparece un aviso). Igual marcá «contenido alterado o sintético» al subirlo.
+- **Detectado en el proyecto**: Studio sabe qué medios hizo con IA. Si un clip que llega a la
+  exportación tiene una **cara cambiada** ([§25](#25-cambiar-cara)) o una **voz clonada**
+  ([§26](#26-voces-chatterbox-y-clonación)), su casilla se marca sola y queda **bloqueada**
+  (insignia _Detectado_) mientras esté en el proyecto; una voz **sintética** (texto a voz) se
+  marca sola al pasar a redes pero se puede desmarcar. Arriba se listan los clips y la Persona.
+- La etiqueta visible sigue siendo opcional (apagada para uso interno, propuesta al marcar
+  redes). Aunque esté apagada, el archivo exportado lleva en sus metadatos (`comment`) una línea
+  como «Editado con Studio; contenido alterado con IA: cara sintética: sí; …», sin nombres ni ids.
 - Todo se guarda en el proyecto.
 
 ### 17.8 Problemas frecuentes
@@ -1666,6 +1692,9 @@ largos, mira fotogramas y hojas de contactos y encadena muchos pasos. Guía comp
   aplicado queda en el Asistente y se deshace con **Deshacer todo**.
 - Lanzar trabajos (transcribir, escenas, quitar fondo, stems…), guardar y aplicar **perfiles de
   estilo** y redactar **reportes de error**.
+- Ver las **Personas** y el estado de su consentimiento, y **cambiar la cara** de un clip
+  (siempre te pregunta antes). **No** puede registrar consentimientos ni aceptar licencias: eso
+  solo se hace desde la pantalla ([§24](#24-personas-y-consentimiento)).
 
 ### 23.3 Instalación, límites y privacidad
 
@@ -1681,6 +1710,252 @@ largos, mira fotogramas y hojas de contactos y encadena muchos pasos. Guía comp
   `CLAUDE_CODE_OAUTH_TOKEN` (el inicio de sesión de tu suscripción, no una API key).
 - La consola arranca Claude Code con un archivo de ajustes propio
   (`apps/api/console/claude-console-settings.json`, opción `--settings`) que le **prohíbe** leer
-  `.env*` y `models/`, modificar archivos de `storage/`, leer la base y los reportes de error, y
-  usar `WebFetch`. Puede abrir las imágenes que le dan las herramientas (fotogramas, hojas de
+  `.env*` y `models/`, modificar archivos de `storage/`, leer la base, los reportes de error y el
+  registro de Personas (`storage/consent/`), y usar `WebFetch`. Puede abrir las imágenes que le dan las herramientas (fotogramas, hojas de
   contactos); todo lo demás pasa por la API.
+
+## 24. Personas y consentimiento
+
+Studio solo usa la **cara** o la **voz** de alguien que lo autorizó. Esa persona se registra en
+**Ajustes → Personas** (o `Ctrl+K` → «Personas y consentimientos») con su consentimiento. Sirve,
+por ejemplo, para poner la cara del actor sobre la de su doble de riesgo
+([§25](#25-cambiar-cara)) o para leer un texto con su voz ([§26](#26-voces-chatterbox-y-clonación)).
+
+### 24.1 Registrar una Persona
+
+1. **Crear**: escribí su nombre y tocá **Nueva persona**. Podés agregar notas.
+2. **Fotos** (hasta 10; JPG, PNG o WebP de hasta 15 MB y 8192 px de lado): de frente, con buena
+   luz, sin anteojos oscuros. Arrastralas o elegilas. Studio cuenta las caras de cada foto y
+   rechaza la que no tiene ninguna.
+3. **Muestras de voz** (hasta 5, de 5 a 60 s, hasta 25 MB): **Grabar 10 s** o **Subir audio**. Se
+   guardan normalizadas (WAV 24 kHz mono, hasta 30 s, sin silencios en los bordes).
+
+### 24.2 Registrar el consentimiento
+
+1. Tocá **Registrar consentimiento**. Elegí el **alcance** (rostro, voz o rostro y voz) y, si
+   querés, una **fecha de vencimiento**.
+2. Leé el texto con la persona: «Yo, {nombre}, mayor de edad, autorizo expresamente a quien usa
+   este equipo a usar mi {alcance} para generar contenido alterado con IA en sus videos…». El
+   texto tiene versión: si una versión nueva de Studio lo cambia, hay que registrarlo de nuevo.
+3. La persona **firma en pantalla** (en el recuadro, con el mouse, un lápiz o el dedo, y su
+   nombre) o adjuntás un **documento firmado** (PDF, JPG o PNG de hasta 20 MB).
+4. Marcá **«Leí este texto con la persona y lo acepta»** y tocá **Registrar consentimiento**.
+   Studio guarda el texto exacto (su huella), la firma o el documento y la fecha.
+
+### 24.3 Estados, revocar y borrar
+
+- Cada alcance muestra su estado: **vigente**, **vencido** (pasó la fecha), **revocado** o **sin
+  consentimiento**. Vale el último consentimiento vigente; el historial queda.
+- **Revocar**: lo ya generado no se borra, pero no se puede usar para nada nuevo (los trabajos
+  que estaban en cola fallan al empezar con «… no tiene un consentimiento vigente»).
+- **Borrar persona** (pide confirmación): borra sus fotos y muestras; los consentimientos y la
+  evidencia se archivan como prueba.
+- Cada consentimiento, revocación, cambio de cara y voz clonada queda en un **registro de
+  auditoría** que no se puede borrar desde la app.
+
+### 24.4 Dónde se guarda y quién puede hacerlo
+
+- Todo queda en tu PC, en `storage\consent\`. Nunca se sube a internet, no se sirve por `/files`,
+  no entra en los reportes de error y la Consola Claude no lo puede leer.
+- **Solo vos, desde la pantalla de Studio**, podés registrar consentimientos y aceptar licencias:
+  la Consola Claude y el Asistente **no pueden** (la API los rechaza con «Esto solo se hace desde
+  la pantalla de Studio, no desde la consola ni el asistente»).
+
+## 25. Cambiar cara
+
+Reemplaza la cara de una persona en un clip de video por la de una **Persona** registrada con
+consentimiento de rostro vigente (por ejemplo, el actor sobre su doble de riesgo). Corre en tu PC
+con **FaceFusion 3.9.1**, en un entorno aparte (`tools\facefusion`).
+
+### 25.1 Antes de empezar
+
+- Una Persona con consentimiento de **rostro** vigente y al menos una foto ([§24](#24-personas-y-consentimiento)).
+- La **licencia** aceptada en pantalla (**Ajustes → Paquetes de IA → «Cambio de cara» → Leer y
+  aceptar**, o la ventana que aparece sola la primera vez). FaceFusion es OpenRAIL-AS (prohíbe
+  suplantar a alguien sin su consentimiento, el contenido sexual no consentido y la
+  desinformación) y varios modelos son **solo para uso no comercial** (ArcFace, inswapper,
+  kim_vocal_2), ResearchRAIL (hyperswap) o GPL-3 (xseg). **Sin aceptarla no se baja ni se ejecuta
+  nada.** La aceptación queda registrada con fecha y versión del texto; la podés revocar.
+- El paquete **«Cambio de cara (FaceFusion 3.9.1)»** (≈ 4 GB: modelos + su entorno con Python
+  3.12). Los modelos Ghost e InSwapper vienen en **«Modelos extra de cambio de cara»** (≈ 0,8 GB),
+  que se pide al elegirlos.
+
+### 25.2 Paso a paso
+
+1. Clic derecho en el clip de video → **Cambiar cara…** (o Propiedades → **Cambiar cara…**, o
+   `Ctrl+K` → «Cambiar cara del clip seleccionado»).
+2. **Persona**: elegí quién (solo aparecen las que tienen consentimiento de rostro vigente; el
+   enlace **Registrar persona** abre Ajustes → Personas).
+3. **Cara en el video**: Studio muestra el fotograma del cursor con las caras encontradas; hacé
+   clic en la que querés cambiar (con el deslizador elegís otro momento). Esa cara se sigue en todo
+   el clip.
+4. **Opciones**: modelo, cada uno **con su licencia** (HyperSwap 1a, recomendado; Ghost 1 e
+   InSwapper en «Modelos extra»), **mejorador de nitidez** (GFPGAN) y su mezcla, e **intensidad**
+   (menos de 100 % mezcla el resultado con el original). **Vista previa de 1 fotograma**: antes y
+   después lado a lado.
+5. **Aplicar**: marcá **«La persona dio su consentimiento y nadie en el video es menor de edad»**
+   (sin eso no se aplica) y tocá **Aplicar cambio de cara**. Se procesa el tramo del clip: hasta
+   **10 min y 4K por vez** (si no, «dividí el clip»).
+6. El clip pasa a mostrar el video nuevo con la insignia **«IA: cara»** en Propiedades y en Media;
+   el video queda en Media. Si el clip tenía el fondo recortado, volvé a recortarlo.
+7. **Deshacer**: Propiedades → **Deshacer cambio de cara** (vuelve al video original) o **Deshacer
+   todo** del Asistente.
+
+### 25.3 Tiempos
+
+- En GPU (RTX 4050): la meta es ≈ 15–25 fotogramas por segundo a 1080p sin mejorador (con GFPGAN,
+  menos). El asistente muestra una estimación si corriste el Test de rendimiento
+  ([§27.5](#275-test-de-rendimiento)).
+- En CPU: entre 15 y 60 minutos por minuto de video (Studio avisa antes).
+
+### 25.4 Analizador de contenido, redes, Asistente y Consola
+
+- FaceFusion revisa **siempre** el video destino y rechaza contenido explícito («El analizador de
+  contenido de FaceFusion bloqueó este video o imagen: no se procesa»). Studio no lo puede apagar.
+- El cambio de cara marca el clip como **cara alterada con IA**: en **Revisión para redes** la
+  casilla queda marcada y bloqueada ([§17.7](#177-revisión-para-redes)).
+- El Asistente entiende pedidos como «poné la cara de Martín en el doble»: crea la operación
+  `face_swap`, que **siempre** pide confirmación aparte. La Consola Claude tiene la herramienta
+  `studio_face_swap` y debe preguntarte si confirmás el consentimiento y que no hay menores.
+- Errores: «… no tiene un consentimiento vigente» → **Abrir Personas**; «FaceFusion terminó con
+  error» o «El analizador… bloqueó» → **Reportar error** (lleva el número de trabajo).
+
+## 26. Voces: Chatterbox y clonación
+
+Studio tiene dos motores de voz locales en **Voz y audio → Texto a voz → Motor**:
+
+- **Piper**: rápido, liviano, sin GPU (voz `es_AR-daniela-high` y las del paquete «Voces en
+  español», [§9.1](#91-voces-piper-texto-a-voz-local)). Es el motor por defecto si no bajaste
+  Chatterbox o si la PC no usa la GPU, y el que usa el Asistente salvo que le pidas otra voz.
+- **Chatterbox** (Resemble AI, licencia MIT): voz en español más natural y **clonación**: puede
+  leer el texto con tu voz, o con la de una persona que te dio su consentimiento, a partir de unos
+  **10 s de muestra**. Corre en tu PC, en un entorno aparte (`tools\chatterbox`); nada sale de tu
+  computadora. Si el paquete está y la PC usa la GPU, es el motor que aparece elegido.
+
+### 26.1 Bajar el paquete
+
+Elegí **Chatterbox** en _Motor_. La primera vez aparece **Descargar paquete (6,2 GB)**: baja el
+modelo (≈ 3,2 GB de Hugging Face, repositorio público) y arma su entorno de Python (≈ 3 GB, con su
+propia copia de PyTorch). Podés seguir trabajando mientras baja. También está en **Ajustes →
+Paquetes de IA → «Voz avanzada (Chatterbox: español y clonación)»**. Si preferís no bajarlo:
+**Usar Piper**.
+
+Studio instala la versión **Multilingüe V3** desde el código fijado de GitHub; si no puede (sin Git
+o sin acceso a GitHub) usa la **V2** de PyPI y lo indica como «Multilingüe V2 (respaldo)».
+
+### 26.2 Generar voz
+
+1. Escribí el texto (hasta **5000 caracteres**; Studio lo lee en trozos de una o dos oraciones).
+2. **Idioma**: español (fijo).
+3. **Voz a clonar**: _Ninguna_ (la voz multilingüe del modelo), _Voz propia_ o _Persona: …_.
+4. **Expresividad** (0,5): más alto = más dramático y un poco más rápido.
+5. **Fidelidad al acento de la referencia** (0,5): con una muestra en español conserva la tonada
+   de la muestra; bajala a **0,3** si la persona de la muestra habla rápido.
+6. **Generar y añadir al cursor**: el audio nuevo queda en Media y en la línea de tiempo.
+
+Debajo verás el **tiempo estimado** (si corriste el Test de rendimiento) y, si va a correr en CPU,
+el aviso **«Va a correr en CPU»**: en CPU Chatterbox es varias veces más lento que el tiempo real.
+
+### 26.3 Tu «Voz propia» (para que suene rioplatense)
+
+Chatterbox no tiene un modelo rioplatense: el acento sale de **la muestra que clona**.
+
+1. En _Texto a voz_ con Chatterbox, bajá hasta **Voz propia** y marcá **«Soy yo: es mi propia
+   voz»** (obligatorio: para otra persona se usa su consentimiento, ver §26.4).
+2. **Grabar 10 s** (el navegador pide permiso al micrófono) y leé con tu tonada natural la frase
+   que aparece: _«Che, ¿viste que mañana llueve? Yo llevo el paraguas, vos traé el mate y nos vemos
+   en la plaza a las cinco.»_ O **Subir archivo** (5 a 60 s, hasta 25 MB; WAV, MP3, M4A, OGG o
+   WebM).
+3. Consejos: lugar callado, sin música ni eco, a un palmo del micrófono, hablando como hablás
+   siempre. Studio recorta los silencios del principio y del final, normaliza el volumen y guarda
+   hasta 30 s.
+4. Podés escucharla, grabar otra (se usa la más reciente, o elegís cuál) o borrarla. En Media aparece con la
+   insignia «Voz propia» y no se puede arrastrar a la línea de tiempo (es solo una referencia).
+
+### 26.4 Clonar la voz de otra persona
+
+Solo con su **consentimiento de voz** registrado en **Ajustes → Personas** (alcance «voz» o «rostro
+y voz») y una **muestra de voz** de esa persona ([§24](#24-personas-y-consentimiento)). En _Voz a
+clonar_ solo aparecen las Personas con consentimiento **vigente**. Si se revoca o vence, Studio
+rechaza los usos nuevos (también los que estaban en cola) con un aviso y el botón **Abrir
+Personas**. Cada clon de una Persona queda en el registro de auditoría.
+
+### 26.5 Marca de agua y redes
+
+- Todo audio de Chatterbox lleva una **marca de agua inaudible (PerTh)** que no se puede quitar:
+  sirve para que se sepa que es voz generada.
+- Toda voz generada (Piper, nube o Chatterbox) queda marcada como **voz sintética**; la clonada,
+  como **voz clonada**, también después de pasarla por efectos, limpieza o RVC. Al generar un
+  clon verás «Marcado como voz clonada (Revisión para redes)» ([§17.7](#177-revisión-para-redes)).
+
+### 26.6 GPU, CPU y tiempos
+
+- En GPU usa **4–5 GB de VRAM**: antes de cargar libera Whisper, RVC o lo que haya en la GPU, y se
+  apaga solo tras **2 minutos** sin uso (`CHATTERBOX_IDLE_S`). La **primera** generación tarda más
+  (carga ≈ 3 GB).
+- Meta en una RTX 4050: generar más rápido que el tiempo real (RTF ≤ 1). En CPU: varias veces la
+  duración del audio.
+- Las RTX serie 50 todavía no son compatibles con la versión de PyTorch de Chatterbox: corre en
+  CPU y lo avisa.
+- «El entorno aislado de Chatterbox no está listo» → volvé a descargar el paquete en Ajustes →
+  Paquetes de IA (o `setup.ps1 -Update`); «Chatterbox terminó con error…» → **Reportar error**.
+
+## 27. Rendimiento e instalación de herramientas
+
+### 27.1 Paquetes nuevos y tamaños
+
+| Paquete          | Qué trae                                                               | Tamaño aprox. |
+| ---------------- | ---------------------------------------------------------------------- | ------------- |
+| `tts-chatterbox` | Voz avanzada (Chatterbox V3) + su entorno `tools\chatterbox\.venv`     | ≈ 6,2 GB      |
+| `faceswap`       | Cambio de cara (FaceFusion 3.9.1) + modelos + `tools\facefusion\.venv` | ≈ 4 GB        |
+| `faceswap-extra` | Modelos extra de cambio de cara (Ghost, InSwapper)                     | ≈ 0,8 GB      |
+
+Los dos de cambio de cara muestran la insignia **«No comercial: requiere aceptar licencia»** y el
+botón **Leer y aceptar**: no se bajan hasta que aceptás la licencia en pantalla ([§25.1](#251-antes-de-empezar)).
+Cada fila muestra además el estado de su entorno aislado: _listo_, _desactualizado_, _falta_,
+_roto_ o _falta Python 3.12_ (y, para Chatterbox, si quedó en V3 o en V2 de respaldo).
+
+### 27.2 Por qué hay «entornos aislados»
+
+FaceFusion necesita Python 3.12 y una versión de onnxruntime para CUDA; Chatterbox fija PyTorch
+2.6. Si se instalaran junto con el resto de Studio se romperían entre sí, y sus licencias son
+distintas. Por eso cada uno vive en su carpeta (`tools\facefusion`, `tools\chatterbox`), con su
+propio Python, y corre como un programa aparte que Studio arranca y detiene. Se crean solos al
+descargar el paquete. Siempre corren sin conexión a Hugging Face y sin ninguna clave tuya en el
+entorno.
+
+### 27.3 Python 3.12
+
+`setup.ps1` lo instala con winget (por usuario; no toca tu Python 3.11). Si no lo tenés y no usás
+el cambio de cara, no pasa nada: el resto funciona igual. Si lo necesitás: `setup.ps1 -Update`.
+
+### 27.4 `-Full`, `-Update` y diagnóstico
+
+- `setup.ps1 -Full` baja también la voz avanzada (≈ 6,2 GB) y, **solo si ya aceptaste la
+  licencia en Studio**, el cambio de cara.
+- `setup.ps1 -Update` actualiza los entornos aislados que ya existen si la versión nueva de Studio
+  cambió su receta; si no cambió nada aparece «ya instalado, se omite».
+- `doctor.ps1` → «Herramientas aisladas»: estado (listo / desactualizado / no instalado / roto /
+  falta Python 3.12), versión, si FaceFusion cargó **CUDA de verdad** (o CPU), la variante de
+  Chatterbox (V3 o V2), la licencia del cambio de cara (aceptada o no) y si RVC usa la GPU.
+
+### 27.5 Test de rendimiento
+
+**Ajustes → Paquetes de IA → Test de rendimiento IA** ([§17.3](#173-test-de-rendimiento-ia))
+además mide:
+
+- **RVC**: segundos por minuto de voz y si usó GPU o CPU (meta: menos de 15 s por minuto en GPU).
+- **Chatterbox**: RTF (tiempo de generación / duración del audio; menor que 1 = más rápido que
+  tiempo real) y la primera carga del modelo.
+- **Cambio de cara**: fotogramas por segundo a 1080p sin y con el mejorador (meta ≈ 15 fps sin
+  mejorador en una RTX 4050). Solo se mide si aceptaste la licencia y registraste una Persona con
+  consentimiento de rostro (usa su foto sobre un video de prueba; no se guarda nada).
+
+Lo que falta aparece como «no medido» con el motivo (por ejemplo «licencia no aceptada»).
+
+### 27.6 RVC en la GPU
+
+Con GPU NVIDIA y `USE_CUDA=true`, RVC usa la GPU sola (media precisión). Si `doctor` dice que el
+PyTorch no ve la GPU, corré `setup.ps1 -Update -WithCuda`. RVC devuelve la GPU a los 5 minutos sin
+uso (`RVC_IDLE_S`). Un modelo `.pth` que no se puede abrir de forma segura se rechaza («formato
+incompatible»): pedí una versión exportada solo con los pesos.

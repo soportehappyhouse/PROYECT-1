@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 
@@ -215,4 +216,6 @@ def test_tool_bridge_fallback_and_m3_delegation(
     assert tool.tool_summary() == {"id": "facefusion", "state": "stale"}
     assert tool.licence_accepted("faceswap") is True
     env2 = tool.with_ffmpeg_path({"PATH": "/usr/bin"}, "/opt/ffmpeg/bin/ffmpeg")
-    assert env2["PATH"].split(":" if ":" in env2["PATH"] else ";")[0].endswith("bin")
+    # os.pathsep: on Windows the folder is "D:\\opt\\ffmpeg\\bin" (a ":" that is not a separator)
+    first = env2["PATH"].split(os.pathsep)[0]
+    assert Path(first).name == "bin" and env2["PATH"].endswith("/usr/bin")

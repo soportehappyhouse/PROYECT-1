@@ -188,19 +188,6 @@ export function voiceProvenance(tool: string, jobId: string, ref?: ResolvedVoice
   };
 }
 
-/** Derived asset (RVC...) keeps the AI marks of its source, pointing back at it. */
-export function inheritVoiceProvenance(
-  source: Pick<MediaAsset, "id" | "aiAltered" | "aiProvenance">,
-): { aiAltered?: true; aiProvenance?: AiProvenance } {
-  if (!source.aiAltered && !source.aiProvenance) return {};
-  return {
-    aiAltered: true,
-    ...(source.aiProvenance && {
-      aiProvenance: { ...source.aiProvenance, sourceAssetId: source.id },
-    }),
-  };
-}
-
 // ----------------------------------------------------------------------------- listing
 
 /** Fallback row while the workers are down (state unknown = not installed). */

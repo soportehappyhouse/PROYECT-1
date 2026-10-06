@@ -3954,6 +3954,150 @@ await step("sprint4: RVC informa device (cpu en CI)", async () => {
 });
 // ------------------------------------------------------------------ END sprint4:M3
 
+// ---------------------------------------------------------------- BEGIN sprint4:integración
+// Seams no single module checks: the M1 face swap and the M2 cloned voice (and what RVC and the
+// voice effects derive from it, with the provenance M3 inherits) -> «Revisión para redes»
+// detection and the export `comment` (M3), before and after undoing the swap; and perf.run (M3)
+// measuring FaceFusion through the workers' FaceEngine (M1) with the Persona the ConsentGate
+// (M1) picks. Needs the mocks of scripts/e2e/workers-with-mocks.py (packs reported installed).
+const S4I_AI = "Editado con Studio; contenido alterado con IA: ";
+async function s4iComment(project, name) {
+  await ok("PUT", `/api/projects/${project.id}`, project);
+  const { jobId } = await ok("POST", `/api/projects/${project.id}/export`, {
+    presetId: "youtube-1080p",
+    fileName: name,
+  });
+  const job = await waitOk(jobId);
+  const file = await download(job.result.path, `${name}.mp4`);
+  return (await ffprobe(file)).format?.tags?.comment;
+}
+async function s4iSelfRef() {
+  const refs = await ok("GET", "/api/voice/self-refs");
+  if (refs.length) return refs[0];
+  const fd = new FormData();
+  fd.append("attestSelf", "true");
+  const wav = await m2SampleWav("s4i-voz-propia.wav", 9);
+  fd.append("audio", new Blob([await readFile(wav)], { type: "audio/wav" }), "voz.wav");
+  return ok("POST", "/api/voice/self-refs", fd, [201]);
+}
+
+await step(
+  "sprint4 integración: cara (M1) + voz clonada (M2) → RVC y efecto heredan → comment del export (M3) antes y después de deshacer",
+  async () => {
+    const face = await m1Packs();
+    const voice = await m2Pack();
+    if (!face?.installed || !voice.installed)
+      return "packs faceswap / tts-chatterbox not installed (workers without the mocks)";
+    const lic = await m3Licence();
+    await m3SetLicence(true);
+    try {
+      const person = await m1Person(`E2E Integración ${id("n")}`);
+      const { project, clipId } = await m1Clip();
+      const r = await ok("POST", "/api/face/swap", {
+        personId: person.id,
+        assetId: m1.video.id,
+        target: { projectId: project.id, clipId },
+        confirmed: true,
+      }, [202]); // prettier-ignore
+      const swap = (await waitOk(r.jobId, { timeoutMs: 180_000 })).result;
+      await s4iSelfRef();
+      const { job } = await m2Tts({ voice: "chatterbox:self" });
+      const cloned = job.result.assetId;
+      assert(job.result.aiVoice === "cloned", `tts ${JSON.stringify(job.result)}`);
+      // voice.effect (M3 inheritance) over the clone keeps «voice-cloned»
+      const fxJob = await ok("POST", "/api/voice/effects", {
+        assetId: cloned,
+        effects: [{ type: "robot", intensity: 0.5 }],
+      });
+      const fx = await ok("GET", `/api/media/${(await waitOk(fxJob.jobId)).result.assetId}`);
+      assert(
+        fx.aiAltered === true &&
+          fx.aiProvenance?.kind === "voice-cloned" &&
+          fx.aiProvenance.sourceAssetId === cloned,
+        `voice.effect provenance ${JSON.stringify(fx.aiProvenance)}`,
+      );
+      // RVC (M2 handler) over the clone: same kind, pointing back at it, with the RVC job id
+      let rvc = "sin el mock de RVC";
+      const models = await ok("GET", "/api/voice/rvc/models");
+      const base = (await ok("GET", "/api/ai/packs")).find((p) => p.id === "rvc-base");
+      if (models.some((m) => m.id === "e2e-voz") && base?.installed) {
+        const rv = await ok("POST", "/api/voice/rvc", {
+          assetId: cloned,
+          modelId: "e2e-voz",
+          pitchShift: 0,
+          f0Method: "pm",
+        });
+        const rj = await waitOk(rv.jobId, { timeoutMs: 120_000 });
+        const ra = await ok("GET", `/api/media/${rj.result.assetId}`);
+        assert(
+          ra.aiProvenance?.kind === "voice-cloned" &&
+            ra.aiProvenance.sourceAssetId === cloned &&
+            ra.aiProvenance.jobId === rv.jobId,
+          `RVC provenance ${JSON.stringify(ra.aiProvenance)}`,
+        );
+        rvc = `${ra.aiProvenance.kind} (${rj.result.device})`;
+      }
+      const saved = await ok("GET", `/api/projects/${project.id}`);
+      assert(saved.publish?.flags?.aiFace === true, "publish.flags.aiFace after the swap");
+      assert(saved.publish?.aiLabel !== true, "the visible label must stay off (internal use)");
+      const A = saved.tracks.find((t) => t.kind === "audio");
+      A.clips = [{ id: id("c"), trackId: A.id, assetId: fx.id, start: 0, in: 0, out: 1.5 }];
+      const both = await s4iComment(saved, "s4i-cara-voz");
+      const want = (cara) => `${S4I_AI}cara sintética: ${cara}; voz clonada: sí; voz sintética: no`;
+      assert(both === want("sí"), `comment with face + cloned voice: ${both}`);
+      await ok("POST", "/api/face/undo", { projectId: project.id, clipId });
+      const undone = await s4iComment(
+        await ok("GET", `/api/projects/${project.id}`),
+        "s4i-sin-cara",
+      );
+      assert(undone === want("no"), `comment after undoing the face swap: ${undone}`);
+      return { swap: swap.assetId, effect: fx.aiProvenance.kind, rvc, both, undone };
+    } finally {
+      if (!lic.accepted) await m3SetLicence(false);
+    }
+  },
+);
+
+await step(
+  "sprint4 integración: perf.run mide FaceFusion por el FaceEngine (M1) con la Persona del gate",
+  async () => {
+    const face = await m1Packs();
+    if (!face?.installed) return "pack faceswap not installed (workers without the mocks)";
+    const lic = await m3Licence();
+    await m3SetLicence(true);
+    // benchFaceSource() takes the first Persona by name with a face consent: «0 …» goes first
+    // (the e2e «E2E Contenido» photo is the content-analyser one and would end CONTENT_BLOCKED).
+    const person = await m1Person(`0 E2E Banco ${id("n")}`);
+    try {
+      const { jobId } = await ok("POST", "/api/ai/perf/run", {}, [202]);
+      await waitOk(jobId, { timeoutMs: 1_200_000 });
+      const perf = await ok("GET", "/api/ai/perf");
+      const why = perf.errors?.facefusion ?? perf.skipped?.facefusion ?? null;
+      assert(
+        typeof perf.facefusion_fps === "number" && perf.facefusion_fps > 0,
+        `facefusion_fps ${perf.facefusion_fps} (${why})`,
+      );
+      assert(
+        ["cpu", "cuda"].includes(perf.facefusion_device) &&
+          perf.facefusion_model === "hyperswap_1a_256",
+        `facefusion device/model ${perf.facefusion_device} ${perf.facefusion_model}`,
+      );
+      assert(typeof perf.chatterbox_rtf === "number", `chatterbox_rtf ${perf.chatterbox_rtf}`);
+      return {
+        fps: perf.facefusion_fps,
+        enh_fps: perf.facefusion_enh_fps,
+        startup_s: perf.facefusion_startup_s,
+        device: perf.facefusion_device,
+        chatterbox_rtf: perf.chatterbox_rtf,
+      };
+    } finally {
+      await api("DELETE", `/api/persons/${person.id}?confirm=1`);
+      if (!lic.accepted) await m3SetLicence(false);
+    }
+  },
+);
+// ------------------------------------------------------------------ END sprint4:integración
+
 // ---------------------------------------------------------------- report
 sse.controller.abort();
 const required = results.filter((r) => r.kind === "required");

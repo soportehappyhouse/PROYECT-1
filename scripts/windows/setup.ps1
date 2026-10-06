@@ -44,7 +44,7 @@
   RVC base, PySceneDetect, DeepFilterNet, RVM + .venv-gpl, BiRefNet-lite, SAM 2.1, YuNet; sprint 3b:
   Demucs htdemucs (stems), RapidOCR (ocr), RVM resnet50 (matting-hq); mas los modelos de Ollama
   qwen3:8b (agent-llm) y qwen2.5vl:3b (vision-llm), ~8 GB, si Ollama esta instalado; sprint 4:
-  + ~6,5 GB de Chatterbox (tts-chatterbox, con su entorno tools\chatterbox\.venv) y, SOLO si la
+  + ~6,2 GB de Chatterbox (tts-chatterbox, con su entorno tools\chatterbox\.venv) y, SOLO si la
   licencia del cambio de cara ya se acepto en Studio, + ~4 GB de cambio de cara (faceswap +
   faceswap-extra, entorno tools\facefusion\.venv)). Sin -Full solo se instala "core" y el resto
   se pide al usar cada funcion. Se puede repetir: lo ya descargado se omite y lo parcial se reanuda.

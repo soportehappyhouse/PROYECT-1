@@ -462,25 +462,34 @@ def test_find_base_python_order(tv: dict[str, Any], monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(toolvenv, "find_base_python", tv["real_find"])
     monkeypatch.setattr(toolvenv, "IS_WINDOWS", True)
     toolvenv.clear_caches()
-    versions = {"C:/Py312/python.exe": "3.12.10", "C:/Py311/python.exe": "3.11.9",
-                "C:/explicit/python.exe": "3.12.4"}  # fmt: skip
+    # Real (empty) files: absolute candidates that do not exist are skipped, and on a Windows
+    # runner "C:/Py312/python.exe" is absolute.
+    root = tv["tools"].parent
+    py312, py311, explicit = (root / d / "python.exe" for d in ("Py312", "Py311", "explicit"))
+    for exe in (py312, py311, explicit):
+        exe.parent.mkdir(parents=True, exist_ok=True)
+        exe.write_bytes(b"")
+    versions = {str(py312): "3.12.10", str(py311): "3.11.9", str(explicit): "3.12.4"}
     monkeypatch.setattr(toolvenv, "probe_python", lambda exe: versions.get(exe))
-    monkeypatch.setattr(toolvenv, "_py_launcher", lambda v: "C:/Py312/python.exe")
+    monkeypatch.setattr(toolvenv, "_py_launcher", lambda v: str(py312))
     monkeypatch.setattr(toolvenv.shutil, "which", lambda name: None)
     monkeypatch.setenv("FACEFUSION_BASE_PYTHON", "")
-    assert toolvenv.find_base_python("facefusion", fresh=True) == ("C:/Py312/python.exe", "3.12.10")
+    assert toolvenv.find_base_python("facefusion", fresh=True) == (str(py312), "3.12.10")
     # tools/runtimes.json (written by setup.ps1) goes first
     (tv["tools"] / "runtimes.json").write_text(
-        json.dumps({"python312": {"path": "C:/Py311/python.exe"}}), "utf-8"
+        json.dumps({"python312": {"path": str(py311)}}), "utf-8"
     )
     # ... but a wrong version is skipped
-    assert toolvenv.find_base_python("facefusion", fresh=True)[0] == "C:/Py312/python.exe"
-    # FACEFUSION_BASE_PYTHON is the only candidate when set
-    monkeypatch.setenv("FACEFUSION_BASE_PYTHON", "C:/explicit/python.exe")
-    assert toolvenv.find_base_python("facefusion", fresh=True) == (
-        "C:/explicit/python.exe",
-        "3.12.4",
+    assert toolvenv.find_base_python("facefusion", fresh=True)[0] == str(py312)
+    # an absolute candidate that does not exist is never probed
+    monkeypatch.setattr(toolvenv, "_py_launcher", lambda v: str(root / "missing" / "python.exe"))
+    (tv["tools"] / "runtimes.json").write_text(
+        json.dumps({"python312": {"path": str(py312)}}), "utf-8"
     )
+    assert toolvenv.find_base_python("facefusion", fresh=True) == (str(py312), "3.12.10")
+    # FACEFUSION_BASE_PYTHON is the only candidate when set
+    monkeypatch.setenv("FACEFUSION_BASE_PYTHON", str(explicit))
+    assert toolvenv.find_base_python("facefusion", fresh=True) == (str(explicit), "3.12.4")
     monkeypatch.setattr(toolvenv, "_py_launcher", lambda v: None)
     monkeypatch.setenv("FACEFUSION_BASE_PYTHON", "")
     (tv["tools"] / "runtimes.json").unlink()
@@ -563,6 +572,28 @@ def test_symlink_relinked_when_target_changes(tmp_path: Path) -> None:
     toolvenv.link_dir(link, tmp_path / "b")
     assert link.resolve() == (tmp_path / "b").resolve()
     assert (tmp_path / "a").is_dir()  # the old target is untouched
+
+
+def test_junction_detected_without_isjunction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Python 3.11 (the workers) has no os.path.isjunction: lstat's reparse tag is used."""
+    folder = tmp_path / "j"
+    folder.mkdir()
+    monkeypatch.delattr(toolvenv.os.path, "isjunction", raising=False)
+    assert toolvenv._is_dir_link(folder) is False
+
+    class _St:
+        st_file_attributes = 0x10 | 0x400  # DIRECTORY | REPARSE_POINT
+        st_reparse_tag = 0xA0000003  # IO_REPARSE_TAG_MOUNT_POINT
+
+    real_lstat = toolvenv.os.lstat
+    monkeypatch.setattr(
+        toolvenv.os, "lstat", lambda p: _St() if Path(p) == folder else real_lstat(p)
+    )
+    assert toolvenv._is_dir_link(folder) is True
+    _St.st_reparse_tag = 0x8000001B  # another reparse point (AppExecLink): not a junction
+    assert toolvenv._is_dir_link(folder) is False
 
 
 # ------------------------------------------------------------------------------ licences

@@ -34,7 +34,7 @@ if ($free) {
     $gb = [math]::Round($free / 1GB, 1)
     $state = 'ok'
     if ($gb -lt 10) { $state = 'warn' }
-    Add-Result 'Espacio libre' $state "$gb GB (recomendado >= 10 GB; CUDA ~ +4 GB; voz avanzada ~ +6,5 GB; cambio de cara ~ +4 GB)"
+    Add-Result 'Espacio libre' $state "$gb GB (recomendado >= 10 GB; CUDA ~ +4 GB; voz avanzada ~ +6,2 GB; cambio de cara ~ +4 GB)"
 }
 
 # ------------------------------------------------------------------ toolchain

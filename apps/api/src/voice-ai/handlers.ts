@@ -16,13 +16,13 @@ import type { AppContext } from "../context.js";
 import { viaPacks } from "../jobs/handlers/ai.js";
 import type { JobContext, JobHandler } from "../jobs/types.js";
 import type { ConsentGate } from "../services/persons/gate.js";
+import { inheritAiProvenance } from "../services/ai-provenance.js";
 import { resolveStoragePath } from "../services/storage.js";
 import type { WorkerCallOptions, WorkersClient } from "../services/workers-client.js";
 import {
   asJobError,
   consentGate,
   createTtsExtendedCall,
-  inheritVoiceProvenance,
   prepareChatterbox,
   voiceProvenance,
   workerChatterboxBody,
@@ -265,7 +265,7 @@ export function createRvcHandler(deps: VoiceAiDeps): JobHandler<RvcRequest, Audi
         name: `${source.name} (RVC ${payload.modelId})`,
         ...(res.durationSec != null && { durationSec: res.durationSec }),
         ...(res.sampleRate != null && { sampleRate: res.sampleRate }),
-        ...inheritVoiceProvenance(source),
+        ...inheritAiProvenance(source, { jobId: job.id }),
       });
       const usedDevice = res.device === "cuda" || res.device === "cpu" ? res.device : undefined;
       return {

@@ -77,7 +77,10 @@ function Protect-Text([string]$Text) {
         @('\bAKIA[0-9A-Z]{16}\b', '[REDACTED]'),
         @('\bAIza[0-9A-Za-z_-]{35}\b', '[REDACTED]'),
         @('\bhf_[A-Za-z0-9]{20,}', '[REDACTED]'),
-        @('\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}', '[REDACTED]')
+        @('\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}', '[REDACTED]'),
+        # Sprint 4: Personas registry paths (photos, voice samples, consent evidence) are hidden,
+        # same rule as the api report (apps/api/src/reports/builder.ts).
+        @('(?i)consent([\\/]+)(persons|archive)\1[^\s"''<>]*', 'consent/<oculto>')
     )
     foreach ($r in $rules) { $out = [regex]::Replace($out, $r[0], $r[1]) }
     if ($HomeDir -and $HomeDir.Length -gt 3) {
@@ -358,16 +361,10 @@ writeFileSync(outPath, JSON.stringify({ via: "node", jobs, project }));
         Remove-Item $tmpJson -Force -ErrorAction SilentlyContinue
     }
     if (-not $dbData) {
-        # Last resort: copy the database (projects/jobs/settings; never API keys, those live in .env).
-        $dbDir = Join-Path $script:ReportDir 'db'
-        New-Item -ItemType Directory -Force -Path $dbDir | Out-Null
-        foreach ($suffix in @('', '-wal', '-shm')) {
-            if (Test-Path "$dbPath$suffix") {
-                Copy-Item "$dbPath$suffix" $dbDir -Force
-                [void]$script:Files.Add("db/studio.db$suffix")
-            }
-        }
-        $dbNote = 'No se pudo leer la base con node ni sqlite3: se copio storage\studio.db en db\.'
+        # Sprint 4: the database is never copied whole any more. Besides projects and jobs it holds
+        # the Personas registry (names, consents, licence acceptances, consent_audit), which never
+        # leaves the PC (docs/trabajo/sprint4-contratos.md, rule 6).
+        $dbNote = 'No se pudo leer la base con node ni sqlite3: no se adjuntan trabajos (la base no se copia: tiene el registro de Personas).'
         Write-Careful $dbNote
     }
 } else {

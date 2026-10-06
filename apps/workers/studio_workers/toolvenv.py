@@ -1108,11 +1108,26 @@ def extract_app(zip_path: Path, app: Path) -> None:
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+_REPARSE_POINT = 0x400  # stat.FILE_ATTRIBUTE_REPARSE_POINT
+_MOUNT_POINT_TAG = 0xA0000003  # stat.IO_REPARSE_TAG_MOUNT_POINT (a directory junction)
+
+
 def _is_dir_link(path: Path) -> bool:
+    """Symlink or Windows junction. ``os.path.isjunction`` only exists on Python 3.12+ and the
+    workers run 3.11, so junctions are also detected from ``lstat`` (reparse point + mount-point
+    tag); without this a second ``link_dir`` saw a plain folder and CreateJunction failed."""
     if path.is_symlink():
         return True
     isjunction = getattr(os.path, "isjunction", None)  # Python 3.12+
-    return bool(isjunction and isjunction(path))
+    if isjunction is not None and isjunction(path):
+        return True
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    attrs = getattr(st, "st_file_attributes", 0)  # Windows only
+    tag = getattr(st, "st_reparse_tag", 0)
+    return bool(attrs & _REPARSE_POINT) and tag == _MOUNT_POINT_TAG
 
 
 def _unlink_dir_link(path: Path) -> None:

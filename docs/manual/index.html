@@ -505,6 +505,64 @@
               >23.3 Instalación, límites y privacidad</a
             >
           </li>
+          <li class="d2">
+            <a href="#24-personas-y-consentimiento">24. Personas y consentimiento</a>
+          </li>
+          <li class="d3"><a href="#241-registrar-una-persona">24.1 Registrar una Persona</a></li>
+          <li class="d3">
+            <a href="#242-registrar-el-consentimiento">24.2 Registrar el consentimiento</a>
+          </li>
+          <li class="d3">
+            <a href="#243-estados-revocar-y-borrar">24.3 Estados, revocar y borrar</a>
+          </li>
+          <li class="d3">
+            <a href="#244-dónde-se-guarda-y-quién-puede-hacerlo"
+              >24.4 Dónde se guarda y quién puede hacerlo</a
+            >
+          </li>
+          <li class="d2"><a href="#25-cambiar-cara">25. Cambiar cara</a></li>
+          <li class="d3"><a href="#251-antes-de-empezar">25.1 Antes de empezar</a></li>
+          <li class="d3"><a href="#252-paso-a-paso">25.2 Paso a paso</a></li>
+          <li class="d3"><a href="#253-tiempos">25.3 Tiempos</a></li>
+          <li class="d3">
+            <a href="#254-analizador-de-contenido-redes-asistente-y-consola"
+              >25.4 Analizador de contenido, redes, Asistente y Consola</a
+            >
+          </li>
+          <li class="d2">
+            <a href="#26-voces-chatterbox-y-clonación">26. Voces: Chatterbox y clonación</a>
+          </li>
+          <li class="d3"><a href="#261-bajar-el-paquete">26.1 Bajar el paquete</a></li>
+          <li class="d3"><a href="#262-generar-voz">26.2 Generar voz</a></li>
+          <li class="d3">
+            <a href="#263-tu-voz-propia-para-que-suene-rioplatense"
+              >26.3 Tu «Voz propia» (para que suene rioplatense)</a
+            >
+          </li>
+          <li class="d3">
+            <a href="#264-clonar-la-voz-de-otra-persona">26.4 Clonar la voz de otra persona</a>
+          </li>
+          <li class="d3"><a href="#265-marca-de-agua-y-redes">26.5 Marca de agua y redes</a></li>
+          <li class="d3"><a href="#266-gpu-cpu-y-tiempos">26.6 GPU, CPU y tiempos</a></li>
+          <li class="d2">
+            <a href="#27-rendimiento-e-instalación-de-herramientas"
+              >27. Rendimiento e instalación de herramientas</a
+            >
+          </li>
+          <li class="d3">
+            <a href="#271-paquetes-nuevos-y-tamaños">27.1 Paquetes nuevos y tamaños</a>
+          </li>
+          <li class="d3">
+            <a href="#272-por-qué-hay-entornos-aislados">27.2 Por qué hay «entornos aislados»</a>
+          </li>
+          <li class="d3"><a href="#273-python-312">27.3 Python 3.12</a></li>
+          <li class="d3">
+            <a href="#274--full--update-y-diagnóstico"
+              >27.4 <code>-Full</code>, <code>-Update</code> y diagnóstico</a
+            >
+          </li>
+          <li class="d3"><a href="#275-test-de-rendimiento">27.5 Test de rendimiento</a></li>
+          <li class="d3"><a href="#276-rvc-en-la-gpu">27.6 RVC en la GPU</a></li>
         </ol>
       </nav>
       <main>
@@ -830,7 +888,8 @@
           <li><strong>Tema</strong> (sol / luna / monitor): Claro, Oscuro o Sistema.</li>
           <li>
             <strong>Ajustes</strong> (engranaje): pestañas <em>Apariencia</em>, <em>Atajos</em>,
-            <em>Layouts</em> y <em>Paquetes de IA</em>.
+            <em>Layouts</em>, <em>Paquetes de IA</em>, <em>Asistente local</em> y
+            <em>Personas</em> (ver <a href="#24-personas-y-consentimiento">§24</a>).
           </li>
           <li>
             <strong>🐞 Reportar error</strong>: abre el formulario de reporte (ver
@@ -2116,6 +2175,12 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3001/api/voice/effects `
           </li>
         </ul>
         <h2 id="9-voz-piper-efectos-y-rvc">9. Voz: Piper, efectos y RVC</h2>
+        <blockquote>
+          <p>
+            Voz en español más natural y clonación de voz (Chatterbox): ver
+            <a href="#26-voces-chatterbox-y-clonación">§26</a>.
+          </p>
+        </blockquote>
         <h3 id="91-voces-piper-texto-a-voz-local">9.1 Voces Piper (texto a voz local)</h3>
         <div class="table-wrap">
           <table>
@@ -2647,6 +2712,40 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
                 <td>
                   Ruta completa a <code>claude</code> si la Consola Claude no lo encuentra solo.
                 </td>
+              </tr>
+              <tr>
+                <td><code>FACEFUSION_BASE_PYTHON</code></td>
+                <td>vacío (el que anotó <code>setup.ps1</code>)</td>
+                <td>
+                  Python 3.12 con el que se crea el entorno del cambio de cara (si no lo encuentra
+                  solo).
+                </td>
+              </tr>
+              <tr>
+                <td><code>FACEFUSION_PYTHON</code>, <code>FACEFUSION_APP_DIR</code></td>
+                <td>vacío</td>
+                <td>
+                  Avanzado / pruebas: otro intérprete y otra carpeta de FaceFusion en vez de
+                  <code>tools\facefusion</code>.
+                </td>
+              </tr>
+              <tr>
+                <td><code>CHATTERBOX_PYTHON</code></td>
+                <td>vacío</td>
+                <td>
+                  Avanzado / pruebas: otro intérprete para Chatterbox en vez de
+                  <code>tools\chatterbox\.venv</code>.
+                </td>
+              </tr>
+              <tr>
+                <td><code>CHATTERBOX_IDLE_S</code></td>
+                <td><code>120</code></td>
+                <td>Segundos sin uso antes de que Chatterbox se apague y devuelva la GPU.</td>
+              </tr>
+              <tr>
+                <td><code>RVC_IDLE_S</code></td>
+                <td><code>300</code></td>
+                <td>Segundos sin uso antes de que RVC devuelva la GPU.</td>
               </tr>
               <tr>
                 <td><code>ELEVENLABS_API_KEY</code>, <code>ELEVENLABS_MODEL</code></td>
@@ -3577,6 +3676,26 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
                 <td>&lt; 0,01 GB</td>
                 <td>Reencuadrar</td>
               </tr>
+              <tr>
+                <td><strong>tts-chatterbox</strong></td>
+                <td>Chatterbox V3 + su entorno</td>
+                <td>6,2 GB</td>
+                <td>
+                  Voz avanzada y clonación (<a href="#26-voces-chatterbox-y-clonación">§26</a>)
+                </td>
+              </tr>
+              <tr>
+                <td><strong>faceswap</strong></td>
+                <td>FaceFusion 3.9.1 + su entorno</td>
+                <td>4 GB</td>
+                <td>Cambiar cara (<a href="#25-cambiar-cara">§25</a>); pide aceptar la licencia</td>
+              </tr>
+              <tr>
+                <td><strong>faceswap-extra</strong></td>
+                <td>Ghost + InSwapper</td>
+                <td>0,8 GB</td>
+                <td>Cambiar cara (modelos extra); pide la licencia</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -3632,8 +3751,10 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
           <strong>Recorte de personas ≈ X fps sostenido (arranque Y s) · meta 15</strong> mide un
           clip 1080p de 5 s: la velocidad una vez en marcha y, aparte, lo que tarda en arrancar
           (cargar la IA, la primera tanda); abajo dice la precisión (fp16 en GPU, fp32 en CPU), la
-          reducción interna, los fps de punta a punta y qué etapa limita. Volvé a correrlo si
-          cambiás de placa o de driver.
+          reducción interna, los fps de punta a punta y qué etapa limita. Desde el sprint 4 mide
+          también RVC en GPU, Chatterbox y el cambio de cara (<a href="#275-test-de-rendimiento"
+            >§27.5</a
+          >). Volvé a correrlo si cambiás de placa o de driver.
         </p>
         <h3 id="174-quitar-silencios-y-muletillas">17.4 Quitar silencios y muletillas</h3>
         <ol>
@@ -3730,6 +3851,23 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
             de IA; el texto se puede editar y se quema chico en la esquina inferior izquierda
             durante todo el video. Podés apagarla (aparece un aviso). Igual marcá «contenido
             alterado o sintético» al subirlo.
+          </li>
+          <li>
+            <strong>Detectado en el proyecto</strong>: Studio sabe qué medios hizo con IA. Si un
+            clip que llega a la exportación tiene una <strong>cara cambiada</strong> (<a
+              href="#25-cambiar-cara"
+              >§25</a
+            >) o una <strong>voz clonada</strong> (<a href="#26-voces-chatterbox-y-clonación">§26</a
+            >), su casilla se marca sola y queda <strong>bloqueada</strong> (insignia
+            <em>Detectado</em>) mientras esté en el proyecto; una voz
+            <strong>sintética</strong> (texto a voz) se marca sola al pasar a redes pero se puede
+            desmarcar. Arriba se listan los clips y la Persona.
+          </li>
+          <li>
+            La etiqueta visible sigue siendo opcional (apagada para uso interno, propuesta al marcar
+            redes). Aunque esté apagada, el archivo exportado lleva en sus metadatos
+            (<code>comment</code>) una línea como «Editado con Studio; contenido alterado con IA:
+            cara sintética: sí; …», sin nombres ni ids.
           </li>
           <li>Todo se guarda en el proyecto.</li>
         </ul>
@@ -4759,6 +4897,12 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
             Lanzar trabajos (transcribir, escenas, quitar fondo, stems…), guardar y aplicar
             <strong>perfiles de estilo</strong> y redactar <strong>reportes de error</strong>.
           </li>
+          <li>
+            Ver las <strong>Personas</strong> y el estado de su consentimiento, y
+            <strong>cambiar la cara</strong> de un clip (siempre te pregunta antes).
+            <strong>No</strong> puede registrar consentimientos ni aceptar licencias: eso solo se
+            hace desde la pantalla (<a href="#24-personas-y-consentimiento">§24</a>).
+          </li>
         </ul>
         <h3 id="233-instalación-límites-y-privacidad">23.3 Instalación, límites y privacidad</h3>
         <ul>
@@ -4789,11 +4933,467 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
             La consola arranca Claude Code con un archivo de ajustes propio
             (<code>apps/api/console/claude-console-settings.json</code>, opción
             <code>--settings</code>) que le <strong>prohíbe</strong> leer <code>.env*</code> y
-            <code>models/</code>, modificar archivos de <code>storage/</code>, leer la base y los
-            reportes de error, y usar <code>WebFetch</code>. Puede abrir las imágenes que le dan las
-            herramientas (fotogramas, hojas de contactos); todo lo demás pasa por la API.
+            <code>models/</code>, modificar archivos de <code>storage/</code>, leer la base, los
+            reportes de error y el registro de Personas (<code>storage/consent/</code>), y usar
+            <code>WebFetch</code>. Puede abrir las imágenes que le dan las herramientas (fotogramas,
+            hojas de contactos); todo lo demás pasa por la API.
           </li>
         </ul>
+        <h2 id="24-personas-y-consentimiento">24. Personas y consentimiento</h2>
+        <p>
+          Studio solo usa la <strong>cara</strong> o la <strong>voz</strong> de alguien que lo
+          autorizó. Esa persona se registra en <strong>Ajustes → Personas</strong> (o
+          <code>Ctrl+K</code> → «Personas y consentimientos») con su consentimiento. Sirve, por
+          ejemplo, para poner la cara del actor sobre la de su doble de riesgo (<a
+            href="#25-cambiar-cara"
+            >§25</a
+          >) o para leer un texto con su voz (<a href="#26-voces-chatterbox-y-clonación">§26</a>).
+        </p>
+        <h3 id="241-registrar-una-persona">24.1 Registrar una Persona</h3>
+        <ol>
+          <li>
+            <strong>Crear</strong>: escribí su nombre y tocá <strong>Nueva persona</strong>. Podés
+            agregar notas.
+          </li>
+          <li>
+            <strong>Fotos</strong> (hasta 10; JPG, PNG o WebP de hasta 15 MB y 8192 px de lado): de
+            frente, con buena luz, sin anteojos oscuros. Arrastralas o elegilas. Studio cuenta las
+            caras de cada foto y rechaza la que no tiene ninguna.
+          </li>
+          <li>
+            <strong>Muestras de voz</strong> (hasta 5, de 5 a 60 s, hasta 25 MB):
+            <strong>Grabar 10 s</strong> o <strong>Subir audio</strong>. Se guardan normalizadas
+            (WAV 24 kHz mono, hasta 30 s, sin silencios en los bordes).
+          </li>
+        </ol>
+        <h3 id="242-registrar-el-consentimiento">24.2 Registrar el consentimiento</h3>
+        <ol>
+          <li>
+            Tocá <strong>Registrar consentimiento</strong>. Elegí el
+            <strong>alcance</strong> (rostro, voz o rostro y voz) y, si querés, una
+            <strong>fecha de vencimiento</strong>.
+          </li>
+          <li>
+            Leé el texto con la persona: «Yo, {nombre}, mayor de edad, autorizo expresamente a quien
+            usa este equipo a usar mi {alcance} para generar contenido alterado con IA en sus
+            videos…». El texto tiene versión: si una versión nueva de Studio lo cambia, hay que
+            registrarlo de nuevo.
+          </li>
+          <li>
+            La persona <strong>firma en pantalla</strong> (en el recuadro, con el mouse, un lápiz o
+            el dedo, y su nombre) o adjuntás un <strong>documento firmado</strong> (PDF, JPG o PNG
+            de hasta 20 MB).
+          </li>
+          <li>
+            Marcá <strong>«Leí este texto con la persona y lo acepta»</strong> y tocá
+            <strong>Registrar consentimiento</strong>. Studio guarda el texto exacto (su huella), la
+            firma o el documento y la fecha.
+          </li>
+        </ol>
+        <h3 id="243-estados-revocar-y-borrar">24.3 Estados, revocar y borrar</h3>
+        <ul>
+          <li>
+            Cada alcance muestra su estado: <strong>vigente</strong>, <strong>vencido</strong> (pasó
+            la fecha), <strong>revocado</strong> o <strong>sin consentimiento</strong>. Vale el
+            último consentimiento vigente; el historial queda.
+          </li>
+          <li>
+            <strong>Revocar</strong>: lo ya generado no se borra, pero no se puede usar para nada
+            nuevo (los trabajos que estaban en cola fallan al empezar con «… no tiene un
+            consentimiento vigente»).
+          </li>
+          <li>
+            <strong>Borrar persona</strong> (pide confirmación): borra sus fotos y muestras; los
+            consentimientos y la evidencia se archivan como prueba.
+          </li>
+          <li>
+            Cada consentimiento, revocación, cambio de cara y voz clonada queda en un
+            <strong>registro de auditoría</strong> que no se puede borrar desde la app.
+          </li>
+        </ul>
+        <h3 id="244-dónde-se-guarda-y-quién-puede-hacerlo">
+          24.4 Dónde se guarda y quién puede hacerlo
+        </h3>
+        <ul>
+          <li>
+            Todo queda en tu PC, en <code>storage\consent\</code>. Nunca se sube a internet, no se
+            sirve por <code>/files</code>, no entra en los reportes de error y la Consola Claude no
+            lo puede leer.
+          </li>
+          <li>
+            <strong>Solo vos, desde la pantalla de Studio</strong>, podés registrar consentimientos
+            y aceptar licencias: la Consola Claude y el Asistente <strong>no pueden</strong> (la API
+            los rechaza con «Esto solo se hace desde la pantalla de Studio, no desde la consola ni
+            el asistente»).
+          </li>
+        </ul>
+        <h2 id="25-cambiar-cara">25. Cambiar cara</h2>
+        <p>
+          Reemplaza la cara de una persona en un clip de video por la de una
+          <strong>Persona</strong> registrada con consentimiento de rostro vigente (por ejemplo, el
+          actor sobre su doble de riesgo). Corre en tu PC con <strong>FaceFusion 3.9.1</strong>, en
+          un entorno aparte (<code>tools\facefusion</code>).
+        </p>
+        <h3 id="251-antes-de-empezar">25.1 Antes de empezar</h3>
+        <ul>
+          <li>
+            Una Persona con consentimiento de <strong>rostro</strong> vigente y al menos una foto
+            (<a href="#24-personas-y-consentimiento">§24</a>).
+          </li>
+          <li>
+            La <strong>licencia</strong> aceptada en pantalla (<strong
+              >Ajustes → Paquetes de IA → «Cambio de cara» → Leer y aceptar</strong
+            >, o la ventana que aparece sola la primera vez). FaceFusion es OpenRAIL-AS (prohíbe
+            suplantar a alguien sin su consentimiento, el contenido sexual no consentido y la
+            desinformación) y varios modelos son
+            <strong>solo para uso no comercial</strong> (ArcFace, inswapper, kim_vocal_2),
+            ResearchRAIL (hyperswap) o GPL-3 (xseg).
+            <strong>Sin aceptarla no se baja ni se ejecuta nada.</strong> La aceptación queda
+            registrada con fecha y versión del texto; la podés revocar.
+          </li>
+          <li>
+            El paquete <strong>«Cambio de cara (FaceFusion 3.9.1)»</strong> (≈ 4 GB: modelos + su
+            entorno con Python 3.12). Los modelos Ghost e InSwapper vienen en
+            <strong>«Modelos extra de cambio de cara»</strong> (≈ 0,8 GB), que se pide al elegirlos.
+          </li>
+        </ul>
+        <h3 id="252-paso-a-paso">25.2 Paso a paso</h3>
+        <ol>
+          <li>
+            Clic derecho en el clip de video → <strong>Cambiar cara…</strong> (o Propiedades →
+            <strong>Cambiar cara…</strong>, o <code>Ctrl+K</code> → «Cambiar cara del clip
+            seleccionado»).
+          </li>
+          <li>
+            <strong>Persona</strong>: elegí quién (solo aparecen las que tienen consentimiento de
+            rostro vigente; el enlace <strong>Registrar persona</strong> abre Ajustes → Personas).
+          </li>
+          <li>
+            <strong>Cara en el video</strong>: Studio muestra el fotograma del cursor con las caras
+            encontradas; hacé clic en la que querés cambiar (con el deslizador elegís otro momento).
+            Esa cara se sigue en todo el clip.
+          </li>
+          <li>
+            <strong>Opciones</strong>: modelo, cada uno <strong>con su licencia</strong> (HyperSwap
+            1a, recomendado; Ghost 1 e InSwapper en «Modelos extra»),
+            <strong>mejorador de nitidez</strong> (GFPGAN) y su mezcla, e
+            <strong>intensidad</strong> (menos de 100 % mezcla el resultado con el original).
+            <strong>Vista previa de 1 fotograma</strong>: antes y después lado a lado.
+          </li>
+          <li>
+            <strong>Aplicar</strong>: marcá
+            <strong>«La persona dio su consentimiento y nadie en el video es menor de edad»</strong>
+            (sin eso no se aplica) y tocá <strong>Aplicar cambio de cara</strong>. Se procesa el
+            tramo del clip: hasta <strong>10 min y 4K por vez</strong> (si no, «dividí el clip»).
+          </li>
+          <li>
+            El clip pasa a mostrar el video nuevo con la insignia <strong>«IA: cara»</strong> en
+            Propiedades y en Media; el video queda en Media. Si el clip tenía el fondo recortado,
+            volvé a recortarlo.
+          </li>
+          <li>
+            <strong>Deshacer</strong>: Propiedades →
+            <strong>Deshacer cambio de cara</strong> (vuelve al video original) o
+            <strong>Deshacer todo</strong> del Asistente.
+          </li>
+        </ol>
+        <h3 id="253-tiempos">25.3 Tiempos</h3>
+        <ul>
+          <li>
+            En GPU (RTX 4050): la meta es ≈ 15–25 fotogramas por segundo a 1080p sin mejorador (con
+            GFPGAN, menos). El asistente muestra una estimación si corriste el Test de rendimiento
+            (<a href="#275-test-de-rendimiento">§27.5</a>).
+          </li>
+          <li>En CPU: entre 15 y 60 minutos por minuto de video (Studio avisa antes).</li>
+        </ul>
+        <h3 id="254-analizador-de-contenido-redes-asistente-y-consola">
+          25.4 Analizador de contenido, redes, Asistente y Consola
+        </h3>
+        <ul>
+          <li>
+            FaceFusion revisa <strong>siempre</strong> el video destino y rechaza contenido
+            explícito («El analizador de contenido de FaceFusion bloqueó este video o imagen: no se
+            procesa»). Studio no lo puede apagar.
+          </li>
+          <li>
+            El cambio de cara marca el clip como <strong>cara alterada con IA</strong>: en
+            <strong>Revisión para redes</strong> la casilla queda marcada y bloqueada (<a
+              href="#177-revisión-para-redes"
+              >§17.7</a
+            >).
+          </li>
+          <li>
+            El Asistente entiende pedidos como «poné la cara de Martín en el doble»: crea la
+            operación <code>face_swap</code>, que <strong>siempre</strong> pide confirmación aparte.
+            La Consola Claude tiene la herramienta <code>studio_face_swap</code> y debe preguntarte
+            si confirmás el consentimiento y que no hay menores.
+          </li>
+          <li>
+            Errores: «… no tiene un consentimiento vigente» → <strong>Abrir Personas</strong>;
+            «FaceFusion terminó con error» o «El analizador… bloqueó» →
+            <strong>Reportar error</strong> (lleva el número de trabajo).
+          </li>
+        </ul>
+        <h2 id="26-voces-chatterbox-y-clonación">26. Voces: Chatterbox y clonación</h2>
+        <p>
+          Studio tiene dos motores de voz locales en
+          <strong>Voz y audio → Texto a voz → Motor</strong>:
+        </p>
+        <ul>
+          <li>
+            <strong>Piper</strong>: rápido, liviano, sin GPU (voz <code>es_AR-daniela-high</code> y
+            las del paquete «Voces en español»,
+            <a href="#91-voces-piper-texto-a-voz-local">§9.1</a>). Es el motor por defecto si no
+            bajaste Chatterbox o si la PC no usa la GPU, y el que usa el Asistente salvo que le
+            pidas otra voz.
+          </li>
+          <li>
+            <strong>Chatterbox</strong> (Resemble AI, licencia MIT): voz en español más natural y
+            <strong>clonación</strong>: puede leer el texto con tu voz, o con la de una persona que
+            te dio su consentimiento, a partir de unos <strong>10 s de muestra</strong>. Corre en tu
+            PC, en un entorno aparte (<code>tools\chatterbox</code>); nada sale de tu computadora.
+            Si el paquete está y la PC usa la GPU, es el motor que aparece elegido.
+          </li>
+        </ul>
+        <h3 id="261-bajar-el-paquete">26.1 Bajar el paquete</h3>
+        <p>
+          Elegí <strong>Chatterbox</strong> en <em>Motor</em>. La primera vez aparece
+          <strong>Descargar paquete (6,2 GB)</strong>: baja el modelo (≈ 3,2 GB de Hugging Face,
+          repositorio público) y arma su entorno de Python (≈ 3 GB, con su propia copia de PyTorch).
+          Podés seguir trabajando mientras baja. También está en
+          <strong
+            >Ajustes → Paquetes de IA → «Voz avanzada (Chatterbox: español y clonación)»</strong
+          >. Si preferís no bajarlo: <strong>Usar Piper</strong>.
+        </p>
+        <p>
+          Studio instala la versión <strong>Multilingüe V3</strong> desde el código fijado de
+          GitHub; si no puede (sin Git o sin acceso a GitHub) usa la <strong>V2</strong> de PyPI y
+          lo indica como «Multilingüe V2 (respaldo)».
+        </p>
+        <h3 id="262-generar-voz">26.2 Generar voz</h3>
+        <ol>
+          <li>
+            Escribí el texto (hasta <strong>5000 caracteres</strong>; Studio lo lee en trozos de una
+            o dos oraciones).
+          </li>
+          <li><strong>Idioma</strong>: español (fijo).</li>
+          <li>
+            <strong>Voz a clonar</strong>: <em>Ninguna</em> (la voz multilingüe del modelo),
+            <em>Voz propia</em> o <em>Persona: …</em>.
+          </li>
+          <li>
+            <strong>Expresividad</strong> (0,5): más alto = más dramático y un poco más rápido.
+          </li>
+          <li>
+            <strong>Fidelidad al acento de la referencia</strong> (0,5): con una muestra en español
+            conserva la tonada de la muestra; bajala a <strong>0,3</strong> si la persona de la
+            muestra habla rápido.
+          </li>
+          <li>
+            <strong>Generar y añadir al cursor</strong>: el audio nuevo queda en Media y en la línea
+            de tiempo.
+          </li>
+        </ol>
+        <p>
+          Debajo verás el <strong>tiempo estimado</strong> (si corriste el Test de rendimiento) y,
+          si va a correr en CPU, el aviso <strong>«Va a correr en CPU»</strong>: en CPU Chatterbox
+          es varias veces más lento que el tiempo real.
+        </p>
+        <h3 id="263-tu-voz-propia-para-que-suene-rioplatense">
+          26.3 Tu «Voz propia» (para que suene rioplatense)
+        </h3>
+        <p>
+          Chatterbox no tiene un modelo rioplatense: el acento sale de
+          <strong>la muestra que clona</strong>.
+        </p>
+        <ol>
+          <li>
+            En <em>Texto a voz</em> con Chatterbox, bajá hasta <strong>Voz propia</strong> y marcá
+            <strong>«Soy yo: es mi propia voz»</strong> (obligatorio: para otra persona se usa su
+            consentimiento, ver §26.4).
+          </li>
+          <li>
+            <strong>Grabar 10 s</strong> (el navegador pide permiso al micrófono) y leé con tu
+            tonada natural la frase que aparece:
+            <em
+              >«Che, ¿viste que mañana llueve? Yo llevo el paraguas, vos traé el mate y nos vemos en
+              la plaza a las cinco.»</em
+            >
+            O <strong>Subir archivo</strong> (5 a 60 s, hasta 25 MB; WAV, MP3, M4A, OGG o WebM).
+          </li>
+          <li>
+            Consejos: lugar callado, sin música ni eco, a un palmo del micrófono, hablando como
+            hablás siempre. Studio recorta los silencios del principio y del final, normaliza el
+            volumen y guarda hasta 30 s.
+          </li>
+          <li>
+            Podés escucharla, grabar otra (se usa la más reciente, o elegís cuál) o borrarla. En
+            Media aparece con la insignia «Voz propia» y no se puede arrastrar a la línea de tiempo
+            (es solo una referencia).
+          </li>
+        </ol>
+        <h3 id="264-clonar-la-voz-de-otra-persona">26.4 Clonar la voz de otra persona</h3>
+        <p>
+          Solo con su <strong>consentimiento de voz</strong> registrado en
+          <strong>Ajustes → Personas</strong> (alcance «voz» o «rostro y voz») y una
+          <strong>muestra de voz</strong> de esa persona (<a href="#24-personas-y-consentimiento"
+            >§24</a
+          >). En <em>Voz a clonar</em> solo aparecen las Personas con consentimiento
+          <strong>vigente</strong>. Si se revoca o vence, Studio rechaza los usos nuevos (también
+          los que estaban en cola) con un aviso y el botón <strong>Abrir Personas</strong>. Cada
+          clon de una Persona queda en el registro de auditoría.
+        </p>
+        <h3 id="265-marca-de-agua-y-redes">26.5 Marca de agua y redes</h3>
+        <ul>
+          <li>
+            Todo audio de Chatterbox lleva una <strong>marca de agua inaudible (PerTh)</strong> que
+            no se puede quitar: sirve para que se sepa que es voz generada.
+          </li>
+          <li>
+            Toda voz generada (Piper, nube o Chatterbox) queda marcada como
+            <strong>voz sintética</strong>; la clonada, como <strong>voz clonada</strong>, también
+            después de pasarla por efectos, limpieza o RVC. Al generar un clon verás «Marcado como
+            voz clonada (Revisión para redes)» (<a href="#177-revisión-para-redes">§17.7</a>).
+          </li>
+        </ul>
+        <h3 id="266-gpu-cpu-y-tiempos">26.6 GPU, CPU y tiempos</h3>
+        <ul>
+          <li>
+            En GPU usa <strong>4–5 GB de VRAM</strong>: antes de cargar libera Whisper, RVC o lo que
+            haya en la GPU, y se apaga solo tras <strong>2 minutos</strong> sin uso
+            (<code>CHATTERBOX_IDLE_S</code>). La <strong>primera</strong> generación tarda más
+            (carga ≈ 3 GB).
+          </li>
+          <li>
+            Meta en una RTX 4050: generar más rápido que el tiempo real (RTF ≤ 1). En CPU: varias
+            veces la duración del audio.
+          </li>
+          <li>
+            Las RTX serie 50 todavía no son compatibles con la versión de PyTorch de Chatterbox:
+            corre en CPU y lo avisa.
+          </li>
+          <li>
+            «El entorno aislado de Chatterbox no está listo» → volvé a descargar el paquete en
+            Ajustes → Paquetes de IA (o <code>setup.ps1 -Update</code>); «Chatterbox terminó con
+            error…» → <strong>Reportar error</strong>.
+          </li>
+        </ul>
+        <h2 id="27-rendimiento-e-instalación-de-herramientas">
+          27. Rendimiento e instalación de herramientas
+        </h2>
+        <h3 id="271-paquetes-nuevos-y-tamaños">27.1 Paquetes nuevos y tamaños</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Paquete</th>
+                <th>Qué trae</th>
+                <th>Tamaño aprox.</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>tts-chatterbox</code></td>
+                <td>
+                  Voz avanzada (Chatterbox V3) + su entorno <code>tools\chatterbox\.venv</code>
+                </td>
+                <td>≈ 6,2 GB</td>
+              </tr>
+              <tr>
+                <td><code>faceswap</code></td>
+                <td>
+                  Cambio de cara (FaceFusion 3.9.1) + modelos + <code>tools\facefusion\.venv</code>
+                </td>
+                <td>≈ 4 GB</td>
+              </tr>
+              <tr>
+                <td><code>faceswap-extra</code></td>
+                <td>Modelos extra de cambio de cara (Ghost, InSwapper)</td>
+                <td>≈ 0,8 GB</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          Los dos de cambio de cara muestran la insignia
+          <strong>«No comercial: requiere aceptar licencia»</strong> y el botón
+          <strong>Leer y aceptar</strong>: no se bajan hasta que aceptás la licencia en pantalla (<a
+            href="#251-antes-de-empezar"
+            >§25.1</a
+          >). Cada fila muestra además el estado de su entorno aislado: <em>listo</em>,
+          <em>desactualizado</em>, <em>falta</em>, <em>roto</em> o <em>falta Python 3.12</em> (y,
+          para Chatterbox, si quedó en V3 o en V2 de respaldo).
+        </p>
+        <h3 id="272-por-qué-hay-entornos-aislados">27.2 Por qué hay «entornos aislados»</h3>
+        <p>
+          FaceFusion necesita Python 3.12 y una versión de onnxruntime para CUDA; Chatterbox fija
+          PyTorch 2.6. Si se instalaran junto con el resto de Studio se romperían entre sí, y sus
+          licencias son distintas. Por eso cada uno vive en su carpeta
+          (<code>tools\facefusion</code>, <code>tools\chatterbox</code>), con su propio Python, y
+          corre como un programa aparte que Studio arranca y detiene. Se crean solos al descargar el
+          paquete. Siempre corren sin conexión a Hugging Face y sin ninguna clave tuya en el
+          entorno.
+        </p>
+        <h3 id="273-python-312">27.3 Python 3.12</h3>
+        <p>
+          <code>setup.ps1</code> lo instala con winget (por usuario; no toca tu Python 3.11). Si no
+          lo tenés y no usás el cambio de cara, no pasa nada: el resto funciona igual. Si lo
+          necesitás: <code>setup.ps1 -Update</code>.
+        </p>
+        <h3 id="274--full--update-y-diagnóstico">
+          27.4 <code>-Full</code>, <code>-Update</code> y diagnóstico
+        </h3>
+        <ul>
+          <li>
+            <code>setup.ps1 -Full</code> baja también la voz avanzada (≈ 6,2 GB) y,
+            <strong>solo si ya aceptaste la licencia en Studio</strong>, el cambio de cara.
+          </li>
+          <li>
+            <code>setup.ps1 -Update</code> actualiza los entornos aislados que ya existen si la
+            versión nueva de Studio cambió su receta; si no cambió nada aparece «ya instalado, se
+            omite».
+          </li>
+          <li>
+            <code>doctor.ps1</code> → «Herramientas aisladas»: estado (listo / desactualizado / no
+            instalado / roto / falta Python 3.12), versión, si FaceFusion cargó
+            <strong>CUDA de verdad</strong> (o CPU), la variante de Chatterbox (V3 o V2), la
+            licencia del cambio de cara (aceptada o no) y si RVC usa la GPU.
+          </li>
+        </ul>
+        <h3 id="275-test-de-rendimiento">27.5 Test de rendimiento</h3>
+        <p>
+          <strong>Ajustes → Paquetes de IA → Test de rendimiento IA</strong> (<a
+            href="#173-test-de-rendimiento-ia"
+            >§17.3</a
+          >) además mide:
+        </p>
+        <ul>
+          <li>
+            <strong>RVC</strong>: segundos por minuto de voz y si usó GPU o CPU (meta: menos de 15 s
+            por minuto en GPU).
+          </li>
+          <li>
+            <strong>Chatterbox</strong>: RTF (tiempo de generación / duración del audio; menor que 1
+            = más rápido que tiempo real) y la primera carga del modelo.
+          </li>
+          <li>
+            <strong>Cambio de cara</strong>: fotogramas por segundo a 1080p sin y con el mejorador
+            (meta ≈ 15 fps sin mejorador en una RTX 4050). Solo se mide si aceptaste la licencia y
+            registraste una Persona con consentimiento de rostro (usa su foto sobre un video de
+            prueba; no se guarda nada).
+          </li>
+        </ul>
+        <p>
+          Lo que falta aparece como «no medido» con el motivo (por ejemplo «licencia no aceptada»).
+        </p>
+        <h3 id="276-rvc-en-la-gpu">27.6 RVC en la GPU</h3>
+        <p>
+          Con GPU NVIDIA y <code>USE_CUDA=true</code>, RVC usa la GPU sola (media precisión). Si
+          <code>doctor</code> dice que el PyTorch no ve la GPU, corré
+          <code>setup.ps1 -Update -WithCuda</code>. RVC devuelve la GPU a los 5 minutos sin uso
+          (<code>RVC_IDLE_S</code>). Un modelo <code>.pth</code> que no se puede abrir de forma
+          segura se rechaza («formato incompatible»): pedí una versión exportada solo con los pesos.
+        </p>
       </main>
     </div>
   </body>

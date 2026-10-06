@@ -17,6 +17,8 @@
     "@fastify/cors": "^11.3.0",
     "@fastify/multipart": "^10.1.2",
     "@fastify/static": "^10.1.5",
+    "@fastify/websocket": "^11.3.3",
+    "@lydell/node-pty": "1.2.0-beta.15",
     "@studio/motion-engines": "workspace:*",
     "@studio/remotion": "workspace:*",
     "@studio/shared": "workspace:*",

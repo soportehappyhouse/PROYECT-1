@@ -162,6 +162,37 @@ export const VisionTaskSchema = z.object({
 });
 export type VisionTask = z.infer<typeof VisionTaskSchema>;
 
+/**
+ * Sprint 3b «Recorte de calidad alta» (docs/trabajo/modulo-sprint3b-recorte.md). `fast` = RVM
+ * mobilenetv3 (pack matting); `high` = RVM resnet50 (pack matting-hq) + alpha refinement.
+ */
+export const MatteQualitySchema = z.enum(["fast", "high"]);
+export type MatteQuality = z.infer<typeof MatteQualitySchema>;
+
+/** Alpha refinement (absent field = default of the quality: high = erode 1, feather 0.7, despill). */
+export const MatteRefineSchema = z.object({
+  /** «Reducción de borde»: grey erosion of the alpha, px. */
+  erode: z.number().int().min(0).max(20).optional(),
+  /** «Suavizado de borde»: gaussian sigma of the alpha edge, px. */
+  feather: z.number().min(0).max(20).optional(),
+  /** «Eliminar halos de color»: background colour decontamination of the edges. */
+  despill: z.boolean().optional(),
+  /** Temporal EMA of the edges (0 = off, anti-flicker). */
+  temporal: z.number().min(0).max(0.9).optional(),
+  /** SAM mask guide: px of dilation around the mask. */
+  maskDilate: z.number().int().min(0).max(200).optional(),
+});
+export type MatteRefine = z.infer<typeof MatteRefineSchema>;
+
+/** No-reference edge halo score (0..255, lower = cleaner) before/after the refinement. */
+export const MatteHaloSchema = z.object({
+  before: z.number(),
+  after: z.number(),
+  frames: z.number().int().nonnegative().optional(),
+  reduction: z.number().nullish(),
+});
+export type MatteHalo = z.infer<typeof MatteHaloSchema>;
+
 export const WorkerMatteResultSchema = z.object({
   alpha_path: z.string(),
   preview_path: z.string().nullish(),
@@ -171,6 +202,13 @@ export const WorkerMatteResultSchema = z.object({
   alpha_codec: z.string().nullish(),
   /** RVM stage timings of the run (`done.timings` + startup_s / preview_s). */
   timings: z.record(z.string(), z.unknown()).nullish(),
+  /** Sprint 3b: quality used, refinement parameters, halo score, before|after PNG. */
+  quality: z.string().nullish(),
+  rvm_model: z.string().nullish(),
+  refine: z.record(z.string(), z.unknown()).nullish(),
+  halo: MatteHaloSchema.nullish(),
+  preview_compare_path: z.string().nullish(),
+  mask_frames: z.number().int().nonnegative().nullish(),
 });
 export type WorkerMatteResult = z.infer<typeof WorkerMatteResultSchema>;
 
@@ -221,6 +259,11 @@ export const VisionMatteRequestSchema = z.object({
   target: ClipTargetSchema.optional(),
   downsample: z.number().min(0.25).max(1).optional(),
   chunkFrames: z.number().int().positive().optional(),
+  /** Sprint 3b: "high" needs the matting-hq pack (video only; images always use BiRefNet). */
+  quality: MatteQualitySchema.optional(),
+  refine: MatteRefineSchema.optional(),
+  /** SAM mask asset (kind "mask": folder of %05d.png or one PNG) used as a guide. */
+  maskAssetId: IdSchema.optional(),
 });
 export type VisionMatteRequest = z.infer<typeof VisionMatteRequestSchema>;
 
@@ -232,6 +275,11 @@ export interface VisionMatteResult {
   sourceAssetId: string;
   linkedClip?: ClipTarget;
   warnings?: string[];
+  /** Sprint 3b: quality used and, when refined, the before|after PNG + halo score. */
+  quality?: MatteQuality;
+  previewComparePath?: string;
+  halo?: MatteHalo;
+  refine?: Record<string, unknown>;
 }
 
 /** POST /api/ai/vision/sam/session. */

@@ -93,6 +93,7 @@ def run_perf(settings: Settings, step: Step | None = None) -> dict[str, Any]:
         "scenes_fps": None,
         # sprint 2 (vision): None + skipped[...] when the pack is missing
         "rvm_fps": None,
+        "rvm_hq_steady_fps": None,  # sprint 3b: matting-hq (resnet50 + refinement)
         "sam2_fps": None,
         "yunet_fps": None,
         "cpu_fallback_ok": None,

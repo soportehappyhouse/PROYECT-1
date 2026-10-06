@@ -4,6 +4,9 @@ import {
   type CropRect,
   type Keyframe,
   type MatteBackground,
+  type MatteHalo,
+  type MatteQuality,
+  type MatteRefine,
   type ReframeTarget,
   type TrackAnchor,
   type TrackRequestMethod,
@@ -39,6 +42,21 @@ export type MatteDialog = {
   alphaAssetId?: string;
 };
 
+/** Sprint 3b «Quitar fondo» options: Rápido / Alta calidad, edge refinement, SAM mask guide. */
+export type MatteOptions = {
+  quality?: MatteQuality;
+  refine?: MatteRefine;
+  maskAssetId?: string;
+};
+
+/** Last before | after frame of a refined matte (shown by the «Quitar fondo» dialog). */
+export type MatteCompare = {
+  clipId: string;
+  path: string;
+  quality?: MatteQuality;
+  halo?: MatteHalo;
+};
+
 export type TrackAssign = {
   trackAssetId: string;
   /** Video clip the track came from (time window suggestion). */
@@ -47,6 +65,7 @@ export type TrackAssign = {
 
 interface VisionState {
   matteDialog: MatteDialog | undefined;
+  matteCompare: MatteCompare | undefined;
   trackAssign: TrackAssign | undefined;
   /** Running job per action (buttons show a spinner + progress). */
   busy: Partial<Record<"matte" | "track" | "reframe" | "toKeyframes", string | true>>;
@@ -58,7 +77,11 @@ interface VisionState {
   setTrackMethod: (method: TrackRequestMethod) => void;
   openMatte: (dialog: MatteDialog | undefined) => void;
   openTrackAssign: (assign: TrackAssign | undefined) => void;
-  removeBackground: (clipId: string, background: MatteBackground | undefined) => Promise<boolean>;
+  removeBackground: (
+    clipId: string,
+    background: MatteBackground | undefined,
+    opts?: MatteOptions,
+  ) => Promise<boolean>;
   applyAlpha: (
     clipId: string,
     alphaAssetId: string,
@@ -109,6 +132,7 @@ function isMissingRoute(err: unknown): boolean {
 
 export const useVisionStore = create<VisionState>()((set, get) => ({
   matteDialog: undefined,
+  matteCompare: undefined,
   trackAssign: undefined,
   busy: {},
   trackMethod: "auto",
@@ -116,7 +140,7 @@ export const useVisionStore = create<VisionState>()((set, get) => ({
   openMatte: (matteDialog) => set({ matteDialog }),
   openTrackAssign: (trackAssign) => set({ trackAssign }),
 
-  removeBackground: async (clipId, background) => {
+  removeBackground: async (clipId, background, opts = {}) => {
     const project = useProjectStore.getState().project;
     const found = findClip(project, clipId);
     const asset = found?.clip.assetId
@@ -128,7 +152,12 @@ export const useVisionStore = create<VisionState>()((set, get) => ({
     }
     set({ matteDialog: undefined });
     setBusy("matte", true);
-    addBreadcrumb("ui", "Quitar fondo", { clipId, background: background?.type ?? "none" });
+    const video = asset.kind !== "image";
+    addBreadcrumb("ui", "Quitar fondo", {
+      clipId,
+      background: background?.type ?? "none",
+      quality: (video && opts.quality) || "fast",
+    });
     try {
       await saveProjectNow();
       const result = await runVisionJob<VisionMatteResult>(
@@ -138,6 +167,9 @@ export const useVisionStore = create<VisionState>()((set, get) => ({
             model: asset.kind === "image" ? "birefnet" : "rvm",
             ...(background && { background }),
             target: { projectId: project.id, clipId },
+            ...(video && opts.quality && { quality: opts.quality }),
+            ...(video && opts.refine && { refine: opts.refine }),
+            ...(video && opts.maskAssetId && { maskAssetId: opts.maskAssetId }),
           }),
         "vision.matte",
         // image -> BiRefNet (onnxruntime: also warns when only the CPU build is installed)
@@ -149,7 +181,22 @@ export const useVisionStore = create<VisionState>()((set, get) => ({
       if (!result?.assetId) return false;
       await useMediaStore.getState().ensure(result.assetId);
       get().applyAlpha(clipId, result.assetId, background);
-      toast.success("Fondo quitado", { description: "La vista previa ya muestra el recorte." });
+      const compare = result.previewComparePath;
+      if (compare)
+        set({
+          matteCompare: {
+            clipId,
+            path: compare,
+            ...(result.quality && { quality: result.quality }),
+            ...(result.halo && { halo: result.halo }),
+          },
+        });
+      toast.success("Fondo quitado", {
+        description: "La vista previa ya muestra el recorte.",
+        ...(compare && {
+          action: { label: "Antes / después", onClick: () => get().openMatte({ clipId }) },
+        }),
+      });
       return true;
     } catch (err) {
       fail("No se pudo quitar el fondo", err);

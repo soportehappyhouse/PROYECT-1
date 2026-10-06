@@ -27,6 +27,9 @@
 17. [IA local: paquetes, GPU, silencios, escenas y redes](#17-ia-local-paquetes-gpu-silencios-escenas-y-redes)
 18. [Vista previa multicapa, keyframes y visión (IA)](#18-vista-previa-multicapa-keyframes-y-visión-ia)
 19. [Asistente local](#19-asistente-local)
+20. [Perfil de estilo](#20-perfil-de-estilo)
+21. [Separar audio (stems)](#21-separar-audio-stems)
+22. [Capas y fusiones](#22-capas-y-fusiones)
 
 ---
 
@@ -1087,18 +1090,19 @@ puede tener que bajar su modelo (un **paquete**).
 Los modelos se bajan **a pedido**, uno por función, a la carpeta `models\`. `setup.ps1` instala
 solo el paquete **core**; `setup.ps1 -Full` baja todos en secuencia.
 
-| Paquete           | Contenido                      | Tamaño aprox. | Lo usa                    |
-| ----------------- | ------------------------------ | ------------- | ------------------------- |
-| **core**          | Whisper base + voz Piper es_AR | 0,3 GB        | Transcribir, texto a voz  |
-| **whisper-turbo** | Whisper large-v3-turbo (GPU)   | 1,6 GB        | Transcribir (más preciso) |
-| **voces-es**      | Las otras 7 voces Piper        | 0,5 GB        | Texto a voz               |
-| **rvc-base**      | hubert_base + rmvpe            | 0,4 GB        | RVC                       |
-| **scenes**        | PySceneDetect                  | 0,05 GB       | Detectar escenas          |
-| **voz-limpia**    | DeepFilterNet                  | 0,2 GB        | Limpiar voz (IA)          |
-| **matting**       | RobustVideoMatting             | 0,01 GB       | Quitar fondo (video)      |
-| **matting-image** | BiRefNet-lite (swin_v1_tiny)   | 0,28 GB       | Quitar fondo (imagen)     |
-| **sam2**          | SAM 2.1 tiny + small           | 0,2 GB        | Máscara, seguir objeto    |
-| **reframe**       | YuNet (caras)                  | < 0,01 GB     | Reencuadrar               |
+| Paquete           | Contenido                      | Tamaño aprox. | Lo usa                      |
+| ----------------- | ------------------------------ | ------------- | --------------------------- |
+| **core**          | Whisper base + voz Piper es_AR | 0,3 GB        | Transcribir, texto a voz    |
+| **whisper-turbo** | Whisper large-v3-turbo (GPU)   | 1,6 GB        | Transcribir (más preciso)   |
+| **voces-es**      | Las otras 7 voces Piper        | 0,5 GB        | Texto a voz                 |
+| **rvc-base**      | hubert_base + rmvpe            | 0,4 GB        | RVC                         |
+| **scenes**        | PySceneDetect                  | 0,05 GB       | Detectar escenas            |
+| **voz-limpia**    | DeepFilterNet                  | 0,2 GB        | Limpiar voz (IA)            |
+| **matting**       | RobustVideoMatting             | 0,01 GB       | Quitar fondo (video)        |
+| **matting-hq**    | RobustVideoMatting resnet50    | 0,16 GB       | Quitar fondo (alta calidad) |
+| **matting-image** | BiRefNet-lite (swin_v1_tiny)   | 0,28 GB       | Quitar fondo (imagen)       |
+| **sam2**          | SAM 2.1 tiny + small           | 0,2 GB        | Máscara, seguir objeto      |
+| **reframe**       | YuNet (caras)                  | < 0,01 GB     | Reencuadrar                 |
 
 - **Paquete requerido**: si tocás una función cuyo paquete falta, aparece una ventana con el
   nombre, el tamaño y la licencia. **Descargar** muestra el progreso; al terminar, Studio
@@ -1262,8 +1266,27 @@ cambiando solo.
    **swin_v1_tiny**). En la RTX 4050 va a unos 15 cuadros por segundo o más; sin GPU avisa _Va a
    correr en CPU (más lento)_. En imágenes también avisa si la PC tiene GPU pero onnxruntime quedó
    en su versión CPU (volvé a descargar **matting-image** para pasarla a la de GPU).
-4. Al terminar la Vista previa ya muestra el recorte. El fondo se cambia después en
-   **Propiedades → Quitar fondo**; **Volver al video original** lo deshace.
+4. **Calidad del recorte** (solo video): _Rápido_ (el de siempre, paquete **matting**) o _Alta
+   calidad_ (modelo grande RobustVideoMatting resnet50 + limpieza de bordes, paquete
+   **matting-hq**, ~0,16 GB; si falta, Studio ofrece descargarlo). Alta calidad es más lenta
+   (el Test de rendimiento muestra «Recorte alta calidad ≈ X fps»).
+   - **Suavizado de borde**: difumina el borde del recorte (px). Subilo si el borde se ve
+     dentado; bajalo si el pelo queda borroso.
+   - **Reducción de borde**: achica el recorte unos píxeles hacia adentro. Sirve cuando queda
+     una línea del fondo pegada a la persona.
+   - **Eliminar halos de color** (activado en Alta calidad): calcula el color del fondo cerca
+     del borde y lo quita de los píxeles semitransparentes; también apaga los puntos del borde
+     que son puro fondo. Es lo que limpia los halos verdes, rojos o azules de un fondo colorido.
+   - **Usar máscara SAM si existe**: si antes hiciste **Máscara** sobre ese clip, todo lo que
+     quede fuera de la máscara (un poco agrandada) se vuelve transparente. Útil cuando el fondo
+     tiene otras personas u objetos que el recorte confunde.
+   - **Cuándo usar cuál**: _Rápido_ para fondos lisos o borradores; _Alta calidad_ para fondos
+     con muchos colores, pelo suelto o cuando ves bordes sucios. Si en Alta calidad la persona
+     queda "comida" en los bordes, bajá la Reducción a 0.
+5. Al terminar la Vista previa ya muestra el recorte. Si hubo limpieza de bordes, el aviso
+   ofrece **Antes / después** y la ventana de Quitar fondo muestra un fotograma comparado (izq.:
+   sin limpiar, der.: limpio) con el «halo de color en el borde» antes → después. El fondo se
+   cambia después en **Propiedades → Quitar fondo**; **Volver al video original** lo deshace.
 
 ### 18.5 Seguir objeto
 
@@ -1398,3 +1421,203 @@ Todo corre en tu computadora: el comando, el resumen del proyecto que lee el mod
 duraciones de clips, escenas, las primeras líneas de la transcripción) y el plan **no se envían
 a ningún servicio externo** ni necesitan claves o cuentas. La única descarga es la del modelo,
 una vez. **Redactar con IA** en _Reportar error_ usa el mismo modelo local.
+
+## 20. Perfil de estilo
+
+**Perfil de estilo** copia la forma de editar de un video que te guste (un Reel, un tutorial, un
+video de un colega): el ritmo de los cortes, los subtítulos, el título, el rótulo con nombre, la
+música de fondo y el formato. Studio analiza el video **en tu PC**, deduce un **perfil** y lo
+aplica a tu proyecto como un plan del [Asistente](#19-asistente-local) que revisás antes de tocar
+nada.
+
+### 20.1 Analizar un video de referencia
+
+1. Importá el video de referencia en **Media** (como cualquier otro video).
+2. Abrí el panel **Perfil de estilo** (`Ctrl+K` → _Perfil de estilo_, o _Ir a Perfil de estilo_).
+3. Elegí el video en **Video de referencia** y tocá **Analizar**. Un video de 1 minuto tarda unos
+   20–30 segundos en una PC sin GPU (la barra muestra cada paso; también en _Trabajos_).
+4. Aparece la **hoja de contactos** (24 cuadros del video, en orden, con la hora abajo a la
+   izquierda) y lo que midió Studio:
+
+| Dato               | Cómo se mide                                                                                                                                                 |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Planos y ritmo     | Cortes de escena (PySceneDetect si tenés el paquete _Detección de escenas_; si no, el detector de FFmpeg): cantidad, mediana, cortes por minuto e histograma |
+| Movimiento         | Estimación por diferencia de cuadros: cámara fija, paneos, zooms y **zooms de golpe** (_punch-in_). Es una aproximación                                      |
+| Volumen            | Sonoridad integrada en **LUFS** (EBU R128), la medida que usan YouTube, Instagram y TikTok                                                                   |
+| Voz y silencio     | Porcentaje de voz (de la transcripción si ya la hiciste; si no, por la energía del audio) y de silencios                                                     |
+| Música             | Sí / no, por la «planitud espectral» del sonido (aproximación: puede confundir un tono constante con música)                                                 |
+| Textos en pantalla | Títulos y rótulos leídos con OCR (paquete opcional _Texto en pantalla_, ver [§20.4](#204-paquetes-opcionales))                                               |
+
+El análisis queda guardado en **Media** (ícono con la hoja de contactos) y vuelve a aparecer si
+elegís el mismo video otra vez.
+
+### 20.2 Deducir el perfil
+
+Hay tres caminos; los tres terminan en el mismo formulario editable:
+
+- **Deducir con modelo local**: un modelo de visión que corre en tu PC con Ollama
+  (**Qwen2.5-VL 3B**) mira la hoja de contactos y el análisis y completa el perfil. La primera vez
+  se abre _Paquete requerido_ para bajar **Modelo de visión local** (unos 3,2 GB, una sola vez).
+  Si preferís no descargarlo, usá la Consola Claude.
+- **Deducir con Consola Claude**: abre la **Consola Claude** (`Ctrl+Shift+C`, ver `docs/CONSOLA-CLAUDE.md`) y pega un pedido con las rutas de la
+  hoja de contactos y del análisis. Revisalo y apretá **Enter**: Claude mira las imágenes,
+  propone el perfil y lo guarda solo (herramienta `studio_style_save_preset`). Después tocá
+  **Actualizar** (↻) en _Perfiles guardados_. No necesita descargas ni API key (usa tu
+  suscripción de Claude.ai).
+- **Nuevo a mano**: completás el formulario vos.
+
+### 20.3 Guardar y aplicar a tu proyecto
+
+El formulario tiene: nombre, **lienzo** (16:9, 9:16 o 1:1), **plano típico** en segundos,
+**cortar silencios** y silencio mínimo, **subtítulos** (estilo, animados, posición), **título al
+inicio**, **rótulo con nombre**, **transiciones**, **música** (dB y si va de fondo bajo la voz),
+etiqueta de IA y el **preset de exportación**. Tocá **Guardar perfil**.
+
+En la lista de perfiles, **Aplicar a este proyecto** arma un plan y abre el **Asistente** con él.
+El plan es siempre el mismo para el mismo perfil y proyecto (no usa IA):
+
+| Del perfil       | Paso del plan                                                                |
+| ---------------- | ---------------------------------------------------------------------------- |
+| Lienzo           | _Lienzo 1080×1920_ (solo si tu proyecto tiene otro)                          |
+| Cortar silencios | Quitar silencios y muletillas con el silencio mínimo del perfil              |
+| Ritmo            | Detectar escenas (y dividir el clip si la referencia corta cada 3 s o menos) |
+| Subtítulos       | Transcribir y poner subtítulos con el estilo elegido (animados o no)         |
+| Título / rótulo  | Título al inicio; rótulo en el comienzo de la 2.ª escena (o a los 2 s)       |
+| Música           | Volumen de cada clip de la pista de audio                                    |
+| Etiqueta de IA   | Revisión para redes con la etiqueta «alterado con IA»                        |
+| Exportar         | Exportar con el preset del perfil (pide **Confirmar exportación** aparte)    |
+
+Las **transiciones** y el **zoom de golpe** todavía no se agregan solos: el plan te deja una
+**nota** con lo que hace la referencia (por ejemplo «fundido cada 3 cortes» o «zoom ×1,2 cada
+4 s») para que lo pongas desde _Propiedades_ (transición del clip, keyframes de escala).
+Desmarcá los pasos que no quieras, tocá **Aplicar**, y si no te gusta, **Deshacer todo**.
+
+### 20.4 Paquetes opcionales
+
+| Paquete                                             | Tamaño  | Para qué                                      | Licencia                 |
+| --------------------------------------------------- | ------- | --------------------------------------------- | ------------------------ |
+| **Texto en pantalla (RapidOCR)**                    | ~30 MB  | Leer títulos y rótulos de la referencia (CPU) | Apache-2.0               |
+| **Modelo de visión local (Ollama + Qwen2.5-VL 3B)** | ~3,2 GB | _Deducir con modelo local_                    | MIT (Ollama), Apache-2.0 |
+
+Se bajan en **Ajustes → Paquetes** o desde el diálogo _Paquete requerido_. Sin ellos el análisis
+funciona igual (sin textos en pantalla) y podés deducir el perfil con la Consola Claude o a mano.
+El OCR a veces junta las palabras de un título («MITITULO»): corregilo en el formulario.
+
+### 20.5 Privacidad y límites
+
+El análisis y el modelo local corren en tu computadora; el video no se sube a ningún lado. Con la
+Consola Claude, Claude ve la hoja de contactos y el análisis (no el video completo). Las
+mediciones de movimiento, voz y música son **aproximaciones**: sirven para distinguir «cámara
+fija con música de fondo» de «muchos cortes y zooms», no para medir al milímetro.
+
+## 21. Separar audio (stems)
+
+**Separar audio** divide el sonido de un clip en pistas separadas: la **voz** por un lado y la
+**música** (todo lo demás) por otro, o en **4 pistas**: voz, batería, bajo y otros. Sirve para
+bajar la música de un video ajeno sin perder la voz, quedarte solo con la pista instrumental o
+limpiar una entrevista con música de fondo. Usa **Demucs** (modelo `htdemucs` de Meta, código y
+pesos con licencia MIT) y corre **en tu PC**: el audio no sale de tu computadora.
+
+### 21.1 Cómo se usa
+
+1. Seleccioná un clip de **audio o video** en la línea de tiempo.
+2. Abrí **Voz y audio → Efectos → Separar audio**.
+3. Elegí el modo: **2 pistas: voz y música** o **4 pistas: voz, batería, bajo y otros**.
+4. Tocá **Separar audio**. La barra muestra el avance por tramos (también en _Trabajos_).
+5. Al terminar aparecen pistas de audio nuevas debajo del clip (**Voz** y **Música**, o
+   **Voz**, **Batería**, **Bajo** y **Otros**) alineadas exactamente con él (mismo inicio,
+   recorte, velocidad y fundidos). El clip original queda **silenciado** (volumen 0): su
+   imagen sigue igual. Los audios separados también quedan en **Media** (WAV 44,1 kHz).
+6. ¿No te convenció? **Deshacer separación** (en la sección o en el aviso) vuelve el proyecto a
+   como estaba. Si lo editaste después, Studio te avisa antes y podés **Deshacer igual** (esos
+   cambios se pierden). Los audios separados no se borran de Media.
+
+La primera vez se abre _Paquete requerido_ para bajar **Separar audio (Demucs htdemucs)**, unos
+90 MB (más PyTorch si tu instalación no lo tiene); después la acción sigue sola.
+
+### 21.2 GPU, CPU y tiempos
+
+- Con GPU NVIDIA usa unos **2 GB de VRAM** y procesa en tramos de 7 s (pensado para placas de
+  6 GB como la RTX 4050): **1 minuto de audio tarda menos de un minuto**. Antes libera el modelo
+  que hubiera en la GPU (Whisper, visión o el asistente).
+- Si la GPU no tiene memoria libre, o no hay GPU, avisa **«Va a correr en CPU (más lento)»** y
+  separa igual: en CPU calculá aproximadamente **1 a 3 veces la duración del audio**.
+- La calidad es la del modelo: la voz sale muy limpia en música pop/rock; con mucha reverb o
+  coros puede quedar algo de música en la voz (o al revés).
+
+### 21.3 Límites
+
+- Separa el audio **completo** del medio (aunque el clip esté recortado), así podés estirar el
+  clip después sin volver a separar.
+- Solo funciona en clips con audio. Las pistas nuevas se exportan como cualquier pista de audio.
+- No reemplaza a _Limpiar voz (IA)_ ([§17](#17-ia-local-paquetes-gpu-silencios-escenas-y-redes)):
+  para ruido de fondo (ventilador, calle) usá esa; para separar voz de **música**, esta.
+
+---
+
+## 22. Capas y fusiones
+
+Desde esta versión podés **apilar videos libremente**: cualquier clip de una pista de video o
+motion se dibuja **encima de todo lo que está debajo**, con su tamaño, posición, keyframes y
+opacidad, y además con un **modo de fusión** y una **máscara**. La vista previa y la
+exportación usan las mismas reglas (se comprueba con pruebas de píxeles).
+
+### 22.1 Orden de las capas
+
+- Cada pista es una **capa**. El número chico a la izquierda del nombre de la pista es su capa:
+  **1 = fondo**. Las pistas de **más abajo** en la línea de tiempo se dibujan **encima**.
+- Para cambiar el orden: **arrastrá la cabecera** de la pista (el ícono ⋮⋮ a la izquierda) sobre
+  otra pista, o abrí su menú (clic derecho en la cabecera, o el botón ⋮):
+  **Mover arriba** (hacia el fondo), **Mover abajo** (hacia el frente), **Traer al frente** y
+  **Enviar al fondo**. Todo se deshace con **Ctrl+Z**.
+
+### 22.2 Modo de fusión
+
+Seleccioná el clip y abrí **Propiedades → Capa → Modo de fusión**:
+
+| Modo                  | Qué hace                                                | Úsalo para                     |
+| --------------------- | ------------------------------------------------------- | ------------------------------ |
+| Normal                | Tapa lo de abajo según su opacidad                      | Lo de siempre                  |
+| Multiplicar           | Oscurece: el blanco desaparece, el negro queda          | Sombras, texturas, papel       |
+| Trama (aclarar suave) | Aclara: el negro desaparece                             | Luces, destellos, humo, polvo  |
+| Superponer            | Más contraste: aclara los claros y oscurece los oscuros | Texturas sobre un video        |
+| Sumar (luz)           | Suma la luz de las dos capas (puede quemar a blanco)    | Fuegos, láser, brillos fuertes |
+| Diferencia            | Resta los colores (iguales = negro)                     | Comparar dos tomas, efectos    |
+| Aclarar / Oscurecer   | Se queda con el píxel más claro / más oscuro de las dos | Combinar cielos, siluetas      |
+
+La **opacidad** (Propiedades → Imagen) también vale con cualquier modo: al 50 % el efecto se
+ve a la mitad. En la línea de tiempo el clip muestra el modo («Multiplicar · Máscara»).
+
+### 22.3 Máscaras
+
+En **Propiedades → Capa → Máscara** elegí:
+
+- **Rectángulo** o **Elipse**: aparece la forma con **tiradores** sobre la vista previa.
+  Arrastrá dentro para moverla y los cuadraditos para cambiar el tamaño (la forma se mide en %
+  del clip, así que sigue al clip si lo movés o lo escalás). **Difuminado** suaviza el borde (en
+  píxeles del lienzo con el clip al 100 %). **Invertir** deja ver lo de afuera y oculta lo de
+  adentro. **Editar forma / Terminar edición** muestra u oculta los tiradores.
+- **Máscara SAM / imagen**: usa una máscara hecha con **Máscara por clic (SAM 2)**
+  ([§18.3](#183-máscara-por-clic-sam-2)) — sigue al objeto fotograma a fotograma —, una imagen
+  en blanco y negro (blanco = se ve) o un video con transparencia («máscara alfa»).
+
+### 22.4 Ejemplos rápidos
+
+1. **Video dentro de un círculo**: pista de arriba con el video, Escala 50 %, Máscara Elipse,
+   Difuminado 10.
+2. **Destellos sobre una toma**: un video de partículas sobre fondo negro en la pista de abajo
+   del todo → modo **Trama**: el negro desaparece solo.
+3. **Persona delante de un título**: video original abajo, título en el medio, y arriba el mismo
+   clip con **Máscara SAM** de la persona.
+
+### 22.5 Límites y diferencias conocidas
+
+- Un clip con modo de fusión se compone solo: si estaba pegado a otro con un fundido cruzado,
+  ese fundido pasa a ser un fundido normal.
+- En exportaciones con transparencia (ProRes 4444 / WebM alfa) la fusión se calcula contra lo
+  que haya debajo; donde no hay nada, contra negro.
+- **Difuminado**: la vista previa usa el desenfoque del navegador y la exportación el de FFmpeg
+  (`gblur`): el centro y el exterior son idénticos; en la franja del borde puede haber
+  diferencias de unos pocos niveles. En navegadores sin `filter` en canvas (Safari antiguo) la
+  vista previa muestra el borde duro.
+- La «Vista previa clásica» muestra el modo de fusión del video principal pero no las máscaras.

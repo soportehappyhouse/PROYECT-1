@@ -79,9 +79,14 @@ export const visionRoutes: FastifyPluginAsync = async (app) => {
         !!v && (body.background?.type === "image" || body.background?.type === "video"),
     ))
       requireMediaAsset(app.ctx, id);
+    if (body.maskAssetId) requireMediaAsset(app.ctx, body.maskAssetId);
     await requirePack(
       workers,
-      asset.kind === "image" ? FEATURE_PACKS.mattingImage : FEATURE_PACKS.matting,
+      asset.kind === "image"
+        ? FEATURE_PACKS.mattingImage
+        : body.quality === "high"
+          ? FEATURE_PACKS.mattingHq
+          : FEATURE_PACKS.matting,
     );
     return accepted(reply, "vision.matte", body, body.target?.projectId);
   });

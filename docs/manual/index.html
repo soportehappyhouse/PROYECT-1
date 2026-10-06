@@ -465,6 +465,8 @@
           </li>
           <li class="d3"><a href="#187-problemas-frecuentes">18.7 Problemas frecuentes</a></li>
           <li class="d2"><a href="#19-asistente-local">19. Asistente local</a></li>
+          <li class="d2"><a href="#20-perfil-de-estilo">20. Perfil de estilo</a></li>
+          <li class="d2"><a href="#21-separar-audio-stems">21. Separar audio (stems)</a></li>
           <li class="d3"><a href="#191-qué-puede-hacer">19.1 Qué puede hacer</a></li>
           <li class="d3"><a href="#192-cómo-se-usa">19.2 Cómo se usa</a></li>
           <li class="d3">
@@ -475,6 +477,14 @@
           </li>
           <li class="d3"><a href="#195-límites">19.5 Límites</a></li>
           <li class="d3"><a href="#196-privacidad">19.6 Privacidad</a></li>
+          <li class="d2"><a href="#22-capas-y-fusiones">22. Capas y fusiones</a></li>
+          <li class="d3"><a href="#221-orden-de-las-capas">22.1 Orden de las capas</a></li>
+          <li class="d3"><a href="#222-modo-de-fusión">22.2 Modo de fusión</a></li>
+          <li class="d3"><a href="#223-máscaras">22.3 Máscaras</a></li>
+          <li class="d3"><a href="#224-ejemplos-rápidos">22.4 Ejemplos rápidos</a></li>
+          <li class="d3">
+            <a href="#225-límites-y-diferencias-conocidas">22.5 Límites y diferencias conocidas</a>
+          </li>
         </ol>
       </nav>
       <main>
@@ -4149,6 +4159,437 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
           cuentas. La única descarga es la del modelo, una vez. <strong>Redactar con IA</strong> en
           <em>Reportar error</em> usa el mismo modelo local.
         </p>
+        <h2 id="20-perfil-de-estilo">20. Perfil de estilo</h2>
+        <p>
+          <strong>Perfil de estilo</strong> copia la forma de editar de un video que te guste (un
+          Reel, un tutorial, un video de un colega): el ritmo de los cortes, los subtítulos, el
+          título, el rótulo con nombre, la música de fondo y el formato. Studio analiza el video
+          <strong>en tu PC</strong>, deduce un <strong>perfil</strong> y lo aplica a tu proyecto
+          como un plan del <a href="#19-asistente-local">Asistente</a> que revisás antes de tocar
+          nada.
+        </p>
+        <h3 id="201-analizar-un-video-de-referencia">20.1 Analizar un video de referencia</h3>
+        <ol>
+          <li>
+            Importá el video de referencia en <strong>Media</strong> (como cualquier otro video).
+          </li>
+          <li>
+            Abrí el panel <strong>Perfil de estilo</strong> (<code>Ctrl+K</code> →
+            <em>Perfil de estilo</em>, o <em>Ir a Perfil de estilo</em>).
+          </li>
+          <li>
+            Elegí el video en <strong>Video de referencia</strong> y tocá <strong>Analizar</strong>.
+            Un video de 1 minuto tarda unos 20–30 segundos en una PC sin GPU (la barra muestra cada
+            paso; también en <em>Trabajos</em>).
+          </li>
+          <li>
+            Aparece la <strong>hoja de contactos</strong> (24 cuadros del video, en orden, con la
+            hora abajo a la izquierda) y lo que midió Studio:
+          </li>
+        </ol>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Dato</th>
+                <th>Cómo se mide</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Planos y ritmo</td>
+                <td>
+                  Cortes de escena (PySceneDetect si tenés el paquete
+                  <em>Detección de escenas</em>; si no, el detector de FFmpeg): cantidad, mediana,
+                  cortes por minuto e histograma
+                </td>
+              </tr>
+              <tr>
+                <td>Movimiento</td>
+                <td>
+                  Estimación por diferencia de cuadros: cámara fija, paneos, zooms y
+                  <strong>zooms de golpe</strong> (<em>punch-in</em>). Es una aproximación
+                </td>
+              </tr>
+              <tr>
+                <td>Volumen</td>
+                <td>
+                  Sonoridad integrada en <strong>LUFS</strong> (EBU R128), la medida que usan
+                  YouTube, Instagram y TikTok
+                </td>
+              </tr>
+              <tr>
+                <td>Voz y silencio</td>
+                <td>
+                  Porcentaje de voz (de la transcripción si ya la hiciste; si no, por la energía del
+                  audio) y de silencios
+                </td>
+              </tr>
+              <tr>
+                <td>Música</td>
+                <td>
+                  Sí / no, por la «planitud espectral» del sonido (aproximación: puede confundir un
+                  tono constante con música)
+                </td>
+              </tr>
+              <tr>
+                <td>Textos en pantalla</td>
+                <td>
+                  Títulos y rótulos leídos con OCR (paquete opcional <em>Texto en pantalla</em>, ver
+                  <a href="#204-paquetes-opcionales">§20.4</a>)
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          El análisis queda guardado en <strong>Media</strong> (ícono con la hoja de contactos) y
+          vuelve a aparecer si elegís el mismo video otra vez.
+        </p>
+        <h3 id="202-deducir-el-perfil">20.2 Deducir el perfil</h3>
+        <p>Hay tres caminos; los tres terminan en el mismo formulario editable:</p>
+        <ul>
+          <li>
+            <strong>Deducir con modelo local</strong>: un modelo de visión que corre en tu PC con
+            Ollama (<strong>Qwen2.5-VL 3B</strong>) mira la hoja de contactos y el análisis y
+            completa el perfil. La primera vez se abre <em>Paquete requerido</em> para bajar
+            <strong>Modelo de visión local</strong> (unos 3,2 GB, una sola vez). Si preferís no
+            descargarlo, usá la Consola Claude.
+          </li>
+          <li>
+            <strong>Deducir con Consola Claude</strong>: abre la
+            <strong>Consola Claude</strong> (<code>Ctrl+Shift+C</code>, ver
+            <code>docs/CONSOLA-CLAUDE.md</code>) y pega un pedido con las rutas de la hoja de
+            contactos y del análisis. Revisalo y apretá <strong>Enter</strong>: Claude mira las
+            imágenes, propone el perfil y lo guarda solo (herramienta
+            <code>studio_style_save_preset</code>). Después tocá <strong>Actualizar</strong> (↻) en
+            <em>Perfiles guardados</em>. No necesita descargas ni API key (usa tu suscripción de
+            Claude.ai).
+          </li>
+          <li><strong>Nuevo a mano</strong>: completás el formulario vos.</li>
+        </ul>
+        <h3 id="203-guardar-y-aplicar-a-tu-proyecto">20.3 Guardar y aplicar a tu proyecto</h3>
+        <p>
+          El formulario tiene: nombre, <strong>lienzo</strong> (16:9, 9:16 o 1:1),
+          <strong>plano típico</strong> en segundos, <strong>cortar silencios</strong> y silencio
+          mínimo, <strong>subtítulos</strong> (estilo, animados, posición),
+          <strong>título al inicio</strong>, <strong>rótulo con nombre</strong>,
+          <strong>transiciones</strong>, <strong>música</strong> (dB y si va de fondo bajo la voz),
+          etiqueta de IA y el <strong>preset de exportación</strong>. Tocá
+          <strong>Guardar perfil</strong>.
+        </p>
+        <p>
+          En la lista de perfiles, <strong>Aplicar a este proyecto</strong> arma un plan y abre el
+          <strong>Asistente</strong> con él. El plan es siempre el mismo para el mismo perfil y
+          proyecto (no usa IA):
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Del perfil</th>
+                <th>Paso del plan</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Lienzo</td>
+                <td><em>Lienzo 1080×1920</em> (solo si tu proyecto tiene otro)</td>
+              </tr>
+              <tr>
+                <td>Cortar silencios</td>
+                <td>Quitar silencios y muletillas con el silencio mínimo del perfil</td>
+              </tr>
+              <tr>
+                <td>Ritmo</td>
+                <td>
+                  Detectar escenas (y dividir el clip si la referencia corta cada 3 s o menos)
+                </td>
+              </tr>
+              <tr>
+                <td>Subtítulos</td>
+                <td>Transcribir y poner subtítulos con el estilo elegido (animados o no)</td>
+              </tr>
+              <tr>
+                <td>Título / rótulo</td>
+                <td>Título al inicio; rótulo en el comienzo de la 2.ª escena (o a los 2 s)</td>
+              </tr>
+              <tr>
+                <td>Música</td>
+                <td>Volumen de cada clip de la pista de audio</td>
+              </tr>
+              <tr>
+                <td>Etiqueta de IA</td>
+                <td>Revisión para redes con la etiqueta «alterado con IA»</td>
+              </tr>
+              <tr>
+                <td>Exportar</td>
+                <td>
+                  Exportar con el preset del perfil (pide <strong>Confirmar exportación</strong>
+                  aparte)
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          Las <strong>transiciones</strong> y el <strong>zoom de golpe</strong> todavía no se
+          agregan solos: el plan te deja una <strong>nota</strong> con lo que hace la referencia
+          (por ejemplo «fundido cada 3 cortes» o «zoom ×1,2 cada 4 s») para que lo pongas desde
+          <em>Propiedades</em> (transición del clip, keyframes de escala). Desmarcá los pasos que no
+          quieras, tocá <strong>Aplicar</strong>, y si no te gusta, <strong>Deshacer todo</strong>.
+        </p>
+        <h3 id="204-paquetes-opcionales">20.4 Paquetes opcionales</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Paquete</th>
+                <th>Tamaño</th>
+                <th>Para qué</th>
+                <th>Licencia</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Texto en pantalla (RapidOCR)</strong></td>
+                <td>~30 MB</td>
+                <td>Leer títulos y rótulos de la referencia (CPU)</td>
+                <td>Apache-2.0</td>
+              </tr>
+              <tr>
+                <td><strong>Modelo de visión local (Ollama + Qwen2.5-VL 3B)</strong></td>
+                <td>~3,2 GB</td>
+                <td><em>Deducir con modelo local</em></td>
+                <td>MIT (Ollama), Apache-2.0</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          Se bajan en <strong>Ajustes → Paquetes</strong> o desde el diálogo
+          <em>Paquete requerido</em>. Sin ellos el análisis funciona igual (sin textos en pantalla)
+          y podés deducir el perfil con la Consola Claude o a mano. El OCR a veces junta las
+          palabras de un título («MITITULO»): corregilo en el formulario.
+        </p>
+        <h3 id="205-privacidad-y-límites">20.5 Privacidad y límites</h3>
+        <p>
+          El análisis y el modelo local corren en tu computadora; el video no se sube a ningún lado.
+          Con la Consola Claude, Claude ve la hoja de contactos y el análisis (no el video
+          completo). Las mediciones de movimiento, voz y música son
+          <strong>aproximaciones</strong>: sirven para distinguir «cámara fija con música de fondo»
+          de «muchos cortes y zooms», no para medir al milímetro.
+        </p>
+        <h2 id="21-separar-audio-stems">21. Separar audio (stems)</h2>
+        <p>
+          <strong>Separar audio</strong> divide el sonido de un clip en pistas separadas: la
+          <strong>voz</strong> por un lado y la <strong>música</strong> (todo lo demás) por otro, o
+          en <strong>4 pistas</strong>: voz, batería, bajo y otros. Sirve para bajar la música de un
+          video ajeno sin perder la voz, quedarte solo con la pista instrumental o limpiar una
+          entrevista con música de fondo. Usa <strong>Demucs</strong> (modelo
+          <code>htdemucs</code> de Meta, código y pesos con licencia MIT) y corre
+          <strong>en tu PC</strong>: el audio no sale de tu computadora.
+        </p>
+        <h3 id="211-cómo-se-usa">21.1 Cómo se usa</h3>
+        <ol>
+          <li>Seleccioná un clip de <strong>audio o video</strong> en la línea de tiempo.</li>
+          <li>Abrí <strong>Voz y audio → Efectos → Separar audio</strong>.</li>
+          <li>
+            Elegí el modo: <strong>2 pistas: voz y música</strong> o
+            <strong>4 pistas: voz, batería, bajo y otros</strong>.
+          </li>
+          <li>
+            Tocá <strong>Separar audio</strong>. La barra muestra el avance por tramos (también en
+            <em>Trabajos</em>).
+          </li>
+          <li>
+            Al terminar aparecen pistas de audio nuevas debajo del clip (<strong>Voz</strong> y
+            <strong>Música</strong>, o <strong>Voz</strong>, <strong>Batería</strong>,
+            <strong>Bajo</strong> y <strong>Otros</strong>) alineadas exactamente con él (mismo
+            inicio, recorte, velocidad y fundidos). El clip original queda
+            <strong>silenciado</strong> (volumen 0): su imagen sigue igual. Los audios separados
+            también quedan en <strong>Media</strong> (WAV 44,1 kHz).
+          </li>
+          <li>
+            ¿No te convenció? <strong>Deshacer separación</strong> (en la sección o en el aviso)
+            vuelve el proyecto a como estaba. Si lo editaste después, Studio te avisa antes y podés
+            <strong>Deshacer igual</strong> (esos cambios se pierden). Los audios separados no se
+            borran de Media.
+          </li>
+        </ol>
+        <p>
+          La primera vez se abre <em>Paquete requerido</em> para bajar
+          <strong>Separar audio (Demucs htdemucs)</strong>, unos 90 MB (más PyTorch si tu
+          instalación no lo tiene); después la acción sigue sola.
+        </p>
+        <h3 id="212-gpu-cpu-y-tiempos">21.2 GPU, CPU y tiempos</h3>
+        <ul>
+          <li>
+            Con GPU NVIDIA usa unos <strong>2 GB de VRAM</strong> y procesa en tramos de 7 s
+            (pensado para placas de 6 GB como la RTX 4050):
+            <strong>1 minuto de audio tarda menos de un minuto</strong>. Antes libera el modelo que
+            hubiera en la GPU (Whisper, visión o el asistente).
+          </li>
+          <li>
+            Si la GPU no tiene memoria libre, o no hay GPU, avisa
+            <strong>«Va a correr en CPU (más lento)»</strong> y separa igual: en CPU calculá
+            aproximadamente <strong>1 a 3 veces la duración del audio</strong>.
+          </li>
+          <li>
+            La calidad es la del modelo: la voz sale muy limpia en música pop/rock; con mucha reverb
+            o coros puede quedar algo de música en la voz (o al revés).
+          </li>
+        </ul>
+        <h3 id="213-límites">21.3 Límites</h3>
+        <ul>
+          <li>
+            Separa el audio <strong>completo</strong> del medio (aunque el clip esté recortado), así
+            podés estirar el clip después sin volver a separar.
+          </li>
+          <li>
+            Solo funciona en clips con audio. Las pistas nuevas se exportan como cualquier pista de
+            audio.
+          </li>
+          <li>
+            No reemplaza a <em>Limpiar voz (IA)</em> (<a
+              href="#17-ia-local-paquetes-gpu-silencios-escenas-y-redes"
+              >§17</a
+            >): para ruido de fondo (ventilador, calle) usá esa; para separar voz de
+            <strong>música</strong>, esta.
+          </li>
+        </ul>
+        <h2 id="22-capas-y-fusiones">22. Capas y fusiones</h2>
+        <p>
+          Desde esta versión podés <strong>apilar videos libremente</strong>: cualquier clip de una
+          pista de video o motion se dibuja <strong>encima de todo lo que está debajo</strong>, con
+          su tamaño, posición, keyframes y opacidad, y además con un
+          <strong>modo de fusión</strong> y una <strong>máscara</strong>. La vista previa y la
+          exportación usan las mismas reglas (se comprueba con pruebas de píxeles).
+        </p>
+        <h3 id="221-orden-de-las-capas">22.1 Orden de las capas</h3>
+        <ul>
+          <li>
+            Cada pista es una <strong>capa</strong>. El número chico a la izquierda del nombre de la
+            pista es su capa: <strong>1 = fondo</strong>. Las pistas de
+            <strong>más abajo</strong> en la línea de tiempo se dibujan <strong>encima</strong>.
+          </li>
+          <li>
+            Para cambiar el orden: <strong>arrastrá la cabecera</strong> de la pista (el ícono ⋮⋮ a
+            la izquierda) sobre otra pista, o abrí su menú (clic derecho en la cabecera, o el botón
+            ⋮): <strong>Mover arriba</strong> (hacia el fondo), <strong>Mover abajo</strong> (hacia
+            el frente), <strong>Traer al frente</strong> y <strong>Enviar al fondo</strong>. Todo se
+            deshace con <strong>Ctrl+Z</strong>.
+          </li>
+        </ul>
+        <h3 id="222-modo-de-fusión">22.2 Modo de fusión</h3>
+        <p>Seleccioná el clip y abrí <strong>Propiedades → Capa → Modo de fusión</strong>:</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Modo</th>
+              <th>Qué hace</th>
+              <th>Úsalo para</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Normal</td>
+              <td>Tapa lo de abajo según su opacidad</td>
+              <td>Lo de siempre</td>
+            </tr>
+            <tr>
+              <td>Multiplicar</td>
+              <td>Oscurece: el blanco desaparece, el negro queda</td>
+              <td>Sombras, texturas, papel</td>
+            </tr>
+            <tr>
+              <td>Trama (aclarar suave)</td>
+              <td>Aclara: el negro desaparece</td>
+              <td>Luces, destellos, humo, polvo</td>
+            </tr>
+            <tr>
+              <td>Superponer</td>
+              <td>Más contraste: aclara los claros y oscurece los oscuros</td>
+              <td>Texturas sobre un video</td>
+            </tr>
+            <tr>
+              <td>Sumar (luz)</td>
+              <td>Suma la luz de las dos capas (puede quemar a blanco)</td>
+              <td>Fuegos, láser, brillos fuertes</td>
+            </tr>
+            <tr>
+              <td>Diferencia</td>
+              <td>Resta los colores (iguales = negro)</td>
+              <td>Comparar dos tomas, efectos</td>
+            </tr>
+            <tr>
+              <td>Aclarar / Oscurecer</td>
+              <td>Se queda con el píxel más claro / más oscuro de las dos</td>
+              <td>Combinar cielos, siluetas</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          La <strong>opacidad</strong> (Propiedades → Imagen) también vale con cualquier modo: al 50
+          % el efecto se ve a la mitad. En la línea de tiempo el clip muestra el modo («Multiplicar
+          · Máscara»).
+        </p>
+        <h3 id="223-máscaras">22.3 Máscaras</h3>
+        <p>En <strong>Propiedades → Capa → Máscara</strong> elegí:</p>
+        <ul>
+          <li>
+            <strong>Rectángulo</strong> o <strong>Elipse</strong>: aparece la forma con
+            <strong>tiradores</strong> sobre la vista previa. Arrastrá dentro para moverla y los
+            cuadraditos para cambiar el tamaño (la forma se mide en % del clip, así que sigue al
+            clip si lo movés o lo escalás). <strong>Difuminado</strong> suaviza el borde (en píxeles
+            del lienzo con el clip al 100 %). <strong>Invertir</strong> deja ver lo de afuera y
+            oculta lo de adentro. <strong>Editar forma / Terminar edición</strong> muestra u oculta
+            los tiradores.
+          </li>
+          <li>
+            <strong>Máscara SAM / imagen</strong>: usa una máscara hecha con
+            <strong>Máscara por clic (SAM 2)</strong> (<a href="#183-máscara-por-clic-sam-2"
+              >§18.3</a
+            >) — sigue al objeto fotograma a fotograma —, una imagen en blanco y negro (blanco = se
+            ve) o un video con transparencia («máscara alfa»).
+          </li>
+        </ul>
+        <h3 id="224-ejemplos-rápidos">22.4 Ejemplos rápidos</h3>
+        <ol>
+          <li>
+            <strong>Video dentro de un círculo</strong>: pista de arriba con el video, Escala 50 %,
+            Máscara Elipse, Difuminado 10.
+          </li>
+          <li>
+            <strong>Destellos sobre una toma</strong>: un video de partículas sobre fondo negro en
+            la pista de abajo del todo → modo <strong>Trama</strong>: el negro desaparece solo.
+          </li>
+          <li>
+            <strong>Persona delante de un título</strong>: video original abajo, título en el medio,
+            y arriba el mismo clip con <strong>Máscara SAM</strong> de la persona.
+          </li>
+        </ol>
+        <h3 id="225-límites-y-diferencias-conocidas">22.5 Límites y diferencias conocidas</h3>
+        <ul>
+          <li>
+            Un clip con modo de fusión se compone solo: si estaba pegado a otro con un fundido
+            cruzado, ese fundido pasa a ser un fundido normal.
+          </li>
+          <li>
+            En exportaciones con transparencia (ProRes 4444 / WebM alfa) la fusión se calcula contra
+            lo que haya debajo; donde no hay nada, contra negro.
+          </li>
+          <li>
+            <strong>Difuminado</strong>: la vista previa usa el desenfoque del navegador y la
+            exportación el de FFmpeg (<code>gblur</code>): el centro y el exterior son idénticos; en
+            la franja del borde puede haber diferencias de unos pocos niveles. En navegadores sin
+            <code>filter</code> en canvas (Safari antiguo) la vista previa muestra el borde duro.
+          </li>
+          <li>
+            La «Vista previa clásica» muestra el modo de fusión del video principal pero no las
+            máscaras.
+          </li>
+        </ul>
       </main>
     </div>
   </body>

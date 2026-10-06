@@ -6,6 +6,11 @@ the source fps. RVM can instead write the "split" format (``STUDIO_MATTE_ALPHA_C
 one ``.mkv`` with two NVENC H.264 streams, colour (v:0) + alpha as luma (v:1), rebuilt with
 ``SPLIT_MERGE``. Off by default until the api export and the web preview read it
 (docs/trabajo/perf-rvm.md); ``alpha_codec`` in the result says which one was written.
+Quality (sprint 3b, docs/trabajo/modulo-sprint3b-recorte.md): ``fast`` = RVM mobilenetv3 (pack
+matting); ``high`` = RVM resnet50 (pack matting-hq, same .venv-gpl) + alpha refinement in the GPL
+process (erosion + feather, despill/decontamination, SAM mask guide, temporal edge EMA). With any
+refinement active the runner also writes ``<out>.compare.png`` (before | after of the preview
+frame) and a no-reference halo score; both go to the result (``compare``, ``halo``) and timings.
 GPU: BiRefNet goes through the GPU budget (one resident model); before RVM the
 budget unloads the resident model and the subprocess gets the VRAM left as
 ``STUDIO_VRAM_BUDGET_MB`` (it falls back to CPU itself and reports ``gpu_fallback_cpu``).
@@ -43,7 +48,10 @@ log = logging.getLogger("studio_workers")
 BIREFNET_FILE = "BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx"
 BIREFNET_VRAM_MB = 1800  # lite fp32 at 1024 [S, docs §10.1: 1.5-2 GB]
 RVM_FILES = ("rvm_mobilenetv3_fp16.torchscript", "rvm_mobilenetv3_fp32.torchscript")
+RVM_HQ_FILES = ("rvm_resnet50_fp16.torchscript", "rvm_resnet50_fp32.torchscript")
 RVM_VRAM_MB = 900
+RVM_HQ_VRAM_MB = 1600  # resnet50 fp16 at 1080p (0.375) + refinement temporaries
+QUALITIES = ("fast", "high")
 CPU_SLOW = "cpu_slow"
 ALPHA_CODEC_ENV = "STUDIO_MATTE_ALPHA_CODEC"  # vp9 (default) | split | auto (split if NVENC works)
 ALPHA_CODECS = ("vp9", "split", "auto")
@@ -161,14 +169,15 @@ class MatteEngine:
             and birefnet_path(self.root).is_file()
         )
 
-    def rvm_available(self) -> bool:
-        files = all((rvm_dir(self.root) / f).is_file() for f in RVM_FILES)
+    def rvm_available(self, quality: str = "fast") -> bool:
+        names = RVM_HQ_FILES if quality == "high" else RVM_FILES
+        files = all((rvm_dir(self.root) / f).is_file() for f in names)
         mock = "--mock-model" in self.rvm_extra_args
         return (files or mock) and self.gpl_status()["state"] == "ready"
 
-    def require(self, model: str) -> None:
-        if model == "rvm" and not self.rvm_available():
-            raise PackRequiredError("matting")
+    def require(self, model: str, quality: str = "fast") -> None:
+        if model == "rvm" and not self.rvm_available(quality):
+            raise PackRequiredError("matting-hq" if quality == "high" else "matting")
         if model == "birefnet" and not self.birefnet_available():
             raise PackRequiredError("matting-image")
 
@@ -227,13 +236,19 @@ class MatteEngine:
         downsample: float | None = None,
         chunk: int = 300,
         progress: Callable[[float, str], None] | None = None,
+        quality: str = "fast",
+        refine: dict[str, Any] | None = None,
+        mask_path: Path | None = None,
     ) -> dict[str, Any]:
-        self.require(model)
+        quality = quality if quality in QUALITIES else "fast"
+        self.require(model, quality)
         notify = progress or (lambda _p, _m: None)
         # Deterministic work dir: a job re-submitted after a crash/restart resumes from the
         # chunks already finished (RVM keeps them until the final WebM is written).
         st = src.stat()
         key = f"{src.resolve()}|{st.st_size}|{st.st_mtime_ns}|{out.resolve()}|{model}|{chunk}"
+        if quality != "fast" or refine or mask_path:  # fast default: same key as before
+            key += f"|{quality}|{sorted((refine or {}).items())}|{mask_path or ''}"
         work = (
             self.settings.storage_root
             / "tmp"
@@ -243,15 +258,22 @@ class MatteEngine:
         work.mkdir(parents=True, exist_ok=True)
         t0 = time.perf_counter()
         info = probe(src)
+        at = min(info.duration / 2, 1.0) if info.duration else 0.0
         if model == "rvm":
-            res = self._rvm(src, out, work, downsample, chunk, notify)
+            extra = gpl.refine_args(
+                quality,
+                refine,
+                mask_path,
+                out.with_name(out.name.removesuffix(".webm") + ".compare.png"),
+                min(max(0, info.frames - 1), round(at * info.fps_float)),
+            )
+            res = self._rvm(src, out, work, downsample, chunk, notify, extra, quality)
         else:
             res = self._birefnet_video(src, out, work, chunk, notify)
         shutil.rmtree(work, ignore_errors=True)  # only on success
         notify(0.97, "vista previa")
         written = Path(res.get("output") or out)
         preview = out.with_name(out.name.removesuffix(".webm") + ".preview.png")
-        at = min(info.duration / 2, 1.0) if info.duration else 0.0
         t_prev = time.perf_counter()
         if written.suffix.lower() == ".mkv":
             split_preview_png(written, preview, at)
@@ -260,6 +282,10 @@ class MatteEngine:
         if "timings" in res:
             res["timings"]["preview_s"] = round(time.perf_counter() - t_prev, 3)
             res["timings"]["matte_video_s"] = round(time.perf_counter() - t0, 3)
+            # sprint 3b: what was asked / measured travels with the stage timings
+            for k in ("quality", "refine", "halo"):
+                if res.get(k) is not None:
+                    res["timings"][k] = res[k]
         return {**res, "output": written, "preview": preview, "fps": round(info.fps_float, 6),
                 "info": info}  # fmt: skip
 
@@ -305,18 +331,21 @@ class MatteEngine:
         downsample: float | None,
         chunk: int,
         notify: Callable[[float, str], None],
+        extra: list[str] | None = None,
+        quality: str = "fast",
     ) -> dict[str, Any]:
         st = self.gpl_status()
         python = st["python"]
         if st["state"] != "ready" or not python:
-            raise PackRequiredError("matting")
+            raise PackRequiredError("matting-hq" if quality == "high" else "matting")
         device, vram_left, warnings = "cpu", None, []
         budget = self.budget
         if self.settings.use_cuda and budget is not None:
             budget.release()  # one resident model: free the GPU before the subprocess
             info = budget.vram(fresh=True)
             vram_left = (info.free_mb - budget.reserve_mb) if info else None
-            decision = budget.acquire("rvm", RVM_VRAM_MB, self._kill_rvm)
+            need = RVM_HQ_VRAM_MB if quality == "high" else RVM_VRAM_MB
+            decision = budget.acquire("rvm", need, self._kill_rvm)
             device = decision.device
             warnings += decision.warnings
 
@@ -343,7 +372,7 @@ class MatteEngine:
                 ffmpeg=ffmpeg_exe(),
                 on_event=on_event,
                 on_start=on_start,
-                extra_args=self.rvm_extra_args,
+                extra_args=[*(extra or []), *self.rvm_extra_args],
                 alpha_codec=self.rvm_alpha_codec,
             )
         finally:
@@ -363,4 +392,10 @@ class MatteEngine:
             "alpha_codec": run.alpha_codec,
             "timings": run.timings,
             "warnings": list(dict.fromkeys(warnings)),
+            "quality": run.quality,
+            "rvm_model": run.model or None,
+            "refine": run.refine,
+            "halo": run.halo,
+            "compare": run.compare_path,
+            "mask_frames": run.mask_frames,
         }

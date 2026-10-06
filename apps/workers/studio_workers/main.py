@@ -24,6 +24,7 @@ from .routers import (
     packs,
     perf,
     rvc,
+    style,
     transcribe,
     tts,
     vision,
@@ -78,6 +79,7 @@ def create_app() -> FastAPI:
     app.include_router(perf.router)
     app.include_router(vision.router)
     app.include_router(agent.router)
+    app.include_router(style.router)  # Sprint 3b: perfil de estilo
     return app
 
 

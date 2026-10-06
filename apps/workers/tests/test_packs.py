@@ -40,6 +40,10 @@ def test_registry_matches_contract() -> None:
         "sam2",
         "reframe",
         "agent-llm",  # sprint 3: models pulled through Ollama
+        "stems",  # sprint 3b: Demucs htdemucs (registered after the tuple)
+        "ocr",  # sprint 3b: perfil de estilo (RapidOCR)
+        "vision-llm",  # sprint 3b: perfil de estilo (Ollama qwen2.5vl:3b)
+        "matting-hq",  # sprint 3b: recorte de calidad alta (RVM resnet50)
     ]
     assert packs.FEATURE_PACKS["analyze.scenes"] == "scenes"
     assert packs.FEATURE_PACKS["audio.denoise"] == "voz-limpia"

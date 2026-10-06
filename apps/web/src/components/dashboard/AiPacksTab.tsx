@@ -12,7 +12,14 @@ import {
   Section,
   Spinner,
 } from "@/components/ui/misc";
-import { featureLabel, formatDuration, perfEstimates, rvmDetail, rvmFpsLabel } from "@/lib/ai";
+import {
+  featureLabel,
+  formatDuration,
+  perfEstimates,
+  rvmDetail,
+  rvmFpsLabel,
+  rvmHqFpsLabel,
+} from "@/lib/ai";
 import { packState, type PackInfo, type PackState, type PerfResult } from "@/lib/ai-types";
 import { aiApi, ApiRequestError, errorMessage, isNotImplemented } from "@/lib/api";
 import { formatBytes } from "@/lib/format";
@@ -178,6 +185,12 @@ function PerfSection() {
                       </span>
                     ) : null}
                   </td>
+                </tr>
+              ) : null}
+              {rvmHqFpsLabel(result) ? (
+                <tr data-testid="perf-rvm-hq">
+                  <td className="pr-2 text-muted-foreground">Recorte alta calidad</td>
+                  <td>{rvmHqFpsLabel(result)}</td>
                 </tr>
               ) : null}
               <tr>

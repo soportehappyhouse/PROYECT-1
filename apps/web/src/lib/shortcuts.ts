@@ -20,7 +20,8 @@ export type ShortcutActionId =
   | "project.save"
   | "palette.open"
   | "layout.reset"
-  | "assistant.open";
+  | "assistant.open"
+  | "console.open";
 
 export interface ShortcutActionInfo {
   id: ShortcutActionId;
@@ -119,6 +120,12 @@ export const SHORTCUT_ACTIONS: readonly ShortcutActionInfo[] = [
     label: "Asistente: escribir un comando",
     group: "Interfaz",
     defaultKeys: "Ctrl+Shift+A",
+  },
+  {
+    id: "console.open",
+    label: "Consola Claude: abrir la terminal de Claude Code",
+    group: "Interfaz",
+    defaultKeys: "Ctrl+Shift+C",
   },
 ];
 

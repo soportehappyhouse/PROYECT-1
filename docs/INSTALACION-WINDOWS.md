@@ -102,6 +102,7 @@ Re-ejecutarlo con todo instalado: alrededor de un minuto (verificaciones, sin de
 | `-SkipModels` / `-SkipBuild` / `-SkipBrowser` | Saltear pasos                                                                               |
 | `-SkipWinget`                                 | No usa winget: Git, Node 22, Python 3.11 y FFmpeg ya deben estar en el PATH                 |
 | `-SkipOllama`                                 | No instala ni inicia Ollama (el Asistente local queda deshabilitado)                        |
+| `-SkipClaude` (o `-WithClaude:$false`)        | No instala Claude Code (la Consola Claude explica cómo instalarlo después)                  |
 | `-Full`                                       | Descarga todos los paquetes de IA en secuencia (ver abajo)                                  |
 
 ### Paquetes de IA (`-Full`)
@@ -119,6 +120,7 @@ bajan todos ahora, uno por uno (~4,3 GB + 5,2 GB del Asistente si Ollama está i
 | `scenes`        | PySceneDetect + OpenCV (pip)                                          | 0,04 GB                                        | detectar escenas                         |
 | `voz-limpia`    | DeepFilterNet 3 (pip + pesos)                                         | 0,01–0,25 GB                                   | limpiar voz                              |
 | `matting`       | RobustVideoMatting fp16 + fp32 + `.venv-gpl`                          | 0,05 GB (0,25 GB si el `.venv` no tiene torch) | quitar fondo en video                    |
+| `matting-hq`    | RobustVideoMatting **resnet50** fp16 + fp32 (mismo `.venv-gpl`)       | 0,16 GB (+0,03 GB si `.venv-gpl` es nuevo)     | quitar fondo en alta calidad             |
 | `matting-image` | BiRefNet-lite **swin_v1_tiny** (ONNX) + onnxruntime + OpenCV          | 0,28 GB (+0,2 GB `onnxruntime-gpu` con CUDA)   | quitar fondo en imágenes                 |
 | `sam2`          | SAM 2.1 tiny + small + código `sam2` (desde GitHub, **requiere Git**) | 0,34 GB                                        | máscara por clic, seguir objeto (SAM 2)  |
 | `reframe`       | YuNet (caras) + OpenCV                                                | 0,04 GB                                        | reencuadrar, seguir objeto (rápido)      |
@@ -167,6 +169,21 @@ Reels» en un plan de edición que confirmás antes de aplicar. Todo corre en tu
 Estado: `scripts\windows\doctor.ps1` (sección "Paquetes de IA") o, a mano,
 `apps\workers\.venv\Scripts\python.exe -m studio_workers.models_cli --packs list`.
 Uno solo: `... models_cli --packs download whisper-turbo`.
+
+### Consola Claude (Claude Code)
+
+La Consola Claude (panel con `Ctrl+Shift+C`) corre **Claude Code** dentro de Studio con tu
+suscripción de Claude.ai (Pro/Max): sin API key. Guía completa: [CONSOLA-CLAUDE.md](CONSOLA-CLAUDE.md).
+
+- `setup.ps1` instala Claude Code con `npm i -g @anthropic-ai/claude-code` cuando hay Node.js 22
+  (paso «Claude Code», opción `-WithClaude`, activa por defecto). Si ya está instalado muestra la
+  versión y lo omite. `-SkipClaude` saltea el paso.
+- La primera vez iniciá sesión **una sola vez** en una terminal (o dentro de la consola con `/login`):
+  `claude auth login` → se abre el navegador para entrar con tu cuenta de Claude.ai.
+- `doctor.ps1` muestra la sección «Consola Claude»: versión, si hay sesión iniciada
+  (`claude auth status`) y si las herramientas `studio-mcp` están compiladas.
+- Si en Ajustes o en el `.env` hay una `ANTHROPIC_API_KEY`, la consola **no** la usa: Studio la
+  quita del entorno de Claude Code a propósito.
 
 ## 4. Abrir Studio
 

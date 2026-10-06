@@ -1,0 +1,261 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "description": "Nombre corto del estilo (p. ej. «Reels dinámico»)."
+    },
+    "canvas": {
+      "type": "string",
+      "enum": ["16:9", "9:16", "1:1"],
+      "description": "Lienzo: 16:9 (horizontal), 9:16 (vertical, Reels/TikTok) o 1:1 (cuadrado)."
+    },
+    "cut_rhythm": {
+      "type": "object",
+      "properties": {
+        "target_shot_s": {
+          "type": "number",
+          "minimum": 0.3,
+          "maximum": 120,
+          "description": "Duración típica de cada plano, en segundos (mediana de la referencia)."
+        },
+        "remove_silences": {
+          "type": "boolean",
+          "description": "Cortar los silencios de la voz."
+        },
+        "min_silence_ms": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 10000,
+          "description": "Silencio mínimo a cortar, en milisegundos (300 = ritmo rápido, 700 = calmo)."
+        }
+      },
+      "required": ["target_shot_s", "remove_silences", "min_silence_ms"],
+      "additionalProperties": false,
+      "description": "Ritmo de cortes."
+    },
+    "captions": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "description": "La referencia tiene subtítulos (por defecto sí).",
+          "type": "boolean"
+        },
+        "style": {
+          "type": "string",
+          "enum": ["clasico", "reels", "karaoke", "minimal", "titular"],
+          "description": "Estilo de subtítulos: clasico (abajo con fondo), reels (palabra a palabra, grande, centro), karaoke (resalta la palabra dicha), minimal (sin fondo), titular (arriba, amarillo)."
+        },
+        "animated": {
+          "type": "boolean",
+          "description": "Subtítulos animados palabra a palabra."
+        },
+        "position": {
+          "type": "string",
+          "enum": ["top", "center", "bottom"],
+          "description": "Ubicación vertical en pantalla: top (arriba), center (centro), bottom (abajo)."
+        }
+      },
+      "required": ["style", "animated", "position"],
+      "additionalProperties": false,
+      "description": "Subtítulos."
+    },
+    "titles": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "description": "Poner un título al inicio (por defecto sí).",
+          "type": "boolean"
+        },
+        "template": {
+          "type": "string",
+          "enum": [
+            "title-card",
+            "lower-third",
+            "animated-captions",
+            "transition",
+            "audio-visualizer",
+            "lottie-overlay",
+            "end-screen",
+            "progress-bar",
+            "kinetic-typography"
+          ],
+          "description": "Plantilla de motion: title-card (título), lower-third (rótulo con nombre), animated-captions (subtítulos animados), transition, audio-visualizer, lottie-overlay, end-screen (pantalla final), progress-bar (barra de progreso), kinetic-typography (texto cinético)."
+        },
+        "params": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "description": "Texto del título.",
+              "type": "string",
+              "maxLength": 200
+            },
+            "subtitle": {
+              "description": "Subtítulo opcional.",
+              "type": "string",
+              "maxLength": 200
+            },
+            "style": {
+              "description": "Animación del título: fade-up, pop, slide, typewriter o boxed.",
+              "type": "string"
+            },
+            "accentColor": {
+              "description": "Color de acento (#rrggbb).",
+              "type": "string"
+            }
+          },
+          "additionalProperties": {
+            "type": ["string", "number", "boolean"]
+          },
+          "description": "Parámetros de la plantilla del título."
+        },
+        "duration_s": {
+          "description": "Duración del título (s).",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 30
+        }
+      },
+      "required": ["template"],
+      "additionalProperties": false,
+      "description": "Título de apertura."
+    },
+    "lower_third": {
+      "description": "Rótulo con nombre y cargo (lower third), si la referencia lo usa.",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "description": "Mostrar un rótulo con nombre (por defecto sí).",
+          "type": "boolean"
+        },
+        "params": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "description": "Nombre que muestra el rótulo.",
+              "type": "string",
+              "maxLength": 120
+            },
+            "role": {
+              "description": "Cargo o descripción.",
+              "type": "string",
+              "maxLength": 120
+            },
+            "style": {
+              "description": "Estilo del rótulo (p. ej. bar).",
+              "type": "string"
+            },
+            "position": {
+              "description": "bottom-left, bottom-right, top-left o top-right.",
+              "type": "string"
+            },
+            "accentColor": {
+              "description": "Color de acento (#rrggbb).",
+              "type": "string"
+            }
+          },
+          "additionalProperties": {
+            "type": ["string", "number", "boolean"]
+          },
+          "description": "Parámetros del rótulo (lower third)."
+        },
+        "duration_s": {
+          "description": "Duración del rótulo (s).",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 30
+        }
+      },
+      "additionalProperties": false
+    },
+    "transitions": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["cut", "fade", "crossfade", "wipe", "slide", "zoom"],
+          "description": "Transición entre planos: cut (corte seco), fade, crossfade, wipe, slide, zoom."
+        },
+        "every_n_cuts": {
+          "description": "Cada cuántos cortes hay una transición (1 = en todos).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        }
+      },
+      "required": ["type"],
+      "additionalProperties": false,
+      "description": "Transiciones."
+    },
+    "music": {
+      "type": "object",
+      "properties": {
+        "duck": {
+          "type": "boolean",
+          "description": "Bajar la música cuando hay voz."
+        },
+        "volume_db": {
+          "type": "number",
+          "minimum": -60,
+          "maximum": 12,
+          "description": "Volumen de la música en dB (-12 = de fondo, -60 = sin música)."
+        }
+      },
+      "required": ["duck", "volume_db"],
+      "additionalProperties": false,
+      "description": "Música."
+    },
+    "zoom_punch_in": {
+      "description": "Zoom de golpe (punch-in) periódico, si la referencia lo usa.",
+      "type": "object",
+      "properties": {
+        "every_s": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 120,
+          "description": "Cada cuántos segundos hay un zoom."
+        },
+        "scale": {
+          "type": "number",
+          "minimum": 1.01,
+          "maximum": 2,
+          "description": "Cuánto acerca (1.15 = 15 %)."
+        }
+      },
+      "required": ["every_s", "scale"],
+      "additionalProperties": false
+    },
+    "ai_label": {
+      "description": "Quemar la etiqueta «Contenido alterado con IA» al exportar.",
+      "type": "boolean"
+    },
+    "export_preset": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Id del preset de exportación: youtube-1080p (horizontal), youtube-4k, reels-tiktok (vertical 9:16 para Reels/TikTok), youtube-shorts (vertical), gif-480, webm-alpha, o un preset propio del usuario."
+    },
+    "notes_es": {
+      "type": "string",
+      "maxLength": 1000,
+      "description": "Qué observaste en la referencia, en 1-3 frases en español rioplatense."
+    }
+  },
+  "required": [
+    "name",
+    "canvas",
+    "cut_rhythm",
+    "captions",
+    "titles",
+    "transitions",
+    "music",
+    "export_preset",
+    "notes_es"
+  ],
+  "additionalProperties": false,
+  "description": "Perfil de estilo deducido de un video de referencia.",
+  "$id": "https://studio.local/schemas/stylepreset.schema.json",
+  "title": "StylePreset"
+}

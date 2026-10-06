@@ -110,6 +110,12 @@ export function CommandPalette() {
         run: () => cutAtScenes(),
       },
       {
+        id: "ai:style",
+        group: "IA local",
+        label: "Perfil de estilo: copiar el estilo de un video de referencia",
+        run: () => showPanel("style"),
+      },
+      {
         id: "ai:assistant-settings",
         group: "IA local",
         label: "Ajustes del asistente local (modelo, evaluar modelos)",

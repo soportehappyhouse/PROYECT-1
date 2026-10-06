@@ -5,6 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 from .agent.ollama_client import OllamaClient, OllamaError
+from .audio.stems import StemsEngine
 from .config import get_settings
 from .denoise import DenoiseEngine
 from .gpu import GpuBudget
@@ -80,6 +81,18 @@ def agent_queue() -> TaskQueue:
     return TaskQueue("agent")
 
 
+# Sprint 3b stems (audio/stems.py): engine + its own one-at-a-time queue (GET /audio/tasks/{id}).
+@lru_cache
+def stems_engine() -> StemsEngine:
+    return StemsEngine(get_settings(), budget=gpu_budget())
+
+
+@lru_cache
+def audio_queue() -> TaskQueue:
+    """Audio separation jobs: one at a time (one GPU)."""
+    return TaskQueue("audio")
+
+
 @lru_cache
 def ollama_client() -> OllamaClient:
     settings = get_settings()
@@ -108,5 +121,7 @@ def reset() -> None:
     sam_manager.cache_clear()
     vision_queue.cache_clear()
     agent_queue.cache_clear()
+    stems_engine.cache_clear()
+    audio_queue.cache_clear()
     # tests may monkeypatch ollama_client with a plain factory (fake Ollama transport)
     getattr(ollama_client, "cache_clear", lambda: None)()

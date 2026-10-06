@@ -6,7 +6,7 @@ import { z } from "zod";
  * Dashboard panels: shared `PanelIdSchema` + `assistant` (Sprint 3; it lives only in the dockview
  * layout, the contract `panels` array does not list it).
  */
-export type WebPanelId = PanelId | "assistant";
+export type WebPanelId = PanelId | "assistant" | "console" | "style";
 
 export interface PanelInfo {
   id: WebPanelId;
@@ -26,6 +26,16 @@ export const PANELS: readonly PanelInfo[] = [
   { id: "export", title: "Exportar", description: "Presets y exportación" },
   { id: "jobs", title: "Trabajos", description: "Progreso de tareas" },
   { id: "assistant", title: "Asistente", description: "Editar con comandos (IA local)" },
+  {
+    id: "console",
+    title: "Consola Claude",
+    description: "Claude Code con tu suscripción (sin API key)",
+  },
+  {
+    id: "style",
+    title: "Perfil de estilo",
+    description: "Copiar el estilo de un video de referencia",
+  },
 ];
 
 export const PANEL_IDS = PANELS.map((p) => p.id);
@@ -104,6 +114,10 @@ const DEFAULT_PLACEMENT: Record<
   timeline: { direction: "below" },
   jobs: { anchor: "timeline", direction: "within", inactive: true },
   assistant: { anchor: "inspector", direction: "within", inactive: true },
+  // Sprint 3b: tab next to the Asistente, inactive (hidden) until Ctrl+Shift+C / the palette.
+  console: { anchor: "assistant", direction: "within", inactive: true },
+  // Sprint 3b: «Perfil de estilo», another inactive tab of the right column.
+  style: { anchor: "assistant", direction: "within", inactive: true },
 };
 
 /** Panels shown by the default layout (the shared defaults hide subtitles/jobs; we keep them as tabs). */
@@ -146,6 +160,8 @@ export function buildDefaultLayout(api: LayoutBuilderApi): void {
     "subtitles",
     "export",
     "assistant",
+    "console",
+    "style",
     "timeline",
     "jobs",
   ];

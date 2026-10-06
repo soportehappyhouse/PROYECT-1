@@ -52,6 +52,9 @@ export const JOB_TYPE_LABELS_ES: Record<Job["type"], string> = {
   "timeline.track-to-keyframes": "Seguimiento a keyframes",
   "agent.apply": "Asistente: aplicar plan",
   "agent.eval": "Asistente: evaluar modelos",
+  "audio.stems": "Separar audio (stems)",
+  "style.analyze": "Perfil de estilo: analizar referencia",
+  "style.infer": "Perfil de estilo: deducir con modelo local",
 };
 
 const PROMPT_JOBS = 3;

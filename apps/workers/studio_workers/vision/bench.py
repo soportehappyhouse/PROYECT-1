@@ -1,6 +1,7 @@
-"""Vision part of the AI performance test: rvm_fps, sam2_fps, yunet_fps (skipped with reason
-when the pack is missing). Clips are synthetic (lavfi testsrc2); fps = whole pipeline (decode +
-model + encode), which is what the UI time estimates need."""
+"""Vision part of the AI performance test: rvm_fps, rvm_hq_* (sprint 3b «Recorte de calidad
+alta»: resnet50 + refinement, GPL CLI with --quality high), sam2_fps, yunet_fps (skipped with
+reason when the pack is missing). Clips are synthetic (lavfi testsrc2); fps = whole pipeline
+(decode + model + encode), which is what the UI time estimates need."""
 
 from __future__ import annotations
 
@@ -80,6 +81,37 @@ def bench_rvm(work: Path) -> dict[str, Any]:
     }
 
 
+def bench_rvm_hq(work: Path) -> dict[str, Any]:
+    """Same 1080p 5 s clip through ``vision_gpl.rvm --quality high`` (resnet50 + refinement):
+    sustained fps without the first batch + fixed startup, as for the fast mode."""
+    engine = services.matte_engine()
+    clip = work / "rvm.mp4"
+    if not clip.is_file():
+        clip = _clip(clip, RVM_BENCH_SIZE, RVM_BENCH_SECONDS, RVM_BENCH_RATE)
+    t0 = time.perf_counter()
+    res = engine.matte_video(clip, work / "rvm-hq.webm", model="rvm", chunk=300, quality="high")
+    frames = res.get("frames") or int(RVM_BENCH_SECONDS * RVM_BENCH_RATE)
+    out: dict[str, Any] = {"rvm_hq_fps": round(frames / max(1e-6, time.perf_counter() - t0), 1)}
+    t = res.get("timings") or {}
+    first = t.get("first_batch_s") or 0.0
+    process = t.get("process_s")
+    if process:
+        seq = 2 if res.get("device") == "cuda" else 1  # vision_gpl.rvm CUDA_SEQ_CHUNK_HQ
+        steady_frames = max(1, frames - (seq if first else 0))
+        out["rvm_hq_steady_fps"] = round(steady_frames / max(1e-6, process - first), 1)
+        out["rvm_hq_startup_s"] = round(
+            t.get("startup_s", 0.0) + first + t.get("preview_s", 0.0), 2
+        )
+    halo = res.get("halo") or {}
+    return {
+        **out,
+        "rvm_hq_precision": res.get("precision") or None,
+        "rvm_hq_downsample": res.get("downsample"),
+        "rvm_hq_halo": halo.get("after"),
+        "warnings": list(res.get("warnings") or []),
+    }
+
+
 def bench_sam2(work: Path) -> tuple[float, list[str]]:
     from .sam import Prompt  # noqa: PLC0415
 
@@ -102,7 +134,7 @@ def run_vision_bench(settings: Settings, work: Path, result: dict[str, Any]) -> 
     skipped: dict[str, str] = result["skipped"]
     errors: dict[str, str] = result["errors"]
     root = settings.models_root
-    for key in ("rvm_fps", "sam2_fps", "yunet_fps"):
+    for key in ("rvm_fps", "rvm_hq_steady_fps", "sam2_fps", "yunet_fps"):
         result.setdefault(key, None)
 
     if not is_installed("reframe", root):
@@ -128,6 +160,15 @@ def run_vision_bench(settings: Settings, work: Path, result: dict[str, Any]) -> 
             result.update(measured)
         except Exception as exc:
             errors["rvm"] = str(exc)
+    if not engine.rvm_available("high"):
+        skipped["rvm_hq"] = "paquete matting-hq no instalado"
+    else:
+        try:
+            measured = bench_rvm_hq(work)
+            result["warnings"] += measured.pop("warnings")
+            result.update(measured)
+        except Exception as exc:
+            errors["rvm_hq"] = str(exc)
 
     if not services.sam_manager().available():
         skipped["sam2"] = "paquete sam2 no instalado"

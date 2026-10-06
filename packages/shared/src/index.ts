@@ -20,3 +20,5 @@ export * from "./keyframes.js";
 export * from "./vision.js";
 export * from "./track.js";
 export * from "./agent.js";
+export * from "./style.js";
+export * from "./stems.js";

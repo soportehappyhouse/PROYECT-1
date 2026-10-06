@@ -12,6 +12,7 @@ const FEATURE_TEXT: Record<GpuFeature, string> = {
   matting: "Quitar fondo",
   sam2: "Máscara / seguir objeto (SAM 2)",
   birefnet: "Quitar fondo de la imagen (BiRefNet)",
+  stems: "Separar audio (Demucs)",
 };
 
 /**

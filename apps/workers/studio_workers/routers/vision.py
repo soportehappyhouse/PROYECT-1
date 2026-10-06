@@ -73,14 +73,30 @@ def task_status(task_id: str) -> dict[str, Any]:
 # ------------------------------------------------------------------------------------- matte
 
 
+def _resolve_mask(settings: Settings, rel: str) -> Path:
+    """SAM mask guide: one PNG or a folder of %05d.png, inside STORAGE_DIR."""
+    path = Path(rel)
+    resolved = path.resolve() if path.is_absolute() else settings.storage_path(rel)
+    root = settings.storage_root.resolve()
+    if resolved.resolve() != root and root not in resolved.resolve().parents:
+        raise ValueError(f"La ruta debe estar dentro de storage: {rel}")
+    if resolved.is_dir() and any(resolved.glob("*.png")):
+        return resolved
+    if resolved.is_file():
+        return resolved
+    raise NotFoundError(f"No existe la máscara: {rel}")
+
+
 @router.post("/matte")
 def matte(req: MatteRequest) -> dict[str, Any]:
     """RVM (subprocess, .venv-gpl) or BiRefNet -> WebM VP9 yuva420p + preview PNG (task)."""
     settings = get_settings()
     src = resolve_input(settings, req.path)
     engine = matte_engine()
-    engine.require(req.model)
+    engine.require(req.model, req.quality)
     out = _out(settings, req.output_base, ".webm")
+    mask = _resolve_mask(settings, req.mask_path) if req.mask_path else None
+    refine = req.refine.model_dump(exclude_none=True) if req.refine else None
 
     def job(task: Task) -> dict[str, Any]:
         res = engine.matte_video(
@@ -90,6 +106,9 @@ def matte(req: MatteRequest) -> dict[str, Any]:
             downsample=req.downsample,
             chunk=req.chunk_frames,
             progress=_step(task),
+            quality=req.quality,
+            refine=refine or None,
+            mask_path=mask,
         )
         result = {
             # the file really written (split alpha codec = .mkv, see docs/trabajo/perf-rvm.md)
@@ -106,11 +125,19 @@ def matte(req: MatteRequest) -> dict[str, Any]:
         for key in ("precision", "downsample", "alpha_codec", "timings"):
             if res.get(key):
                 result[key] = res[key]
+        # sprint 3b: quality mode, refinement used, halo score, before|after PNG, SAM guide
+        if req.model == "rvm":
+            result["quality"] = res.get("quality") or req.quality
+            for key in ("rvm_model", "refine", "halo", "mask_frames"):
+                if res.get(key) is not None:
+                    result[key] = res[key]
+            if res.get("compare"):
+                result["preview_compare_path"] = settings.storage_relative(Path(res["compare"]))
         if res.get("warnings"):
             result["warnings"] = res["warnings"]
         return result
 
-    return _submit("vision.matte", f"{req.model}:{out}", job)
+    return _submit("vision.matte", f"{req.model}:{req.quality}:{out}", job)
 
 
 @router.post("/matte-image")

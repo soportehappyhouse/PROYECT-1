@@ -17,6 +17,10 @@
   "e2e:" answers a FIXED EditPlan (split + add_text + set_canvas) without Ollama, so run-e2e checks
   plan -> resolve -> apply on any machine. Other commands reach the real /agent/plan (if present).
 
+- Sprint 3b stems (STUDIO_MOCK_STEMS=0 turns it off): pack stems is reported as installed and the
+  htdemucs model is a fixed linear split (vocals 0.6, drums 0.2, bass 0.1, other 0.1 of the mix),
+  so /audio/stems runs the real decode, chunking, overlap-add and WAV writing.
+
 Everything else (scenes, silences, packs, gpu, perf, vision.track with OpenCV, vision.reframe with
 a track) is the real code. Never used by setup/start.
 """
@@ -72,7 +76,7 @@ def pack_status(pack, root, catalog=None, **kw):  # type: ignore[no-untyped-def]
     return row
 
 
-VISION_PACKS = {"matting", "matting-image", "sam2"}
+VISION_PACKS = {"matting", "matting-hq", "matting-image", "sam2"}  # matting-hq: sprint 3b
 
 
 class ConstMaskSam:
@@ -211,6 +215,33 @@ def with_agent_mock(asgi):  # type: ignore[no-untyped-def]
 
     return wrapped
 
+
+# ------------------------------------------------------------- BEGIN sprint 3b stems mock
+MOCK_STEMS = os.environ.get("STUDIO_MOCK_STEMS", "1") != "0"
+if MOCK_STEMS:
+    from studio_workers.audio.stems import HTDEMUCS_SOURCES, Separator
+
+    STEM_GAINS = {"drums": 0.2, "bass": 0.1, "other": 0.1, "vocals": 0.6}
+
+    def fake_htdemucs(_device: str) -> Separator:
+        import numpy as np
+
+        return Separator(
+            HTDEMUCS_SOURCES,
+            lambda chunk, _seg: np.stack([STEM_GAINS[s] * chunk for s in HTDEMUCS_SOURCES]),
+        )
+
+    services.stems_engine()._loader = fake_htdemucs
+    _status_before_stems = packs.pack_status
+
+    def pack_status_stems(pack, root, catalog=None, **kw):  # type: ignore[no-untyped-def]
+        row = _status_before_stems(pack, root, catalog, **kw)
+        if pack.id == "stems":
+            row.update(installed=True, partial=False)
+        return row
+
+    packs.pack_status = pack_status_stems
+# --------------------------------------------------------------- END sprint 3b stems mock
 
 settings = get_settings()
 uvicorn.run(

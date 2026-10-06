@@ -1,7 +1,13 @@
 "use client";
 
-import type { RvcRequest, TtsProvider, TtsVoiceInfo } from "@studio/shared";
-import { Download, Eraser, Plus, Trash2 } from "lucide-react";
+import {
+  STEMS_MODE_LABELS_ES,
+  type RvcRequest,
+  type StemsMode,
+  type TtsProvider,
+  type TtsVoiceInfo,
+} from "@studio/shared";
+import { Download, Eraser, Plus, Split, Trash2, Undo2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { hasAudio, SelectedClipHint, useSelectedClip } from "@/components/common/SelectedClipInfo";
@@ -33,6 +39,7 @@ import { formatMb, withPiperCatalog } from "@/lib/voices";
 import { useJobsStore } from "@/stores/jobs-store";
 import { runWithPack, usePacksStore } from "@/stores/packs-store";
 import { useProjectStore } from "@/stores/project-store";
+import { useStemsStore } from "@/stores/stems-store";
 import { Panel } from "./Panel";
 
 type Tab = "tts" | "effects" | "rvc";
@@ -343,6 +350,91 @@ function DenoiseSection() {
   );
 }
 
+/**
+ * Sprint 3b «Separar audio» (job audio.stems, pack stems): Demucs htdemucs splits the selected
+ * clip into new tracks («Voz» + «Música», or 4) aligned to it; the clip is muted. Reversible with
+ * «Deshacer separación» (api snapshot).
+ */
+export function StemsSection() {
+  const sel = useSelectedClip();
+  const mode = useStemsStore((s) => s.mode);
+  const setMode = useStemsStore((s) => s.setMode);
+  const run = useStemsStore((s) => s.run);
+  const undoConflict = useStemsStore((s) => s.undoConflict);
+  const separate = useStemsStore((s) => s.separate);
+  const undo = useStemsStore((s) => s.undo);
+  const job = useJobsStore((s) => (run?.jobId ? s.jobs[run.jobId] : undefined));
+  const busy = run?.status === "starting" || run?.status === "running";
+  const canUndo = run?.status === "done" && !!run.result?.undoSnapshotId;
+
+  return (
+    <Section title="Separar audio">
+      <p className="text-[11px] text-muted-foreground">
+        Separa la voz de la música (o voz, batería, bajo y otros) con Demucs y las pone en pistas
+        nuevas alineadas al clip, que queda silenciado. Usa ~2 GB de GPU (sin GPU corre en CPU, más
+        lento); la primera vez baja el paquete «Separar audio», unos 90 MB.
+      </p>
+      <Label>
+        Modo
+        <Select
+          aria-label="Modo de separación"
+          value={mode}
+          disabled={busy}
+          onChange={(e) => setMode(e.target.value as StemsMode)}
+        >
+          <option value="two">{STEMS_MODE_LABELS_ES.two}</option>
+          <option value="four">{STEMS_MODE_LABELS_ES.four}</option>
+        </Select>
+      </Label>
+      <Button
+        size="sm"
+        disabled={busy || !hasAudio(sel)}
+        onClick={() => sel && void separate(sel.clip.id)}
+      >
+        {busy ? <Spinner /> : <Split />} Separar audio
+      </Button>
+      {busy ? (
+        <div className="flex flex-col gap-1" data-testid="stems-progress">
+          <Progress value={job?.progress ?? 0} />
+          <span className="text-[11px] text-muted-foreground">
+            {job?.message ?? "Preparando la separación…"}
+          </span>
+        </div>
+      ) : null}
+      {run?.status === "failed" && run.error ? (
+        <p className="text-[11px] text-destructive">{run.error}</p>
+      ) : null}
+      {run?.result && (run.status === "done" || run.status === "undoing") ? (
+        <p className="text-[11px] text-muted-foreground" data-testid="stems-result">
+          {run.result.sourceClipId ? "Pistas nuevas" : "Audios nuevos en Media"}:{" "}
+          {run.result.stems.map((s) => s.label).join(", ")}
+        </p>
+      ) : null}
+      {run?.status === "undone" ? (
+        <p className="text-[11px] text-muted-foreground">Separación deshecha.</p>
+      ) : null}
+      {canUndo || run?.status === "undoing" ? (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={run?.status === "undoing"}
+          onClick={() => void undo()}
+        >
+          {run?.status === "undoing" ? <Spinner /> : <Undo2 />} Deshacer separación
+        </Button>
+      ) : null}
+      {undoConflict ? (
+        <div className="flex flex-col gap-1 rounded-md bg-muted p-2 text-[11px]">
+          <span>{undoConflict}</span>
+          <Button size="xs" variant="destructive" onClick={() => void undo(true)}>
+            Deshacer igual
+          </Button>
+        </div>
+      ) : null}
+    </Section>
+  );
+}
+
 function EffectsForm() {
   const sel = useSelectedClip();
   const [chain, setChain] = useState<EditableEffect[]>([]);
@@ -383,6 +475,7 @@ function EffectsForm() {
         need="Selecciona un clip de audio o video en la línea de tiempo."
       />
       <DenoiseSection />
+      <StemsSection />
       <Section title="Presets">
         <div className="flex flex-wrap gap-1">
           {VOICE_PRESETS.map((p) => (

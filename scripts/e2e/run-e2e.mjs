@@ -1992,6 +1992,26 @@ await step(
 );
 
 await step(
+  "sprint3b: «Quitar fondo» alta calidad (RVM mock, --quality high) -> refine + before/after PNG",
+  async () => {
+    const { video } = await sprint2Media();
+    const res = await ok("POST", "/api/ai/vision/matte", {
+      assetId: video.id,
+      quality: "high",
+      refine: { feather: 1, erode: 1, despill: true },
+    });
+    const job = await waitOk(res.jobId, { timeoutMs: 300_000 });
+    const r = job.result;
+    assert(r.quality === "high", `quality ${r.quality}`);
+    assert(r.refine?.despill === true && r.refine?.feather === 1, JSON.stringify(r.refine));
+    assert(r.previewComparePath?.endsWith(".compare.png"), `compare ${r.previewComparePath}`);
+    const png = await fetch(`${API}/files/${r.previewComparePath}`);
+    assert(png.ok, `GET compare ${png.status}`);
+    return { previewComparePath: r.previewComparePath, halo: r.halo ?? null };
+  },
+);
+
+await step(
   "sprint2: vision.reframe 9:16 (subject: track) -> project.reframe -> reels export follows the box",
   async () => {
     assert(ctx.s2track, "needs the real tracking step");
@@ -2347,6 +2367,306 @@ await step(
   SKIP_MOTION ? "optional" : "required",
 );
 
+// ---------------------------------------------------------------- BEGIN sprint 3b stems
+await step(
+  "sprint3b: stems (lavfi tone+noise video) -> «Voz»/«Música» tracks aligned, clip muted -> undo",
+  async () => {
+    const src = path.join(WORK, "e2e-stems.mp4");
+    await run(FFMPEG, [
+      "-y",
+      "-v",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "color=c=0x203040:s=320x180:r=25:d=6",
+      "-f",
+      "lavfi",
+      "-i",
+      "sine=frequency=440:duration=6:sample_rate=48000",
+      "-f",
+      "lavfi",
+      "-i",
+      "anoisesrc=d=6:c=pink:a=0.08:r=48000",
+      "-filter_complex",
+      "[1:a][2:a]amix=inputs=2:normalize=0[a]",
+      "-map",
+      "0:v",
+      "-map",
+      "[a]",
+      "-c:v",
+      "libx264",
+      "-pix_fmt",
+      "yuv420p",
+      "-c:a",
+      "aac",
+      "-shortest",
+      src,
+    ]);
+    const video = await upload(src, "video/mp4");
+    await waitAssetJobs(video.id, ["media.probe"]);
+    const p0 = await ok("POST", "/api/projects", { name: "E2E stems" }, [201]);
+    const V = p0.tracks.find((t) => t.kind === "video");
+    const clipId = id("c");
+    V.clips = [
+      { id: clipId, trackId: V.id, assetId: video.id, start: 1.5, in: 0.5, out: 5.5, volume: 0.9 },
+    ];
+    const p = await ok("PUT", `/api/projects/${p0.id}`, p0);
+    const pack = (await ok("GET", "/api/ai/packs")).find((x) => x.id === "stems");
+    assert(pack, "pack «stems» not listed by GET /api/ai/packs");
+    const body = { clipId, mode: "two", target: { projectId: p.id } };
+    const r = await api("POST", "/api/audio/stems", body);
+    if (!pack.installed) {
+      assert(
+        r.status === 409 && r.json?.packId === "stems",
+        `stems without pack -> ${r.status} ${JSON.stringify(r.json)}`,
+      );
+      return "409 PACK_REQUIRED (workers without the stems pack / mocks off)";
+    }
+    assert(r.status === 202, `stems -> ${r.status} ${JSON.stringify(r.json)}`);
+    const job = await waitOk(r.json.jobId, { timeoutMs: 180_000 });
+    const res = job.result;
+    assert(
+      res.stems.map((s) => s.label).join() === "Voz,Música",
+      `stems ${JSON.stringify(res.stems)}`,
+    );
+    assert(res.undoSnapshotId && res.previousVolume === 0.9, `result ${JSON.stringify(res)}`);
+    const saved = await ok("GET", `/api/projects/${p.id}`);
+    const names = saved.tracks.map((t) => t.name);
+    const srcClip = saved.tracks.flatMap((t) => t.clips).find((c) => c.id === clipId);
+    assert(srcClip?.volume === 0, `source clip volume ${srcClip?.volume}`);
+    for (const s of res.stems) {
+      const track = saved.tracks.find((t) => t.id === s.trackId);
+      assert(track?.kind === "audio" && track.name === s.label, `track ${JSON.stringify(track)}`);
+      const c = track.clips[0];
+      assert(
+        c.assetId === s.assetId && c.start === 1.5 && c.in === 0.5 && c.out === 5.5,
+        `stem clip ${JSON.stringify(c)}`,
+      );
+      assert(c.volume === 0.9, `stem clip volume ${c.volume}`);
+      const f = await ffprobe(await download(s.path, `stem-${s.name}.wav`));
+      const a = f.streams.find((x) => x.codec_type === "audio");
+      assert(
+        a.sample_rate === "44100" && a.channels === 2,
+        `stem ${a.sample_rate} Hz x${a.channels}`,
+      );
+      assert(near(+f.format.duration, 6, 0.2), `stem duration ${f.format.duration}`);
+    }
+    const progress = sseFor(r.json.jobId).filter((e) => (e.message ?? "").includes("Separando"));
+    const undo = await ok("POST", "/api/audio/stems/undo", { undoSnapshotId: res.undoSnapshotId });
+    const back = undo.project;
+    assert(
+      !back.tracks.some((t) => t.name === "Voz" || t.name === "Música") &&
+        back.tracks.flatMap((t) => t.clips).find((c) => c.id === clipId)?.volume === 0.9,
+      `undo did not restore: ${back.tracks.map((t) => t.name).join(", ")}`,
+    );
+    return { device: res.device, tracks: names, progressEvents: progress.length };
+  },
+);
+// ------------------------------------------------------------------ END sprint 3b stems
+// ---------------------------------------------------------------- BEGIN sprint 3b style
+// «Perfil de estilo»: analysis of a lavfi reference (4 shots of 2 s + tone), local vision model
+// (409 PACK_REQUIRED unless qwen2.5vl:3b is in Ollama), preset -> Assistant plan -> agent.apply.
+const STYLE_SHEET = { w: 4 * 320 + 3 * 4 + 8, h: 6 * 180 + 5 * 4 + 8 }; // 4x6 tiles of 320x180
+
+async function styleReference() {
+  if (ctx.styleRef) return ctx.styleRef;
+  const src = path.join(WORK, "e2e-estilo-ref.mp4");
+  const shots = ["testsrc2=", "smptebars=", "color=c=red:", "color=c=blue:"];
+  const args = ["-y", "-v", "error"];
+  for (const s of shots) args.push("-f", "lavfi", "-i", `${s}s=640x360:r=25:d=2`);
+  args.push("-f", "lavfi", "-i", "sine=f=440:d=8:sample_rate=48000");
+  args.push(
+    "-filter_complex",
+    "[0:v][1:v][2:v][3:v]concat=n=4:v=1:a=0,format=yuv420p[v]",
+    "-map",
+    "[v]",
+    "-map",
+    "4:a",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "ultrafast",
+    "-c:a",
+    "aac",
+    "-shortest",
+    src,
+  );
+  await run(FFMPEG, args);
+  const video = await upload(src, "video/mp4");
+  await waitAssetJobs(video.id, ["media.probe"]);
+  ctx.styleRef = { video };
+  return ctx.styleRef;
+}
+
+await step(
+  "sprint3b: style.analyze (lavfi 4 shots) -> analysis asset + contact sheet 4x6",
+  async () => {
+    const { video } = await styleReference();
+    const t0 = Date.now();
+    const { jobId } = await ok("POST", "/api/style/analyze", { assetId: video.id }, [202]);
+    const job = await waitOk(jobId, { timeoutMs: 180_000 });
+    const ms = Date.now() - t0;
+    const { analysisId, analysis, contactSheetPath } = job.result;
+    const s = analysis.shot_stats;
+    assert(s.count === 4, `shots ${s.count}: ${JSON.stringify(analysis.scenes)}`);
+    assert(near(s.median_s, 2, 0.15), `median ${s.median_s}`);
+    assert(analysis.audio.has_audio && analysis.audio.loudness_lufs < -10, "audio");
+    assert(analysis.thumbnails.length === 24, `thumbnails ${analysis.thumbnails.length}`);
+    const asset = (await ok("GET", "/api/media")).find((a) => a.id === analysisId);
+    assert(
+      asset?.kind === "analysis" && asset.thumbnailPath === contactSheetPath,
+      "analysis asset",
+    );
+    const sheet = await ffprobe(await download(contactSheetPath, "estilo-hoja.png"));
+    const v = sheet.streams[0];
+    assert(
+      v.width === STYLE_SHEET.w && v.height === STYLE_SHEET.h,
+      `contact sheet ${v.width}x${v.height}`,
+    );
+    const listed = await ok("GET", `/api/style/analyses?assetId=${video.id}`);
+    assert(
+      listed.some((r) => r.id === analysisId),
+      "analysis not listed",
+    );
+    ctx.styleRef.analysisId = analysisId;
+    const progress = sseFor(jobId).filter((e) => e.status === "running").length;
+    return {
+      ms,
+      method: analysis.scenes_method,
+      cutsPerMin: s.cuts_per_min,
+      lufs: analysis.audio.loudness_lufs,
+      music: analysis.audio.music_detected,
+      ocr: analysis.text_on_screen ? analysis.text_on_screen.length : "sin pack",
+      sseRunning: progress,
+    };
+  },
+);
+
+await step(
+  "sprint3b: style.infer -> 409 PACK_REQUIRED vision-llm (console hint) or a preset",
+  async () => {
+    const analysisId = ctx.styleRef?.analysisId;
+    assert(analysisId, "no analysis from the previous step");
+    const r = await api("POST", "/api/style/infer", { analysisId });
+    if (r.status === 409) {
+      assert(r.json?.packId === "vision-llm", `pack ${JSON.stringify(r.json)}`);
+      assert(/Consola Claude/.test(r.json?.message ?? ""), `message ${r.json?.message}`);
+      return "409 PACK_REQUIRED (sin qwen2.5vl:3b en Ollama)";
+    }
+    assert(r.status === 202, `infer -> ${r.status} ${JSON.stringify(r.json)}`);
+    const job = await waitJob(r.json.jobId, { timeoutMs: 600_000 });
+    if (job.status === "failed") {
+      assert(
+        job.result?.packId === "vision-llm" && /Consola Claude/.test(job.error ?? ""),
+        `infer job ${job.error}`,
+      );
+      return "job failed with PACK_REQUIRED (console hint)";
+    }
+    assert(job.status === "succeeded" && job.result.preset?.canvas, `infer ${job.status}`);
+    return { model: job.result.model, preset: job.result.preset.name };
+  },
+);
+
+await step(
+  "sprint3b: save a style preset -> apply -> Assistant plan proposed -> agent.apply (confirmed export)",
+  async () => {
+    const { video } = await styleReference();
+    const wav = path.join(WORK, "e2e-estilo-musica.wav");
+    await run(FFMPEG, ["-y", "-v", "error", "-f", "lavfi", "-i", "sine=f=220:d=8", wav]);
+    const music = await upload(wav, "audio/wav");
+    await waitAssetJobs(music.id, ["media.probe"]);
+    const p0 = await ok("POST", "/api/projects", { name: "E2E estilo" }, [201]);
+    const V = p0.tracks.find((t) => t.kind === "video");
+    const A = p0.tracks.find((t) => t.kind === "audio");
+    V.clips = [{ id: id("c"), trackId: V.id, assetId: video.id, start: 0, in: 0, out: 8 }];
+    const musicClip = id("m");
+    A.clips = [{ id: musicClip, trackId: A.id, assetId: music.id, start: 0, in: 0, out: 8 }];
+    const p = await ok("PUT", `/api/projects/${p0.id}`, p0);
+    const preset = await ok(
+      "POST",
+      "/api/style/presets",
+      {
+        name: "E2E vertical",
+        canvas: "9:16",
+        cut_rhythm: { target_shot_s: 6, remove_silences: true, min_silence_ms: 400 },
+        captions: { enabled: false, style: "reels", animated: true, position: "center" },
+        titles: { enabled: false, template: "title-card" },
+        transitions: { type: "fade" },
+        music: { duck: true, volume_db: -14 },
+        export_preset: "reels-tiktok",
+        notes_es: "Preset de prueba e2e.",
+        source: { via: "manual", assetId: video.id, analysisId: ctx.styleRef?.analysisId },
+      },
+      [201],
+    );
+    const res = await ok(
+      "POST",
+      `/api/style/presets/${preset.id}/apply`,
+      { projectId: p.id },
+      [201],
+    );
+    const ops = res.plan.plan.ops.map((o) => o.op);
+    assert(
+      ops.join() === "set_canvas,cut_silences,detect_scenes,set_volume,export",
+      `ops ${ops.join()}`,
+    );
+    assert(res.plan.status === "proposed" && res.plan.ok, `plan ${JSON.stringify(res.plan)}`);
+    assert(
+      res.preview_es.length === ops.length && res.preview_es[0] === "Lienzo 1080×1920",
+      "preview",
+    );
+    assert(
+      res.notes_es.some((n) => /fundido/.test(n)),
+      `notes ${res.notes_es}`,
+    );
+    const listed = await ok("GET", `/api/agent/plans?projectId=${p.id}`);
+    assert(listed[0]?.id === res.planId, "style plan not in the Assistant history");
+    // detect_scenes needs the scenes pack: leave it unchecked when the workers lack it.
+    const scenesPack = (await ok("GET", "/api/ai/packs")).find((x) => x.id === "scenes");
+    const chosen = ops
+      .map((_, i) => i)
+      .filter((i) => ops[i] !== "detect_scenes" || scenesPack?.installed);
+    const exportIdx = ops.indexOf("export");
+    const refused = await api("POST", "/api/agent/apply", { planId: res.planId, ops: chosen });
+    assert(
+      refused.status === 409 && refused.json?.error?.code === "CONFIRM_REQUIRED",
+      `without confirmation -> ${refused.status} ${JSON.stringify(refused.json)}`,
+    );
+    const { jobId } = await ok(
+      "POST",
+      "/api/agent/apply",
+      { planId: res.planId, ops: chosen, confirmedIndexes: [exportIdx] },
+      [202],
+    );
+    const job = await waitOk(jobId, { timeoutMs: 300_000 });
+    assert(
+      job.result.applied === chosen.length && !job.result.failed,
+      `apply ${JSON.stringify(job.result)}`,
+    );
+    const saved = await ok("GET", `/api/projects/${p.id}`);
+    assert(saved.settings.width === 1080 && saved.settings.height === 1920, "canvas not 9:16");
+    const mc = saved.tracks.flatMap((t) => t.clips).find((c) => c.id === musicClip);
+    assert(near(mc.volume, 10 ** (-14 / 20), 1e-3), `music volume ${mc?.volume}`);
+    const exp = job.result.steps.find((s) => s.index === exportIdx)?.result;
+    assert(exp?.path, `export step ${JSON.stringify(job.result.steps)}`);
+    const out = await ffprobe(await download(exp.path, "estilo-export.mp4"));
+    const vs = out.streams.find((x) => x.codec_type === "video");
+    assert(vs.width === 1080 && vs.height === 1920, `export ${vs.width}x${vs.height}`);
+    const plan = (await ok("GET", `/api/agent/plans?projectId=${p.id}`)).find(
+      (x) => x.id === res.planId,
+    );
+    assert(plan?.status === "applied", `plan status ${plan?.status}`);
+    return {
+      ops,
+      applied: chosen.length,
+      scenesPack: !!scenesPack?.installed,
+      videoClips: saved.tracks.find((t) => t.kind === "video").clips.length,
+    };
+  },
+);
+// ------------------------------------------------------------------ END sprint 3b style
+
 await step("cancel a running export (youtube-4k) + partial file removed", async () => {
   const { jobId } = await ok("POST", `/api/projects/${ctx.project.id}/export`, {
     presetId: "youtube-4k",
@@ -2520,6 +2840,93 @@ await step(
   },
   "expected-fail",
 );
+
+// ---- Sprint 3b «Capas y fusiones» (module E): blend mode / mask / z-order in the real export.
+// Flat lavfi colours; the expected pixels come from @studio/shared blendRgb (the same reference the
+// api pixel tests and the web preview parity tests use).
+
+async function layersMedia() {
+  if (ctx.s3bLayers) return ctx.s3bLayers;
+  const lib = await sharedLib();
+  const hex = (c) => c.map((v) => v.toString(16).padStart(2, "0")).join("");
+  const make = async (name, rgb) => {
+    const file = path.join(WORK, `e2e-capa-${name}.mp4`);
+    await run(FFMPEG, [
+      "-y", "-v", "error", "-f", "lavfi", "-i", `color=c=0x${hex(rgb)}:s=640x360:r=25:d=3`,
+      "-c:v", "libx264", "-crf", "4", "-pix_fmt", "yuv420p", file,
+    ]); // prettier-ignore
+    const a = await upload(file, "video/mp4");
+    await waitAssetJobs(a.id, ["media.probe"]);
+    return a;
+  };
+  ctx.s3bLayers = {
+    lib,
+    base: await make("base", lib.LAYER_PARITY_BASE),
+    top: await make("top", lib.LAYER_PARITY_TOP),
+    red: await make("rojo", [255, 0, 0]),
+    blue: await make("azul", [0, 0, 255]),
+  };
+  return ctx.s3bLayers;
+}
+
+/** Project 640×360 with two video tracks (bottom → top) of one 3 s clip each; export youtube-1080p. */
+async function exportLayers(name, bottom, top, topExtra = {}, trackExtra = [{}, {}]) {
+  const p = await ok(
+    "POST",
+    "/api/projects",
+    { name, settings: { width: 640, height: 360, fps: 25 } },
+    [201],
+  );
+  const V = p.tracks.find((t) => t.kind === "video");
+  const V2 = { ...V, id: id("trk"), name: "Video 2", clips: [] };
+  V.clips = [{ id: id("c"), trackId: V.id, assetId: bottom.id, start: 0, in: 0, out: 3 }];
+  V2.clips = [
+    { id: id("c"), trackId: V2.id, assetId: top.id, start: 0, in: 0, out: 3, ...topExtra },
+  ];
+  Object.assign(V, trackExtra[0]);
+  Object.assign(V2, trackExtra[1]);
+  p.tracks = [V, V2, ...p.tracks.filter((t) => t.id !== V.id)];
+  await ok("PUT", `/api/projects/${p.id}`, p);
+  const { jobId } = await ok("POST", `/api/projects/${p.id}/export`, {
+    presetId: "youtube-1080p",
+    fileName: name.replace(/\s+/g, "-"),
+  });
+  const job = await waitOk(jobId);
+  return frameRgb(await download(job.result.path, `${name.replace(/\s+/g, "-")}.mp4`), 1.5, 640);
+}
+
+const rgbNear = (got, want, tol = 8) => got.every((v, i) => Math.abs(v - want[i]) <= tol);
+
+await step(
+  "sprint3b: export multiply / screen over the base track -> pixel = shared blendRgb",
+  async () => {
+    const { lib, base, top } = await layersMedia();
+    const out = {};
+    for (const mode of ["multiply", "screen"]) {
+      const f = await exportLayers(`E2E capas ${mode}`, base, top, { blendMode: mode });
+      const got = f.px(320, 180);
+      const want = lib.blendRgb(mode, lib.LAYER_PARITY_BASE, lib.LAYER_PARITY_TOP);
+      assert(rgbNear(got, want, lib.LAYER_PARITY_TOLERANCE), `${mode}: got ${got}, want ${want}`);
+      out[mode] = { got, want };
+    }
+    return out;
+  },
+);
+
+await step("sprint3b: export ellipse mask (feather 12) + Track.order swap", async () => {
+  const { red, blue } = await layersMedia();
+  const mask = { type: "shape", shape: "ellipse", x: 0.1, y: 0.1, w: 0.8, h: 0.8, feather: 12 };
+  const f = await exportLayers("E2E capas elipse", blue, red, { maskRef: mask });
+  const center = f.px(320, 180);
+  const corner = f.px(4, 4);
+  assert(rgbNear(center, [255, 0, 0]), `center ${center} (red expected)`);
+  assert(rgbNear(corner, [0, 0, 255]), `corner ${corner} (blue expected)`);
+  // same tracks with Track.order swapped: the blue (bottom row) is now drawn on top
+  const g = await exportLayers("E2E capas orden", blue, red, {}, [{ order: 1 }, { order: 0 }]);
+  const top = g.px(320, 180);
+  assert(rgbNear(top, [0, 0, 255]), `reordered: ${top} (blue expected on top)`);
+  return { center, corner, reordered: top };
+});
 
 // ---------------------------------------------------------------- report
 sse.controller.abort();

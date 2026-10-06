@@ -385,3 +385,88 @@ def concat(ffmpeg: str, segments: list[Path], out: Path) -> None:
             raise RuntimeError(f"ffmpeg concat fallo: {proc.stderr.strip()[-300:]}")
     finally:
         listing.unlink(missing_ok=True)
+
+
+class MaskReader:
+    """SAM masks for the ``--mask`` guide: a folder of ``%05d.png`` (mask k belongs to source frame
+    ``offset + k``, the layout of studio_workers/vision/sam.py) or one PNG (used for every frame).
+    ``get(i)`` -> HxW gray bytes scaled to the video size, or None (no mask for that frame)."""
+
+    def __init__(self, ffmpeg: str, path: Path, w: int, h: int, offset: int = 0) -> None:
+        self.ffmpeg, self.path, self.w, self.h, self.offset = ffmpeg, Path(path), w, h, offset
+        self.size = w * h
+        self.proc: subprocess.Popen[bytes] | None = None
+        self.next = 0
+        self.used = 0
+        self.single: bytes | None = None
+        if self.path.is_dir():
+            self.count = len(list(self.path.glob("*.png")))
+            if not self.count:
+                raise RuntimeError(f"La carpeta de mascaras no tiene PNG: {self.path}")
+        elif self.path.is_file():
+            self.count = 0
+            out = subprocess.run(self._cmd(self.path, None), capture_output=True, timeout=120)
+            if out.returncode != 0 or len(out.stdout) < self.size:
+                raise RuntimeError(f"No se pudo leer la mascara {self.path.name}")
+            self.single = out.stdout[: self.size]
+        else:
+            raise RuntimeError(f"Mascara no encontrada: {self.path}")
+
+    def _cmd(self, src: Path, start: int | None) -> list[str]:
+        head = [self.ffmpeg, "-hide_banner", "-loglevel", "error"]
+        if start is not None:
+            head += ["-start_number", str(start)]
+        return [*head, "-i", str(src), "-vf",
+                f"scale={self.w}:{self.h}:flags=neighbor,format=gray", "-frames:v",
+                str(max(1, self.count - (start or 0)) if start is not None else 1),
+                "-f", "rawvideo", "-pix_fmt", "gray", "-"]  # fmt: skip
+
+    def _open(self, k: int) -> None:
+        self.close()
+        self.proc = subprocess.Popen(  # noqa: S603
+            self._cmd(self.path / "%05d.png", k), stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )  # fmt: skip
+        self.next = k
+
+    def get(self, i: int) -> bytes | None:
+        if self.single is not None:
+            self.used += 1
+            return self.single
+        k = i - self.offset
+        if k < 0 or k >= self.count:
+            return None
+        if self.proc is None or k < self.next:
+            self._open(k)
+        assert self.proc is not None and self.proc.stdout is not None
+        buf = b""
+        while self.next <= k:
+            buf = self.proc.stdout.read(self.size)
+            self.next += 1
+            if len(buf) < self.size:
+                self.count = min(self.count, self.next - 1)  # sequence shorter than the folder
+                return None
+        self.used += 1
+        return buf
+
+    def close(self) -> None:
+        if self.proc is not None:
+            if self.proc.poll() is None:
+                self.proc.kill()
+            self.proc.wait()
+            self.proc = None
+
+
+def write_png(ffmpeg: str, rgb: bytes, w: int, h: int, out: Path, max_h: int = 540) -> Path:
+    """rgb24 bytes -> PNG (downscaled to ``max_h`` px high when bigger)."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    vf = f"scale=-2:{max_h}:flags=area" if h > max_h else "null"
+    proc = subprocess.run(
+        [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt",
+         "rgb24", "-s", f"{w}x{h}", "-i", "-", "-vf", vf, "-frames:v", "1", "-update", "1",
+         str(out)],
+        input=rgb, capture_output=True, timeout=120,
+    )  # fmt: skip
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffmpeg png fallo: {proc.stderr.decode('utf-8', 'replace')[-300:]}")
+    return out

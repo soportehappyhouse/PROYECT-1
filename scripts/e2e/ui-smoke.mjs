@@ -4,6 +4,7 @@
 //
 //   node scripts/e2e/ui-smoke.mjs --web http://127.0.0.1:3000 --api http://127.0.0.1:3001 \
 //        --media <folder with a .mp4/.wav/.png> [--shots docs/trabajo/capturas] [--headed] [--vp9-preview]
+//        [--only <regex>]
 //
 // Needs the `playwright` package (global: `npm i -g playwright && npx playwright install chromium`,
 // or set --playwright <path to playwright/index.mjs>). The web must be built with
@@ -28,7 +29,10 @@ const MAX_SHOT_BYTES = 300 * 1024;
 const { chromium } = await import(PW.endsWith(".mjs") ? pathToFileURL(PW).href : PW);
 const results = [];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** --only <regex>: run only the matching steps (each step must then set up its own state). */
+const ONLY = opt("only") ? new RegExp(opt("only"), "i") : undefined;
 async function step(name, fn) {
+  if (ONLY && !ONLY.test(name)) return;
   const t = Date.now();
   try {
     const detail = await fn();
@@ -1203,6 +1207,91 @@ await step(
     } finally {
       await page.evaluate(() => localStorage.removeItem("studio.agent.v1"));
     }
+  },
+);
+
+// ---- Sprint 3b «Capas y fusiones»: the blend mode chosen in Propiedades → «Capa» changes the
+// canvas preview to the shared reference (blendRgb — the export pixel tests match the same one),
+// then an ellipse mask keeps the center and drops the corners (parity with the export).
+await step(
+  "Sprint 3b: «Capa» → Multiplicar + máscara elíptica change the preview pixels (= export reference)",
+  async () => {
+    if (!shared?.blendRgb) throw new Error("packages/shared/dist missing (pnpm build:packages)");
+    if (!page.url().startsWith(WEB)) {
+      await page.goto(WEB, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+    }
+    const hex = (c) => c.map((v) => v.toString(16).padStart(2, "0")).join("");
+    const vp9 = ["-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-crf", "8",
+      "-b:v", "0", "-pix_fmt", "yuv420p"]; // prettier-ignore
+    const base = await lavfiUpload(
+      "ui-capa-base.webm",
+      `color=c=0x${hex(shared.LAYER_PARITY_BASE)}:s=640x360:r=25:d=4`,
+      vp9,
+    );
+    const top = await lavfiUpload(
+      "ui-capa-top.webm",
+      `color=c=0x${hex(shared.LAYER_PARITY_TOP)}:s=640x360:r=25:d=4`,
+      vp9,
+    );
+    const p = await apiSend("POST", "/api/projects", {
+      name: "UI capas",
+      settings: { width: 640, height: 360, fps: 25 },
+    });
+    const V = p.tracks.find((t) => t.kind === "video");
+    const V2 = { ...V, id: "trk_ui_capa2", name: "Video 2", clips: [] };
+    V.clips = [{ id: "clp_ui_base", trackId: V.id, assetId: base.id, start: 0, in: 0, out: 4 }];
+    V2.clips = [{ id: "clp_ui_top", trackId: V2.id, assetId: top.id, start: 0, in: 0, out: 4 }];
+    p.tracks = [V, V2, ...p.tracks.filter((t) => t.id !== V.id)];
+    await apiSend("PUT", `/api/projects/${p.id}`, p);
+    await openProject(p.id);
+    await page.waitForFunction(
+      () => [...document.querySelectorAll("video")].filter((v) => v.readyState >= 2).length >= 2,
+      undefined,
+      { timeout: 60_000 },
+    );
+    await gotoFrame(25);
+    const tol = shared.LAYER_PARITY_TOLERANCE;
+    const near3 = (a, b) => a.every((v, i) => Math.abs(v - b[i]) <= tol);
+    const normal = await canvasProbe({ at: [0.5, 0.5] });
+    if (!near3(normal, shared.LAYER_PARITY_TOP)) throw new Error(`normal: ${normal}`);
+    await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).click();
+    await page.locator("[data-clip-id='clp_ui_top']").click();
+    await page.locator(".dv-tab", { hasText: "Propiedades" }).click();
+    const props = page.locator("section[aria-label='Propiedades']");
+    await props.getByLabel("Modo de fusión").selectOption("multiply");
+    await page.locator(".dv-tab", { hasText: "Vista previa" }).click();
+    await sleep(800);
+    const want = shared.blendRgb("multiply", shared.LAYER_PARITY_BASE, shared.LAYER_PARITY_TOP);
+    const multiplied = await canvasProbe({ at: [0.5, 0.5] });
+    if (!near3(multiplied, want)) throw new Error(`multiply: ${multiplied}, want ${want}`);
+    await page.locator(".dv-tab", { hasText: "Propiedades" }).click();
+    await props.getByLabel("Máscara").selectOption("ellipse");
+    await page.locator(".dv-tab", { hasText: "Vista previa" }).click();
+    await page.getByTestId("mask-shape-editor").waitFor({ timeout: 5_000 });
+    await sleep(800);
+    const center = await canvasProbe({ at: [0.5, 0.5] });
+    const corner = await canvasProbe({ at: [0.02, 0.03] });
+    if (!near3(center, want)) throw new Error(`ellipse center: ${center}, want ${want}`);
+    if (!near3(corner, shared.LAYER_PARITY_BASE)) throw new Error(`ellipse corner: ${corner}`);
+    await shot(page, "s3b-capas.png");
+    const saved = await (async () => {
+      for (let i = 0; i < 20; i++) {
+        const s = await apiJson(`/api/projects/${p.id}`);
+        const c = s.tracks.flatMap((t) => t.clips).find((x) => x.id === "clp_ui_top");
+        if (c?.maskRef) return c;
+        await sleep(500);
+      }
+      return undefined;
+    })();
+    return {
+      normal,
+      multiplied,
+      want,
+      center,
+      corner,
+      saved: saved ? { blendMode: saved.blendMode, mask: saved.maskRef?.shape } : "no autosave",
+    };
   },
 );
 

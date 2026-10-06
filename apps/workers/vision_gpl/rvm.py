@@ -4,6 +4,9 @@
         [--chunk 300] [--device auto|cuda|cpu] [--model-dir DIR] [--work-dir DIR]
         [--ffmpeg PATH] [--alpha-codec vp9|split|auto] [--pix-fmt auto|yuva420p|rgba]
         [--seq-chunk 0|N] [--channels-last] [--cudnn-benchmark] [--fast-start] [--mock-model]
+        [--quality fast|high] [--erode PX] [--feather SIGMA] [--despill on|off] [--temporal K]
+        [--mask PNG|DIR] [--mask-dilate PX] [--mask-offset N] [--compare-out PNG]
+        [--compare-frame N]
 
 Protocol: one JSON object per stdout line (stderr is free text, never parsed):
   {"event":"start","frames":N,"fps":"30/1","width":W,"height":H,"device":"cuda","downsample":0.25,
@@ -17,7 +20,15 @@ Protocol: one JSON object per stdout line (stderr is free text, never parsed):
    "timings":{"ms_per_frame":{...},"stage_fps":{...},"wait_ms_per_frame":{...},
               "bottleneck":"encode","load_s":..,"first_batch_s":..,"process_s":..,"concat_s":..}}
   {"event":"error","message":"..."}
-Exit code 0 = done, 1 = error.
+Exit code 0 = done, 1 = error. ``done`` also carries ``quality``, ``model`` (mobilenetv3 |
+resnet50), and when the alpha is refined (vision_gpl/refine.py) ``refine`` (the parameters),
+``halo`` ({before, after, frames}: no-reference edge halo score, lower = cleaner), ``compare_path``
+(before | after PNG of one frame) and ``mask_frames`` (frames guided by the SAM mask).
+
+Quality (``--quality``): ``fast`` = mobilenetv3 (downsample auto = 512 / long side), no refinement
+by default; ``high`` = resnet50 (fp16 on CUDA, fp32 on CPU; downsample auto = 720 / long side, i.e.
+0.375 at 1080p) + refinement defaults (erode 1, feather 0.7, despill, temporal 0.2). Every
+refinement flag overrides the quality default (``--despill on`` also works in fast).
 
 Pipeline (each stage overlaps the others): ffmpeg decode (own process, rgb24 over a pipe, prefetch
 thread) -> pre (pinned host buffer -> GPU, fp16) -> model (``--seq-chunk`` frames per call: RVM
@@ -55,17 +66,25 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
-from . import ffio
+from . import ffio, refine
 
 RVM_VRAM_MB = 900  # mobilenetv3 fp16 at 1080p + cuDNN workspace [S, docs §10.1: 0.4-0.8 GB]
-MODEL_FILES = {
-    "cuda": "rvm_mobilenetv3_fp16.torchscript",
-    "cpu": "rvm_mobilenetv3_fp32.torchscript",
+# resnet50 fp16 at 1080p (0.375) + refinement temporaries [S: RVM README, ~2x mobilenet]
+RVM_HQ_VRAM_MB = 1600
+QUALITIES = ("fast", "high")
+MODEL_FILES_BY_QUALITY = {
+    "fast": {"cuda": "rvm_mobilenetv3_fp16.torchscript", "cpu": "rvm_mobilenetv3_fp32.torchscript"},
+    "high": {"cuda": "rvm_resnet50_fp16.torchscript", "cpu": "rvm_resnet50_fp32.torchscript"},
 }
+MODEL_FILES = MODEL_FILES_BY_QUALITY["fast"]
+MODEL_NAMES = {"fast": "mobilenetv3", "high": "resnet50"}
+VRAM_MB = {"fast": RVM_VRAM_MB, "high": RVM_HQ_VRAM_MB}
+HALO_EVERY = 30  # frames between two halo measurements (plus the compare frame)
 WARMUP_FRAMES = 8
 GPU_FALLBACK_CPU = "gpu_fallback_cpu"
 SEQ_CHUNK_REDUCED = "rvm_seq_chunk_reduced"
 CUDA_SEQ_CHUNK = 4  # frames per model call on CUDA (RVM inference docs: seq_chunk for parallelism)
+CUDA_SEQ_CHUNK_HQ = 2  # resnet50: half the frames per call (6 GB laptops)
 STAGES = ("decode", "pre", "model", "post", "encode")
 
 # BT.601 limited range (what ffmpeg's swscale uses for untagged RGB -> YUV, i.e. the same colours
@@ -82,9 +101,11 @@ def emit(**event: Any) -> None:
     sys.stdout.flush()
 
 
-def auto_downsample(w: int, h: int) -> float:
-    """RVM README: the downsampled frame should be ~256-512 px (1080p -> ~0.25)."""
-    return round(max(0.125, min(1.0, 512 / max(w, h))), 4)
+def auto_downsample(w: int, h: int, quality: str = "fast") -> float:
+    """RVM README: the downsampled frame should be ~256-512 px (1080p -> ~0.25); high quality
+    keeps more detail for resnet50: 720 px (1080p -> 0.375)."""
+    side = 720 if quality == "high" else 512
+    return round(max(0.125, min(1.0, side / max(w, h))), 4)
 
 
 # ------------------------------------------------------------------------------ colour
@@ -130,6 +151,81 @@ def yuva420p_torch(torch: Any, fgr: Any, pha: Any) -> Any:
     return torch.cat(parts, dim=1).round_().clamp_(0, 255).to(torch.uint8)
 
 
+# ------------------------------------------------------------------------------ refinement
+
+
+@dataclass
+class Capture:
+    """What the refinement reports across model reloads (CUDA -> CPU fallback): the before |
+    after comparison frame (rgb24) and the halo scores."""
+
+    compare_index: int = -1
+    compare: tuple[bytes, int, int] | None = None
+    before: list[float] = field(default_factory=list)
+    after: list[float] = field(default_factory=list)
+
+    def summary(self) -> dict[str, Any] | None:
+        if not self.before or not self.after:
+            return None
+        b, a = sum(self.before) / len(self.before), sum(self.after) / len(self.after)
+        return {"before": round(b, 3), "after": round(a, 3), "frames": len(self.after),
+                "reduction": round(1 - a / b, 4) if b > 0 else None}  # fmt: skip
+
+
+class Post:
+    """Per-model refinement step: SAM mask guide + vision_gpl.refine on each output frame, the
+    comparison frame and the halo samples. Inactive (no params, no mask) = untouched output."""
+
+    def __init__(
+        self,
+        params: refine.RefineParams,
+        ops: Any,
+        mask: ffio.MaskReader | None,
+        capture: Capture,
+        to_mask: Any,
+        halo_every: int = HALO_EVERY,
+    ) -> None:
+        self.params = params
+        self.ops = ops
+        self.mask = mask
+        self.capture = capture
+        self.to_mask = to_mask  # gray bytes -> HxW 0..1 in the ops' array type
+        self.halo_every = max(1, halo_every)
+        self.refiner = refine.Refiner(params, ops)
+        self.active = params.active() or mask is not None
+
+    def reset(self) -> None:
+        self.refiner.reset()
+
+    def __call__(self, index: int, obs: Any, fgr: Any, pha: Any) -> tuple[Any, Any]:
+        raw = self.mask.get(index) if self.mask is not None else None
+        mask = self.to_mask(raw) if raw is not None else None
+        f2, a2 = self.refiner(obs, fgr, pha, mask)
+        cap, ops = self.capture, self.ops
+        is_compare = index == cap.compare_index
+        if is_compare or index % self.halo_every == 0:
+            before = refine.edge_halo(ops, fgr, pha)
+            after = refine.edge_halo(ops, f2, a2)
+            if before is not None and after is not None:
+                cap.before.append(before)
+                cap.after.append(after)
+        if is_compare:
+            img = refine.compose_compare(ops, (fgr, pha), (f2, a2))
+            h, w = img.shape[:2]
+            cap.compare = (_rgb_bytes(img), w, h)
+        return f2, a2
+
+
+def _rgb_bytes(img: Any) -> bytes:
+    """HxWx3 float 0..1 (numpy or torch) -> rgb24 bytes."""
+    if hasattr(img, "detach"):
+        img = img.detach().float().mul(255).round_().clamp_(0, 255).byte().cpu().numpy()
+        return img.tobytes()
+    import numpy as np  # noqa: PLC0415
+
+    return np.clip(np.rint(img * 255.0), 0, 255).astype(np.uint8).tobytes()
+
+
 # ------------------------------------------------------------------------------ models
 
 
@@ -139,19 +235,47 @@ class MockModel:
 
     seq_chunk = 1
 
-    def __init__(self, pix_fmt: str, alpha: int = 200) -> None:
+    def __init__(
+        self, pix_fmt: str, alpha: int = 200, post: Any = None, shape: str = "flat"
+    ) -> None:
         self.alpha = alpha
         self.pix_fmt = pix_fmt
+        self.post: Post | None = post
+        self.shape = shape  # "disk": soft-edged centred disk (refinement tests), else constant
 
     def reset(self) -> None:
-        return None
+        if self.post is not None:
+            self.post.reset()
+
+    def _refined(self, frames: list[bytes], w: int, h: int, first: int) -> list[bytes]:
+        import numpy as np  # noqa: PLC0415
+
+        assert self.post is not None
+        outs: list[bytes] = []
+        for j, rgb in enumerate(frames):
+            obs = np.frombuffer(rgb, dtype=np.uint8).reshape(h, w, 3).astype(np.float32) / 255
+            pha = np.full((h, w), self.alpha / 255.0, dtype=np.float32)
+            if self.shape == "disk":
+                yy, xx = np.mgrid[0:h, 0:w]
+                dist = np.hypot(yy - h / 2, xx - w / 2)
+                pha *= np.clip((0.35 * min(w, h) - dist) / 2 + 0.5, 0, 1).astype(np.float32)
+            fgr, pha = self.post(first + j, obs, obs, pha)
+            f8 = np.clip(np.rint(fgr * 255), 0, 255).astype(np.uint8)
+            a8 = np.clip(np.rint(pha * 255), 0, 255).astype(np.uint8)
+            if self.pix_fmt == "yuva420p":
+                outs.append(yuva420p_numpy(f8, a8))
+            else:
+                outs.append(np.dstack([f8, a8]).tobytes())
+        return outs
 
     def __call__(
-        self, frames: list[bytes], w: int, h: int, ratio: float
+        self, frames: list[bytes], w: int, h: int, ratio: float, first: int = 0
     ) -> tuple[list[bytes], tuple[float, float, float]]:
         t0 = time.perf_counter()
         outs: list[bytes] = []
-        if self.pix_fmt == "yuva420p":
+        if self.post is not None and self.post.active:
+            outs = self._refined(frames, w, h, first)
+        elif self.pix_fmt == "yuva420p":
             import numpy as np  # noqa: PLC0415
 
             alpha = np.full((h, w), self.alpha, dtype=np.uint8)
@@ -182,6 +306,8 @@ class RvmModel:
         channels_last: bool = False,
         cudnn_benchmark: bool = False,
         fast_start: bool = False,
+        quality: str = "fast",
+        post: Any = None,
     ) -> None:
         import torch  # noqa: PLC0415 - only inside .venv-gpl
 
@@ -192,9 +318,11 @@ class RvmModel:
         self.w, self.h = w, h
         self.pix_fmt = pix_fmt
         self.seq_chunk = max(1, seq_chunk)
-        path = model_dir / MODEL_FILES[device]
+        path = model_dir / MODEL_FILES_BY_QUALITY[quality][device]
         if not path.is_file():
-            raise RuntimeError(f"Falta el modelo RVM {path.name} (paquete matting)")
+            pack = "matting-hq" if quality == "high" else "matting"
+            raise RuntimeError(f"Falta el modelo RVM {path.name} (paquete {pack})")
+        self.post: Post | None = post
         if fast_start:  # legacy TorchScript executor: no profiling/fusion compile on first calls
             with contextlib.suppress(Exception):
                 torch._C._jit_set_profiling_executor(False)
@@ -228,9 +356,18 @@ class RvmModel:
 
     def reset(self) -> None:
         self.rec = [None] * 4
+        if self.post is not None:
+            self.post.reset()
+
+    def _refine(self, i: int, index: int, x: Any, f: Any, a: Any) -> tuple[Any, Any]:
+        """Frame i of the batch through Post (HxWx3 / HxW float32 on the model's device)."""
+        assert self.post is not None
+        obs = x[i].permute(1, 2, 0).float()
+        fgr, pha = self.post(index, obs, f[0].permute(1, 2, 0).float(), a[0, 0].float())
+        return fgr.permute(2, 0, 1)[None], pha[None, None]
 
     def __call__(
-        self, frames: list[bytes], w: int, h: int, ratio: float
+        self, frames: list[bytes], w: int, h: int, ratio: float, first: int = 0
     ) -> tuple[list[bytes], tuple[float, float, float]]:
         torch = self.torch
         n = len(frames)
@@ -260,8 +397,11 @@ class RvmModel:
                 ev[2].record()
             else:
                 t2 = time.perf_counter()
+            refining = self.post is not None and self.post.active
             for i in range(n):  # one frame at a time: fp32 temporaries stay ~100 MB at 1080p
                 f, a = fgr[i : i + 1], pha[i : i + 1]
+                if refining:
+                    f, a = self._refine(i, first + i, x, f, a)
                 if self.pix_fmt == "yuva420p":
                     out = yuva420p_torch(torch, f, a)[0]
                 else:
@@ -294,7 +434,7 @@ def cuda_available(mock: bool) -> bool:
         return False
 
 
-def choose_device(requested: str, mock: bool) -> tuple[str, list[str]]:
+def choose_device(requested: str, mock: bool, vram_mb: int = RVM_VRAM_MB) -> tuple[str, list[str]]:
     if requested == "cpu":
         return "cpu", []
     budget_raw = os.environ.get("STUDIO_VRAM_BUDGET_MB", "").strip()
@@ -304,11 +444,11 @@ def choose_device(requested: str, mock: bool) -> tuple[str, list[str]]:
             emit(event="warning", code=GPU_FALLBACK_CPU, message="CUDA no disponible: CPU")
             return "cpu", [GPU_FALLBACK_CPU]
         return "cpu", []
-    if budget is not None and budget < RVM_VRAM_MB:
+    if budget is not None and budget < vram_mb:
         emit(
             event="warning",
             code=GPU_FALLBACK_CPU,
-            message=f"VRAM libre {budget} MB < {RVM_VRAM_MB} MB: se procesa en CPU (lento)",
+            message=f"VRAM libre {budget} MB < {vram_mb} MB: se procesa en CPU (lento)",
         )
         return "cpu", [GPU_FALLBACK_CPU]
     return "cuda", []
@@ -413,15 +553,58 @@ class Job:
         return k * self.chunk
 
 
-def _load(args: argparse.Namespace, device: str, w: int, h: int, pix_fmt: str) -> Any:
+def refine_params(args: argparse.Namespace) -> refine.RefineParams:
+    despill = None if args.despill in (None, "auto") else args.despill == "on"
+    return refine.resolve(
+        args.quality, erode=args.erode, feather=args.feather, despill=despill,
+        temporal=args.temporal, bg_tile=args.bg_tile, mask_dilate=args.mask_dilate,
+    )  # fmt: skip
+
+
+def _gray_to_numpy(w: int, h: int) -> Any:
+    def conv(raw: bytes) -> Any:
+        import numpy as np  # noqa: PLC0415
+
+        return np.frombuffer(raw, dtype=np.uint8).reshape(h, w).astype(np.float32) / 255
+
+    return conv
+
+
+def _gray_to_torch(torch: Any, device: str, w: int, h: int) -> Any:
+    def conv(raw: bytes) -> Any:
+        t = torch.frombuffer(bytearray(raw), dtype=torch.uint8).view(h, w)
+        return t.to(device).float().div_(255)
+
+    return conv
+
+
+def _load(
+    args: argparse.Namespace,
+    device: str,
+    w: int,
+    h: int,
+    pix_fmt: str,
+    params: refine.RefineParams | None = None,
+    mask: ffio.MaskReader | None = None,
+    capture: Capture | None = None,
+) -> Any:
+    params = params or refine.FAST_DEFAULTS
+    capture = capture or Capture()
     if args.mock_model:
-        return MockModel(pix_fmt)
-    seq = args.seq_chunk or (CUDA_SEQ_CHUNK if device == "cuda" else 1)
-    return RvmModel(
+        post = Post(params, refine.NumpyOps(), mask, capture, _gray_to_numpy(w, h),
+                    args.halo_every)  # fmt: skip
+        return MockModel(pix_fmt, alpha=args.mock_alpha, post=post, shape=args.mock_shape)
+    cuda_seq = CUDA_SEQ_CHUNK_HQ if args.quality == "high" else CUDA_SEQ_CHUNK
+    seq = args.seq_chunk or (cuda_seq if device == "cuda" else 1)
+    model = RvmModel(
         Path(args.model_dir or "."), device, w=w, h=h, pix_fmt=pix_fmt, seq_chunk=seq,
         channels_last=args.channels_last, cudnn_benchmark=args.cudnn_benchmark,
-        fast_start=args.fast_start,
+        fast_start=args.fast_start, quality=args.quality,
     )  # fmt: skip
+    torch = model.torch
+    model.post = Post(params, refine.TorchOps(torch), mask, capture,
+                      _gray_to_torch(torch, device, w, h), args.halo_every)  # fmt: skip
+    return model
 
 
 def _resume_point(work: Path, meta: dict, chunk: int) -> int:
@@ -448,10 +631,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     out = Path(args.output)
     info = ffio.probe(ffprobe, src)
     w, h, fps, total = info["width"], info["height"], info["fps"], info["frames"]
-    ratio = auto_downsample(w, h) if args.downsample in (None, "auto") else float(args.downsample)
+    auto = args.downsample in (None, "auto")
+    ratio = auto_downsample(w, h, args.quality) if auto else float(args.downsample)
     ratio = max(0.125, min(1.0, ratio))
     chunk = max(1, int(args.chunk))
-    device, warnings = choose_device(args.device, args.mock_model)
+    device, warnings = choose_device(args.device, args.mock_model, VRAM_MB[args.quality])
     if device == "cpu" and not args.mock_model:
         warnings.append("cpu_slow")
     alpha_codec = ffio.choose_alpha_codec(ffmpeg, args.alpha_codec)
@@ -462,16 +646,25 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     work = Path(args.work_dir) if args.work_dir else out.with_name(out.name + ".parts")
     work.mkdir(parents=True, exist_ok=True)
     st = src.stat()
+    params = refine_params(args)
+    mask = ffio.MaskReader(ffmpeg, Path(args.mask), w, h, args.mask_offset) if args.mask else None
+    capture = Capture()
+    if args.compare_out and (params.active() or mask is not None):
+        idx = args.compare_frame
+        capture.compare_index = idx if idx is not None and idx >= 0 else min(
+            total // 2, round(float(fps)))  # fmt: skip
     meta = {"input": str(src.resolve()), "size": st.st_size, "mtime": st.st_mtime_ns,
             "chunk": chunk, "w": w, "h": h, "ratio": ratio, "alpha_codec": alpha_codec,
-            "pix_fmt": pix_fmt}  # fmt: skip
+            "pix_fmt": pix_fmt, "quality": args.quality, "refine": params.as_dict(),
+            "mask": str(args.mask or ""), "mask_offset": args.mask_offset}  # fmt: skip
     start_at = _resume_point(work, meta, chunk)
     stages = Stages()
     t_load = time.perf_counter()
-    model = _load(args, device, w, h, pix_fmt)
+    model = _load(args, device, w, h, pix_fmt, params, mask, capture)
     stages.load_s = time.perf_counter() - t_load
     emit(event="start", frames=total, fps=f"{fps.numerator}/{fps.denominator}", width=w,
          height=h, device=device, downsample=ratio, resume_from=start_at,
+         quality=args.quality, model=MODEL_NAMES[args.quality],
          alpha_codec=alpha_codec, pix_fmt=pix_fmt, seq_chunk=model.seq_chunk,
          load_s=round(stages.load_s, 3))  # fmt: skip
     job = Job(ffmpeg, src, w, h, fps, total, chunk, ratio, work, pix_fmt, alpha_codec,
@@ -498,8 +691,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 emit(event="warning", code=GPU_FALLBACK_CPU, message=f"Error CUDA ({exc}): CPU")
                 warnings.append(GPU_FALLBACK_CPU)
                 device = "cpu"
-                model = _load(args, device, w, h, pix_fmt)
+                model = _load(args, device, w, h, pix_fmt, params, mask, capture)
             start_at = job.finished_frames()
+    if mask is not None:
+        mask.close()
     segments = sorted(work.glob(f"seg_*{job.ext}"))
     if not segments:
         raise RuntimeError("No se proceso ningun fotograma")
@@ -520,9 +715,22 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "alpha_codec": alpha_codec,
         "pix_fmt": pix_fmt,
         "seq_chunk": getattr(model, "seq_chunk", 1),
+        "quality": args.quality,
+        "model": MODEL_NAMES[args.quality],
         "timings": stages.summary(),
         "warnings": list(dict.fromkeys(warnings)),
     }
+    if params.active() or mask is not None:
+        result["refine"] = params.as_dict()
+        halo = capture.summary()
+        if halo:
+            result["halo"] = halo
+        if mask is not None:
+            result["mask_frames"] = mask.used
+        if capture.compare is not None and args.compare_out:
+            rgb, cw, ch = capture.compare
+            png = ffio.write_png(ffmpeg, rgb, cw, ch, Path(args.compare_out))
+            result["compare_path"] = str(png)
     if not args.keep_work:
         shutil.rmtree(work, ignore_errors=True)
     return result
@@ -552,7 +760,7 @@ def _process(job: Job, model: Any, start_at: int, t0: float) -> tuple[int, int]:
         nonlocal batch, batch_start, done, seg_index, last_emit
         if not batch:
             return
-        outs, (pre, model_s, post) = model(batch, job.w, job.h, job.ratio)
+        outs, (pre, model_s, post) = model(batch, job.w, job.h, job.ratio, batch_start)
         if stages.first_batch_s is None:
             stages.first_batch_s = pre + model_s + post
         else:
@@ -637,6 +845,21 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--cudnn-benchmark", action="store_true")
     p.add_argument("--fast-start", action="store_true", help="sin perfilado TorchScript")
     p.add_argument("--mock-model", action="store_true", help="alfa constante, sin torch")
+    p.add_argument("--mock-alpha", type=int, default=200, help=argparse.SUPPRESS)
+    p.add_argument("--mock-shape", choices=("flat", "disk"), default="flat", help=argparse.SUPPRESS)
+    # recorte de calidad alta (vision_gpl/refine.py); None = default of --quality
+    p.add_argument("--quality", choices=QUALITIES, default="fast")
+    p.add_argument("--erode", type=int, default=None, help="px de erosion del alfa")
+    p.add_argument("--feather", type=float, default=None, help="sigma gaussiano del borde (px)")
+    p.add_argument("--despill", choices=("auto", "on", "off"), default="auto")
+    p.add_argument("--temporal", type=float, default=None, help="EMA de bordes 0..0.9")
+    p.add_argument("--bg-tile", type=int, default=None, help=argparse.SUPPRESS)
+    p.add_argument("--mask", default=None, help="mascara SAM: PNG o carpeta %%05d.png")
+    p.add_argument("--mask-dilate", type=int, default=None)
+    p.add_argument("--mask-offset", type=int, default=0, help="fotograma fuente de la mascara 0")
+    p.add_argument("--compare-out", default=None, help="PNG antes | despues de un fotograma")
+    p.add_argument("--compare-frame", type=int, default=None)
+    p.add_argument("--halo-every", type=int, default=HALO_EVERY, help=argparse.SUPPRESS)
     return p.parse_args(argv)
 
 

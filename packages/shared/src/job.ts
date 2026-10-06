@@ -35,6 +35,9 @@ export const JobTypeSchema = z.enum([
   "timeline.track-to-keyframes", // (api) clip.trackRef -> clip.keyframes.position
   "agent.apply", // (api) runs a confirmed EditPlan op by op (sub-jobs), undo snapshot
   "agent.eval", // (workers /agent/eval) model evaluation -> storage/run/agent-eval.json
+  "audio.stems", // (workers /audio/stems + /audio/tasks/{id}) stem assets (+ tracks, undo snapshot)
+  "style.analyze", // (workers /style/analyze) StyleAnalysis JSON + contact sheet -> asset "analysis"
+  "style.infer", // (workers /style/infer, Ollama qwen2.5vl:3b) StylePreset draft from an analysis
 ]);
 export type JobType = z.infer<typeof JobTypeSchema>;
 

@@ -39,7 +39,8 @@ SCHEMA_CANDIDATES = [
 ]
 
 TRACK_KINDS = {"video", "audio", "text", "motion"}
-ALWAYS_CONFIRM = {"delete_clip", "export"}
+# = ALWAYS_CONFIRM_OPS (packages/shared/src/agent.ts)
+ALWAYS_CONFIRM = {"delete_clip", "export", "face_swap"}
 TIME_FIELDS = ("t", "in", "out")
 GOLDEN_SIZE = 80
 GOLDEN_OP_MIN = 3  # every op at least 3 times in golden (30 multi-op examples, Sprint 3 audit)

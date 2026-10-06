@@ -131,6 +131,11 @@ class Pack:
     # Name that depends on the configuration (agent-llm: after AGENT_MODEL); name_es stays the
     # static name of models/packs.json.
     name_fn: Callable[[], str] | None = None
+    # Sprint 4: licence that must be accepted on screen before downloading/using the pack
+    # (LicenceId, e.g. "faceswap"), and the {id, state} of the isolated tool venv it needs
+    # (toolvenv.status_summary) for GET /packs.
+    licence_gate: str | None = None
+    tool_status: Callable[[], dict] | None = None
 
     @property
     def display_name(self) -> str:
@@ -1061,6 +1066,9 @@ def pack_status(
         "group": pack.group,
         # additive: "pinned" | "first-download" | "pending" | "none" (doctor.ps1)
         "integrity": pack_integrity(pack, root, manifest or Manifest.load(root), catalog),
+        # Sprint 4 (additive): PackSchema.licence_gate / PackSchema.tool {id, state}.
+        "licence_gate": pack.licence_gate,
+        "tool": pack.tool_status() if pack.tool_status is not None else None,
     }
 
 

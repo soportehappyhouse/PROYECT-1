@@ -1,5 +1,6 @@
 """Model packs: registry/contract, installed/partial detection, sequential tasks, CLI, 409."""
 
+import dataclasses
 import hashlib
 import json
 from pathlib import Path
@@ -9,6 +10,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from studio_workers import models_cli, packs
+from studio_workers.errors import CodedError
+from studio_workers.main import create_app
 from studio_workers.models_manifest import Manifest
 from studio_workers.routers import packs as packs_router
 from studio_workers.tts.piper_catalog import CATALOG
@@ -24,6 +27,8 @@ PACK_KEYS = {
     "required_by",
     "license",
     "group",
+    "licence_gate",  # sprint 4
+    "tool",  # sprint 4
 }
 
 
@@ -99,6 +104,40 @@ def test_pack_required_payload() -> None:
     payload = err.payload()
     assert payload["error"] == "PACK_REQUIRED" and payload["packId"] == "scenes"
     assert payload["size_bytes"] > 0 and payload["name_es"]
+
+
+def test_pack_status_sprint4_keys(dirs) -> None:
+    _, models = dirs
+    row = packs.pack_status(packs.PACKS["core"], models)
+    assert row["licence_gate"] is None and row["tool"] is None
+    gated = dataclasses.replace(
+        packs.PACKS["scenes"],
+        licence_gate="faceswap",
+        tool_status=lambda: {"id": "facefusion", "state": "missing"},
+    )
+    row = packs.pack_status(gated, models)
+    assert row["licence_gate"] == "faceswap"
+    assert row["tool"] == {"id": "facefusion", "state": "missing"}
+
+
+def test_coded_error_answers_detail_and_code(dirs) -> None:
+    app = create_app()
+
+    def blocked() -> None:
+        raise CodedError("CONTENT_BLOCKED", "Bloqueado por el analizador.")
+
+    def failed() -> None:
+        raise CodedError("TOOL_FAILED", "FaceFusion terminó con error.", details={"logTail": ["x"]})
+
+    app.add_api_route("/_test/blocked", blocked)
+    app.add_api_route("/_test/failed", failed)
+    with TestClient(app) as c:
+        r = c.get("/_test/blocked")
+        assert r.status_code == 422
+        assert r.json() == {"detail": "Bloqueado por el analizador.", "code": "CONTENT_BLOCKED"}
+        r = c.get("/_test/failed")
+        assert r.status_code == 502 and r.json()["details"] == {"logTail": ["x"]}
+    assert CodedError("X", "y").status == 400 and CodedError("NO_FACE", "y", 418).status == 418
 
 
 def _catalog_and_transport(voice: str, onnx: bytes, cfg: bytes):

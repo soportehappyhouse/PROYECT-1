@@ -40,6 +40,7 @@ export const OP_LABELS: Record<EditOpKind, string> = {
   set_publish: "Revisión para redes",
   export: "Exportar",
   report_bug: "Reportar error",
+  face_swap: "Cambiar cara",
 };
 
 export function opLabel(op: Pick<EditOp, "op">): string {
@@ -97,9 +98,13 @@ export function confirmDestructiveLabel(
   indexes: readonly number[],
 ): string {
   const kinds = new Set(indexes.map((i) => ops[i]?.op));
-  const del = kinds.has("delete_clip");
-  const exp = kinds.has("export");
-  return `Confirmar ${del && exp ? "borrado/exportación" : del ? "borrado" : "exportación"}`;
+  const parts = [
+    kinds.has("delete_clip") && "borrado",
+    kinds.has("export") && "exportación",
+    // Sprint 4: face_swap is in ALWAYS_CONFIRM_OPS (consent + nobody in the video is a minor).
+    kinds.has("face_swap") && "cambio de cara",
+  ].filter(Boolean);
+  return `Confirmar ${parts.length > 0 ? parts.join("/") : "exportación"}`;
 }
 
 // --------------------------------------------------------------------------------------------

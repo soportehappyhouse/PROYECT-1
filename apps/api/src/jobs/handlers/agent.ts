@@ -832,6 +832,9 @@ export function createAgentApplyHandler(
         if (md?.markdown_es) await appendToReport(app.config.storageDir, report.id, md.markdown_es);
         return { reportId: report.id, zipPath: report.zipPath };
       }
+      case "face_swap":
+        // Sprint 4 Paso 0 stub: the M1 module runs face.swap with the resolved Person here.
+        throw new OpError("Cambio de cara: pendiente");
     }
   }
 

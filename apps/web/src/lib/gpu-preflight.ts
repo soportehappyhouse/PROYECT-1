@@ -13,6 +13,8 @@ const FEATURE_TEXT: Record<GpuFeature, string> = {
   sam2: "Máscara / seguir objeto (SAM 2)",
   birefnet: "Quitar fondo de la imagen (BiRefNet)",
   stems: "Separar audio (Demucs)",
+  faceswap: "Cambiar cara (FaceFusion)",
+  chatterbox: "Texto a voz (Chatterbox)",
 };
 
 /**

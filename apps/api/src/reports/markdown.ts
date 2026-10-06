@@ -55,6 +55,8 @@ export const JOB_TYPE_LABELS_ES: Record<Job["type"], string> = {
   "audio.stems": "Separar audio (stems)",
   "style.analyze": "Perfil de estilo: analizar referencia",
   "style.infer": "Perfil de estilo: deducir con modelo local",
+  "face.preview": "Cambio de cara: vista previa",
+  "face.swap": "Cambio de cara",
 };
 
 const PROMPT_JOBS = 3;

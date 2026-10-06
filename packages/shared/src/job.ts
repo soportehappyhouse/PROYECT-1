@@ -38,6 +38,8 @@ export const JobTypeSchema = z.enum([
   "audio.stems", // (workers /audio/stems + /audio/tasks/{id}) stem assets (+ tracks, undo snapshot)
   "style.analyze", // (workers /style/analyze) StyleAnalysis JSON + contact sheet -> asset "analysis"
   "style.infer", // (workers /style/infer, Ollama qwen2.5vl:3b) StylePreset draft from an analysis
+  "face.preview", // (workers /face/swap with preview_t) before/after PNGs of one frame
+  "face.swap", // (workers /face/swap + /face/tasks/{id}) face-swapped video asset (+ clip.faceSwap)
 ]);
 export type JobType = z.infer<typeof JobTypeSchema>;
 

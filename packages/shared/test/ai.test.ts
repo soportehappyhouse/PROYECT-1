@@ -102,6 +102,8 @@ describe("Sprint 1 AI contract", () => {
       sam2: 1500,
       birefnet: 1800,
       stems: 2000,
+      faceswap: 3500, // sprint 4
+      chatterbox: 4500, // sprint 4
     });
     expect(willRunOnCpu({ mode: "cpu", vram_free_mb: null }, "denoise")).toBe(true);
     expect(willRunOnCpu({ mode: "gpu", vram_free_mb: 2200 }, "transcribe")).toBe(true);

@@ -919,6 +919,86 @@
             "required": ["op", "title", "steps_es"],
             "additionalProperties": false,
             "description": "Reportar error."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "face_swap",
+                "description": "Cambiar la cara de un clip por la de una Persona registrada con consentimiento."
+              },
+              "clip": {
+                "description": "Clip de video cuya cara se cambia.",
+                "$ref": "#/$defs/ClipRef"
+              },
+              "person": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Id exacto de la Persona."
+                      }
+                    },
+                    "required": ["id"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Nombre de la Persona, como lo dijo el usuario."
+                      }
+                    },
+                    "required": ["name"],
+                    "additionalProperties": false
+                  }
+                ],
+                "description": "Persona registrada en Ajustes → Personas (con consentimiento de rostro vigente) cuya cara se pone: {id} o {name}."
+              },
+              "t": {
+                "description": "Momento del fotograma donde se elige la cara a cambiar (junto con face_index); omitir = la única cara del clip.",
+                "$ref": "#/$defs/Time"
+              },
+              "face_index": {
+                "description": "Cara a cambiar en ese fotograma, de izquierda a derecha (0 = la primera).",
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "model": {
+                "description": "Modelo: hyperswap_1a_256 (recomendado), ghost_1_256 o inswapper_128_fp16 (más rápido).",
+                "type": "string",
+                "enum": ["hyperswap_1a_256", "ghost_1_256", "inswapper_128_fp16"]
+              },
+              "enhancer": {
+                "description": "Mejorar la nitidez de la cara resultante (por defecto sí).",
+                "type": "boolean"
+              },
+              "strength": {
+                "description": "Intensidad del cambio: 1 = completo, 0.5 = mitad mezclada con el original.",
+                "type": "number",
+                "minimum": 0.1,
+                "maximum": 1
+              },
+              "confirm": {
+                "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
+                "type": "boolean"
+              },
+              "note_es": {
+                "description": "Aclaración breve en español para el usuario.",
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": ["op", "clip", "person"],
+            "additionalProperties": false,
+            "description": "Cambiar cara."
           }
         ],
         "description": "Una operación de edición; el campo `op` indica cuál."

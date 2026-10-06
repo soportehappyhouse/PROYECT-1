@@ -197,6 +197,8 @@ function TtsForm() {
     piper: true,
     elevenlabs: config.data?.providers.elevenlabs ?? false,
     openai: config.data?.providers.openai ?? false,
+    // Sprint 4 Paso 0 stub: the voice module (M2) enables it from GET /api/voice/tts/providers.
+    chatterbox: false,
   };
   const all = provider === "piper" ? withPiperCatalog(voices.data ?? []) : (voices.data ?? []);
   const list = all.filter((v) => v.provider === provider);

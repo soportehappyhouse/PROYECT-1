@@ -671,6 +671,9 @@ function resolveInner(op: EditOp, ctx: Ctx): Out {
     }
     case "report_bug":
       return { op, preview: `Redactar reporte de error «${op.title.slice(0, 60)}»`, risks };
+    case "face_swap":
+      // Sprint 4 Paso 0 stub: the M1 module resolves the Person (name -> id, consent) here.
+      throw new Unresolved("Cambio de cara: pendiente");
   }
 }
 
@@ -743,6 +746,7 @@ const TITLES: Record<EditOp["op"], string> = {
   set_publish: "Revisión para redes",
   export: "Exportar",
   report_bug: "Reportar error",
+  face_swap: "Cambiar cara",
 };
 
 export const opTitle = (op: Pick<EditOp, "op">) => TITLES[op.op] ?? op.op;

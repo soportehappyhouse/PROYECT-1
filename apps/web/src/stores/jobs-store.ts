@@ -40,6 +40,8 @@ export const JOB_TYPE_LABELS: Record<AnyJobType, string> & Record<string, string
   "audio.stems": "Separar audio (stems)",
   "style.analyze": "Perfil de estilo: analizar referencia",
   "style.infer": "Perfil de estilo: deducir con modelo local",
+  "face.preview": "Cambio de cara: vista previa",
+  "face.swap": "Cambio de cara",
 };
 
 /** Packs whose download gets its own label in the Jobs panel and toasts. */

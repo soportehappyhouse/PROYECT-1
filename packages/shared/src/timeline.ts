@@ -199,6 +199,21 @@ export const LAYER_PARITY_BASE: readonly [number, number, number] = [0x80, 0x40,
 export const LAYER_PARITY_TOP: readonly [number, number, number] = [0x60, 0xa0, 0xff];
 export const LAYER_PARITY_TOLERANCE = 8;
 
+/** Sprint 4: `Clip.faceSwap` (docs/trabajo/sprint4-contratos.md, M1). */
+export const ClipFaceSwapSchema = z.object({
+  prev: z.object({
+    assetId: IdSchema,
+    in: SecondsSchema,
+    out: SecondsSchema,
+    matte: ClipMatteSchema.optional(),
+    maskRef: ClipMaskSchema.optional(),
+  }),
+  personId: IdSchema,
+  consentId: IdSchema,
+  jobId: IdSchema,
+});
+export type ClipFaceSwap = z.infer<typeof ClipFaceSwapSchema>;
+
 /** A clip placed on a track. Times are in seconds. */
 export const ClipSchema = z.object({
   id: IdSchema,
@@ -242,6 +257,11 @@ export const ClipSchema = z.object({
   blendMode: BlendModeSchema.optional(),
   /** Sprint 3b: mask (asset or shape) multiplied into the clip alpha. */
   maskRef: ClipMaskSchema.optional(),
+  /**
+   * Sprint 4: the clip shows a face-swapped render (job face.swap). `prev` keeps what the clip had
+   * before (POST /api/face/undo restores it); asset mattes/masks are dropped and come back on undo.
+   */
+  faceSwap: ClipFaceSwapSchema.optional(),
 });
 export type Clip = z.infer<typeof ClipSchema>;
 export type ClipInput = z.input<typeof ClipSchema>;

@@ -66,6 +66,9 @@ export const DEFAULT_JOB_LANES: Record<JobType, JobLane> = {
   // Sprint 3b style profile: workers analysis (ffmpeg/OCR) and the local vision LLM.
   "style.analyze": "workers",
   "style.infer": "workers",
+  // Sprint 4: FaceFusion subprocess in the workers (preview frame / swapped clip).
+  "face.preview": "workers",
+  "face.swap": "workers",
 };
 
 /** Raised by handlers (or the runner) when ctx.signal aborts. */

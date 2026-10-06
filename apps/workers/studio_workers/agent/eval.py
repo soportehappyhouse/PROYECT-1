@@ -60,6 +60,7 @@ KEY_ARGS: dict[str, tuple[str, ...]] = {
     "set_publish": ("for_social", "ai_label"),
     "export": ("preset",),
     "report_bug": (),
+    "face_swap": ("clip", "person"),
 }
 BOOL_DEFAULT_FALSE = {"fillers", "split", "animated", "ai_label"}
 IGNORED = ("confirm", "note_es")

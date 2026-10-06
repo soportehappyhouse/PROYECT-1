@@ -1,4 +1,11 @@
-import { PACK_REQUIRED, type ApiError, type PackRequiredBody } from "@studio/shared";
+import {
+  formatErrorEs,
+  PACK_REQUIRED,
+  SPRINT4_ERRORS,
+  type ApiError,
+  type PackRequiredBody,
+  type Sprint4ErrorCode,
+} from "@studio/shared";
 import type { FastifyReply } from "fastify";
 
 export class HttpError extends Error {
@@ -15,6 +22,19 @@ export class HttpError extends Error {
 
 export function errorBody(code: string, message: string, details?: unknown): ApiError {
   return { error: { code, message, ...(details === undefined ? {} : { details }) } };
+}
+
+/**
+ * Sprint 4 error (docs/trabajo/sprint4-contratos.md «Códigos de error nuevos»): HTTP status and
+ * Spanish message of SPRINT4_ERRORS with `vars` filled in, e.g.
+ * `throw sprint4Error("CONSENT_REQUIRED", {nombre, alcance: "cara", motivo}, details)`.
+ */
+export function sprint4Error(
+  code: Sprint4ErrorCode,
+  vars: Readonly<Record<string, string | number>> = {},
+  details?: unknown,
+): HttpError {
+  return new HttpError(SPRINT4_ERRORS[code].status, code, formatErrorEs(code, vars), details);
 }
 
 /** Uniform 501 for endpoints still owned by another module. */

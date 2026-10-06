@@ -3,6 +3,7 @@ import {
   AgentProjectSummarySchema,
   DEFAULT_EXPORT_PRESETS,
   ProjectSchema,
+  tracksInZOrder,
   validateEditPlan,
   type EditPlanInput,
   type MediaAsset,
@@ -367,6 +368,11 @@ describe("set_volume / move_clip timeline edits", () => {
       trackId: "new1",
       start: 10,
     });
+    // explicit z-order (sprint 3b layers): the new track does not copy the source's `order`
+    const zp = { ...p, tracks: p.tracks.map((t, i) => ({ ...t, order: i })) };
+    const zMoved = moveClip(zp, "c2", 10, () => "z1");
+    expect(zMoved.project.tracks[3]!.order).toBeUndefined();
+    expect(tracksInZOrder(zMoved.project.tracks).at(-1)!.id).toBe("z1"); // on top
     // free range on the same track: stays there
     const same = moveClip(p, "c2", 45, () => "x");
     expect(same.trackId).toBe("tv");

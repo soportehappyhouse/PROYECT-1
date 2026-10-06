@@ -47,6 +47,8 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm build
       - run: pnpm test
+      # studio-mcp over stdio: initialize + tools/list (no API needed)
+      - run: pnpm --filter @studio/studio-mcp smoke
 
   workers:
     name: Python workers (${{ matrix.os }})

@@ -101,16 +101,17 @@ describe("sprint 3b layers (blend modes, masks, z-order)", () => {
   });
 
   it("z-order: Track.order wins, index otherwise (stable)", () => {
-    const tracks = [{ id: "a", order: 2 }, { id: "b" }, { id: "c", order: 0 }];
+    type Z = { id: string; order?: number };
+    const tracks: Z[] = [{ id: "a", order: 2 }, { id: "b" }, { id: "c", order: 0 }];
     // a → 2, b → 1 (index), c → 0
     expect(tracksInZOrder(tracks).map((t) => t.id)).toEqual(["c", "b", "a"]);
-    expect(tracksInZOrder([{ id: "x" }, { id: "y" }]).map((t) => t.id)).toEqual(["x", "y"]);
+    expect(tracksInZOrder<Z>([{ id: "x" }, { id: "y" }]).map((t) => t.id)).toEqual(["x", "y"]);
     expect(normalizeTrackOrder(tracks).map((t) => [t.id, t.order])).toEqual([
       ["c", 0],
       ["b", 1],
       ["a", 2],
     ]);
-    const moved = moveTrackZ([{ id: "v1" }, { id: "v2" }, { id: "v3" }], "v1", 2);
+    const moved = moveTrackZ<Z>([{ id: "v1" }, { id: "v2" }, { id: "v3" }], "v1", 2);
     expect(moved.map((t) => `${t.id}:${t.order}`)).toEqual(["v2:0", "v3:1", "v1:2"]);
     expect(moveTrackZ(moved, "v1", -5).map((t) => t.id)).toEqual(["v1", "v2", "v3"]);
   });

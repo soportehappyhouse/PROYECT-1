@@ -353,7 +353,7 @@
             <a href="#4-recorrido-por-el-dashboard">4. Recorrido por el dashboard</a>
           </li>
           <li class="d3"><a href="#41-encabezado">4.1 Encabezado</a></li>
-          <li class="d3"><a href="#42-los-11-paneles">4.2 Los 11 paneles</a></li>
+          <li class="d3"><a href="#42-los-13-paneles">4.2 Los 13 paneles</a></li>
           <li class="d3"><a href="#43-personalizar">4.3 Personalizar</a></li>
           <li class="d3"><a href="#44-guardado-del-proyecto">4.4 Guardado del proyecto</a></li>
           <li class="d2"><a href="#5-flujos-paso-a-paso">5. Flujos paso a paso</a></li>
@@ -465,8 +465,6 @@
           </li>
           <li class="d3"><a href="#187-problemas-frecuentes">18.7 Problemas frecuentes</a></li>
           <li class="d2"><a href="#19-asistente-local">19. Asistente local</a></li>
-          <li class="d2"><a href="#20-perfil-de-estilo">20. Perfil de estilo</a></li>
-          <li class="d2"><a href="#21-separar-audio-stems">21. Separar audio (stems)</a></li>
           <li class="d3"><a href="#191-qué-puede-hacer">19.1 Qué puede hacer</a></li>
           <li class="d3"><a href="#192-cómo-se-usa">19.2 Cómo se usa</a></li>
           <li class="d3">
@@ -477,6 +475,20 @@
           </li>
           <li class="d3"><a href="#195-límites">19.5 Límites</a></li>
           <li class="d3"><a href="#196-privacidad">19.6 Privacidad</a></li>
+          <li class="d2"><a href="#20-perfil-de-estilo">20. Perfil de estilo</a></li>
+          <li class="d3">
+            <a href="#201-analizar-un-video-de-referencia">20.1 Analizar un video de referencia</a>
+          </li>
+          <li class="d3"><a href="#202-deducir-el-perfil">20.2 Deducir el perfil</a></li>
+          <li class="d3">
+            <a href="#203-guardar-y-aplicar-a-tu-proyecto">20.3 Guardar y aplicar a tu proyecto</a>
+          </li>
+          <li class="d3"><a href="#204-paquetes-opcionales">20.4 Paquetes opcionales</a></li>
+          <li class="d3"><a href="#205-privacidad-y-límites">20.5 Privacidad y límites</a></li>
+          <li class="d2"><a href="#21-separar-audio-stems">21. Separar audio (stems)</a></li>
+          <li class="d3"><a href="#211-cómo-se-usa">21.1 Cómo se usa</a></li>
+          <li class="d3"><a href="#212-gpu-cpu-y-tiempos">21.2 GPU, CPU y tiempos</a></li>
+          <li class="d3"><a href="#213-límites">21.3 Límites</a></li>
           <li class="d2"><a href="#22-capas-y-fusiones">22. Capas y fusiones</a></li>
           <li class="d3"><a href="#221-orden-de-las-capas">22.1 Orden de las capas</a></li>
           <li class="d3"><a href="#222-modo-de-fusión">22.2 Modo de fusión</a></li>
@@ -484,6 +496,14 @@
           <li class="d3"><a href="#224-ejemplos-rápidos">22.4 Ejemplos rápidos</a></li>
           <li class="d3">
             <a href="#225-límites-y-diferencias-conocidas">22.5 Límites y diferencias conocidas</a>
+          </li>
+          <li class="d2"><a href="#23-consola-claude">23. Consola Claude</a></li>
+          <li class="d3"><a href="#231-cómo-se-usa">23.1 Cómo se usa</a></li>
+          <li class="d3"><a href="#232-qué-puede-hacer">23.2 Qué puede hacer</a></li>
+          <li class="d3">
+            <a href="#233-instalación-límites-y-privacidad"
+              >23.3 Instalación, límites y privacidad</a
+            >
           </li>
         </ol>
       </nav>
@@ -817,7 +837,7 @@
             <a href="#13-cómo-reportar-un-error">§13</a>).
           </li>
         </ul>
-        <h3 id="42-los-11-paneles">4.2 Los 11 paneles</h3>
+        <h3 id="42-los-13-paneles">4.2 Los 13 paneles</h3>
         <div class="table-wrap">
           <table>
             <thead>
@@ -942,6 +962,23 @@
                   <code>Ctrl+Shift+A</code> (ver <a href="#19-asistente-local">§19</a>).
                 </td>
               </tr>
+              <tr>
+                <td><strong>Perfil de estilo</strong></td>
+                <td>
+                  Elegís un video de referencia, Studio lo analiza (ritmo de cortes, audio, textos,
+                  hoja de contactos) y deduce un <strong>perfil</strong> que se aplica a tu proyecto
+                  como plan del Asistente (ver <a href="#20-perfil-de-estilo">§20</a>).
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Consola Claude</strong></td>
+                <td>
+                  Terminal con <strong>Claude Code</strong> y tu suscripción de Claude.ai (sin API
+                  key): lee el proyecto, propone planes, lanza trabajos y mira fotogramas con las
+                  herramientas de Studio. Se abre con <code>Ctrl+Shift+C</code> (ver
+                  <a href="#23-consola-claude">§23</a>).
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -979,8 +1016,8 @@
           <li>
             <strong>Orden de las capas</strong>: las pistas se apilan en el orden de la lista; la
             pista de <strong>más arriba queda al fondo</strong> de la imagen y las que agregás
-            después quedan <strong>encima</strong>. (No hay forma de reordenar pistas desde la
-            interfaz.)
+            después quedan <strong>encima</strong>. Para reordenarlas, arrastrá la cabecera de la
+            pista o usá su menú (ver <a href="#221-orden-de-las-capas">§22.1</a>).
           </li>
           <li>Hasta <strong>100 pasos</strong> de deshacer/rehacer.</li>
         </ul>
@@ -2423,6 +2460,11 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
                 <td>Interfaz</td>
               </tr>
               <tr>
+                <td>Abrir la Consola Claude</td>
+                <td><code>Ctrl+Shift+C</code></td>
+                <td>Interfaz</td>
+              </tr>
+              <tr>
                 <td>Zoom de la línea de tiempo</td>
                 <td><code>Ctrl</code> + rueda</td>
                 <td>(fijo)</td>
@@ -2585,6 +2627,26 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
                 <td><code>REMOTION_TIMEOUT_MS</code></td>
                 <td>vacío (60000)</td>
                 <td>Espera máxima por fotograma para cargar fuentes y medios.</td>
+              </tr>
+              <tr>
+                <td><code>STYLE_VISION_MODEL</code></td>
+                <td><code>qwen2.5vl:3b</code></td>
+                <td>
+                  Modelo de visión local para <strong>Deducir con modelo local</strong> en Perfil de
+                  estilo (<code>qwen2.5vl:7b</code> es mejor pero usa más VRAM).
+                </td>
+              </tr>
+              <tr>
+                <td><code>STYLE_NUM_CTX</code></td>
+                <td><code>8192</code></td>
+                <td>Contexto (tokens) de esa deducción.</td>
+              </tr>
+              <tr>
+                <td><code>STUDIO_CLAUDE_BIN</code></td>
+                <td>vacío (autodetecta)</td>
+                <td>
+                  Ruta completa a <code>claude</code> si la Consola Claude no lo encuentra solo.
+                </td>
               </tr>
               <tr>
                 <td><code>ELEVENLABS_API_KEY</code>, <code>ELEVENLABS_MODEL</code></td>
@@ -3492,6 +3554,12 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
                 <td>Quitar fondo (video)</td>
               </tr>
               <tr>
+                <td><strong>matting-hq</strong></td>
+                <td>RobustVideoMatting resnet50</td>
+                <td>0,16 GB</td>
+                <td>Quitar fondo (alta calidad)</td>
+              </tr>
+              <tr>
                 <td><strong>matting-image</strong></td>
                 <td>BiRefNet-lite (swin_v1_tiny)</td>
                 <td>0,28 GB</td>
@@ -3839,7 +3907,45 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
             <strong>matting-image</strong> para pasarla a la de GPU).
           </li>
           <li>
-            Al terminar la Vista previa ya muestra el recorte. El fondo se cambia después en
+            <strong>Calidad del recorte</strong> (solo video): <em>Rápido</em> (el de siempre,
+            paquete <strong>matting</strong>) o <em>Alta calidad</em> (modelo grande
+            RobustVideoMatting resnet50 + limpieza de bordes, paquete <strong>matting-hq</strong>,
+            ~0,16 GB; si falta, Studio ofrece descargarlo). Alta calidad es más lenta (el Test de
+            rendimiento muestra «Recorte alta calidad ≈ X fps»).
+            <ul>
+              <li>
+                <strong>Suavizado de borde</strong>: difumina el borde del recorte (px). Subilo si
+                el borde se ve dentado; bajalo si el pelo queda borroso.
+              </li>
+              <li>
+                <strong>Reducción de borde</strong>: achica el recorte unos píxeles hacia adentro.
+                Sirve cuando queda una línea del fondo pegada a la persona.
+              </li>
+              <li>
+                <strong>Eliminar halos de color</strong> (activado en Alta calidad): calcula el
+                color del fondo cerca del borde y lo quita de los píxeles semitransparentes; también
+                apaga los puntos del borde que son puro fondo. Es lo que limpia los halos verdes,
+                rojos o azules de un fondo colorido.
+              </li>
+              <li>
+                <strong>Usar máscara SAM si existe</strong>: si antes hiciste
+                <strong>Máscara</strong> sobre ese clip, todo lo que quede fuera de la máscara (un
+                poco agrandada) se vuelve transparente. Útil cuando el fondo tiene otras personas u
+                objetos que el recorte confunde.
+              </li>
+              <li>
+                <strong>Cuándo usar cuál</strong>: <em>Rápido</em> para fondos lisos o borradores;
+                <em>Alta calidad</em> para fondos con muchos colores, pelo suelto o cuando ves
+                bordes sucios. Si en Alta calidad la persona queda &quot;comida&quot; en los bordes,
+                bajá la Reducción a 0.
+              </li>
+            </ul>
+          </li>
+          <li>
+            Al terminar la Vista previa ya muestra el recorte. Si hubo limpieza de bordes, el aviso
+            ofrece <strong>Antes / después</strong> y la ventana de Quitar fondo muestra un
+            fotograma comparado (izq.: sin limpiar, der.: limpio) con el «halo de color en el borde»
+            antes → después. El fondo se cambia después en
             <strong>Propiedades → Quitar fondo</strong>;
             <strong>Volver al video original</strong> lo deshace.
           </li>
@@ -4199,9 +4305,8 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
               <tr>
                 <td>Planos y ritmo</td>
                 <td>
-                  Cortes de escena (PySceneDetect si tenés el paquete
-                  <em>Detección de escenas</em>; si no, el detector de FFmpeg): cantidad, mediana,
-                  cortes por minuto e histograma
+                  Cortes de escena (PySceneDetect si tenés el paquete <em>Detección de escenas</em>;
+                  si no, el detector de FFmpeg): cantidad, mediana, cortes por minuto e histograma
                 </td>
               </tr>
               <tr>
@@ -4325,8 +4430,8 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
               <tr>
                 <td>Exportar</td>
                 <td>
-                  Exportar con el preset del perfil (pide <strong>Confirmar exportación</strong>
-                  aparte)
+                  Exportar con el preset del perfil (pide
+                  <strong>Confirmar exportación</strong> aparte)
                 </td>
               </tr>
             </tbody>
@@ -4376,9 +4481,9 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
         <p>
           El análisis y el modelo local corren en tu computadora; el video no se sube a ningún lado.
           Con la Consola Claude, Claude ve la hoja de contactos y el análisis (no el video
-          completo). Las mediciones de movimiento, voz y música son
-          <strong>aproximaciones</strong>: sirven para distinguir «cámara fija con música de fondo»
-          de «muchos cortes y zooms», no para medir al milímetro.
+          completo). Las mediciones de movimiento, voz y música son <strong>aproximaciones</strong>:
+          sirven para distinguir «cámara fija con música de fondo» de «muchos cortes y zooms», no
+          para medir al milímetro.
         </p>
         <h2 id="21-separar-audio-stems">21. Separar audio (stems)</h2>
         <p>
@@ -4458,6 +4563,7 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
             <strong>música</strong>, esta.
           </li>
         </ul>
+        <hr />
         <h2 id="22-capas-y-fusiones">22. Capas y fusiones</h2>
         <p>
           Desde esta versión podés <strong>apilar videos libremente</strong>: cualquier clip de una
@@ -4483,52 +4589,54 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
         </ul>
         <h3 id="222-modo-de-fusión">22.2 Modo de fusión</h3>
         <p>Seleccioná el clip y abrí <strong>Propiedades → Capa → Modo de fusión</strong>:</p>
-        <table>
-          <thead>
-            <tr>
-              <th>Modo</th>
-              <th>Qué hace</th>
-              <th>Úsalo para</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>Normal</td>
-              <td>Tapa lo de abajo según su opacidad</td>
-              <td>Lo de siempre</td>
-            </tr>
-            <tr>
-              <td>Multiplicar</td>
-              <td>Oscurece: el blanco desaparece, el negro queda</td>
-              <td>Sombras, texturas, papel</td>
-            </tr>
-            <tr>
-              <td>Trama (aclarar suave)</td>
-              <td>Aclara: el negro desaparece</td>
-              <td>Luces, destellos, humo, polvo</td>
-            </tr>
-            <tr>
-              <td>Superponer</td>
-              <td>Más contraste: aclara los claros y oscurece los oscuros</td>
-              <td>Texturas sobre un video</td>
-            </tr>
-            <tr>
-              <td>Sumar (luz)</td>
-              <td>Suma la luz de las dos capas (puede quemar a blanco)</td>
-              <td>Fuegos, láser, brillos fuertes</td>
-            </tr>
-            <tr>
-              <td>Diferencia</td>
-              <td>Resta los colores (iguales = negro)</td>
-              <td>Comparar dos tomas, efectos</td>
-            </tr>
-            <tr>
-              <td>Aclarar / Oscurecer</td>
-              <td>Se queda con el píxel más claro / más oscuro de las dos</td>
-              <td>Combinar cielos, siluetas</td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Modo</th>
+                <th>Qué hace</th>
+                <th>Úsalo para</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Normal</td>
+                <td>Tapa lo de abajo según su opacidad</td>
+                <td>Lo de siempre</td>
+              </tr>
+              <tr>
+                <td>Multiplicar</td>
+                <td>Oscurece: el blanco desaparece, el negro queda</td>
+                <td>Sombras, texturas, papel</td>
+              </tr>
+              <tr>
+                <td>Trama (aclarar suave)</td>
+                <td>Aclara: el negro desaparece</td>
+                <td>Luces, destellos, humo, polvo</td>
+              </tr>
+              <tr>
+                <td>Superponer</td>
+                <td>Más contraste: aclara los claros y oscurece los oscuros</td>
+                <td>Texturas sobre un video</td>
+              </tr>
+              <tr>
+                <td>Sumar (luz)</td>
+                <td>Suma la luz de las dos capas (puede quemar a blanco)</td>
+                <td>Fuegos, láser, brillos fuertes</td>
+              </tr>
+              <tr>
+                <td>Diferencia</td>
+                <td>Resta los colores (iguales = negro)</td>
+                <td>Comparar dos tomas, efectos</td>
+              </tr>
+              <tr>
+                <td>Aclarar / Oscurecer</td>
+                <td>Se queda con el píxel más claro / más oscuro de las dos</td>
+                <td>Combinar cielos, siluetas</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <p>
           La <strong>opacidad</strong> (Propiedades → Imagen) también vale con cualquier modo: al 50
           % el efecto se ve a la mitad. En la línea de tiempo el clip muestra el modo («Multiplicar
@@ -4588,6 +4696,69 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
           <li>
             La «Vista previa clásica» muestra el modo de fusión del video principal pero no las
             máscaras.
+          </li>
+        </ul>
+        <h2 id="23-consola-claude">23. Consola Claude</h2>
+        <p>
+          La <strong>Consola Claude</strong> es una terminal dentro de Studio donde corre
+          <strong>Claude Code</strong> con <strong>tu suscripción de Claude.ai</strong> (Pro o Max):
+          no usa API key ni cobra aparte. A diferencia del
+          <a href="#19-asistente-local">Asistente</a> (100 % local), Claude trabaja en la nube:
+          entiende pedidos largos, mira fotogramas y hojas de contactos y encadena muchos pasos.
+          Guía completa: <code>docs/CONSOLA-CLAUDE.md</code>.
+        </p>
+        <h3 id="231-cómo-se-usa">23.1 Cómo se usa</h3>
+        <ol>
+          <li>
+            Apretá <code>Ctrl+Shift+C</code> (o <code>Ctrl+K</code> → «Consola Claude»). El panel
+            muestra si Claude Code está <strong>instalado</strong>, si hay
+            <strong>sesión</strong> iniciada y si está <strong>corriendo</strong>.
+          </li>
+          <li>
+            Tocá <strong>Nueva sesión</strong>. La primera vez escribí <code>/login</code> y seguí
+            los pasos en el navegador.
+          </li>
+          <li>
+            Aceptá la carpeta y el servidor <strong>studio-mcp</strong>: son las herramientas para
+            leer y editar el proyecto.
+          </li>
+          <li>
+            Escribí tu pedido o tocá un pedido sugerido (se pega en la terminal; revisalo y apretá
+            Enter). Desde <strong>Perfil de estilo</strong>,
+            <strong>Deducir con Consola Claude</strong> abre la consola y pega el pedido con las
+            rutas del análisis.
+          </li>
+        </ol>
+        <h3 id="232-qué-puede-hacer">23.2 Qué puede hacer</h3>
+        <ul>
+          <li>
+            Leer el proyecto, los medios y la transcripción; mirar un fotograma de la vista previa.
+          </li>
+          <li>
+            Proponer y aplicar planes de edición (te pregunta antes de borrar clips o exportar); lo
+            aplicado queda en el Asistente y se deshace con <strong>Deshacer todo</strong>.
+          </li>
+          <li>
+            Lanzar trabajos (transcribir, escenas, quitar fondo, stems…), guardar y aplicar
+            <strong>perfiles de estilo</strong> y redactar <strong>reportes de error</strong>.
+          </li>
+        </ul>
+        <h3 id="233-instalación-límites-y-privacidad">23.3 Instalación, límites y privacidad</h3>
+        <ul>
+          <li>
+            <code>setup.cmd</code> instala Claude Code (<code
+              >npm i -g @anthropic-ai/claude-code</code
+            >) si hay Node.js 22 (<code>-SkipClaude</code> lo saltea);
+            <code>doctor.cmd</code> muestra la versión y si hay sesión.
+          </li>
+          <li>
+            Comparte el cupo de uso de tu plan con claude.ai; <code>/status</code> dentro de la
+            consola muestra la cuenta y el modelo.
+          </li>
+          <li>
+            Lo que Claude lee (pedidos, resumen del proyecto, fotogramas que abre) se envía a
+            Anthropic. La consola solo acepta conexiones de tu propia PC y Studio quita del entorno
+            de Claude todas las claves del <code>.env</code>.
           </li>
         </ul>
       </main>

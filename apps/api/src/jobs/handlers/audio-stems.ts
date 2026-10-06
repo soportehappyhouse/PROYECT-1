@@ -6,6 +6,7 @@ import {
   STEMS_SAMPLE_RATE,
   StemsRequestSchema,
   TrackSchema,
+  tracksInZOrder,
   WorkerStemsResultSchema,
   type Clip,
   type MediaAsset,
@@ -98,6 +99,26 @@ export interface StemPlacement {
 }
 
 /**
+ * Explicit z-order (Track.order, sprint 3b layers): when the project already uses it, the stem tracks
+ * go right after the source track in z-order (else on top) and every track is renumbered 0..n-1,
+ * so the timeline rows (= z-order) show them next to the source. Projects without `order` keep the
+ * array order (index = z) and an unchanged block hash.
+ */
+function withStemsZ(
+  spliced: Track[],
+  before: readonly Track[],
+  added: readonly Track[],
+  sourceTrackId: string | undefined,
+): Track[] {
+  if (!before.some((t) => t.order !== undefined)) return spliced;
+  const byId = new Map(spliced.map((t) => [t.id, t]));
+  const z = tracksInZOrder(before).map((t) => byId.get(t.id)!);
+  const src = sourceTrackId ? z.findIndex((t) => t.id === sourceTrackId) : -1;
+  z.splice(src >= 0 ? src + 1 : z.length, 0, ...added);
+  return z.map((t, i) => ({ ...t, order: i }));
+}
+
+/**
  * Pure edit: new audio tracks right below the source clip's track (or at the end), one clip per
  * stem aligned to the source clip, and the source clip muted. Without a clip the stems start at 0 s
  * with their full length. Returns the new project plus the ids of what was created.
@@ -147,7 +168,7 @@ export function placeStems(
   const at = found ? found.trackIndex + 1 : tracks.length;
   tracks.splice(at, 0, ...newTracks);
   return {
-    project: { ...project, tracks },
+    project: { ...project, tracks: withStemsZ(tracks, project.tracks, newTracks, found?.track.id) },
     placed,
     ...(src && { previousVolume: src.volume }),
   };

@@ -157,6 +157,9 @@ describe("StylePreset schema", () => {
         speech_ratio: null,
         music_detected: null,
         silence_ratio: null,
+        // what the workers send for a video without an audio stream (style/audio.py)
+        speech_method: null,
+        music_method: null,
       },
       contact_sheet_path: "renders/style/x/contact_sheet.png",
       thumbnails: [],

@@ -30,6 +30,7 @@
 20. [Perfil de estilo](#20-perfil-de-estilo)
 21. [Separar audio (stems)](#21-separar-audio-stems)
 22. [Capas y fusiones](#22-capas-y-fusiones)
+23. [Consola Claude](#23-consola-claude)
 
 ---
 
@@ -158,21 +159,23 @@ De izquierda a derecha:
 - **Ajustes** (engranaje): pestañas _Apariencia_, _Atajos_, _Layouts_ y _Paquetes de IA_.
 - **🐞 Reportar error**: abre el formulario de reporte (ver [§13](#13-cómo-reportar-un-error)).
 
-### 4.2 Los 11 paneles
+### 4.2 Los 13 paneles
 
-| Panel               | Para qué sirve                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Media**           | Importar archivos (botón **Importar** o arrastrar y soltar), ver miniatura y datos (duración, resolución, fps, tamaño), **+** para agregar a la línea de tiempo, varita para **Generar proxy**, tacho para borrar (si el medio está en uso ofrece **Quitar del timeline y borrar**), filtro por nombre. Los renders de motion llevan la etiqueta **Render** (no necesitan proxy).                                                                                                                                  |
-| **Biblioteca**      | Buscar efectos de sonido y música (_Efectos_, _Música_, _Ambiente_), escucharlos, **+** para agregarlos a la línea de tiempo, **Re-escanear** la carpeta de la biblioteca y **subir** sonidos propios.                                                                                                                                                                                                                                                                                                             |
-| **Vista previa**    | Reproductor sincronizado con el cursor: ir al inicio, fotograma anterior/siguiente, reproducir/pausar. Dibuja **todas las capas** bajo el cursor como la exportación (videos, imágenes, textos, motion con transparencia, recortes de fondo, PiP, subtítulos y keyframes) y suena el audio. Herramientas **Máscara**, **Quitar fondo**, **Seguir objeto** y **Reencuadrar**; engranaje con guías de zona segura, calidad y **Vista previa clásica** (ver [§18](#18-vista-previa-multicapa-keyframes-y-visión-ia)). |
-| **Línea de tiempo** | Pistas y clips. Barra: **Pista** (agregar pista de video, audio, texto o motion), **Texto** (clip de texto en el cursor), deshacer/rehacer, tijera (**dividir** en el cursor), tacho, onda (**Quitar silencios y muletillas**), menú **Escenas** (_Detectar escenas_, _Cortar en escenas_, _Mostrar marcadores de escena_), **imán**, tiempo actual / total y zoom.                                                                                                                                                |
-| **Propiedades**     | Sin clip seleccionado: nombre y tamaño del proyecto (ancho, alto, FPS y botones _16:9 1080p_, _9:16 vertical_, _1:1_) y datos del medio seleccionado. Con un clip: tiempo (inicio, entrada, salida, velocidad), imagen (opacidad, **escala y posición X/Y en %** con **anclas** arriba/centro/abajo y esquinas —también para motion graphics—, transiciones), audio (volumen, efectos guardados), texto (fuente, tamaño, color, posición).                                                                         |
-| **Motion graphics** | Elegir plantilla, editar parámetros, duración y formato; **Renderizar y añadir**, **Añadir sin render** o **Actualizar clip y renderizar**. Arriba se ve qué motores están disponibles (en verde); las plantillas de un motor no disponible no se pueden elegir.                                                                                                                                                                                                                                                   |
-| **Voz y audio**     | Tres pestañas: **Texto a voz**, **Efectos** (arriba, **Limpiar voz (IA)**) y **RVC**.                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| **Subtítulos**      | **Transcribir (Whisper)** el clip seleccionado (idioma y modelo), **Quitar silencios y muletillas…** (con revisión) o _Corte rápido_, editar segmentos, **Descargar SRT**, elegir **estilo** y **Renderizar subtítulos como motion**.                                                                                                                                                                                                                                                                              |
-| **Exportar**        | Elegir preset (arranca en _YouTube 1080p_), duplicarlo y editarlo (incluida la casilla **Transparencia**), **Revisión para redes** (casilla _Voy a subirlo a redes_, avisos y etiqueta de IA), nombre del archivo, exportar un rango, **Quemar subtítulos en el video** y la lista de **Exportaciones recientes** con **Descargar**.                                                                                                                                                                               |
-| **Trabajos**        | Todo lo que tarda (análisis, proxies, renders, voz, transcripción, exportación) con su progreso. Permite cancelar, abrir el resultado, filtrar _Todos/Activos_, limpiar terminados y, en los que fallan, **Reportar**. Arriba indica la conexión: _En vivo_, _Consulta periódica_ o _Sin conexión_.                                                                                                                                                                                                                |
-| **Asistente**       | Escribís lo que querés hacer (_Cortá los silencios_, _Exportá para TikTok_) y el asistente **local** propone un plan: lo revisás paso a paso, corregís textos o tiempos, y recién ahí **Aplicar**; **Deshacer todo** vuelve atrás. Se abre con `Ctrl+Shift+A` (ver [§19](#19-asistente-local)).                                                                                                                                                                                                                    |
+| Panel                | Para qué sirve                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Media**            | Importar archivos (botón **Importar** o arrastrar y soltar), ver miniatura y datos (duración, resolución, fps, tamaño), **+** para agregar a la línea de tiempo, varita para **Generar proxy**, tacho para borrar (si el medio está en uso ofrece **Quitar del timeline y borrar**), filtro por nombre. Los renders de motion llevan la etiqueta **Render** (no necesitan proxy).                                                                                                                                  |
+| **Biblioteca**       | Buscar efectos de sonido y música (_Efectos_, _Música_, _Ambiente_), escucharlos, **+** para agregarlos a la línea de tiempo, **Re-escanear** la carpeta de la biblioteca y **subir** sonidos propios.                                                                                                                                                                                                                                                                                                             |
+| **Vista previa**     | Reproductor sincronizado con el cursor: ir al inicio, fotograma anterior/siguiente, reproducir/pausar. Dibuja **todas las capas** bajo el cursor como la exportación (videos, imágenes, textos, motion con transparencia, recortes de fondo, PiP, subtítulos y keyframes) y suena el audio. Herramientas **Máscara**, **Quitar fondo**, **Seguir objeto** y **Reencuadrar**; engranaje con guías de zona segura, calidad y **Vista previa clásica** (ver [§18](#18-vista-previa-multicapa-keyframes-y-visión-ia)). |
+| **Línea de tiempo**  | Pistas y clips. Barra: **Pista** (agregar pista de video, audio, texto o motion), **Texto** (clip de texto en el cursor), deshacer/rehacer, tijera (**dividir** en el cursor), tacho, onda (**Quitar silencios y muletillas**), menú **Escenas** (_Detectar escenas_, _Cortar en escenas_, _Mostrar marcadores de escena_), **imán**, tiempo actual / total y zoom.                                                                                                                                                |
+| **Propiedades**      | Sin clip seleccionado: nombre y tamaño del proyecto (ancho, alto, FPS y botones _16:9 1080p_, _9:16 vertical_, _1:1_) y datos del medio seleccionado. Con un clip: tiempo (inicio, entrada, salida, velocidad), imagen (opacidad, **escala y posición X/Y en %** con **anclas** arriba/centro/abajo y esquinas —también para motion graphics—, transiciones), audio (volumen, efectos guardados), texto (fuente, tamaño, color, posición).                                                                         |
+| **Motion graphics**  | Elegir plantilla, editar parámetros, duración y formato; **Renderizar y añadir**, **Añadir sin render** o **Actualizar clip y renderizar**. Arriba se ve qué motores están disponibles (en verde); las plantillas de un motor no disponible no se pueden elegir.                                                                                                                                                                                                                                                   |
+| **Voz y audio**      | Tres pestañas: **Texto a voz**, **Efectos** (arriba, **Limpiar voz (IA)**) y **RVC**.                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| **Subtítulos**       | **Transcribir (Whisper)** el clip seleccionado (idioma y modelo), **Quitar silencios y muletillas…** (con revisión) o _Corte rápido_, editar segmentos, **Descargar SRT**, elegir **estilo** y **Renderizar subtítulos como motion**.                                                                                                                                                                                                                                                                              |
+| **Exportar**         | Elegir preset (arranca en _YouTube 1080p_), duplicarlo y editarlo (incluida la casilla **Transparencia**), **Revisión para redes** (casilla _Voy a subirlo a redes_, avisos y etiqueta de IA), nombre del archivo, exportar un rango, **Quemar subtítulos en el video** y la lista de **Exportaciones recientes** con **Descargar**.                                                                                                                                                                               |
+| **Trabajos**         | Todo lo que tarda (análisis, proxies, renders, voz, transcripción, exportación) con su progreso. Permite cancelar, abrir el resultado, filtrar _Todos/Activos_, limpiar terminados y, en los que fallan, **Reportar**. Arriba indica la conexión: _En vivo_, _Consulta periódica_ o _Sin conexión_.                                                                                                                                                                                                                |
+| **Asistente**        | Escribís lo que querés hacer (_Cortá los silencios_, _Exportá para TikTok_) y el asistente **local** propone un plan: lo revisás paso a paso, corregís textos o tiempos, y recién ahí **Aplicar**; **Deshacer todo** vuelve atrás. Se abre con `Ctrl+Shift+A` (ver [§19](#19-asistente-local)).                                                                                                                                                                                                                    |
+| **Perfil de estilo** | Elegís un video de referencia, Studio lo analiza (ritmo de cortes, audio, textos, hoja de contactos) y deduce un **perfil** que se aplica a tu proyecto como plan del Asistente (ver [§20](#20-perfil-de-estilo)).                                                                                                                                                                                                                                                                                                 |
+| **Consola Claude**   | Terminal con **Claude Code** y tu suscripción de Claude.ai (sin API key): lee el proyecto, propone planes, lanza trabajos y mira fotogramas con las herramientas de Studio. Se abre con `Ctrl+Shift+C` (ver [§23](#23-consola-claude)).                                                                                                                                                                                                                                                                            |
 
 Cómo se trabaja en la **línea de tiempo**:
 
@@ -191,8 +194,8 @@ Cómo se trabaja en la **línea de tiempo**:
 - Cada pista tiene botones para **silenciar**, **ocultar**, **bloquear** y **eliminar** (solo se
   elimina si está vacía).
 - **Orden de las capas**: las pistas se apilan en el orden de la lista; la pista de **más arriba
-  queda al fondo** de la imagen y las que agregás después quedan **encima**. (No hay forma de
-  reordenar pistas desde la interfaz.)
+  queda al fondo** de la imagen y las que agregás después quedan **encima**. Para reordenarlas,
+  arrastrá la cabecera de la pista o usá su menú (ver [§22.1](#221-orden-de-las-capas)).
 - Hasta **100 pasos** de deshacer/rehacer.
 
 ![Línea de tiempo con un clip motion renderizado sobre el video.](img/02-timeline-motion.png)
@@ -739,6 +742,7 @@ aparece qué hace y su atajo, por ejemplo _Cortar en el cursor (S)_.
 | Paleta de comandos             | `Ctrl+K`               | Interfaz        |
 | Restaurar layout               | `Ctrl+Shift+R`         | Interfaz        |
 | Asistente: escribir un comando | `Ctrl+Shift+A`         | Interfaz        |
+| Abrir la Consola Claude        | `Ctrl+Shift+C`         | Interfaz        |
 | Zoom de la línea de tiempo     | `Ctrl` + rueda         | (fijo)          |
 
 ## 11. Variables de `.env` que podés tocar
@@ -747,33 +751,36 @@ El archivo `.env` está en la carpeta del proyecto (lo crea `setup.ps1` copiando
 Abrilo con el Bloc de notas. **Después de cambiarlo, cerrá Studio (`stop.ps1`) y volvé a abrirlo
 con `start.ps1`.** Nunca lo compartas ni lo subas a internet: puede tener tus claves.
 
-| Variable                                 | Por defecto                           | Para qué                                                                                                        |
-| ---------------------------------------- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `WEB_PORT`, `API_PORT`, `WORKERS_PORT`   | 3000, 3001, 8001                      | Puertos. Cambialos si otro programa los usa.                                                                    |
-| `NEXT_PUBLIC_API_URL`                    | `http://127.0.0.1:3001`               | Dirección de la API que usa el dashboard. Si cambiás `API_PORT`, cambiala igual (`start.ps1` recompila la web). |
-| `WORKERS_URL`                            | `http://127.0.0.1:8001`               | Dirección de los workers. Si cambiás `WORKERS_PORT`, cambiala igual.                                            |
-| `STORAGE_DIR`                            | `./storage`                           | Carpeta de tus medios, renders, exportaciones y base de datos (podés usar otro disco).                          |
-| `MODELS_DIR`                             | `./models`                            | Carpeta de los modelos Whisper, Piper y RVC.                                                                    |
-| `FFMPEG_PATH`, `FFPROBE_PATH`            | vacío (usa el del PATH)               | Ruta completa a `ffmpeg.exe` / `ffprobe.exe` si querés otro.                                                    |
-| `USE_CUDA`                               | `false`                               | `true` para usar la GPU NVIDIA en Whisper y RVC (requiere instalar con `-WithCuda`).                            |
-| `WHISPER_MODEL`                          | `base` si lo creó `setup.ps1`         | Modelo de subtítulos por defecto: `tiny`, `base`, `small`, `medium`, `large-v3`, `large-v3-turbo`.              |
-| `WHISPER_COMPUTE_TYPE`                   | `auto`                                | `auto` = int8 en CPU, float16 en GPU.                                                                           |
-| `PIPER_DEFAULT_VOICE`                    | `es_AR-daniela-high`                  | Voz Piper por defecto (la que descarga `setup.ps1`).                                                            |
-| `LOG_LEVEL`                              | `info`                                | Detalle de los registros: `error`, `warn`, `info`, `debug`.                                                     |
-| `HW_ENCODER`                             | `auto`                                | `off` para exportar siempre con CPU (`libx264`) si el codificador de la GPU da problemas.                       |
-| `QUEUE_FFMPEG_CONCURRENCY`               | `2` (1–8)                             | Exportaciones/efectos/proxies al mismo tiempo.                                                                  |
-| `QUEUE_MOTION_CONCURRENCY`               | `1` (1–4)                             | Renders de motion al mismo tiempo.                                                                              |
-| `QUEUE_WORKERS_CONCURRENCY`              | `1` (1–4)                             | Trabajos de IA (Whisper, TTS, RVC) al mismo tiempo.                                                             |
-| `REMOTION_CONCURRENCY`                   | vacío (= 50 % de los hilos)           | Pestañas de navegador por render (número o porcentaje). Bajalo si la PC se pone lenta.                          |
-| `REMOTION_BROWSER_EXECUTABLE`            | vacío (autodetecta)                   | Ruta al Chrome Headless Shell si no lo encuentra solo.                                                          |
-| `REMOTION_HW_ACCEL`                      | `false`                               | `true` para intentar codificar motion con la GPU.                                                               |
-| `REMOTION_FONTS`                         | `system`                              | `system` no descarga nada; `google` baja Google Fonts la primera vez (necesita internet).                       |
-| `REMOTION_BUNDLE_CACHE`                  | vacío (`storage/tmp/remotion-bundle`) | Carpeta de caché de Remotion.                                                                                   |
-| `REMOTION_TIMEOUT_MS`                    | vacío (60000)                         | Espera máxima por fotograma para cargar fuentes y medios.                                                       |
-| `ELEVENLABS_API_KEY`, `ELEVENLABS_MODEL` | vacío, `eleven_multilingual_v2`       | Voces de ElevenLabs (opcional, pago).                                                                           |
-| `OPENAI_API_KEY`, `OPENAI_TTS_MODEL`     | vacío, `gpt-4o-mini-tts`              | Voces de OpenAI (opcional, pago).                                                                               |
-| `FREESOUND_API_KEY`                      | vacío                                 | Búsqueda en Freesound desde la Biblioteca (se descargan las versiones _preview_).                               |
-| `ANTHROPIC_API_KEY`, `PIXABAY_API_KEY`   | vacío                                 | Reservadas: hoy **no habilitan ninguna función** en el dashboard.                                               |
+| Variable                                 | Por defecto                           | Para qué                                                                                                                  |
+| ---------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `WEB_PORT`, `API_PORT`, `WORKERS_PORT`   | 3000, 3001, 8001                      | Puertos. Cambialos si otro programa los usa.                                                                              |
+| `NEXT_PUBLIC_API_URL`                    | `http://127.0.0.1:3001`               | Dirección de la API que usa el dashboard. Si cambiás `API_PORT`, cambiala igual (`start.ps1` recompila la web).           |
+| `WORKERS_URL`                            | `http://127.0.0.1:8001`               | Dirección de los workers. Si cambiás `WORKERS_PORT`, cambiala igual.                                                      |
+| `STORAGE_DIR`                            | `./storage`                           | Carpeta de tus medios, renders, exportaciones y base de datos (podés usar otro disco).                                    |
+| `MODELS_DIR`                             | `./models`                            | Carpeta de los modelos Whisper, Piper y RVC.                                                                              |
+| `FFMPEG_PATH`, `FFPROBE_PATH`            | vacío (usa el del PATH)               | Ruta completa a `ffmpeg.exe` / `ffprobe.exe` si querés otro.                                                              |
+| `USE_CUDA`                               | `false`                               | `true` para usar la GPU NVIDIA en Whisper y RVC (requiere instalar con `-WithCuda`).                                      |
+| `WHISPER_MODEL`                          | `base` si lo creó `setup.ps1`         | Modelo de subtítulos por defecto: `tiny`, `base`, `small`, `medium`, `large-v3`, `large-v3-turbo`.                        |
+| `WHISPER_COMPUTE_TYPE`                   | `auto`                                | `auto` = int8 en CPU, float16 en GPU.                                                                                     |
+| `PIPER_DEFAULT_VOICE`                    | `es_AR-daniela-high`                  | Voz Piper por defecto (la que descarga `setup.ps1`).                                                                      |
+| `LOG_LEVEL`                              | `info`                                | Detalle de los registros: `error`, `warn`, `info`, `debug`.                                                               |
+| `HW_ENCODER`                             | `auto`                                | `off` para exportar siempre con CPU (`libx264`) si el codificador de la GPU da problemas.                                 |
+| `QUEUE_FFMPEG_CONCURRENCY`               | `2` (1–8)                             | Exportaciones/efectos/proxies al mismo tiempo.                                                                            |
+| `QUEUE_MOTION_CONCURRENCY`               | `1` (1–4)                             | Renders de motion al mismo tiempo.                                                                                        |
+| `QUEUE_WORKERS_CONCURRENCY`              | `1` (1–4)                             | Trabajos de IA (Whisper, TTS, RVC) al mismo tiempo.                                                                       |
+| `REMOTION_CONCURRENCY`                   | vacío (= 50 % de los hilos)           | Pestañas de navegador por render (número o porcentaje). Bajalo si la PC se pone lenta.                                    |
+| `REMOTION_BROWSER_EXECUTABLE`            | vacío (autodetecta)                   | Ruta al Chrome Headless Shell si no lo encuentra solo.                                                                    |
+| `REMOTION_HW_ACCEL`                      | `false`                               | `true` para intentar codificar motion con la GPU.                                                                         |
+| `REMOTION_FONTS`                         | `system`                              | `system` no descarga nada; `google` baja Google Fonts la primera vez (necesita internet).                                 |
+| `REMOTION_BUNDLE_CACHE`                  | vacío (`storage/tmp/remotion-bundle`) | Carpeta de caché de Remotion.                                                                                             |
+| `REMOTION_TIMEOUT_MS`                    | vacío (60000)                         | Espera máxima por fotograma para cargar fuentes y medios.                                                                 |
+| `STYLE_VISION_MODEL`                     | `qwen2.5vl:3b`                        | Modelo de visión local para **Deducir con modelo local** en Perfil de estilo (`qwen2.5vl:7b` es mejor pero usa más VRAM). |
+| `STYLE_NUM_CTX`                          | `8192`                                | Contexto (tokens) de esa deducción.                                                                                       |
+| `STUDIO_CLAUDE_BIN`                      | vacío (autodetecta)                   | Ruta completa a `claude` si la Consola Claude no lo encuentra solo.                                                       |
+| `ELEVENLABS_API_KEY`, `ELEVENLABS_MODEL` | vacío, `eleven_multilingual_v2`       | Voces de ElevenLabs (opcional, pago).                                                                                     |
+| `OPENAI_API_KEY`, `OPENAI_TTS_MODEL`     | vacío, `gpt-4o-mini-tts`              | Voces de OpenAI (opcional, pago).                                                                                         |
+| `FREESOUND_API_KEY`                      | vacío                                 | Búsqueda en Freesound desde la Biblioteca (se descargan las versiones _preview_).                                         |
+| `ANTHROPIC_API_KEY`, `PIXABAY_API_KEY`   | vacío                                 | Reservadas: hoy **no habilitan ninguna función** en el dashboard.                                                         |
 
 ## 12. Solución de problemas
 
@@ -1621,3 +1628,40 @@ En **Propiedades → Capa → Máscara** elegí:
   diferencias de unos pocos niveles. En navegadores sin `filter` en canvas (Safari antiguo) la
   vista previa muestra el borde duro.
 - La «Vista previa clásica» muestra el modo de fusión del video principal pero no las máscaras.
+
+## 23. Consola Claude
+
+La **Consola Claude** es una terminal dentro de Studio donde corre **Claude Code** con **tu
+suscripción de Claude.ai** (Pro o Max): no usa API key ni cobra aparte. A diferencia del
+[Asistente](#19-asistente-local) (100 % local), Claude trabaja en la nube: entiende pedidos
+largos, mira fotogramas y hojas de contactos y encadena muchos pasos. Guía completa:
+`docs/CONSOLA-CLAUDE.md`.
+
+### 23.1 Cómo se usa
+
+1. Apretá `Ctrl+Shift+C` (o `Ctrl+K` → «Consola Claude»). El panel muestra si Claude Code está
+   **instalado**, si hay **sesión** iniciada y si está **corriendo**.
+2. Tocá **Nueva sesión**. La primera vez escribí `/login` y seguí los pasos en el navegador.
+3. Aceptá la carpeta y el servidor **studio-mcp**: son las herramientas para leer y editar el
+   proyecto.
+4. Escribí tu pedido o tocá un pedido sugerido (se pega en la terminal; revisalo y apretá Enter).
+   Desde **Perfil de estilo**, **Deducir con Consola Claude** abre la consola y pega el pedido
+   con las rutas del análisis.
+
+### 23.2 Qué puede hacer
+
+- Leer el proyecto, los medios y la transcripción; mirar un fotograma de la vista previa.
+- Proponer y aplicar planes de edición (te pregunta antes de borrar clips o exportar); lo
+  aplicado queda en el Asistente y se deshace con **Deshacer todo**.
+- Lanzar trabajos (transcribir, escenas, quitar fondo, stems…), guardar y aplicar **perfiles de
+  estilo** y redactar **reportes de error**.
+
+### 23.3 Instalación, límites y privacidad
+
+- `setup.cmd` instala Claude Code (`npm i -g @anthropic-ai/claude-code`) si hay Node.js 22
+  (`-SkipClaude` lo saltea); `doctor.cmd` muestra la versión y si hay sesión.
+- Comparte el cupo de uso de tu plan con claude.ai; `/status` dentro de la consola muestra la
+  cuenta y el modelo.
+- Lo que Claude lee (pedidos, resumen del proyecto, fotogramas que abre) se envía a Anthropic. La
+  consola solo acepta conexiones de tu propia PC y Studio quita del entorno de Claude todas las
+  claves del `.env`.

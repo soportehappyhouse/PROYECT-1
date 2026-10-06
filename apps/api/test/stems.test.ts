@@ -9,6 +9,7 @@ import {
   buildRoute,
   ProjectSchema,
   STEMS_API_ROUTES,
+  tracksInZOrder,
   type Job,
   type MediaAsset,
   type Project,
@@ -276,5 +277,43 @@ describe("audio.stems (mocked workers)", () => {
     expect(out.previousVolume).toBeUndefined();
     expect(out.project.tracks.map((t) => t.name)).toEqual(["Video", "Voz"]);
     expect(out.project.tracks[1]!.clips[0]).toMatchObject({ start: 0, in: 0, out: 12.5 });
+  });
+
+  it("placeStems keeps explicit z-order: stems right above the source track, renumbered", () => {
+    const now = new Date().toISOString();
+    const clip = { id: "c", trackId: "a", assetId: "x", start: 1, in: 0, out: 4 };
+    // array order a, v, m but z-order (Track.order) v(0) < a(1) < m(2)
+    const p = ProjectSchema.parse({
+      id: "p",
+      name: "x",
+      settings: {},
+      tracks: [
+        { id: "a", kind: "audio", name: "Audio", order: 1, clips: [clip] },
+        { id: "v", kind: "video", name: "Video", order: 0, clips: [] },
+        { id: "m", kind: "motion", name: "Motion", order: 2, clips: [] },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    });
+    let n = 0;
+    const out = placeStems(
+      p,
+      [
+        { name: "vocals", assetId: "s1" },
+        { name: "no_vocals", assetId: "s2" },
+      ],
+      "c",
+      () => `n${++n}`,
+    );
+    const z = tracksInZOrder(out.project.tracks);
+    expect(z.map((t) => `${t.name}:${t.order}`)).toEqual([
+      "Video:0",
+      "Audio:1",
+      "Voz:2",
+      "Música:3",
+      "Motion:4",
+    ]);
+    expect(z[1]!.clips[0]!.volume).toBe(0); // source muted, reversible
+    expect(z[2]!.clips[0]).toMatchObject({ start: 1, in: 0, out: 4 });
   });
 });

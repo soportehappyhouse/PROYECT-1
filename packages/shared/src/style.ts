@@ -75,8 +75,8 @@ export const StyleAnalysisSchema = z
       speech_ratio: z.number().min(0).max(1).nullable(),
       music_detected: z.boolean().nullable(),
       silence_ratio: z.number().min(0).max(1).nullable(),
-      speech_method: z.string().optional(),
-      music_method: z.string().optional(),
+      speech_method: z.string().nullish(), // null without an audio stream
+      music_method: z.string().nullish(),
     }),
     text_on_screen: z
       .array(

@@ -264,7 +264,7 @@ if (Test-Path $VenvPython) {
 } else {
     Add-Result 'Paquetes de IA' skip 'requiere apps\workers\.venv'
 }
-# GPL-isolated venv for RobustVideoMatting (pack matting): apps\workers\.venv-gpl
+# GPL-isolated venv for RobustVideoMatting (packs matting and matting-hq): apps\workers\.venv-gpl
 $gplDir = Join-Path $WorkersDir '.venv-gpl'
 $gplPython = Join-Path $gplDir 'Scripts\python.exe'
 $gplState = 'missing'
@@ -291,7 +291,7 @@ if ($gplState -eq 'ready' -and (Test-Path $gplPython)) {
 } elseif ($gplState -eq 'stale') {
     Add-Result 'Entorno GPL (.venv-gpl)' warn 'vision_gpl\requirements.txt cambio: setup.ps1 -Update lo actualiza'
 } else {
-    Add-Result 'Entorno GPL (.venv-gpl)' skip 'no creado; se crea al descargar el paquete matting (recorte RVM)'
+    Add-Result 'Entorno GPL (.venv-gpl)' skip 'no creado; se crea al descargar el paquete matting o matting-hq (recorte RVM)'
 }
 if (Test-Cmd 'nvidia-smi') {
     Write-Info 'GPU: si la VRAM se llena, el driver NVIDIA usa RAM compartida (5-10x mas lento) en vez de fallar.'

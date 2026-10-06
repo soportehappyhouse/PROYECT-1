@@ -244,11 +244,21 @@ def test_cli_packs(dirs, monkeypatch: pytest.MonkeyPatch, capsys, tmp_path: Path
 
     monkeypatch.setattr(packs, "install_pack", fake_install)
     monkeypatch.setattr(models_cli, "_catalog", lambda *a, **k: None)
+    # independent of a real Ollama: "up, no models" → the Ollama packs are installed too
+    monkeypatch.setattr(packs, "ollama_installed_models", lambda *a, **k: [])
     report = tmp_path / "r.json"
     assert models_cli.main(["--packs", "all", "--report", str(report)]) == 1
     assert done == list(packs.PACKS)  # a failure does not stop the next packs
     data = json.loads(report.read_text("utf-8"))
     assert data["failed"] == 1 and data["installed"] == len(packs.PACKS) - 1
+
+    # Ollama down (-SkipOllama): `all` skips the Ollama packs without failing
+    ollama_packs = [p for p, pk in packs.PACKS.items() if pk.ollama_models is not None]
+    assert {"agent-llm", "vision-llm"} <= set(ollama_packs)
+    done.clear()
+    monkeypatch.setattr(packs, "ollama_installed_models", lambda *a, **k: None)
+    assert models_cli.main(["--packs", "all", "--report", str(report)]) == 1
+    assert done == [p for p in packs.PACKS if p not in ollama_packs]
 
 
 def test_extract_deepfilter_zip(tmp_path: Path) -> None:

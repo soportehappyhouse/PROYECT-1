@@ -318,8 +318,9 @@ export function moveClip(
   if (!target) {
     const n = tracks.filter((x) => x.kind === track.kind).length + 1;
     const name = { video: "Video", audio: "Audio", text: "Texto", motion: "Motion" }[track.kind];
+    const { order: _order, ...rest } = track; // a new track goes on top (index z), not tied with `track`
     target = {
-      ...track,
+      ...rest,
       id: newId(),
       name: `${name} ${n}`,
       muted: false,

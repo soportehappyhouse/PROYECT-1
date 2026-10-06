@@ -364,6 +364,15 @@ if MOCK_RVC:
         return output, 40000, 1.0
 
     _m3_engine.convert = _m3_convert  # type: ignore[method-assign]
+    _m3_status_before_rvc = packs.pack_status
+
+    def _m3_pack_status_rvc(pack, root, catalog=None, **kw):  # type: ignore[no-untyped-def]
+        row = _m3_status_before_rvc(pack, root, catalog, **kw)
+        if pack.id == "rvc-base":  # the api checks the pack before queueing voice.rvc
+            row.update(installed=True, partial=False)
+        return row
+
+    packs.pack_status = _m3_pack_status_rvc
 # --------------------------------------------------------------- END sprint4:M3 tools mock
 
 settings = get_settings()

@@ -111,6 +111,19 @@ _startup_s/_device/_model` (por el `FaceEngine` de M1: video de 3 s a 1080p arma
   hereda la procedencia); web `publish.test.tsx` (8: detección bloqueada, etiqueta solo con redes,
   insignias, textos del test de rendimiento, licencia y estado del entorno en Paquetes de IA).
 
+## E2E (al final, stack propio en :3001/:8001/:3000, `STORAGE_DIR` temporal)
+
+- `run-e2e.mjs --skip-motion --only "…|sprint4"`: los 14 pasos `sprint4` en verde (4 de M3: licencia de
+  punta a punta `{download: succeeded, mcpAccept: 403, swapAfterRevoke: 403}`; perf.json con Chatterbox
+  RTF 0,012 (mock) y FaceFusion `CONTENT_BLOCKED` (la primera Persona con rostro vigente del e2e es la
+  de la foto «nsfw» de M1: el bench pasa por el `FaceEngine` y clasifica igual que un trabajo real);
+  export con `comment` «…voz sintética: sí» y la etiqueta visible apagada; RVC `device: cpu`). En la
+  corrida completa de M1 el paso de RVC falló porque la api pedía `rvc-base`: el mock ahora lo reporta
+  instalado y el paso devuelve un motivo si no está.
+- `ui-smoke.mjs --vp9-preview --only "Sprint 4"`: 5/5 (2 de M3: Revisión para redes con la detección real
+  del proyecto y la etiqueta propuesta al marcar redes; Paquetes de IA con la licencia y el estado del
+  entorno de FaceFusion).
+
 ## Desvíos del contrato
 
 - `routers/perf.py` y `services/workers-client.ts` (`perfRun(body?)`) no estaban en mis rutas: hacía

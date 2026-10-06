@@ -258,8 +258,9 @@ def run_perf(
         notify(0.96, "Cambio de cara (FaceFusion)")
         try:
             bench_facefusion(settings, work, result, face_source_path, licences, face_consent_id)
-        except Exception as exc:
-            errors["facefusion"] = str(exc)
+        except Exception as exc:  # CONTENT_BLOCKED / TOOL_FAILED / PACK_REQUIRED keep their code
+            code = getattr(exc, "code", None) or getattr(exc, "pack_id", None)
+            errors["facefusion"] = f"{code}: {exc}" if code else str(exc)
         result["tools"] = tool_states()
     finally:
         shutil.rmtree(work, ignore_errors=True)

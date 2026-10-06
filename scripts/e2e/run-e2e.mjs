@@ -3940,6 +3940,8 @@ await step("sprint4: RVC informa device (cpu en CI)", async () => {
   const models = await ok("GET", "/api/voice/rvc/models");
   if (!models.some((m) => m.id === "e2e-voz"))
     return "sin el mock de RVC (STUDIO_MOCK_RVC=0): no hay voz de prueba";
+  const base = (await ok("GET", "/api/ai/packs")).find((p) => p.id === "rvc-base");
+  if (!base?.installed) return "rvc-base no instalado (workers sin el mock de RVC)";
   const { jobId } = await ok("POST", "/api/voice/rvc", {
     assetId: ctx.sAsset.id,
     modelId: "e2e-voz",

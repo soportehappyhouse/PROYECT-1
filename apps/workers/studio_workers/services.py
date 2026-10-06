@@ -127,6 +127,42 @@ def reset() -> None:
     getattr(ollama_client, "cache_clear", lambda: None)()
 
 
+# BEGIN sprint4:M2 — Chatterbox TTS client (one bridge subprocess per workers process)
+import threading as _threading_m2  # noqa: E402
+
+_chatterbox_clients: list = []
+_chatterbox_lock = _threading_m2.Lock()
+
+
+def chatterbox_client():  # type: ignore[no-untyped-def]  # -> tts.chatterbox.ChatterboxClient
+    """The single ChatterboxClient (starts its tool subprocess lazily; GpuBudget "chatterbox")."""
+    from .tts.chatterbox import ChatterboxClient  # noqa: PLC0415
+
+    with _chatterbox_lock:
+        if not _chatterbox_clients:
+            _chatterbox_clients.append(ChatterboxClient(get_settings(), budget=gpu_budget()))
+        return _chatterbox_clients[0]
+
+
+def _stop_chatterbox() -> None:
+    with _chatterbox_lock:
+        clients = list(_chatterbox_clients)
+        _chatterbox_clients.clear()
+    for client in clients:
+        client.stop()
+
+
+_reset_before_sprint4_m2 = reset
+
+
+def reset() -> None:  # noqa: F811 - extends reset() above (terminates the Chatterbox subprocess)
+    _stop_chatterbox()
+    _reset_before_sprint4_m2()
+
+
+# END sprint4:M2
+
+
 # BEGIN sprint4:M1 — face swap engine (FaceFusion subprocess) + its own one-at-a-time queue
 @lru_cache
 def face_engine():  # type: ignore[no-untyped-def]  # -> face.engine.FaceEngine

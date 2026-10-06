@@ -24,3 +24,4 @@ export * from "./style.js";
 export * from "./stems.js";
 export * from "./consent.js";
 export * from "./face.js";
+export * from "./voice-clone.js";

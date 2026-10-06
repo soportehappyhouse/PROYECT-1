@@ -1560,6 +1560,138 @@ await step(
   },
 );
 
+// ---------------------------------------------------------------- BEGIN sprint4:M2
+// «Voces»: Chatterbox engine (workers-with-mocks.py: pack installed + bridge --mock), «Voz propia»
+// uploaded from the panel («Soy yo» mandatory) and clones with it and with a consented Person
+// (Person + signed consent + voice sample created through the api with the web Origin).
+await step(
+  "Sprint 4: Voces: motor Chatterbox (mock), Voz propia y clonación con Persona",
+  async () => {
+    const pack = (await apiJson("/api/ai/packs")).find((p) => p.id === "tts-chatterbox");
+    if (!pack) throw new Error("pack tts-chatterbox not listed by /api/ai/packs");
+    if (!pack.installed) return { skipped: "tts-chatterbox not installed (mocks off)" };
+    const { mkdtemp, readFile } = await import("node:fs/promises");
+    const os = await import("node:os");
+    const dir = await mkdtemp(path.join(os.tmpdir(), "studio-ui-m2-"));
+    const lavfi = (name, graph, extra = []) => {
+      const file = path.join(dir, name);
+      const r = spawnSync("ffmpeg", [
+        "-y",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        graph,
+        ...extra,
+        file,
+      ]);
+      if (r.status !== 0) throw new Error(`ffmpeg ${name}: ${r.stderr}`);
+      return file;
+    };
+    const selfWav = lavfi("voz-propia.wav", "sine=frequency=170:duration=9:sample_rate=44100", [
+      "-af",
+      "volume=0.5",
+    ]);
+    // A Person with a signed voice consent and a sample (M1's api; consents need the web Origin).
+    const person = await apiSend("POST", "/api/persons", { name: "Lu E2E" });
+    const human = { origin: WEB };
+    const sig = await readFile(lavfi("firma.png", "color=c=white:s=240x90", ["-frames:v", "1"]));
+    const cf = new FormData();
+    for (const [k, v] of Object.entries({
+      scope: "voice",
+      method: "firma en pantalla",
+      signer_name: "Lu E2E",
+      text_version: "2026-10-06",
+      accept: "true",
+    }))
+      cf.append(k, v);
+    cf.append("evidence", new Blob([sig], { type: "image/png" }), "firma.png");
+    const consent = await fetch(`${API}/api/persons/${person.id}/consents`, {
+      method: "POST",
+      headers: human,
+      body: cf,
+    });
+    if (consent.status !== 201)
+      throw new Error(`consent -> ${consent.status} ${await consent.text()}`);
+    const vf = new FormData();
+    vf.append(
+      "audio",
+      new Blob([await readFile(lavfi("lu.wav", "sine=frequency=260:duration=8"))], {
+        type: "audio/wav",
+      }),
+      "lu.wav",
+    );
+    const sample = await fetch(`${API}/api/persons/${person.id}/voice-samples`, {
+      method: "POST",
+      body: vf,
+    });
+    if (!sample.ok) throw new Error(`voice sample -> ${sample.status} ${await sample.text()}`);
+
+    if (!page.url().startsWith(WEB)) await page.goto(WEB, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+    await page.locator(".dv-tab", { hasText: "Voz y audio" }).click();
+    const panel = page.locator("section[aria-label='Voz y audio']");
+    await panel.getByRole("tab", { name: "Texto a voz" }).click();
+    await panel.getByLabel("Motor").selectOption("chatterbox");
+    await panel.getByTestId("chatterbox-options").waitFor({ timeout: 15_000 });
+    if ((await panel.getByLabel("Idioma").inputValue()) !== "es") throw new Error("language != es");
+    // «Voz propia»: upload disabled until «Soy yo»
+    const upload = panel.getByLabel("Subir muestra de voz propia");
+    if (!(await upload.isDisabled())) throw new Error("upload enabled without «Soy yo»");
+    await panel.getByLabel("Soy yo: es mi propia voz").check();
+    await upload.setInputFiles(selfWav);
+    await panel
+      .getByRole("list", { name: "Muestras de voz propia" })
+      .getByText(/^Voz propia \(/)
+      .first()
+      .waitFor({ timeout: 30_000 });
+    const before = new Set((await apiJson("/api/jobs?type=voice.tts&limit=200")).map((j) => j.id));
+    const generate = async (source, text) => {
+      await panel.getByLabel("Voz a clonar").selectOption(source);
+      await panel.getByRole("textbox").first().fill(text);
+      await panel.getByRole("button", { name: /Generar y añadir al cursor/ }).click();
+      for (let i = 0; i < 240; i++) {
+        const job = (await apiJson("/api/jobs?type=voice.tts&limit=200")).find(
+          (j) => !before.has(j.id),
+        );
+        if (job && ["succeeded", "failed", "canceled"].includes(job.status)) {
+          before.add(job.id);
+          const full = await apiJson(`/api/jobs/${job.id}`);
+          if (full.status !== "succeeded")
+            throw new Error(`voice.tts ${full.status}: ${full.error}`);
+          return full;
+        }
+        await sleep(500);
+      }
+      throw new Error("voice.tts job did not finish");
+    };
+    // Persons with voice consent are listed (read-only)
+    const options = await panel.getByLabel("Voz a clonar").locator("option").allTextContents();
+    if (!options.includes("Persona: Lu E2E")) {
+      await panel.getByLabel("Motor").selectOption("piper");
+      await panel.getByLabel("Motor").selectOption("chatterbox");
+    }
+    await panel.getByLabel("Fidelidad al acento de la referencia").fill("0.3");
+    const self = await generate("self", "Che, ¿viste que mañana llueve?");
+    if (self.result?.aiVoice !== "cloned" || self.payload?.cfg !== 0.3)
+      throw new Error(`Voz propia job ${JSON.stringify({ r: self.result, p: self.payload })}`);
+    await page.getByText("Marcado como voz clonada (Revisión para redes).").first().waitFor({
+      timeout: 10_000,
+    });
+    const optionsNow = await panel.getByLabel("Voz a clonar").locator("option").allTextContents();
+    if (!optionsNow.includes("Persona: Lu E2E"))
+      throw new Error(`Person not listed: ${optionsNow.join(" | ")}`);
+    const cloned = await generate(`person:${person.id}`, "Hola, soy Lu.");
+    const asset = await apiJson(`/api/media/${cloned.result.assetId}`);
+    if (asset.aiProvenance?.kind !== "voice-cloned" || asset.aiProvenance.personId !== person.id)
+      throw new Error(`Person clone provenance ${JSON.stringify(asset.aiProvenance)}`);
+    await shot(page, "s4-voces-chatterbox.png");
+    return { self: self.result.assetId, person: asset.id, options: optionsNow };
+  },
+);
+// ------------------------------------------------------------------ END sprint4:M2
+
 // ---------------------------------------------------------------- BEGIN sprint4:M1
 // «Caras»: Ajustes → Personas (create, photo, signature on the canvas, consent vigente) and the
 // «Cambiar cara» wizard against workers-with-mocks.py (packs faceswap installed, fake FaceFusion

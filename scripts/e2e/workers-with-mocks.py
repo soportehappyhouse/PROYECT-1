@@ -24,6 +24,9 @@
   htdemucs model is a fixed linear split (vocals 0.6, drums 0.2, bass 0.1, other 0.1 of the mix),
   so /audio/stems runs the real decode, chunking, overlap-add and WAV writing.
 
+- Sprint 4 M2 Chatterbox (STUDIO_MOCK_CHATTERBOX=0 turns it off): pack tts-chatterbox installed,
+  CHATTERBOX_PYTHON = this interpreter and the real bridge with --mock (sine WAV, no torch).
+
 Everything else (scenes, silences, packs, gpu, perf, vision.track with OpenCV, vision.reframe with
 a track) is the real code. Never used by setup/start.
 """
@@ -245,6 +248,26 @@ if MOCK_STEMS:
 
     packs.pack_status = pack_status_stems
 # --------------------------------------------------------------- END sprint 3b stems mock
+
+# ------------------------------------------------------------- BEGIN sprint4:M2 chatterbox mock
+# STUDIO_MOCK_CHATTERBOX=0 turns it off. Pack tts-chatterbox reported as installed, the tool venv
+# = this interpreter (CHATTERBOX_PYTHON, through tools/launch.py) and the real bridge
+# tools/chatterbox/studio_tts_server.py with --mock: a generated sine WAV (220 Hz, 330 Hz with a
+# reference sample) of 0.06 s per character, 24 kHz mono, same JSON-lines protocol and chunking.
+MOCK_CHATTERBOX = os.environ.get("STUDIO_MOCK_CHATTERBOX", "1") != "0"
+if MOCK_CHATTERBOX:
+    os.environ.setdefault("CHATTERBOX_PYTHON", sys.executable)
+    _status_before_chatterbox = packs.pack_status
+
+    def pack_status_chatterbox(pack, root, catalog=None, **kw):  # type: ignore[no-untyped-def]
+        row = _status_before_chatterbox(pack, root, catalog, **kw)
+        if pack.id == "tts-chatterbox":
+            row.update(installed=True, partial=False)
+        return row
+
+    packs.pack_status = pack_status_chatterbox
+    services.chatterbox_client().extra_args = ["--mock"]
+# --------------------------------------------------------------- END sprint4:M2 chatterbox mock
 
 # ------------------------------------------------------------- BEGIN sprint4:M1 face swap mock
 # STUDIO_MOCK_FACE=0 turns it off. Packs faceswap / faceswap-extra reported installed (no models

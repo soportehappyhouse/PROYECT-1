@@ -1,5 +1,5 @@
 import { stat } from "node:fs/promises";
-import { MediaAssetSchema, type MediaAsset } from "@studio/shared";
+import { MediaAssetSchema, type AiProvenance, type MediaAsset } from "@studio/shared";
 import { nanoid } from "nanoid";
 import type { AppContext } from "../context.js";
 import { HttpError } from "../lib/errors.js";
@@ -42,6 +42,12 @@ export interface NewAudioAsset {
   sampleRate?: number;
   mimeType?: string;
   id?: string;
+  /** Sprint 4: "voice-ref" for a «Voz propia» sample (never probed: media.probe would reset kind). */
+  kind?: "audio" | "voice-ref";
+  channels?: number;
+  /** Sprint 4: synthetic/cloned voice (or derived from one) and what generated it. */
+  aiAltered?: boolean;
+  aiProvenance?: AiProvenance;
 }
 
 /** Insert a generated/imported audio file as a MediaAsset and kick off its probe (waveform peaks). */
@@ -52,20 +58,26 @@ export async function registerAudioAsset(
   const abs = resolveStoragePath(ctx.config.storageDir, input.path);
   const info = await stat(abs);
   const now = new Date().toISOString();
+  const kind = input.kind ?? "audio";
   const asset = MediaAssetSchema.parse({
     id: input.id ?? nanoid(),
-    kind: "audio",
+    kind,
     name: input.name.slice(0, 200),
     path: input.path,
     mimeType: input.mimeType ?? mimeFor(input.path),
     sizeBytes: info.size,
     ...(input.durationSec !== undefined && { durationSec: input.durationSec }),
     ...(input.sampleRate !== undefined && { sampleRate: input.sampleRate }),
+    ...(input.channels !== undefined && { channels: input.channels }),
+    ...(kind === "voice-ref" && { hasAudio: true, hasVideo: false }),
+    ...(input.aiAltered !== undefined && { aiAltered: input.aiAltered }),
+    ...(input.aiProvenance !== undefined && { aiProvenance: input.aiProvenance }),
     createdAt: now,
   });
   ctx.repos.media.insert(asset);
   // Waveform/probe for the timeline (module b). Audio never gets a proxy (`media.proxy` is video-only).
-  if (ctx.queue.hasHandler("media.probe"))
+  // A voice-ref is never a timeline clip and media.probe would overwrite its kind with "audio".
+  if (kind === "audio" && ctx.queue.hasHandler("media.probe"))
     ctx.queue.enqueue({ type: "media.probe", payload: { assetId: asset.id }, priority: 1 });
   return asset;
 }

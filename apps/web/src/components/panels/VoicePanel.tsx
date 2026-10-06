@@ -1,14 +1,19 @@
 "use client";
 
 import {
+  CHATTERBOX_MAX_TEXT,
+  CHATTERBOX_PACK_ID,
+  SELF_VOICE_PROMPT_ES,
+  SELF_VOICE_RECORD_SEC,
   STEMS_MODE_LABELS_ES,
+  type AudioJobResult,
   type RvcRequest,
   type StemsMode,
   type TtsProvider,
   type TtsVoiceInfo,
 } from "@studio/shared";
-import { Download, Eraser, Plus, Split, Trash2, Undo2 } from "lucide-react";
-import { useState } from "react";
+import { Download, Eraser, Mic, Plus, Split, Trash2, Undo2, Upload } from "lucide-react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { hasAudio, SelectedClipHint, useSelectedClip } from "@/components/common/SelectedClipInfo";
 import { Button } from "@/components/ui/button";
@@ -23,7 +28,9 @@ import {
   Tabs,
 } from "@/components/ui/misc";
 import { useApiResource } from "@/hooks/use-api-resource";
-import { aiApi, api, ApiRequestError, errorMessage, isNotImplemented } from "@/lib/api";
+import { aiApi, api, ApiRequestError, errorMessage, fileUrl, isNotImplemented } from "@/lib/api";
+import { JobFailedError, waitForJob } from "@/lib/job-runner";
+import { cn } from "@/lib/utils";
 import {
   defaultEffect,
   EFFECT_DEFS,
@@ -39,7 +46,21 @@ import { formatMb, withPiperCatalog } from "@/lib/voices";
 import { useJobsStore } from "@/stores/jobs-store";
 import { runWithPack, usePacksStore } from "@/stores/packs-store";
 import { useProjectStore } from "@/stores/project-store";
+import { useSettingsStore } from "@/stores/settings-store";
 import { useStemsStore } from "@/stores/stems-store";
+import {
+  chatterboxErrorMessage,
+  chatterboxOnCpu,
+  chatterboxRequest,
+  chatterboxRow,
+  cloneOptions,
+  currentProvider,
+  estimateLabel,
+  modelLabel,
+  textTooLong,
+  useVoiceCloneStore,
+  type CloneSource,
+} from "@/stores/voice-clone-store";
 import { Panel } from "./Panel";
 
 type Tab = "tts" | "effects" | "rvc";
@@ -184,32 +205,314 @@ export function downloadErrorMessage(err: unknown): string {
   return errorMessage(err);
 }
 
+/** Spanish GB size: "6,2 GB". */
+function gbLabel(bytes: number | undefined): string {
+  return bytes ? `${(bytes / 1e9).toFixed(1).replace(".", ",")} GB` : "";
+}
+
+function openPersons() {
+  // Ajustes → Personas (tab of the faces module).
+  useSettingsStore.getState().setSettingsOpen(true, "persons");
+}
+
+/** Sprint 4: toast for a Chatterbox failure, with «Abrir Personas» when a consent is missing. */
+function reportTtsError(err: unknown) {
+  const raw =
+    err instanceof JobFailedError
+      ? (err.job.result as { error?: { code?: string; message?: string } } | undefined)?.error
+      : undefined;
+  const code = err instanceof ApiRequestError ? err.code : raw?.code;
+  const message = raw?.message ?? chatterboxErrorMessage(err);
+  const personSource = useVoiceCloneStore.getState().source.startsWith("person:");
+  const personIssue =
+    code === "CONSENT_REQUIRED" ||
+    code === "PERSON_NOT_FOUND" ||
+    (code === "VOICE_SAMPLE_MISSING" && personSource);
+  if (personIssue)
+    toast.error("Texto a voz", {
+      description: message,
+      action: { label: "Abrir Personas", onClick: openPersons },
+    });
+  else if (code === "TOOL_MISSING")
+    toast.error("Texto a voz", {
+      description: message,
+      action: {
+        label: "Paquetes de IA",
+        onClick: () => useSettingsStore.getState().setSettingsOpen(true, "ai-packs"),
+      },
+    });
+  else reportError("Texto a voz", err);
+}
+
+/** Sprint 4 «Voz propia»: record 10 s (MediaRecorder) or upload; «Soy yo» is mandatory. */
+function SelfVoiceSection() {
+  const selfRefs = useVoiceCloneStore((s) => s.selfRefs);
+  const attest = useVoiceCloneStore((s) => s.attestSelf);
+  const record = useVoiceCloneStore((s) => s.record);
+  const elapsed = useVoiceCloneStore((s) => s.recordElapsed);
+  const lastError = useVoiceCloneStore((s) => s.lastError);
+  const store = useVoiceCloneStore.getState;
+  const busy = record !== "idle";
+
+  const done = (asset: { name: string } | undefined) => {
+    if (asset) toast.success(`Guardada: «${asset.name}»`);
+  };
+
+  return (
+    <Section title="Voz propia">
+      <p className="text-[11px] text-muted-foreground">
+        Grabá unos {SELF_VOICE_RECORD_SEC} s leyendo esta frase con tu tonada, en un lugar callado y
+        sin música. Chatterbox copia la voz y el acento de la muestra.
+      </p>
+      <blockquote className="rounded-md border-l-2 bg-muted px-2 py-1 text-xs italic">
+        «{SELF_VOICE_PROMPT_ES}»
+      </blockquote>
+      <label className="flex items-center gap-2 text-xs">
+        <Checkbox
+          checked={attest}
+          aria-label="Soy yo: es mi propia voz"
+          onChange={(e) => store().setAttestSelf(e.target.checked)}
+        />
+        Soy yo: es mi propia voz
+      </label>
+      <div className="flex flex-wrap gap-1">
+        <Button
+          size="xs"
+          variant="outline"
+          disabled={!attest || busy}
+          tooltip="Graba con el micrófono de la PC (el navegador pide permiso)"
+          onClick={() => void store().recordSelfRef().then(done)}
+        >
+          {record === "recording" ? <Spinner className="size-3" /> : <Mic />}
+          {record === "recording"
+            ? `Grabando… ${Math.floor(elapsed)} / ${SELF_VOICE_RECORD_SEC} s`
+            : `Grabar ${SELF_VOICE_RECORD_SEC} s`}
+        </Button>
+        <label
+          className={cn(
+            "inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-0.5 text-xs",
+            (!attest || busy) && "pointer-events-none opacity-50",
+          )}
+        >
+          <Upload className="size-3" /> Subir archivo
+          <input
+            type="file"
+            accept="audio/*,video/webm,.wav,.mp3,.m4a,.ogg,.webm,.flac"
+            aria-label="Subir muestra de voz propia"
+            className="hidden"
+            disabled={!attest || busy}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) void store().uploadSelfRef(file, file.name).then(done);
+            }}
+          />
+        </label>
+        {record === "uploading" ? <Spinner className="size-3" /> : null}
+      </div>
+      {record === "recording" ? <Progress value={elapsed / SELF_VOICE_RECORD_SEC} /> : null}
+      {lastError ? <p className="text-[11px] text-destructive">{lastError}</p> : null}
+      {selfRefs.length > 0 ? (
+        <ul className="flex flex-col gap-1" aria-label="Muestras de voz propia">
+          {selfRefs.map((a) => (
+            <li key={a.id} className="flex flex-col gap-1 rounded-md border px-2 py-1 text-xs">
+              <span className="flex items-center gap-2">
+                <span className="min-w-0 flex-1 truncate font-medium">{a.name}</span>
+                {a.durationSec ? (
+                  <span className="text-muted-foreground">{a.durationSec.toFixed(1)} s</span>
+                ) : null}
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label={`Borrar ${a.name}`}
+                  onClick={() => void store().deleteSelfRef(a.id)}
+                >
+                  <Trash2 />
+                </Button>
+              </span>
+              <audio controls preload="none" src={fileUrl(a.path)} className="h-7 w-full" />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-[11px] text-muted-foreground">Todavía no grabaste tu voz.</p>
+      )}
+    </Section>
+  );
+}
+
+/** Sprint 4: Chatterbox options (language fixed to Spanish, clone source, sliders, notes). */
+function ChatterboxOptions({ text }: { text: string }) {
+  const providers = useVoiceCloneStore((s) => s.providers);
+  const selfRefs = useVoiceCloneStore((s) => s.selfRefs);
+  const persons = useVoiceCloneStore((s) => s.persons);
+  const source = useVoiceCloneStore((s) => s.source);
+  const selfRefId = useVoiceCloneStore((s) => s.selfRefId);
+  const exaggeration = useVoiceCloneStore((s) => s.exaggeration);
+  const cfg = useVoiceCloneStore((s) => s.cfg);
+  const gpu = useVoiceCloneStore((s) => s.gpu);
+  const perf = useVoiceCloneStore((s) => s.perf);
+  const store = useVoiceCloneStore.getState;
+  const row = chatterboxRow(providers);
+  const options = cloneOptions(selfRefs, persons);
+  const estimate = text.trim() ? estimateLabel(text, perf) : undefined;
+  const model = modelLabel(row);
+
+  return (
+    <div className="flex flex-col gap-2" data-testid="chatterbox-options">
+      <Label>
+        Idioma
+        <Select value="es" disabled aria-label="Idioma">
+          <option value="es">Español (es)</option>
+        </Select>
+      </Label>
+      <Label>
+        Voz a clonar
+        <Select
+          aria-label="Voz a clonar"
+          value={source}
+          onChange={(e) => store().setSource(e.target.value as CloneSource)}
+        >
+          {options.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </Select>
+      </Label>
+      {source === "self" && selfRefs.length > 1 ? (
+        <Label>
+          Muestra
+          <Select
+            aria-label="Muestra de voz propia"
+            value={selfRefId ?? ""}
+            onChange={(e) => store().setSelfRefId(e.target.value || undefined)}
+          >
+            <option value="">La más reciente</option>
+            {selfRefs.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </Select>
+        </Label>
+      ) : null}
+      <p className="text-[11px] text-muted-foreground">
+        Solo aparecen las Personas con consentimiento de voz vigente.{" "}
+        <button type="button" className="underline" onClick={openPersons}>
+          Registrar una persona
+        </button>
+      </p>
+      <Label>
+        Expresividad: {exaggeration.toFixed(2)}
+        <Range
+          aria-label="Expresividad"
+          min={0.25}
+          max={2}
+          step={0.05}
+          value={exaggeration}
+          onChange={(e) => store().setExaggeration(Number(e.target.value))}
+        />
+      </Label>
+      <Label>
+        Fidelidad al acento de la referencia: {cfg.toFixed(2)}
+        <Range
+          aria-label="Fidelidad al acento de la referencia"
+          min={0}
+          max={1}
+          step={0.05}
+          value={cfg}
+          onChange={(e) => store().setCfg(Number(e.target.value))}
+        />
+      </Label>
+      <p className="text-[11px] text-muted-foreground">
+        0,5 conserva bien la tonada de la muestra; bajala a 0,3 si la referencia habla rápido.
+      </p>
+      {chatterboxOnCpu(gpu) ? (
+        <p className="rounded-md bg-muted p-2 text-[11px]" data-testid="chatterbox-cpu">
+          Va a correr en CPU: bastante más lento que en GPU (puede tardar varios minutos).
+        </p>
+      ) : null}
+      <p className="text-[11px] text-muted-foreground">
+        Lleva una marca de agua inaudible (PerTh).
+        {model ? ` Modelo: ${model}.` : ""}
+        {estimate ? ` Tiempo estimado: ${estimate}.` : ""}
+      </p>
+    </div>
+  );
+}
+
 function TtsForm() {
   const config = useApiResource(() => api.config());
   const voices = useApiResource(() => api.ttsVoices());
-  const [provider, setProvider] = useState<TtsProvider>("piper");
+  const providers = useVoiceCloneStore((s) => s.providers);
+  const provider = useVoiceCloneStore(currentProvider);
   const [voice, setVoice] = useState("");
   const [text, setText] = useState("");
   const [speed, setSpeed] = useState(1);
   const [busy, setBusy] = useState(false);
 
+  useEffect(() => {
+    void useVoiceCloneStore.getState().load();
+  }, []);
+
+  const chatterbox = chatterboxRow(providers);
+  const isChatterbox = provider === "chatterbox";
   const providerEnabled: Record<TtsProvider, boolean> = {
     piper: true,
     elevenlabs: config.data?.providers.elevenlabs ?? false,
     openai: config.data?.providers.openai ?? false,
-    // Sprint 4 Paso 0 stub: the voice module (M2) enables it from GET /api/voice/tts/providers.
-    chatterbox: false,
+    chatterbox: chatterbox?.enabled ?? false,
   };
   const all = provider === "piper" ? withPiperCatalog(voices.data ?? []) : (voices.data ?? []);
   const list = all.filter((v) => v.provider === provider);
   const installed = list.filter((v) => v.installed);
   const selectedVoice =
     (voice && installed.some((v) => v.id === voice) ? voice : undefined) ?? installed[0]?.id ?? "";
+  const packSize = usePacksStore(
+    (s) => s.packs.find((p) => p.id === CHATTERBOX_PACK_ID)?.size_bytes,
+  );
+
+  const downloadPack = () => {
+    const packs = usePacksStore.getState();
+    packs.openRequest({
+      packId: CHATTERBOX_PACK_ID,
+      name_es: "Voz avanzada (Chatterbox: español y clonación)",
+      ...((packSize ?? 0) > 0 && { size_bytes: packSize }),
+    });
+    packs.attachRetry(CHATTERBOX_PACK_ID, () => void useVoiceCloneStore.getState().load());
+  };
+
+  const submitChatterbox = async () => {
+    await warnIfCpu("chatterbox");
+    const start = useProjectStore.getState().playhead;
+    // Wrapped whole (request + wait): after a «Paquete requerido» download it runs again.
+    await runWithPack(async () => {
+      const state = useVoiceCloneStore.getState();
+      const { jobId } = await api.tts(chatterboxRequest(state, text));
+      toast.info(state.source === "none" ? "Generando voz con Chatterbox…" : "Clonando la voz…");
+      const job = await waitForJob(jobId, "voice.tts", { kind: "addToTimeline", start });
+      const result = job.result as AudioJobResult | undefined;
+      if (result?.aiVoice === "cloned")
+        toast.success("Voz clonada agregada al cursor", {
+          description: "Marcado como voz clonada (Revisión para redes).",
+        });
+      if (result?.warnings?.includes("gpu_arch_unsupported"))
+        toast.warning("Chatterbox corrió en CPU", {
+          description: "Esta GPU no es compatible con la versión de torch de Chatterbox.",
+        });
+    });
+  };
 
   const submit = async () => {
-    if (!text.trim() || !selectedVoice) return;
+    if (!text.trim()) return;
+    if (!isChatterbox && !selectedVoice) return;
     setBusy(true);
     try {
+      if (isChatterbox) {
+        await submitChatterbox();
+        return;
+      }
       const { jobId } = await api.tts({
         provider,
         text,
@@ -223,18 +526,30 @@ function TtsForm() {
       });
       toast.info("Generando voz…");
     } catch (err) {
-      reportError("Texto a voz", err);
+      reportTtsError(err);
     } finally {
       setBusy(false);
     }
   };
 
+  const tooLong = isChatterbox && textTooLong(text);
+  const canSubmit = isChatterbox
+    ? Boolean(chatterbox?.installed) && !tooLong
+    : Boolean(selectedVoice);
+
   return (
     <div className="flex flex-col gap-2">
       <Label>
-        Proveedor
-        <Select value={provider} onChange={(e) => setProvider(e.target.value as TtsProvider)}>
-          <option value="piper">Piper (local)</option>
+        Motor
+        <Select
+          aria-label="Motor"
+          value={provider}
+          onChange={(e) => useVoiceCloneStore.getState().setProvider(e.target.value as TtsProvider)}
+        >
+          <option value="piper">Piper (local, rápido)</option>
+          <option value="chatterbox">
+            Chatterbox (local, GPU){chatterbox?.installed ? "" : " — falta paquete"}
+          </option>
           <option value="elevenlabs" disabled={!providerEnabled.elevenlabs}>
             ElevenLabs{providerEnabled.elevenlabs ? "" : " (sin API key)"}
           </option>
@@ -243,25 +558,53 @@ function TtsForm() {
           </option>
         </Select>
       </Label>
-      {voices.status === "not-implemented" ? (
+      {isChatterbox && !chatterbox?.installed ? (
+        <div
+          className="flex flex-col gap-1 rounded-md border p-2 text-xs"
+          data-testid="chatterbox-missing"
+        >
+          <span>
+            Chatterbox lee en español con mejor calidad y clona una voz desde ~10 s de muestra.
+            Necesita el paquete «Voz avanzada»{packSize ? ` (${gbLabel(packSize)})` : ""}.
+          </span>
+          <div className="flex gap-1">
+            <Button size="xs" onClick={downloadPack}>
+              <Download /> Descargar paquete{packSize ? ` (${gbLabel(packSize)})` : ""}
+            </Button>
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() => useVoiceCloneStore.getState().setProvider("piper")}
+            >
+              Usar Piper
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {isChatterbox && chatterbox?.installed ? <ChatterboxOptions text={text} /> : null}
+      {!isChatterbox && voices.status === "not-implemented" ? (
         <NotImplementedNotice what="La lista de voces" />
       ) : null}
-      {voices.status === "error" && voices.error ? <ErrorNotice message={voices.error} /> : null}
-      <Label>
-        Voz
-        <Select
-          value={selectedVoice}
-          onChange={(e) => setVoice(e.target.value)}
-          disabled={installed.length === 0}
-        >
-          {installed.length === 0 ? <option value="">Sin voces instaladas</option> : null}
-          {installed.map((v) => (
-            <option key={v.id} value={v.id}>
-              {v.name} · {v.language}
-            </option>
-          ))}
-        </Select>
-      </Label>
+      {!isChatterbox && voices.status === "error" && voices.error ? (
+        <ErrorNotice message={voices.error} />
+      ) : null}
+      {!isChatterbox ? (
+        <Label>
+          Voz
+          <Select
+            value={selectedVoice}
+            onChange={(e) => setVoice(e.target.value)}
+            disabled={installed.length === 0}
+          >
+            {installed.length === 0 ? <option value="">Sin voces instaladas</option> : null}
+            {installed.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.name} · {v.language}
+              </option>
+            ))}
+          </Select>
+        </Label>
+      ) : null}
       {provider === "piper" ? (
         <VoiceDownloads
           voices={list}
@@ -282,23 +625,27 @@ function TtsForm() {
           placeholder="Escribe lo que quieres que diga la voz…"
         />
       </Label>
-      <Label>
-        Velocidad: {speed.toFixed(2)}×
-        <Range
-          min={0.5}
-          max={2}
-          step={0.05}
-          value={speed}
-          onChange={(e) => setSpeed(Number(e.target.value))}
-        />
-      </Label>
-      <Button
-        size="sm"
-        disabled={busy || !text.trim() || !selectedVoice}
-        onClick={() => void submit()}
-      >
+      {isChatterbox ? (
+        <span className={cn("text-[11px]", tooLong ? "text-destructive" : "text-muted-foreground")}>
+          {text.length} / {CHATTERBOX_MAX_TEXT} caracteres
+          {tooLong ? ": dividí el texto" : ""}
+        </span>
+      ) : (
+        <Label>
+          Velocidad: {speed.toFixed(2)}×
+          <Range
+            min={0.5}
+            max={2}
+            step={0.05}
+            value={speed}
+            onChange={(e) => setSpeed(Number(e.target.value))}
+          />
+        </Label>
+      )}
+      <Button size="sm" disabled={busy || !text.trim() || !canSubmit} onClick={() => void submit()}>
         {busy ? <Spinner /> : null} Generar y añadir al cursor
       </Button>
+      {isChatterbox ? <SelfVoiceSection /> : null}
     </div>
   );
 }

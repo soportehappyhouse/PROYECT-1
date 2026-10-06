@@ -3291,6 +3291,215 @@ await step(
 );
 // ------------------------------------------------------------------ END sprint 3b integration
 
+// ---------------------------------------------------------------- BEGIN sprint4:M2
+// «Voz»: Chatterbox TTS + clonación. With scripts/e2e/workers-with-mocks.py the pack
+// tts-chatterbox is reported installed and the real bridge runs with --mock (sine WAV of 0.06 s
+// per character, 220 Hz / 330 Hz with a reference); STUDIO_MOCK_CHATTERBOX=0 -> 409 checks only.
+const m2 = {};
+async function m2Pack() {
+  const pack = (await ok("GET", "/api/ai/packs")).find((x) => x.id === "tts-chatterbox");
+  assert(pack, "pack «tts-chatterbox» not listed by GET /api/ai/packs");
+  return pack;
+}
+async function m2Tts(body, wait = true) {
+  const r = await api("POST", "/api/voice/tts", {
+    provider: "chatterbox",
+    text: "Hola, che. ¿Viste que mañana llueve?",
+    ...body,
+  });
+  if (!wait || r.status !== 202) return r;
+  return { ...r, job: await waitOk(r.json.jobId, { timeoutMs: 180_000 }) };
+}
+async function m2SampleWav(name, seconds) {
+  const file = path.join(WORK, name);
+  await run(FFMPEG, [
+    "-y",
+    "-v",
+    "error",
+    "-f",
+    "lavfi",
+    "-i",
+    `sine=frequency=180:duration=${seconds}:sample_rate=44100`,
+    "-af",
+    "volume=0.5",
+    file,
+  ]);
+  return file;
+}
+
+await step("sprint4: tts chatterbox (mock) → asset voice-synthetic", async () => {
+  const pack = await m2Pack();
+  const providers = await ok("GET", "/api/voice/tts/providers");
+  const row = providers.find((p) => p.id === "chatterbox");
+  assert(row?.packId === "tts-chatterbox" && row.supportsClone === true, JSON.stringify(row));
+  if (!pack.installed) {
+    const r = await m2Tts({ voice: "chatterbox:multilingual" }, false);
+    assert(r.status === 409 && r.json?.packId === "tts-chatterbox", `-> ${r.status}`);
+    return "409 PACK_REQUIRED (workers without the pack / mocks off)";
+  }
+  assert(row.installed && row.status === "local", `provider row ${JSON.stringify(row)}`);
+  const voices = await ok("GET", "/api/voice/tts/voices");
+  assert(
+    voices.some((v) => v.id === "chatterbox:multilingual" && v.installed),
+    "chatterbox:multilingual voice not listed",
+  );
+  const text = "Hola, che. ¿Viste que mañana llueve?";
+  const { job } = await m2Tts({ voice: "chatterbox:multilingual", text });
+  const res = job.result;
+  assert(
+    res.provider === "chatterbox" && res.aiVoice === "synthetic" && res.watermark === "perth",
+    `result ${JSON.stringify(res)}`,
+  );
+  assert(res.device === "cpu" || res.device === "cuda", `device ${res.device}`);
+  const asset = await ok("GET", `/api/media/${res.assetId}`);
+  assert(
+    asset.aiAltered === true &&
+      asset.aiProvenance?.kind === "voice-synthetic" &&
+      /^chatterbox mtl-v[23]$/.test(asset.aiProvenance.tool),
+    `asset ${JSON.stringify(asset)}`,
+  );
+  const f = await ffprobe(await download(res.path, "e2e-chatterbox.wav"));
+  const a = f.streams.find((x) => x.codec_type === "audio");
+  assert(a.sample_rate === "24000" && a.channels === 1, `wav ${a.sample_rate} Hz x${a.channels}`);
+  assert(near(+f.format.duration, text.length * 0.06, 0.5), `duration ${f.format.duration}`);
+  const progress = sseFor(job.id).filter((e) => /Chatterbox/.test(e.message ?? ""));
+  return { device: res.device, rtf: res.rtf, warnings: res.warnings, sse: progress.length };
+});
+await step("sprint4: Voz propia → voice-ref + clon → voice-cloned", async () => {
+  const pack = await m2Pack();
+  const sample = await m2SampleWav("e2e-voz-propia.wav", 9);
+  const form = (attest) => {
+    const fd = new FormData();
+    if (attest) fd.append("attestSelf", "true");
+    return fd;
+  };
+  const bytes = await readFile(sample);
+  const noAttest = form(false);
+  noAttest.append("audio", new Blob([bytes], { type: "audio/wav" }), "voz.wav");
+  const refused = await api("POST", "/api/voice/self-refs", noAttest);
+  assert(
+    refused.status === 400 && refused.json?.error?.code === "ATTEST_SELF_REQUIRED",
+    `without attestSelf -> ${refused.status}`,
+  );
+  const short = form(true);
+  short.append(
+    "audio",
+    new Blob([await readFile(await m2SampleWav("e2e-corta.wav", 3))], { type: "audio/wav" }),
+    "corta.wav",
+  );
+  const tooShort = await api("POST", "/api/voice/self-refs", short);
+  assert(
+    tooShort.status === 400 && tooShort.json?.error?.code === "VOICE_SAMPLE_INVALID",
+    `3 s sample -> ${tooShort.status}`,
+  );
+  const good = form(true);
+  good.append("audio", new Blob([bytes], { type: "audio/wav" }), "voz propia.wav");
+  const ref = await ok("POST", "/api/voice/self-refs", good, [201]);
+  assert(ref.kind === "voice-ref" && ref.sampleRate === 24000, `ref ${JSON.stringify(ref)}`);
+  const f = await ffprobe(await download(ref.path, "e2e-voice-ref.wav"));
+  const a = f.streams.find((x) => x.codec_type === "audio");
+  assert(a.sample_rate === "24000" && a.channels === 1, `voice-ref ${a.sample_rate}x${a.channels}`);
+  const listed = await ok("GET", "/api/voice/self-refs");
+  assert(listed[0]?.id === ref.id, "the new voice-ref is not the first listed");
+  m2.selfRef = ref;
+  if (!pack.installed) return "voice-ref ok; clone skipped (no pack)";
+  const { job } = await m2Tts({ voice: "chatterbox:self", cfg: 0.3 });
+  assert(job.result.aiVoice === "cloned", `result ${JSON.stringify(job.result)}`);
+  const asset = await ok("GET", `/api/media/${job.result.assetId}`);
+  assert(
+    asset.aiProvenance?.kind === "voice-cloned" &&
+      asset.aiProvenance.self === true &&
+      asset.aiProvenance.sourceAssetId === ref.id,
+    `provenance ${JSON.stringify(asset.aiProvenance)}`,
+  );
+  // explicit voiceRef wins; a non voice-ref asset is refused
+  const explicit = await m2Tts({ voice: "x", voiceRef: { assetId: ref.id, self: true } });
+  assert(explicit.job.result.aiVoice === "cloned", "explicit voiceRef not cloned");
+  const notRef = await m2Tts(
+    { voice: "x", voiceRef: { assetId: job.result.assetId, self: true } },
+    false,
+  );
+  assert(
+    notRef.status === 400 && notRef.json?.error?.code === "INVALID_VOICE_REF",
+    `audio asset as voiceRef -> ${notRef.status}`,
+  );
+  return { voiceRef: ref.id, durationSec: ref.durationSec, cloned: asset.id };
+});
+
+await step("sprint4: voiceRef Persona sin consentimiento de voz → 403", async () => {
+  const person = await ok("POST", "/api/persons", { name: "E2E sin consentimiento" }, [200, 201]);
+  const r = await m2Tts({ voice: `chatterbox:person:${person.id}` }, false);
+  const pack = await m2Pack();
+  if (!pack.installed) {
+    assert(r.status === 409 && r.json?.packId === "tts-chatterbox", `-> ${r.status}`);
+    return "409 PACK_REQUIRED first (no pack)";
+  }
+  assert(r.status === 403, `-> ${r.status} ${JSON.stringify(r.json)}`);
+  assert(
+    r.json.error.code === "CONSENT_REQUIRED" &&
+      r.json.error.details?.personId === person.id &&
+      r.json.error.details?.scope === "voice",
+    JSON.stringify(r.json),
+  );
+  const viaRef = await m2Tts({ voice: "x", voiceRef: { personId: person.id } }, false);
+  assert(viaRef.status === 403, `voiceRef.personId -> ${viaRef.status}`);
+  const missing = await m2Tts({ voice: "chatterbox:person:no-existe" }, false);
+  assert(
+    missing.status === 404 && missing.json?.error?.code === "PERSON_NOT_FOUND",
+    `unknown person -> ${missing.status}`,
+  );
+  await api("DELETE", `/api/persons/${person.id}?confirm=1`);
+  return r.json.error.message;
+});
+
+await step(
+  "sprint4: sin pack tts-chatterbox → 409; op tts del Asistente sigue en Piper",
+  async () => {
+    const pack = await m2Pack();
+    let packCheck = "pack installed by the mocks (409 covered by api vitest)";
+    if (!pack.installed) {
+      const r = await m2Tts({ voice: "chatterbox:multilingual" }, false);
+      assert(r.status === 409 && r.json?.error === "PACK_REQUIRED", `-> ${r.status}`);
+      assert(r.json.packId === "tts-chatterbox", JSON.stringify(r.json));
+      packCheck = "409 PACK_REQUIRED tts-chatterbox";
+    }
+    const p = await ok("POST", "/api/projects", { name: "E2E asistente voz" }, [201]);
+    const before = new Set(
+      (await ok("GET", "/api/jobs?type=voice.tts&limit=200")).map((j) => j.id),
+    );
+    const applyTts = async (op) => {
+      const plan = { version: 1, summary_es: "Agrego una locución.", ops: [op] };
+      const rec = await ok("POST", "/api/console/plans", { plan, projectId: p.id }, [201]);
+      const { jobId } = await ok("POST", "/api/agent/apply", { planId: rec.id }, [202]);
+      await waitJob(jobId, { timeoutMs: 180_000 });
+      const sub = (await ok("GET", "/api/jobs?type=voice.tts&limit=200")).find(
+        (j) => !before.has(j.id),
+      );
+      assert(sub, "agent.apply did not create a voice.tts sub-job");
+      before.add(sub.id);
+      return sub;
+    };
+    const piper = await applyTts({ op: "tts", text: "Hola desde el asistente", t: 0 });
+    assert(piper.payload?.provider === "piper", `default op tts -> ${piper.payload?.provider}`);
+    let chatter = "skipped (no pack or no «Voz propia»)";
+    if (pack.installed && m2.selfRef) {
+      const sub = await applyTts({
+        op: "tts",
+        text: "Hola con mi voz",
+        t: 0,
+        voice: "chatterbox:self",
+      });
+      assert(sub.payload?.provider === "chatterbox", `chatterbox:self -> ${sub.payload?.provider}`);
+      const done = await waitJob(sub.id, { timeoutMs: 180_000 });
+      assert(done.status === "succeeded", `sub-job ${done.status}: ${done.error}`);
+      assert(done.result?.aiVoice === "cloned", `sub-job result ${JSON.stringify(done.result)}`);
+      chatter = "chatterbox:self -> cloned";
+    }
+    return { packCheck, piperStatus: piper.status, chatter };
+  },
+);
+// ------------------------------------------------------------------ END sprint4:M2
+
 // ---------------------------------------------------------------- BEGIN sprint4:M1
 // «Caras»: Personas + consentimiento + cambio de cara. With scripts/e2e/workers-with-mocks.py the
 // packs faceswap / faceswap-extra are reported installed and FaceFusion is the fake

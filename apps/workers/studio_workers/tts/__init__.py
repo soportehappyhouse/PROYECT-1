@@ -1,1 +1,1 @@
-"""Text-to-speech: local Piper voices + optional cloud providers (ElevenLabs, OpenAI)."""
+"""Text-to-speech: local Piper voices, Chatterbox (sprint 4) + optional cloud providers."""

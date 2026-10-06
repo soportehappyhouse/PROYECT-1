@@ -10,7 +10,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
-TtsProviderId = Literal["piper", "elevenlabs", "openai"]
+TtsProviderId = Literal["piper", "elevenlabs", "openai", "chatterbox"]
 F0Method = Literal["rmvpe", "harvest", "pm", "crepe"]
 JobState = Literal["running", "succeeded", "failed"]
 
@@ -151,8 +151,25 @@ class TtsProviderInfo(CamelModel):
     id: TtsProviderId
     name: str
     enabled: bool
-    # Spanish status label for the dashboard: "local", "configurado", "no configurado".
+    # Spanish status label for the dashboard: "local", "configurado", "no configurado",
+    # "falta paquete" (sprint 4: Chatterbox without its pack).
     status: str
+    # Sprint 4 (additive, Chatterbox row): pack, clone support, installed checkpoint, languages.
+    pack_id: str | None = None
+    installed: bool | None = None
+    supports_clone: bool | None = None
+    models: list[Literal["mtl-v3", "mtl-v2"]] | None = None
+    languages: list[str] | None = None
+    gpu: bool | None = None
+
+
+class VoiceRef(CamelModel):
+    """Sprint 4: reference sample to clone (Chatterbox). ``path`` is STORAGE_DIR-relative (a
+    «Voz propia» asset under media/ or a Person sample under consent/persons/<id>/); ``consent`` is
+    "self" or the consentId the api checked (logged; the workers re-check the storage layout)."""
+
+    path: str = Field(min_length=1)
+    consent: str = Field(min_length=1, max_length=120)
 
 
 class TtsRequest(CamelModel):
@@ -169,6 +186,14 @@ class TtsRequest(CamelModel):
     speaker_id: int | None = None
     volume: float = Field(default=1.0, ge=0.0, le=4.0)
     job_id: str | None = None
+    # Sprint 4 (Chatterbox; same ranges as the shared zod TtsRequest; ignored by Piper/cloud).
+    language: str | None = Field(default=None, pattern=r"^[a-z]{2}$")
+    model: Literal["mtl-v3", "mtl-v2"] | None = None
+    voice_ref: VoiceRef | None = None
+    exaggeration: float | None = Field(default=None, ge=0.25, le=2.0)
+    cfg: float | None = Field(default=None, ge=0.0, le=1.0)
+    temperature: float | None = Field(default=None, ge=0.05, le=2.0)
+    seed: int | None = Field(default=None, ge=0)
 
 
 class TtsResult(CamelModel):
@@ -178,6 +203,13 @@ class TtsResult(CamelModel):
     wav_path: str | None = None
     sample_rate: int | None = None
     provider: TtsProviderId | None = None
+    # Sprint 4 (Chatterbox): device used, warnings (gpu_fallback_cpu, chatterbox_cpu_slow...),
+    # inaudible PerTh watermark, real-time factor and checkpoint (mtl-v3 | mtl-v2).
+    device: Literal["cuda", "cpu"] | None = None
+    warnings: list[str] | None = None
+    watermark: Literal["perth"] | None = None
+    rtf: float | None = None
+    model: str | None = None
 
 
 # ---------------------------------------------------------------- models download

@@ -1368,6 +1368,147 @@ def install_pack(
     return report
 
 
+# BEGIN sprint4:M2 — pack "tts-chatterbox" (Chatterbox Multilingual TTS + zero-shot cloning)
+# Code MIT (resemble-ai/chatterbox at a pinned SHA; fallback chatterbox-tts==0.1.7 = V2 only) and
+# PerTh MIT (watermark always on). Runs ONLY in tools/chatterbox/.venv (torch 2.6.0, numpy<2),
+# created by toolvenv.ensure("chatterbox") (M3, imported lazily) after the files below. Weights:
+# public Hugging Face repo ResembleAI/chatterbox, no token. Sizes [S] (docs/trabajo/
+# fuentes-sprint4.md §2.3); sha256 not obtainable from the build sandbox -> trust on first download
+# (models/manifest.json records size + sha256, doctor shows «verificación pendiente»). Pin the HF
+# revision once `HfApi().model_info("ResembleAI/chatterbox", files_metadata=True)` is run on a PC.
+CHATTERBOX_HF_REPO = "ResembleAI/chatterbox"
+CHATTERBOX_HF_REVISION = "main"  # TODO(revision): pin the commit (see above)
+CHATTERBOX_HF_BASE = f"https://huggingface.co/{CHATTERBOX_HF_REPO}/resolve/{CHATTERBOX_HF_REVISION}"
+# name -> (approx size [S], minimum accepted size)
+CHATTERBOX_COMMON_FILES: dict[str, tuple[int, int]] = {
+    "ve.pt": (5_700_000, 4_000_000),
+    "s3gen.pt": (1_060_000_000, 900_000_000),
+    "grapheme_mtl_merged_expanded_v1.json": (70_000, 1_000),
+    "conds.pt": (169_000, 100_000),
+    "Cangjie5_TC.json": (1_000_000, 1_000),
+}
+CHATTERBOX_T3_FILES: dict[str, tuple[str, int, int]] = {  # variant -> (file, approx, min)
+    "v3": ("t3_mtl23ls_v3.safetensors", 2_140_000_000, 1_900_000_000),
+    "v2": ("t3_mtl23ls_v2.safetensors", 2_140_000_000, 1_900_000_000),
+}
+CHATTERBOX_VENV_SIZE = 3_000_000_000  # [S] torch 2.6.0+cu124 (~2.5 GB) + the rest
+
+
+def _chatterbox_item(name: str, min_bytes: int) -> FileItem:
+    return FileItem(
+        "tts-chatterbox:weights",
+        name,
+        f"chatterbox/{name}",
+        f"{CHATTERBOX_HF_BASE}/{name}",
+        Expected(min_bytes=min_bytes),
+    )
+
+
+def chatterbox_variant(root: Path, *, git: Callable[[], bool] | None = None) -> str:
+    """T3 checkpoint the pack needs: the tool venv's stamp variant (v3 = git SHA, v2 = PyPI
+    fallback). Before the venv exists: v3, or v2 when Git is missing (ensure will fall back)."""
+    from .tts.chatterbox import T3_FILES, tool_status  # noqa: PLC0415
+
+    st = tool_status()
+    variant = st.get("variant")
+    if variant in T3_FILES:
+        return str(variant)
+    if st.get("state") == "missing":
+        return "v3" if (git or git_available)() else "v2"
+    folder = root / "chatterbox"
+    if not (folder / T3_FILES["v3"]).is_file() and (folder / T3_FILES["v2"]).is_file():
+        return "v2"
+    return "v3"
+
+
+def _chatterbox_items(root: Path, _catalog: dict | None) -> list[Item]:
+    name, _approx, min_bytes = CHATTERBOX_T3_FILES[chatterbox_variant(root)]
+    items = [_chatterbox_item(n, m) for n, (_a, m) in CHATTERBOX_COMMON_FILES.items()]
+    items.insert(1, _chatterbox_item(name, min_bytes))
+    return items
+
+
+def _chatterbox_status_rows(_root: Path) -> list[dict[str, Any]]:
+    try:
+        from . import toolvenv  # noqa: PLC0415 - M3
+
+        return toolvenv.status_rows("chatterbox")
+    except (ImportError, AttributeError):
+        from .tts.chatterbox import tool_status  # noqa: PLC0415
+
+        ready = tool_status().get("state") == "ready"
+        name = "venv:tools/chatterbox/.venv (Python 3.11, torch 2.6)"
+        return [{"name": name, "size": CHATTERBOX_VENV_SIZE, "present": ready}]
+
+
+def _chatterbox_tool_status() -> dict:
+    try:
+        from . import toolvenv  # noqa: PLC0415 - M3
+
+        return toolvenv.status_summary("chatterbox")
+    except (ImportError, AttributeError):
+        return {"id": "chatterbox", "state": "missing"}
+
+
+def _chatterbox_setup(
+    root: Path, say: Callable[[str], None], client: httpx.Client | None = None
+) -> None:
+    """post_install_env: create/update tools/chatterbox/.venv, then make sure the T3 checkpoint
+    of the variant it ended with is on disk (git failed -> V2 fallback -> download the V2 T3)."""
+    try:
+        from . import toolvenv  # noqa: PLC0415 - M3
+    except ImportError:
+        toolvenv = None  # type: ignore[assignment]
+    if toolvenv is not None and hasattr(toolvenv, "ensure"):
+        toolvenv.ensure("chatterbox", use_cuda=_use_cuda_setting(), on_line=say)
+    elif os.environ.get("CHATTERBOX_PYTHON", "").strip():
+        say("CHATTERBOX_PYTHON definido: no se crea tools/chatterbox/.venv")
+    else:
+        raise RuntimeError("Falta studio_workers/toolvenv.py: no se puede crear el entorno aislado")
+    variant = chatterbox_variant(root)
+    name, _approx, min_bytes = CHATTERBOX_T3_FILES[variant]
+    item = _chatterbox_item(name, min_bytes)
+    manifest = Manifest.load(root)
+    if item.status(root, manifest).state != "present":
+        say(f"el entorno quedó en Chatterbox {variant.upper()}: se baja {name}")
+        item.fetch(root, manifest, client, lambda _d, _t: None)
+        manifest.save()
+
+
+def _chatterbox_installed(root: Path) -> bool:
+    name = CHATTERBOX_T3_FILES[chatterbox_variant(root)][0]
+    return (root / "chatterbox" / name).is_file()
+
+
+PACKS["tts-chatterbox"] = Pack(
+    id="tts-chatterbox",
+    name_es="Voz avanzada (Chatterbox: español y clonación)",
+    description_es=(
+        "Texto a voz multilingüe de alta calidad (español por defecto) que puede clonar una voz "
+        "desde ~10 s de muestra: tu «Voz propia» o la de una Persona con consentimiento de voz. "
+        "Corre en un entorno aparte (tools\\chatterbox) y usa ~4–5 GB de GPU; sin GPU funciona en "
+        "CPU, bastante más lento. Todo audio generado lleva la marca de agua inaudible PerTh."
+    ),
+    group="voice",
+    license="MIT (Chatterbox y PerTh, Resemble AI); marca de agua PerTh siempre activa",
+    required_by=("voice.tts.chatterbox",),
+    approx_size=CHATTERBOX_VENV_SIZE
+    + CHATTERBOX_T3_FILES["v3"][1]
+    + sum(a for a, _m in CHATTERBOX_COMMON_FILES.values()),
+    items=_chatterbox_items,
+    installed_check=_chatterbox_installed,
+    post_install_env=_chatterbox_setup,
+    extra_status=_chatterbox_status_rows,
+    tool_status=_chatterbox_tool_status,
+    notes=(
+        f"Hugging Face {CHATTERBOX_HF_REPO}@{CHATTERBOX_HF_REVISION} (sha256 de la primera "
+        "descarga); código git 5de7a54 (V3) o chatterbox-tts 0.1.7 (V2) en tools/chatterbox/.venv"
+    ),
+)
+FEATURE_PACKS["voice.tts.chatterbox"] = "tts-chatterbox"
+# END sprint4:M2
+
+
 # BEGIN sprint4:M1 — packs "faceswap", "faceswap-extra" (FaceFusion 3.9.1, licence «faceswap»)
 # Code: FaceFusion 3.9.1 (OpenRAIL-AS) runs ONLY as a subprocess of tools/facefusion/.venv (Python
 # 3.12, onnxruntime-gpu 1.24.4), created by toolvenv.ensure("facefusion") (M3, imported lazily).

@@ -75,7 +75,15 @@ export const RUNNABLE_JOBS: Record<string, { route: string; note_es: string; par
     route: "/api/motion/render",
     note_es: "Renderizar motion graphics. payload: MotionSpec + target?",
   },
-  "voice.tts": { route: "/api/voice/tts", note_es: "Texto a voz. payload: TtsRequest" },
+  "voice.tts": {
+    route: "/api/voice/tts",
+    note_es:
+      "Texto a voz. payload: TtsRequest {text, voice, provider?: piper|chatterbox, ...}. Chatterbox " +
+      "(pack tts-chatterbox, español, ≤ 5000 caracteres): voice chatterbox:multilingual | " +
+      "chatterbox:self (Voz propia) | chatterbox:person:<personId> (solo con consentimiento de voz " +
+      "vigente; si no, 403 CONSENT_REQUIRED), o voiceRef {personId} | {assetId, self: true}; " +
+      "exaggeration 0.25–2 (0.5), cfg 0–1 (0.5). Sin pack → 409 PACK_REQUIRED (usá Piper).",
+  },
   "voice.effect": {
     route: "/api/voice/effects",
     note_es: "Efectos de voz. payload: VoiceEffectRequest",

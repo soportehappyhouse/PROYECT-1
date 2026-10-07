@@ -360,6 +360,12 @@ apps\workers\.venv\Scripts\python.exe -m studio_workers.models_cli --check --upd
    recompila lo que la versión nueva cambió. Termina con
    `N pasos omitidos, M ejecutados, tiempo total`.
 
+   Las dependencias de Python (`apps\workers\.venv`) se reinstalan cuando cambia el perfil o
+   **cualquier** archivo de requirements del perfil, incluidos los que se referencian con `-r` (con
+   CUDA, `requirements-cuda.txt` incluye `requirements.txt`). La primera actualización después de
+   esta corrección reinstala una vez las instalaciones CUDA (antes no se notaban las dependencias
+   nuevas de `requirements.txt` y los workers fallaban con `ModuleNotFoundError`).
+
 **Opciones al instalar o actualizar** (se combinan con `-Update`):
 
 | Opción      | Qué hace                                                                                                                                                                                                                                                                     |

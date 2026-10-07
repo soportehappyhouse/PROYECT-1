@@ -213,8 +213,10 @@ describe("timeline compiler", () => {
     expect(g).toContain("highpass=f=300,lowpass=f=3400"); // clip voice effect
     expect(g).toContain("volume=0.3");
     expect(g).toMatch(
-      /amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,apad,atrim=end=10/,
+      /amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,apad=whole_dur=10,atrim=end=10/,
     );
+    // An endless `apad` after every input ended stalls FFmpeg 9 (Windows CI hang): always bounded.
+    expect(g).not.toMatch(/apad(?!=whole_dur=)/);
     expect(g).toContain("subtitles=subs.ass");
     expect(g).toContain("format=yuv420p[vout]");
     expect(c.files.map((f) => f.name)).toEqual(["graph.txt", "text-0.txt", "subs.ass"]);

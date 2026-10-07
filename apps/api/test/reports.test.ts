@@ -97,11 +97,15 @@ describe("daily api log", () => {
       redact: { secrets: [FREESOUND_KEY] },
     });
     stream.write(`{"level":30,"msg":"key ${FREESOUND_KEY} ${FAKE_ANTHROPIC}"}\n`);
+    // Enough day-1 data to still be in flight at the rotation: end() must wait for it too.
+    for (let i = 0; i < 64; i++) stream.write(`{"level":30,"msg":"${"x".repeat(4096)}"}\n`);
+    stream.write('{"level":30,"msg":"last of day 1"}\n');
     now = new Date(2026, 9, 5, 0, 0, 1);
     stream.write('{"level":50,"msg":"next day"}\n');
     await stream.end();
     const day1 = readFileSync(path.join(dir, `api-${localDay(new Date(2026, 9, 4))}.log`), "utf8");
     expect(day1).toContain(REDACTED);
+    expect(day1).toContain("last of day 1");
     expect(day1).not.toContain(FREESOUND_KEY);
     expect(day1).not.toContain(FAKE_ANTHROPIC);
     expect(readFileSync(path.join(dir, "api-2026-10-05.log"), "utf8")).toContain("next day");

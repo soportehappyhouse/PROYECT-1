@@ -307,7 +307,8 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
     });
     g.warnings.push(...fx.warnings);
     g.add(fx.graph);
-    const tail = ["apad", `atrim=duration=${sec(dur)}`];
+    // Bounded pad (whole_dur), never a bare `apad`: see the final mix below.
+    const tail = [`apad=whole_dur=${sec(dur)}`, `atrim=duration=${sec(dur)}`];
     if (fadeIn > 0) tail.push(`afade=t=in:st=0:d=${sec(fadeIn)}`);
     if (fadeOut > 0)
       tail.push(`afade=t=out:st=${sec(Math.max(0, dur - fadeOut))}:d=${sec(fadeOut)}`);
@@ -1183,8 +1184,14 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
     if (audioLabels.length) {
       const ins = audioLabels.map((l) => `[${l}]`).join("");
       const trim = rs > EPS ? `atrim=start=${sec(rs)}:end=${sec(re)}` : `atrim=end=${sec(re)}`;
+      // The mix is padded with silence up to the timeline end with a bounded
+      // `apad=whole_dur`, not an endless `apad` cut by atrim/-t. When every audio input has
+      // ended (music and voice end at 3 s of a 5.5 s timeline) the graph has to generate the
+      // rest by itself; with an endless apad FFmpeg 9 sometimes stalls there forever (the
+      // audio-only pass of the block render hung at out_time 3.008 on windows-latest; reproduced
+      // on Linux with 9.0.2 in ~15 % of runs, 0 % with whole_dur).
       g.add(
-        `${ins}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0:normalize=0,apad,${trim},asetpts=PTS-STARTPTS[aout]`,
+        `${ins}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0:normalize=0,apad=whole_dur=${sec(re)},${trim},asetpts=PTS-STARTPTS[aout]`,
       );
     } else {
       g.add(`anullsrc=r=48000:cl=stereo,atrim=duration=${sec(outDur)}[aout]`);

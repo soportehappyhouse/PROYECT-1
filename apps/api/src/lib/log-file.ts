@@ -79,6 +79,8 @@ export class DailyLogStream {
   readonly #now: () => Date;
   #day = "";
   #file: WriteStream | undefined;
+  /** Files of previous days still flushing (rotation does not wait for them; end() does). */
+  readonly #closing = new Set<Promise<void>>();
 
   constructor(opts: DailyLogStreamOptions) {
     this.#dir = opts.dir;
@@ -105,7 +107,11 @@ export class DailyLogStream {
   }
 
   #rotate(day: string): void {
-    this.#file?.end();
+    if (this.#file) {
+      const closing = closeStream(this.#file);
+      this.#closing.add(closing);
+      void closing.then(() => this.#closing.delete(closing));
+    }
     this.#day = day;
     this.#file = createWriteStream(this.currentFile, { flags: "a" });
     // A broken disk must never crash the api: drop file logging and keep stdout.
@@ -115,11 +121,27 @@ export class DailyLogStream {
     cleanupOldLogs(this.#dir, this.#prefix, this.#retention, this.#now());
   }
 
-  /** Flush and close the current file. */
-  end(): Promise<void> {
+  /**
+   * Flush and close the current file AND the files of previous days rotated away: writes are
+   * asynchronous, so a day-1 line may still be in flight after the rotation (slow disks and
+   * Windows: the day-1 file was read back empty).
+   */
+  async end(): Promise<void> {
     const f = this.#file;
     this.#file = undefined;
-    if (!f) return Promise.resolve();
-    return new Promise((resolve) => f.end(resolve));
+    await Promise.all([...this.#closing, ...(f ? [closeStream(f)] : [])]);
   }
+}
+
+/** end() a write stream and resolve once its data is written and the fd closed (or it failed). */
+function closeStream(f: WriteStream): Promise<void> {
+  return new Promise((resolve) => {
+    if (f.closed || f.destroyed) {
+      resolve();
+      return;
+    }
+    f.once("close", () => resolve());
+    f.once("error", () => resolve());
+    f.end();
+  });
 }

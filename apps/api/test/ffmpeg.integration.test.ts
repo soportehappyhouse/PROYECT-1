@@ -125,7 +125,8 @@ describe.skipIf(!hasFfmpeg)(
         // A stuck job (seen once on windows-latest) must say which step and what ffmpeg printed.
         const stuck = app.ctx.jobs.get(id)!;
         throw new Error(
-          `${stuck.type} still ${stuck.status} after 240 s (progress ${stuck.progress}): ` +
+          `${stuck.type} still ${stuck.status} after 240 s (progress ${stuck.progress}, ` +
+            `«${stuck.message ?? ""}»): ` +
             `${String(err)}\n${app.ctx.jobs.logTail(id).join("\n")}`,
         );
       }

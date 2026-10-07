@@ -52,8 +52,9 @@ requirements.txt` → `--no-deps chatterbox-tts @ git+…@sha` (V3); sin Git o s
   **Hubert**: queda `lj1995/VoiceConversionWebUI/hubert_base/{config.json, pytorch_model.bin}`
   (carpeta del comando oficial de RVC [V fuentes-audio §2] y usada por varias herramientas públicas
   [S]); si responde 404/401/403 la descarga pasa sola a `r3gm/hubert_base` (el de infer-rvc-python
-  [V código]); `rmvpe.pt` con tamaño exacto 181 189 687 B y respaldo
-  `r3gm/sonitranslate_voice_models`. El manifiesto guarda la URL que funcionó (`mirror: true`);
+  [V código]); `rmvpe.pt` (~181 MB, mínimo 150 MB + tamaño y sha256 que publica Hugging Face; el
+  tamaño exacto 181 189 687 B [S] no coincidía con el archivo real y rompía `setup -Update` desde
+  3b) y respaldo `r3gm/sonitranslate_voice_models`. El manifiesto guarda la URL que funcionó (`mirror: true`);
   `doctor` muestra «hubert de <repo>». `preprocessor_config.json` ya no se baja (ni transformers ni la
   librería lo leen).
 - **Test de rendimiento** (`perf.py`, `routers/perf.py`): `POST /perf/run` acepta `{face_source_path?,
@@ -258,8 +259,8 @@ incompatible»): pedí una versión exportada solo con los pesos.
   CUDAExecutionProvider»); rutas largas en `tools\*\.venv`.
 - RVC en CUDA: s/min reales en la 4050 (meta < 15 s por minuto), fp16 automático, liberación a los
   300 s, y que ningún modelo `.pth` del usuario dispare `RVC_MODEL_INCOMPATIBLE` sin motivo.
-- Origen real del hubert (si `lj1995/…/hubert_base/` responde o se usa `r3gm/hubert_base`) y el
-  tamaño exacto de `rmvpe.pt` (181 189 687 B [S]): si no coincide, la descarga falla y hay que
-  corregir `RMVPE_SIZE`.
+- Origen real del hubert (si `lj1995/…/hubert_base/` responde o se usa `r3gm/hubert_base`).
+  `rmvpe.pt` ya no tiene tamaño exacto: el 181 189 687 B [S] no coincidía con el archivo real
+  (actualización desde 3b: «corrupto» → re-descarga → `models_cli` salía con 1).
 - Chatterbox RTF y carga en frío medidos por el Test de rendimiento; FaceFusion fps a 1080p con y
   sin GFPGAN.

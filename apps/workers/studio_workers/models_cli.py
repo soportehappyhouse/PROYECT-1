@@ -12,7 +12,10 @@ python -m studio_workers.models_cli --licences --json    (read-only licence mirr
 
 --check   lists what is present/missing (offline; nothing is downloaded) and exits 0.
 --update  downloads only what is missing, also re-checking every group already recorded in
-          models/manifest.json. Without --check/--update the listed models are downloaded the same
+          models/manifest.json. A failure in one of those recorded groups that was NOT asked for on
+          the command line (e.g. rvc:base from a pack installed earlier) is a warning ("optional"
+          in the report), not exit 1: it never fails setup.ps1's Piper/Whisper step.
+          Without --check/--update the listed models are downloaded the same
           way (present files are skipped). --force re-downloads everything listed.
 Every file ends up in models/manifest.json (name, path, size, sha256/md5, source URL, date).
 """
@@ -82,6 +85,16 @@ def _catalog(root: Path, offline: bool, client: httpx.Client | None) -> dict | N
     return piper_catalog.load_voices_json(root, client=client)
 
 
+def _requested_groups(args: argparse.Namespace) -> set[str]:
+    """Manifest groups asked for on the command line (before the manifest groups are merged)."""
+    groups = {f"piper:{v}" for v in args.piper} | {f"whisper:{m}" for m in args.whisper}
+    if args.rvc_base or args.rvc_legacy_hubert:
+        groups.add("rvc:base")
+    if args.rvc_legacy_hubert:
+        groups.add("rvc:legacy")
+    return groups
+
+
 def _merge_manifest_groups(args: argparse.Namespace, manifest: Manifest) -> None:
     extra = groups_to_args(manifest.groups())
     args.piper = list(dict.fromkeys([*args.piper, *extra["piper"]]))
@@ -109,6 +122,10 @@ def print_table(rows: list[ItemStatus]) -> None:
         size = r.size if r.state == "present" else r.expected_size
         name = f"{r.group.split(':')[0]}: {r.name}"
         _out(f"  {mark} {STATE_LABEL.get(r.state, r.state):<30} {name:<40} {human_size(size):>10}")
+        if r.state == "corrupt" and r.size is not None:
+            # The size column shows what is expected; say what is on disk (doctor/support).
+            exp = f", esperado {r.expected_size} bytes" if r.expected_size else ""
+            _out(f"      {r.path}: {r.size} bytes en disco{exp}")
     present = sum(r.state == "present" for r in rows)
     _out("  " + "-" * 84)
     _out(f"  {present} presentes, {len(rows) - present} por descargar")
@@ -131,11 +148,17 @@ def run_download(
     force: bool,
     deep: bool,
     client: httpx.Client | None,
+    requested: set[str] | None = None,
 ) -> list[dict[str, Any]]:
+    """requested: groups asked for on the command line; a failure in any other group (merged from
+    models/manifest.json) is reported with "optional": true and does not make the run fail."""
     results: list[dict[str, Any]] = []
     for item in plan:
         status = item.status(root, manifest, deep=deep)
+        optional = bool(requested) and status.group not in (requested or set())
         row: dict[str, Any] = {"group": status.group, "name": status.name, "path": status.path}
+        if optional:
+            row["optional"] = True
         if status.state == "present" and not force:
             _out(f"  {CHECK} ya descargado, se omite: {status.name} ({human_size(status.size)})")
             results.append({**row, "action": "skipped", "size": status.size})
@@ -150,8 +173,17 @@ def run_download(
             _out(f"  {CHECK} {status.name}: {human_size(size)} verificado ({secs} s)")
             results.append({**row, "action": "downloaded", "size": size, "seconds": secs})
         except (DownloadError, OSError, ValueError, RuntimeError) as exc:
-            print(f"  ERROR: {exc}", file=sys.stderr, flush=True)
-            results.append({**row, "action": "failed", "error": str(exc)})
+            where = f"{status.name} (models/{status.path})"
+            if optional:
+                print(
+                    f"  AVISO: no se pudo volver a bajar {where}: {exc}. Es de un paquete "
+                    "instalado antes (no se pidió ahora): se sigue con el resto; reintentalo desde "
+                    "Ajustes > Paquetes de IA.",
+                    file=sys.stderr, flush=True,
+                )  # fmt: skip
+            else:
+                print(f"  ERROR: {where}: {exc}", file=sys.stderr, flush=True)
+            results.append({**row, "action": "failed", "error": f"{where}: {exc}"})
     return results
 
 
@@ -424,6 +456,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.no_write:
         root.mkdir(parents=True, exist_ok=True)
     manifest = Manifest.load(root)
+    requested = _requested_groups(args)
     if args.update or (args.check and not (args.piper or args.whisper or args.rvc_base)):
         _merge_manifest_groups(args, manifest)
 
@@ -452,18 +485,30 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"ERROR: {exc}", file=sys.stderr)
                 return 2
             results = run_download(
-                plan, root, manifest, force=args.force, deep=args.verify, client=client
+                plan,
+                root,
+                manifest,
+                force=args.force,
+                deep=args.verify,
+                client=client,
+                requested=requested,
             )
         manifest.save()
         counts = {
             k: sum(r["action"] == k for r in results) for k in ("skipped", "downloaded", "failed")
         }
+        optional_failed = [r for r in results if r["action"] == "failed" and r.get("optional")]
         _out(
             f"  Modelos: {counts['skipped']} ya estaban, {counts['downloaded']} descargados, "
             f"{counts['failed']} con error  (manifiesto: {manifest.path})"
         )
-        summary = {"mode": "update" if args.update else "download", **counts, "items": results}
-        code = 1 if counts["failed"] else 0
+        summary = {
+            "mode": "update" if args.update else "download",
+            **counts,
+            "failed_optional": len(optional_failed),
+            "items": results,
+        }
+        code = 1 if counts["failed"] > len(optional_failed) else 0
 
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)

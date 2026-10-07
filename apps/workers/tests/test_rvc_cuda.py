@@ -180,7 +180,9 @@ def test_base_assets_sources_and_sizes(dirs) -> None:  # type: ignore[no-untyped
     assert items["hubert_base/config.json"].fallbacks == (
         "https://huggingface.co/r3gm/hubert_base/resolve/main/config.json",
     )
-    assert items["rmvpe.pt"].expected.size_bytes == 181_189_687
+    # Not an exact size (the [S] 181 189 687 B did not match the real file: upgrade from 3b broke)
+    assert items["rmvpe.pt"].expected.size_bytes is None
+    assert items["rmvpe.pt"].expected.min_bytes == rvc_mod.RMVPE_MIN_BYTES
     assert items["rmvpe.pt"].fallbacks == (
         "https://huggingface.co/r3gm/sonitranslate_voice_models/resolve/main/rmvpe.pt",
     )

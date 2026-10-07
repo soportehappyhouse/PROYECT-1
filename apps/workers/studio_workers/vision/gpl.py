@@ -118,10 +118,19 @@ def ensure_venv(
     say = on_line or (lambda _l: None)
     run = runner or default_runner
     st = status(venv)
-    if st["state"] == "ready" and not force:
-        say(f"entorno GPL listo: {venv}")
-        return "omitido"
     py = venv_python(venv)
+    check = [str(py), "-c", "import numpy, torch; print('torch', torch.__version__)"]
+    if st["state"] == "ready" and not force:
+        # The stamp only says pip ran with these requirements: torch comes from the main .venv
+        # through studio-main.pth (an absolute path) and can break later (main torch swapped for
+        # the cu128 build, folder moved/renamed...). setup.ps1 used to say «ready» while doctor
+        # said «import torch fallo»: check it, and repair (rewrite the .pth + pip) when it fails.
+        lines: list[str] = []
+        if run(check, lines.append) == 0:
+            say(f"entorno GPL listo: {venv}")
+            return "omitido"
+        detail = next((ln.strip() for ln in reversed(lines) if ln.strip()), "sin detalle")
+        say(f"entorno GPL: import torch falló ({detail}); se repara")
     if not py.is_file():
         say(f"creando entorno aislado GPL (.venv-gpl) en {venv}")
         # sys.executable may itself be a venv python: venv uses its base interpreter.
@@ -145,7 +154,6 @@ def ensure_venv(
         args += ["--extra-index-url", CU128_INDEX]
     if run(args, say) != 0:
         raise RuntimeError("pip install -r vision_gpl/requirements.txt fallo en .venv-gpl")
-    check = [str(py), "-c", "import numpy, torch; print('torch', torch.__version__)"]
     if run(check, say) != 0:
         raise RuntimeError(".venv-gpl: import torch/numpy fallo")
     (venv / STAMP).write_text(_stamp_line(use_cuda) + "\n", "utf-8")

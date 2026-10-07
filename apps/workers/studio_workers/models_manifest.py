@@ -179,6 +179,16 @@ def _changed(entry: dict[str, Any], path: Path, size: int, deep: bool) -> bool:
     return bool(deep and entry.get("sha256") and hash_file(path)[1] != entry["sha256"])
 
 
+def _verified_earlier(
+    entry: dict[str, Any] | None, size: int, known_md5: str | None, known_sha: str | None
+) -> bool:
+    """The manifest already verified this exact file (same size, sha256 recorded) and the new
+    expectation has no hash to contradict it (models/manifest.json written by an older version)."""
+    if not entry or known_md5 or known_sha:
+        return False
+    return entry.get("size") == size and bool(_HEX64.match(str(entry.get("sha256") or "")))
+
+
 def verify_existing(
     path: Path, expected: Expected, entry: dict[str, Any] | None, *, deep: bool = False
 ) -> tuple[str, tuple[str, str] | None]:
@@ -188,14 +198,22 @@ def verify_existing(
     size = path.stat().st_size
     if size == 0:
         return "corrupt", None
+    known_md5 = (expected.md5 or "").lower() or None
+    known_sha = (expected.sha256 or "").lower() or None
     if expected.size_bytes is not None and size != expected.size_bytes:
-        return "corrupt", None
+        if not _verified_earlier(entry, size, known_md5, known_sha):
+            return "corrupt", None
+        # Upgrade tolerance: a size-only expectation (no published hash) that changed after this
+        # file was downloaded and verified (sha256 recorded in the manifest). The recorded sha256
+        # decides below (trusted size + mtime, or re-hash): never a re-download because of it.
+        log.warning(
+            "%s: %d bytes != %d expected by this version; kept (sha256 verified earlier)",
+            path.name, size, expected.size_bytes,
+        )  # fmt: skip
     if expected.min_bytes is not None and size < expected.min_bytes:
         return "corrupt", None
     if entry and entry.get("size") not in (None, size):
         return "corrupt", None
-    known_md5 = (expected.md5 or "").lower() or None
-    known_sha = (expected.sha256 or "").lower() or None
     if not deep and _trusted(entry, path):
         entry = entry or {}
         if known_md5 and entry.get("md5") not in (None, known_md5):

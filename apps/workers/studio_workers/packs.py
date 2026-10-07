@@ -55,8 +55,8 @@ DEFAULT_VOICE = "es_AR-daniela-high"
 WHISPER_SIZES = {"base": 145_000_000, "large-v3-turbo": 1_620_000_000}
 PIPER_QUALITY_SIZES = {"high": 114_000_000, "medium": 63_000_000, "low": 63_000_000}
 PIPER_X_LOW = 28_000_000
-# rvc-base: rmvpe.pt exact size [S] (rvc_engine.RMVPE_SIZE); hubert transformers weights ~190 MB [S]
-RVC_SIZES = {"rmvpe.pt": 181_189_687, "hubert_base/pytorch_model.bin": 190_000_000}
+# rvc-base: approximate sizes [S] (rmvpe.pt ~181 MB, rvc_engine.RMVPE_APPROX_SIZE; hubert ~190 MB)
+RVC_SIZES = {"rmvpe.pt": 181_000_000, "hubert_base/pytorch_model.bin": 190_000_000}
 
 DEEPFILTER_MODEL = "DeepFilterNet3"
 # Same file df.enhance.maybe_download_model fetches (deepfilternet 0.5.6 on PyPI [V]); size and
@@ -1018,6 +1018,35 @@ def _catalog_offline(root: Path) -> dict | None:
     return cached_voices_json(root)
 
 
+def _item_key(item: Item) -> str:
+    return f"whisper:{item.model}" if isinstance(item, WhisperItem) else item.rel
+
+
+SharedKeys = dict[str, tuple[set[str], set[str]]]
+
+
+def pack_keys(root: Path, catalog: dict | None = None) -> SharedKeys:
+    """{pack id: (model file keys, pip modules)} of every pack (to tell shared files apart)."""
+    out: SharedKeys = {}
+    for p in PACKS.values():
+        try:
+            keys = {_item_key(i) for i in p.build_items(root, catalog)}
+        except ValueError:  # e.g. a voice missing from a stale voices.json
+            keys = set()
+        out[p.id] = (keys, {r.module for r in p.pip})
+    return out
+
+
+def _shared_with_others(pack: Pack, keys: SharedKeys) -> tuple[set[str], set[str]]:
+    files: set[str] = set()
+    modules: set[str] = set()
+    for pid, (k, m) in keys.items():
+        if pid != pack.id:
+            files |= k
+            modules |= m
+    return files, modules
+
+
 def pack_status(
     pack: Pack,
     root: Path,
@@ -1025,16 +1054,22 @@ def pack_status(
     *,
     use_cuda: bool | None = None,
     manifest: Manifest | None = None,
+    keys: SharedKeys | None = None,
 ) -> dict[str, Any]:
     if use_cuda is None:
         use_cuda = _use_cuda_setting()
+    # Files/pip modules that other packs also install (YuNet + OpenCV of «reframe» inside
+    # «faceswap», numpy...) do not make this pack "partial": a never-downloaded faceswap showed
+    # «parcial» on every install that had the reframe pack.
+    shared_files, shared_modules = _shared_with_others(pack, keys or pack_keys(root, catalog))
     files: list[dict[str, Any]] = []
     partial = False
     model_files: list[bool] = []
     for item in pack.build_items(root, catalog):
         st = item_state(item, root, catalog)
         partial = partial or st["partial"]
-        model_files.append(st["present"])
+        if _item_key(item) not in shared_files:
+            model_files.append(st["present"])
         files.append({"name": st["name"], "size": st["size"], "present": st["present"]})
     for req in pack.pip:
         present = module_present(req.module)
@@ -1057,7 +1092,9 @@ def pack_status(
     # only an interrupted download (.part) or some of its model files on disk do.
     some_models = any(model_files)
     pip_main = pack.pip[-1] if pack.pip else None
-    pip_started = bool(pip_main and module_present(pip_main.module))
+    pip_started = bool(
+        pip_main and pip_main.module not in shared_modules and module_present(pip_main.module)
+    )
     size = sum(f["size"] for f in files) or pack.approx_size
     return {
         "id": pack.id,
@@ -1082,8 +1119,10 @@ def list_packs(root: Path) -> list[dict[str, Any]]:
     catalog = _catalog_offline(root)
     use_cuda = _use_cuda_setting()
     manifest = Manifest.load(root)
+    keys = pack_keys(root, catalog)
     return [
-        pack_status(p, root, catalog, use_cuda=use_cuda, manifest=manifest) for p in PACKS.values()
+        pack_status(p, root, catalog, use_cuda=use_cuda, manifest=manifest, keys=keys)
+        for p in PACKS.values()
     ]
 
 

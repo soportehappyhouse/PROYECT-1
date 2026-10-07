@@ -297,11 +297,22 @@ if (Test-Path $VenvPython) {
     $gplState = 'ready'
 }
 if ($gplState -eq 'ready' -and (Test-Path $gplPython)) {
+    # Same check as models_cli --gpl-venv ensure (import numpy, torch), run from apps\workers like
+    # the RVM runner; the last stderr line is shown so a failure says why (stale studio-main.pth
+    # after moving the folder, numpy/torch mismatch...). setup.ps1 -Update now repairs it.
     $ErrorActionPreference = 'Continue'
-    $gplTorch = (& $gplPython -c 'import torch; print(torch.__version__, "cuda" if torch.cuda.is_available() else "cpu")' 2>$null | Select-Object -Last 1)
+    Push-Location $WorkersDir
+    try {
+        $gplLines = @(& $gplPython -c 'import numpy, torch; print("torch", torch.__version__, "cuda" if torch.cuda.is_available() else "cpu")' 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
+    } catch { $gplLines = @("$($_.Exception.Message)") } finally { Pop-Location }
     $ErrorActionPreference = 'Stop'
-    if ($gplTorch) { Add-Result 'Entorno GPL (.venv-gpl)' ok ("listo, torch {0}" -f $gplTorch) }
-    else { Add-Result 'Entorno GPL (.venv-gpl)' warn 'existe pero import torch fallo: setup.ps1 -Update -Force o volve a descargar el paquete matting' }
+    $gplTorch = $gplLines | Where-Object { $_ -like 'torch *' } | Select-Object -Last 1
+    if ($gplTorch) { Add-Result 'Entorno GPL (.venv-gpl)' ok ("listo, {0}" -f $gplTorch) }
+    else {
+        $gplErr = $gplLines | Select-Object -Last 1
+        if (-not $gplErr) { $gplErr = 'sin salida' }
+        Add-Result 'Entorno GPL (.venv-gpl)' warn ("existe pero import torch fallo ({0}): setup.ps1 -Update lo repara (o -Update -Force)" -f $gplErr)
+    }
 } elseif ($gplState -eq 'ready') {
     Add-Result 'Entorno GPL (.venv-gpl)' ok 'GPL_PYTHON definido en .env (interprete propio)'
 } elseif ($gplState -eq 'stale') {

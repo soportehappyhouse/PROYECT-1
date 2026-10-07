@@ -20,10 +20,15 @@ loads as an arbitrary pickle is refused with 422 ``RVC_MODEL_INCOMPATIBLE`` (the
 Base assets (pack ``rvc-base``): hubert in transformers format from ``lj1995/VoiceConversionWebUI``
 ``hubert_base/`` (the folder RVC-Project's own docs download, fuentes-audio.md §2 [V]; also used by
 public RVC tools [S]); when that path answers 404 the download falls back to ``r3gm/hubert_base``,
-the repo infer-rvc-python loads by default [V code]. ``rmvpe.pt`` (181 189 687 B, same file in
-both repos [S]) the same way. models/manifest.json records which URL each file came from (doctor
-shows the hubert origin). ``preprocessor_config.json`` is not downloaded any more: neither
-transformers' HubertModel nor the library reads it.
+the repo infer-rvc-python loads by default [V code]. ``rmvpe.pt`` (~181 MB, same file in both
+repos [S]) the same way. Its exact size is NOT pinned: the 181 189 687 B of the M3 contract was a
+secondary source and did not match the user's file (downloaded and sha256-verified by 3b), so
+setup -Update saw a valid rmvpe.pt as «corrupto» and failed re-downloading it (the new copy is
+checked against the same size). Like hubert: lower bound + Content-Length + the sha256 Hugging
+Face publishes (X-Linked-Etag), and the first download's sha256 recorded in models/manifest.json.
+models/manifest.json records which URL each file came from (doctor shows the hubert origin).
+``preprocessor_config.json`` is not downloaded any more: neither transformers' HubertModel nor the
+library reads it.
 """
 
 from __future__ import annotations
@@ -53,7 +58,9 @@ RVC_ASSETS_BASE = "https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/ma
 # Defaults of infer-rvc-python 1.3.1 (main.py: load_hu_bert / BASE_DOWNLOAD_LINK) [V code].
 HUBERT_FALLBACK_BASE = "https://huggingface.co/r3gm/hubert_base/resolve/main"
 RMVPE_FALLBACK_URL = "https://huggingface.co/r3gm/sonitranslate_voice_models/resolve/main/rmvpe.pt"
-RMVPE_SIZE = 181_189_687  # [S] identical in lj1995/VoiceConversionWebUI and r3gm (contract M3)
+# [S] ~181 MB (approximate: progress bars and pack sizes only, never an exact-size check).
+RMVPE_APPROX_SIZE = 181_000_000
+RMVPE_MIN_BYTES = 150_000_000  # truncation guard; the server's size + sha256 are enforced too
 TORCH_CPU_BUILD = "torch_cpu_build"
 DEFAULT_IDLE_S = 300.0
 
@@ -81,7 +88,7 @@ BASE_ASSETS: tuple[BaseAsset, ...] = (
         "rmvpe",
         "rmvpe.pt",
         "rmvpe.pt",
-        Expected(size_bytes=RMVPE_SIZE),
+        Expected(min_bytes=RMVPE_MIN_BYTES),
         fallbacks=(RMVPE_FALLBACK_URL,),
     ),
     BaseAsset(

@@ -658,7 +658,16 @@ if ($SkipModels) {
             if ($Force) { $mode = '--force' }
             Invoke-Native $VenvPython ($cliArgs + @($mode, '--report', $dlReport)) $WorkersDir
             $dl = Get-Content -Raw -Encoding UTF8 $dlReport | ConvertFrom-Json
-            Add-Result 'Modelos' ok ("{0} descargados, {1} ya estaban" -f $dl.downloaded, $dl.skipped) -Action ejecutado -Seconds (Stop-StepClock)
+            $dlText = "{0} descargados, {1} ya estaban" -f $dl.downloaded, $dl.skipped
+            $dlState = 'ok'
+            if ($dl.failed -gt 0) {
+                # Exit 0 with failures = files of a pack installed earlier (rvc-base...), not the
+                # Piper voice / Whisper asked for here: a warning, never the whole step failed.
+                $dlState = 'warn'
+                $failedNames = @($dl.items | Where-Object { $_.action -eq 'failed' } | ForEach-Object { $_.name }) -join ', '
+                $dlText += "; no se pudo volver a bajar: $failedNames (paquete instalado antes: reintentalo en Ajustes > Paquetes de IA)"
+            }
+            Add-Result 'Modelos' $dlState $dlText -Action ejecutado -Seconds (Stop-StepClock)
         }
     } catch {
         Add-Result 'Modelos' fail ("{0} - reintenta setup.ps1 (las descargas se reanudan)" -f $_.Exception.Message) -Seconds (Stop-StepClock)

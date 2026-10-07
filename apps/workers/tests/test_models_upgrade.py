@@ -221,3 +221,14 @@ def test_setup_defaults_match_the_registry(voice: str) -> None:
     setup = (Path(__file__).resolve().parents[3] / "scripts/windows/setup.ps1").read_text("utf-8")
     assert f"'PIPER_DEFAULT_VOICE' '{voice}'" in setup and voice in CATALOG
     assert "[string]$WhisperModel = 'base'" in setup and "base" in WHISPER_MODELS
+
+
+def test_packs_list_tolerates_a_voices_json_without_a_voice(dirs, caplog) -> None:  # type: ignore[no-untyped-def]
+    """A cached voices.json that lacks a voice of voces-es must not crash --packs list."""
+    _, models = dirs
+    _install_3b(models)  # its voices.json only has es_AR-daniela-high
+    with caplog.at_level("WARNING", logger="studio_workers"):
+        rows = {r["id"]: r for r in packs.list_packs(models)}
+    assert rows["voces-es"]["installed"] is False and rows["core"]["installed"] is True
+    assert "voices.json has no voice" in caplog.text
+    assert models_cli.main(["--packs", "list"]) == 0

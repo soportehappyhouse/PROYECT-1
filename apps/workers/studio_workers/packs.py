@@ -158,8 +158,21 @@ class Pack:
 # ------------------------------------------------------------------------------- item builders
 
 
+def _piper_items(root: Path, voice_id: str, catalog: dict | None) -> list[Item]:
+    """piper_items, tolerant of a cached voices.json that lacks this voice (stale cache or a
+    voice renamed upstream): size-only checks for it plus a warning, never a ValueError that
+    breaks --packs list / GET /packs (Ajustes > Paquetes de IA)."""
+    try:
+        return list(piper_items(root, voice_id, catalog))
+    except ValueError:
+        if catalog is None or voice_id in catalog:
+            raise  # invalid voice id: a real bug, not a stale catalog
+        log.warning("voices.json has no voice %s: checking its files by size only", voice_id)
+        return list(piper_items(root, voice_id, None))
+
+
 def _core_items(root: Path, catalog: dict | None) -> list[Item]:
-    return [*piper_items(root, DEFAULT_VOICE, catalog), WhisperItem("base")]
+    return [*_piper_items(root, DEFAULT_VOICE, catalog), WhisperItem("base")]
 
 
 def _turbo_items(_root: Path, _catalog: dict | None) -> list[Item]:
@@ -172,7 +185,7 @@ def _voices_items(root: Path, catalog: dict | None) -> list[Item]:
     out: list[Item] = []
     for voice in SPANISH_VOICES:
         if voice.id != DEFAULT_VOICE:
-            out.extend(piper_items(root, voice.id, catalog))
+            out.extend(_piper_items(root, voice.id, catalog))
     return out
 
 

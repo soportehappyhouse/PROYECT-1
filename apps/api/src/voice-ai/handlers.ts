@@ -1,5 +1,6 @@
 import { rm } from "node:fs/promises";
 import {
+  chatterboxTool,
   FEATURE_PACKS,
   RvcRequestSchema,
   TranscribeRequestSchema,
@@ -14,13 +15,27 @@ import {
 import type { AppContext } from "../context.js";
 import { viaPacks } from "../jobs/handlers/ai.js";
 import type { JobContext, JobHandler } from "../jobs/types.js";
+import type { ConsentGate } from "../services/persons/gate.js";
+import { inheritAiProvenance } from "../services/ai-provenance.js";
 import { resolveStoragePath } from "../services/storage.js";
 import type { WorkerCallOptions, WorkersClient } from "../services/workers-client.js";
+import {
+  asJobError,
+  consentGate,
+  prepareChatterbox,
+  voiceProvenance,
+  workerChatterboxBody,
+  workersToHttp,
+} from "./chatterbox.js";
 import { registerAudioAsset, requireMediaAsset } from "./media-bridge.js";
 import { extractSpeechWav } from "./proc.js";
 
 /** Dependencies of the workers-backed handlers (subset of AppContext, easy to fake in tests). */
-export type VoiceAiDeps = Pick<AppContext, "config" | "repos" | "queue" | "workers">;
+export type VoiceAiDeps = Pick<AppContext, "config" | "repos" | "queue" | "workers"> &
+  Partial<Pick<AppContext, "db">> & {
+    /** Sprint 4: M1's consent gate (tests inject a fake; the app builds it from `db`). */
+    gate?: ConsentGate;
+  };
 
 /** Map worker progress (0..1) into [from, to] of the job progress bar. */
 function progressOpts(ctx: JobContext, from: number, to: number): WorkerCallOptions {
@@ -111,6 +126,7 @@ export function createTtsHandler(deps: VoiceAiDeps): JobHandler<TtsRequest, Audi
     type: "voice.tts",
     parse: (payload) => TtsRequestSchema.parse(payload),
     async run(payload, ctx, job) {
+      if (payload.provider === "chatterbox") return runChatterboxTts(deps, payload, ctx, job.id);
       const outputPath = `renders/${job.id}.${payload.format}`;
       ctx.reportProgress(0.05, "Sintetizando voz");
       const res = await deps.workers.tts(
@@ -126,14 +142,102 @@ export function createTtsHandler(deps: VoiceAiDeps): JobHandler<TtsRequest, Audi
         progressOpts(ctx, 0.05, 0.95),
       );
       const snippet = payload.text.replace(/\s+/g, " ").trim().slice(0, 40);
+      // Decision 9: every TTS voice (Piper and cloud too) is marked synthetic.
       const asset = await registerAudioAsset(deps, {
         path: res.path,
         name: `Voz (${payload.voice}): ${snippet}`,
         durationSec: res.durationSec,
         ...(res.sampleRate && res.path.endsWith(".wav") && { sampleRate: res.sampleRate }),
+        aiAltered: true,
+        aiProvenance: voiceProvenance(`${payload.provider} ${payload.voice}`, job.id),
       });
-      return { assetId: asset.id, path: res.path, durationSec: res.durationSec };
+      return {
+        assetId: asset.id,
+        path: res.path,
+        durationSec: res.durationSec,
+        provider: payload.provider,
+        aiVoice: "synthetic",
+      };
     },
+  };
+}
+
+/**
+ * Sprint 4 «Chatterbox» branch of voice.tts: the route checks are repeated when the job starts
+ * (a revoked consent blocks a queued job), the workers synthesize in the isolated tool venv and the
+ * new asset is `voice-synthetic`, or `voice-cloned` with the Person/«Voz propia» it came from.
+ */
+async function runChatterboxTts(
+  deps: VoiceAiDeps,
+  payload: TtsRequest,
+  ctx: JobContext,
+  jobId: string,
+): Promise<AudioJobResult> {
+  ctx.reportProgress(0.02, "Comprobando la voz a clonar");
+  let prepared: Awaited<ReturnType<typeof prepareChatterbox>>;
+  try {
+    prepared = await viaPacks(() => prepareChatterbox(deps, payload));
+  } catch (err) {
+    throw asJobError(err);
+  }
+  const { value, ref } = prepared;
+  const outputPath = `renders/${jobId}.${payload.format}`;
+  ctx.reportProgress(
+    0.05,
+    ref?.self
+      ? "Clonando tu voz"
+      : ref
+        ? "Clonando la voz de la Persona"
+        : "Sintetizando con Chatterbox",
+  );
+  // Audit fix 8: canceling the job stops Chatterbox for real (kills the bridge, frees the GPU).
+  const onAbort = () => void deps.workers.ttsCancel(jobId).catch(() => undefined);
+  ctx.signal.addEventListener("abort", onAbort, { once: true });
+  let res;
+  try {
+    res = await viaPacks(() =>
+      deps.workers.tts(workerChatterboxBody(payload, value, ref, outputPath, jobId), {
+        ...progressOpts(ctx, 0.05, 0.95),
+        timeoutMs: 0, // a CPU synthesis of 5000 characters can take long: only cancel stops it
+      }),
+    );
+  } catch (err) {
+    throw workersToHttp(err);
+  } finally {
+    ctx.signal.removeEventListener("abort", onAbort);
+  }
+  const snippet = payload.text.replace(/\s+/g, " ").trim().slice(0, 40);
+  const tool = chatterboxTool(res.model ?? value.model);
+  // Audit fix 22: never the Persona's name in the asset name (Media, exports, reports).
+  const voiceLabel = ref?.self ? "Voz propia" : ref ? "Voz clonada (Persona)" : "multilingüe";
+  const asset = await registerAudioAsset(deps, {
+    path: res.path,
+    name: `Voz Chatterbox (${voiceLabel}): ${snippet}`,
+    durationSec: res.durationSec,
+    ...(res.sampleRate && res.path.endsWith(".wav") && { sampleRate: res.sampleRate }),
+    aiAltered: true,
+    aiProvenance: voiceProvenance(tool, jobId, ref),
+  });
+  if (ref?.personId)
+    consentGate(deps).audit({
+      action: "voice.clone",
+      personId: ref.personId,
+      ...(ref.consentId && { consentId: ref.consentId }),
+      jobId,
+      assetId: asset.id,
+      data: { tool, device: res.device ?? undefined },
+    });
+  const warnings = res.warnings ?? [];
+  return {
+    assetId: asset.id,
+    path: res.path,
+    durationSec: res.durationSec,
+    provider: "chatterbox",
+    ...(res.device && { device: res.device }),
+    aiVoice: ref ? "cloned" : "synthetic",
+    watermark: "perth",
+    ...(res.rtf != null && { rtf: res.rtf }),
+    ...(warnings.length > 0 && { warnings }),
   };
 }
 
@@ -164,17 +268,36 @@ export function createRvcHandler(deps: VoiceAiDeps): JobHandler<RvcRequest, Audi
           progressOpts(ctx, 0.02, 0.97),
         ),
       );
+      // Sprint 4: a converted synthetic/cloned voice keeps its AI marks (sourceAssetId = source);
+      // open point B of the audit: a real voice converted to another voice is `voice-cloned`.
+      const kind = source.aiProvenance?.kind;
+      const provenance =
+        kind === "voice-synthetic" || kind === "voice-cloned"
+          ? inheritAiProvenance(source, { jobId: job.id })
+          : {
+              aiAltered: true,
+              aiProvenance: {
+                kind: "voice-cloned" as const,
+                tool: `rvc:${payload.modelId}`.slice(0, 120),
+                jobId: job.id,
+                sourceAssetId: source.id,
+                createdAt: new Date().toISOString(),
+              },
+            };
       const asset = await registerAudioAsset(deps, {
         path: res.path,
         name: `${source.name} (RVC ${payload.modelId})`,
         ...(res.durationSec != null && { durationSec: res.durationSec }),
         ...(res.sampleRate != null && { sampleRate: res.sampleRate }),
+        ...provenance,
       });
+      const usedDevice = res.device === "cuda" || res.device === "cpu" ? res.device : undefined;
       return {
         assetId: asset.id,
         path: res.path,
         ...(res.durationSec != null && { durationSec: res.durationSec }),
         ...(res.warnings?.length && { warnings: res.warnings }),
+        ...(usedDevice && { device: usedDevice }),
       };
     },
   };

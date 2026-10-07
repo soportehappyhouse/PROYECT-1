@@ -42,6 +42,7 @@ import {
 } from "./ffmpeg/segments.js";
 import {
   compileExport,
+  metadataArgs,
   resolveExportProject,
   timelineDuration,
   type CompileExportOptions,
@@ -83,6 +84,12 @@ export interface ExportInput {
   segmentCache?: { dir: string; maxBytes: number };
   /** Sprint 2: track files of the clips' trackRef (asset id -> TrackFile). */
   tracks?: ReadonlyMap<string, TrackFile>;
+  /**
+   * Sprint 4: `-metadata comment=` of the output (AI content detected, decision 9). Written on the
+   * single pass and on the final concat of the segment render (never inside the cached blocks, so
+   * it does not change their hash).
+   */
+  metadataComment?: string;
 }
 
 export interface ExportOutcome {
@@ -374,6 +381,7 @@ export function createFfmpegService(ffmpegPath: string, ffprobePath: string): Ff
         ...(input.range && { range: input.range }),
         ...(input.fontFile && { fontFile: input.fontFile }),
         ...(input.burnSubtitles !== undefined && { burnSubtitles: input.burnSubtitles }),
+        ...(input.metadataComment && { metadataComment: input.metadataComment }),
       });
       const writeFiles = async (dir: string, files: { name: string; content: string }[]) => {
         await mkdir(dir, { recursive: true });
@@ -531,6 +539,7 @@ export function createFfmpegService(ffmpegPath: string, ffprobePath: string): Ff
             "-c",
             "copy",
             ...(input.preset.videoCodec === "h265" ? ["-tag:v", "hvc1"] : []),
+            ...metadataArgs(input.metadataComment),
             ...enc.container,
             "-t",
             sec(totalDur),

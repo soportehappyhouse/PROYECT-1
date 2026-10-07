@@ -1,0 +1,23 @@
+# Chatterbox Multilingual TTS — isolated venv tools/chatterbox/.venv (Python 3.11, never the workers'
+# venv: Chatterbox pins torch==2.6.0 and numpy<2). Installed by toolvenv.ensure("chatterbox")
+# (studio_workers/toolvenv.py) in this order, always with "<venv python> -m pip":
+#   1. pip install -U pip wheel "setuptools<82"        (PerTh 1.0.1 imports pkg_resources)
+#   2. torch==2.6.0 torchaudio==2.6.0                  (CUDA: --index-url .../whl/cu124; see the lock)
+#   3. resemble-perth @ git+...Perth.git@<perth_sha>   (chatterbox.lock.json)
+#   4. pip install -r requirements.txt                 (this file: Chatterbox's own dependencies)
+#   5. pip install --no-deps chatterbox-tts @ git+...chatterbox.git@<chatterbox_sha>   (variant v3)
+#   fallback without Git/GitHub: pip install chatterbox-tts==0.1.7 "setuptools<82"  (variant v2)
+# Chatterbox is installed --no-deps (no gradio, no re-resolution of Perth@master), so its runtime
+# dependencies are listed explicitly here, with the pins of its pyproject.toml at the locked SHA.
+numpy>=1.24,<2
+librosa==0.11.0
+s3tokenizer
+transformers==5.2.0
+diffusers==0.29.0
+conformer==0.3.2
+safetensors==0.5.3
+spacy-pkuseg
+pykakasi==2.3.0
+pyloudnorm
+omegaconf
+huggingface_hub

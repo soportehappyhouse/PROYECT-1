@@ -144,6 +144,63 @@ export function onPackRequired(listener: PackRequiredListener): () => void {
   return () => packRequiredListeners.delete(listener);
 }
 
+// ---- Sprint 4 M1: new error codes (docs/trabajo/sprint4-contratos.md «Códigos de error nuevos») ----
+
+/** Codes the dashboard reacts to (consent, licence, isolated tools, content analyser...). */
+export const SPRINT4_UI_CODES = [
+  "CONSENT_REQUIRED",
+  "LICENCE_REQUIRED",
+  "HUMAN_ONLY",
+  "TOOL_MISSING",
+  "TOOL_FAILED",
+  "TEXT_OUTDATED",
+  "VOICE_SAMPLE_MISSING",
+  "CONTENT_BLOCKED",
+  "NO_FACE",
+  "RVC_MODEL_INCOMPATIBLE",
+  "CLIP_TOO_LONG",
+  "VOICE_SAMPLE_INVALID",
+  "PERSON_NOT_FOUND",
+] as const;
+export type Sprint4UiCode = (typeof SPRINT4_UI_CODES)[number];
+
+/** Window event that opens the global licence dialog (also fired on every 403 LICENCE_REQUIRED). */
+export const LICENCE_OPEN_EVENT = "studio:licence:open";
+
+/** `{code, message, details}` of an api error body (route answer or failed job `result`). */
+export function apiErrorInfo(
+  raw: unknown,
+): { code: string; message: string; details?: unknown } | undefined {
+  const e = (raw as { error?: unknown } | null | undefined)?.error;
+  if (!e || typeof e !== "object") return undefined;
+  const o = e as { code?: unknown; message?: unknown; details?: unknown };
+  if (typeof o.code !== "string") return undefined;
+  return {
+    code: o.code,
+    message: typeof o.message === "string" ? o.message : o.code,
+    ...(o.details !== undefined && { details: o.details }),
+  };
+}
+
+/** Code of an error thrown by the client or of a failed job (`JobFailedError.job.result`). */
+export function errorCode(err: unknown): string | undefined {
+  if (err instanceof ApiRequestError) return err.code;
+  const job = (err as { job?: { result?: unknown } } | null | undefined)?.job;
+  return job ? apiErrorInfo(job.result)?.code : undefined;
+}
+
+/** Open the licence dialog (Ajustes → Paquetes de IA «Leer y aceptar», 403 LICENCE_REQUIRED). */
+export function openLicenceDialog(licenceId = "faceswap"): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(LICENCE_OPEN_EVENT, { detail: { licenceId } }));
+}
+
+function announceSprint4Error(err: ApiRequestError): void {
+  if (err.code !== "LICENCE_REQUIRED") return;
+  const details = err.body?.error.details as { licenceId?: unknown } | undefined;
+  openLicenceDialog(typeof details?.licenceId === "string" ? details.licenceId : "faceswap");
+}
+
 /** True when the API could not be reached at all. */
 export function isOffline(err: unknown): boolean {
   return err instanceof ApiRequestError && err.status === 0;
@@ -232,6 +289,7 @@ export async function apiFetch<T>(route: string, options: RequestOptions = {}): 
     );
     const pack = packRequiredInfo(err);
     if (pack) for (const listener of packRequiredListeners) listener(pack);
+    announceSprint4Error(err);
     throw recordApiError(method, route, err);
   }
   if (res.status === 204) return undefined as T;

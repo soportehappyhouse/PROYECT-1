@@ -1,0 +1,10 @@
+{
+  "chatterbox_git": "https://github.com/resemble-ai/chatterbox.git",
+  "chatterbox_sha": "5de7a54aa4e5e2baadb0182dde554908b48b85c2",
+  "perth_git": "https://github.com/resemble-ai/Perth.git",
+  "perth_sha": "ff1c8ac55a976971245cdd53c18d6131ca00d993",
+  "fallback_pypi": "chatterbox-tts==0.1.7",
+  "python": "3.11",
+  "torch": "2.6.0",
+  "torch_cuda_index": "https://download.pytorch.org/whl/cu124"
+}

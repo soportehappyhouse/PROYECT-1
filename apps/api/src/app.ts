@@ -13,17 +13,21 @@ import { openDatabase } from "./db/database.js";
 import { registerAgentHandlers } from "./jobs/handlers/agent.js";
 import { registerAiHandlers } from "./jobs/handlers/ai.js";
 import { registerAudioStemsHandler } from "./jobs/handlers/audio-stems.js";
+import { faceDeps, registerFaceHandlers } from "./jobs/handlers/face.js";
 import { registerStyleHandlers } from "./jobs/handlers/style.js";
 import { registerVisionHandlers } from "./jobs/handlers/vision.js";
 import { registerModuleBHandlers } from "./jobs/handlers/index.js";
 import { createMotionRenderHandler } from "./jobs/handlers/motion-render.js";
 import { JobQueue } from "./jobs/queue.js";
 import { SqliteJobStore } from "./jobs/store.js";
-import { allowedOrigins } from "./lib/cors.js";
+import { allowedOrigins, isAllowedHost } from "./lib/cors.js";
 import { DailyLogStream } from "./lib/log-file.js";
 import { errorBody, HttpError, PackRequiredError } from "./lib/errors.js";
 import { createRepos } from "./repos/index.js";
 import { registerRoutes } from "./routes/index.js";
+import { faceRoutes } from "./routes/face.js";
+import { personsRoutes } from "./routes/persons.js";
+import { setPersonsDirectory } from "./services/agent/persons.js";
 import { createFfmpegService } from "./services/ffmpeg.js";
 import { ensureStorageLayout } from "./services/storage.js";
 import { createWorkersClient } from "./services/workers-client.js";
@@ -69,6 +73,16 @@ export async function buildApp({
   registerAgentHandlers(ctx); // Sprint 3: agent.apply (lane edit), agent.eval
   registerStyleHandlers(ctx); // Sprint 3b: style.analyze, style.infer (perfil de estilo)
   registerAudioStemsHandler(ctx); // Sprint 3b: audio.stems (Demucs in the workers)
+  // Sprint 4 M1: face.preview, face.swap (FaceFusion in the workers) behind the consent gate.
+  const face = faceDeps(ctx);
+  registerFaceHandlers(face);
+  setPersonsDirectory(() => ({
+    persons: face.gate.summaries(),
+    faceswapLicence: face.gate.isLicenceAccepted("faceswap"),
+  }));
+  // Audit fixes 4 / 17: the workers' read-only mirrors (consent/licences.json, consent/active.json)
+  // are rewritten at every start, so they never lag behind the database (restore, manual edit…).
+  const mirrorsReady = face.gate.writeMirrors().catch((err: unknown) => err);
 
   // stdout + storage/logs/api-YYYY-MM-DD.log (7 days, secrets redacted). Tests use logger: false.
   const logStream =
@@ -83,6 +97,17 @@ export async function buildApp({
     bodyLimit: 10 * 1024 * 1024,
   });
   app.decorate("ctx", ctx);
+
+  // Audit fix 5: only Host 127.0.0.1 / localhost (+ the api port) — a page that rebinds its own
+  // domain to 127.0.0.1 (DNS rebinding) gets 403 BAD_HOST before any route or /files.
+  app.addHook("onRequest", async (req, reply) => {
+    if (!isAllowedHost(config, req.headers.host, req.socket?.localPort))
+      return reply
+        .code(403)
+        .send(
+          errorBody("BAD_HOST", "Pedido rechazado: Studio solo atiende en 127.0.0.1 o localhost."),
+        );
+  });
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof ZodError)
@@ -107,14 +132,22 @@ export async function buildApp({
     root: config.storageDir,
     prefix: "/files/",
     decorateReply: false,
-    // Never expose the SQLite files, scratch dirs, logs, error reports or partial uploads.
+    // Never expose the SQLite files, scratch dirs, logs, error reports, partial uploads or the
+    // Personas registry (sprint 4: photos, voice samples, consent evidence, licences.json).
     allowedPath: (pathName) =>
-      !/^\/?(studio\.db|tmp\/|logs\/|reports\/|cache\/)/.test(pathName) &&
+      !/^\/?(studio\.db|tmp\/|logs\/|reports\/|cache\/|consent\/)/i.test(pathName) &&
       !pathName.endsWith(".part"),
   });
   await registerRoutes(app);
+  await app.register(personsRoutes); // Sprint 4 M1: Personas, consentimientos, licencias
+  await app.register(faceRoutes); // Sprint 4 M1: cambiar cara
 
-  app.addHook("onReady", async () => queue.start());
+  app.addHook("onReady", async () => {
+    const err = await mirrorsReady;
+    if (err)
+      app.log.error({ err: String(err) }, "No se pudieron escribir los espejos de consentimiento");
+    queue.start();
+  });
   app.addHook("onClose", async () => {
     await queue.stop();
     db.close();

@@ -54,6 +54,17 @@ const FULL: EditPlanInput = {
     { op: "set_publish", for_social: true, flags: { ai_voice: true }, ai_label: true },
     { op: "export", preset: "reels-tiktok", name: "final", confirm: true },
     { op: "report_bug", title: "Se colgó", steps_es: "Exporté y se colgó." },
+    {
+      op: "face_swap",
+      clip: { name: "doble" },
+      person: { name: "Ana" },
+      t: 4,
+      face_index: 0,
+      model: "hyperswap_1a_256",
+      enhancer: true,
+      strength: 1,
+      confirm: true,
+    },
   ],
 };
 
@@ -67,7 +78,7 @@ describe("EditPlan schema (Sprint 3)", () => {
     }
     expect(validateEditPlan(FULL).errors[0]).toMatch(/^ops: /);
     expect(new Set(FULL.ops.map((o) => o.op))).toEqual(new Set(EDIT_OP_NAMES));
-    expect(EDIT_OP_NAMES).toHaveLength(22);
+    expect(EDIT_OP_NAMES).toHaveLength(23); // sprint 4: face_swap
   });
 
   it("accepts a questions-only plan and rejects an empty one", () => {
@@ -133,7 +144,7 @@ describe("EditPlan schema (Sprint 3)", () => {
     expect([...REMOTION_TEMPLATE_IDS]).toContain("title-card");
     const presetIds = [...DEFAULT_EXPORT_PRESETS, ...EXTRA_EXPORT_PRESETS].map((p) => p.id);
     for (const id of AGENT_KNOWN_PRESET_IDS) expect(presetIds).toContain(id);
-    expect(ALWAYS_CONFIRM_OPS).toEqual(["delete_clip", "export"]);
+    expect(ALWAYS_CONFIRM_OPS).toEqual(["delete_clip", "export", "face_swap"]);
   });
 
   it("exports a JSON Schema with Spanish descriptions, $defs and the exported file is current", () => {
@@ -152,7 +163,7 @@ describe("EditPlan schema (Sprint 3)", () => {
     ]);
     expect(schema.required).toEqual(["version", "summary_es", "ops"]);
     const variants = schema.properties.ops.items.oneOf;
-    expect(variants).toHaveLength(22);
+    expect(variants).toHaveLength(23);
     for (const v of variants)
       for (const [key, prop] of Object.entries(v.properties))
         expect(prop.description, `${key} sin descripción`).toMatch(/[a-záéíóúñ]/i);

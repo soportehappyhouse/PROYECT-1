@@ -1,0 +1,163 @@
+import {
+  API_ROUTES,
+  type Consent,
+  type ConsentAuditRow,
+  type ConsentMethod,
+  type ConsentScope,
+  type LicenceAcceptance,
+  type LicenceId,
+  type LicenceStatus,
+  type Person,
+  type PersonCreate,
+  type PersonPatch,
+  type PersonSummary,
+} from "@studio/shared";
+import { apiFetch, ApiRequestError, apiUrl } from "./api";
+
+/**
+ * Sprint 4 M1 client: Personas registry (/api/persons) and on-screen licences (/api/ai/licences).
+ * Uploads go as multipart (FormData through apiFetch: the browser sets the boundary and the
+ * `Origin` header the api checks for consents and licences — HUMAN_ONLY).
+ */
+
+export interface ConsentInput {
+  scope: ConsentScope;
+  method: ConsentMethod;
+  signerName: string;
+  textVersion: string;
+  /** ISO timestamp (end of the chosen day) or undefined = no expiry. */
+  expiresAt?: string;
+  /** Signature PNG of the canvas, or the signed document (PDF/JPG/PNG). */
+  evidence: Blob;
+  evidenceName: string;
+}
+
+function form(field: string, file: Blob, name: string): FormData {
+  const fd = new FormData();
+  fd.append(field, file, name);
+  return fd;
+}
+
+/**
+ * Window event fired after every change to the Personas registry made from the web (create, edit,
+ * delete, photos, voice samples, consents). Other panels that list Persons (Voz → «Voz a clonar»)
+ * reload on it: dockview keeps them mounted, so a list loaded once would go stale.
+ */
+export const PERSONS_CHANGED_EVENT = "studio:persons:changed";
+
+async function changed<T>(p: Promise<T>): Promise<T> {
+  const out = await p;
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(PERSONS_CHANGED_EVENT));
+  return out;
+}
+
+export const personsApi = {
+  list: (scope?: "face" | "voice") =>
+    apiFetch<PersonSummary[]>(API_ROUTES.persons, { ...(scope && { query: { scope } }) }),
+  create: (body: PersonCreate) =>
+    changed(apiFetch<Person>(API_ROUTES.persons, { method: "POST", json: body })),
+  get: (id: string) => apiFetch<Person>(API_ROUTES.person, { params: { id } }),
+  patch: (id: string, body: PersonPatch) =>
+    changed(apiFetch<Person>(API_ROUTES.person, { method: "PATCH", params: { id }, json: body })),
+  /** Deletes photos and samples, archives the consents (needs the explicit confirmation). */
+  remove: (id: string) =>
+    changed(
+      apiFetch<void>(API_ROUTES.person, {
+        method: "DELETE",
+        params: { id },
+        query: { confirm: 1 },
+      }),
+    ),
+  uploadPhoto: (id: string, file: Blob, name = "foto.jpg") =>
+    changed(
+      apiFetch<Person>(API_ROUTES.personPhotos, {
+        method: "POST",
+        params: { id },
+        body: form("photo", file, name),
+      }),
+    ),
+  deletePhoto: (id: string, photoId: string) =>
+    changed(
+      apiFetch<Person>(API_ROUTES.personPhoto, { method: "DELETE", params: { id, photoId } }),
+    ),
+  photoUrl: (id: string, photoId: string) => apiUrl(API_ROUTES.personPhoto, { id, photoId }),
+  uploadVoice: (id: string, file: Blob, name = "muestra.webm") =>
+    changed(
+      apiFetch<Person>(API_ROUTES.personVoiceSamples, {
+        method: "POST",
+        params: { id },
+        body: form("audio", file, name),
+      }),
+    ),
+  deleteVoice: (id: string, sampleId: string) =>
+    changed(
+      apiFetch<Person>(API_ROUTES.personVoiceSample, {
+        method: "DELETE",
+        params: { id, sampleId },
+      }),
+    ),
+  voiceUrl: (id: string, sampleId: string) =>
+    apiUrl(API_ROUTES.personVoiceSample, { id, sampleId }),
+  addConsent: (id: string, c: ConsentInput) => {
+    const fd = new FormData();
+    fd.append("scope", c.scope);
+    fd.append("method", c.method);
+    fd.append("signer_name", c.signerName);
+    fd.append("text_version", c.textVersion);
+    if (c.expiresAt) fd.append("expires_at", c.expiresAt);
+    fd.append("accept", "true");
+    fd.append("evidence", c.evidence, c.evidenceName);
+    return changed(
+      apiFetch<Consent>(API_ROUTES.personConsents, {
+        method: "POST",
+        params: { id },
+        body: fd,
+      }),
+    );
+  },
+  revokeConsent: (id: string, consentId: string) =>
+    changed(
+      apiFetch<Consent>(API_ROUTES.personConsentRevoke, {
+        method: "POST",
+        params: { id, consentId },
+      }),
+    ),
+  /** «Revocar rostro» | «Revocar voz» | «Revocar todo»: every valid consent of that scope. */
+  revokeScope: (id: string, scope: "face" | "voice" | "all") =>
+    changed(
+      apiFetch<Person>(API_ROUTES.personConsentsRevoke, {
+        method: "POST",
+        params: { id },
+        json: { scope },
+      }),
+    ),
+  evidenceUrl: (id: string, consentId: string) =>
+    apiUrl(API_ROUTES.personConsentEvidence, { id, consentId }),
+  /**
+   * The evidence file as a Blob: fetched (cors mode, so the browser sends the web Origin the api
+   * requires for biometric reads) instead of a plain link, which a cross-site navigation would not.
+   */
+  evidenceBlob: async (id: string, consentId: string): Promise<Blob> => {
+    const res = await fetch(apiUrl(API_ROUTES.personConsentEvidence, { id, consentId }));
+    if (!res.ok) throw new ApiRequestError(res.status, undefined, "No se pudo abrir la evidencia");
+    return res.blob();
+  },
+  /** Audit trail of the Person (web only) + whether its hash chain is intact. */
+  audit: (id: string) =>
+    apiFetch<{
+      rows: ConsentAuditRow[];
+      chain: { ok: boolean; checked: number; brokenAt?: number };
+    }>(API_ROUTES.personAudit, { params: { id } }),
+};
+
+export const licencesApi = {
+  list: () => apiFetch<LicenceStatus[]>(API_ROUTES.aiLicences),
+  accept: (id: LicenceId, textVersion: string) =>
+    apiFetch<LicenceAcceptance>(API_ROUTES.aiLicenceAccept, {
+      method: "POST",
+      params: { id },
+      json: { text_version: textVersion, accept: true },
+    }),
+  revoke: (id: LicenceId) =>
+    apiFetch<LicenceAcceptance>(API_ROUTES.aiLicenceRevoke, { method: "POST", params: { id } }),
+};

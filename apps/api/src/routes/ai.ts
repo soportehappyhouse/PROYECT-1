@@ -5,11 +5,13 @@ import {
   ApplyCutsRequestSchema,
   DenoiseRequestSchema,
   FEATURE_PACKS,
+  LicenceIdSchema,
   type JobType,
 } from "@studio/shared";
 import type { FastifyPluginAsync, FastifyReply } from "fastify";
 import { readPerfResult, requirePack, toPackRequired } from "../jobs/handlers/ai.js";
 import { errorBody, HttpError } from "../lib/errors.js";
+import { createConsentGate, licenceRequired } from "../services/persons/gate.js";
 import { WorkersError } from "../services/workers-client.js";
 import { requireMediaAsset } from "../voice-ai/media-bridge.js";
 
@@ -32,6 +34,7 @@ async function proxy<T>(fn: () => Promise<T>): Promise<T> {
  */
 export const aiRoutes: FastifyPluginAsync = async (app) => {
   const { workers, queue, repos, config } = app.ctx;
+  const gate = createConsentGate(app.ctx.db, config.storageDir);
   const accepted = (reply: FastifyReply, type: JobType, payload: unknown, projectId?: string) => {
     const job = queue.enqueue({
       type,
@@ -53,8 +56,14 @@ export const aiRoutes: FastifyPluginAsync = async (app) => {
 
   app.post<{ Params: { id: string } }>(API_ROUTES.aiPackDownload, async (req, reply) => {
     const packs = await proxy(() => workers.packs());
-    if (!packs.some((p) => p.id === req.params.id))
+    const pack = packs.find((p) => p.id === req.params.id);
+    if (!pack)
       return reply.code(404).send(errorBody("NOT_FOUND", `Paquete «${req.params.id}» desconocido`));
+    // Sprint 4 M1: packs behind an on-screen licence (faceswap) are not downloaded before it is
+    // accepted (criterion 5: nothing of the face swap on disk without the acceptance).
+    const licence = LicenceIdSchema.safeParse(pack.licence_gate);
+    if (pack.licence_gate && (!licence.success || !gate.isLicenceAccepted(licence.data)))
+      throw licenceRequired(licence.success ? licence.data : "faceswap");
     // One download job per pack at a time: reuse the active one.
     const active = queue.activeJob("packs.download", (p) => p.packId === req.params.id);
     if (active) return reply.code(202).send({ jobId: active.id });

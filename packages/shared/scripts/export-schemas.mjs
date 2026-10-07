@@ -35,8 +35,12 @@ const exports = [
 for (const { file, title, schema, targets } of exports) {
   const full = { ...schema, $id: `https://studio.local/schemas/${file}`, title };
   let text = `${JSON.stringify(full, null, 2)}\n`;
-  // Same layout as `pnpm format` (root prettier) so format:check stays green after an export.
-  if (prettier) text = await prettier.format(text, { parser: "json" });
+  // Same layout as `pnpm format` (root prettier, .prettierrc.json printWidth 100) so format:check
+  // stays green after an export.
+  if (prettier) {
+    const config = (await prettier.resolveConfig(resolve(root, targets[0], file))) ?? {};
+    text = await prettier.format(text, { ...config, parser: "json" });
+  }
   for (const dir of targets) {
     const target = resolve(root, dir, file);
     mkdirSync(dirname(target), { recursive: true });

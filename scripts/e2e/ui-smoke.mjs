@@ -1560,6 +1560,419 @@ await step(
   },
 );
 
+// ---------------------------------------------------------------- BEGIN sprint4:M2
+// «Voces»: Chatterbox engine (workers-with-mocks.py: pack installed + bridge --mock), «Voz propia»
+// uploaded from the panel («Soy yo» mandatory) and clones with it and with a consented Person
+// (Person + signed consent + voice sample created through the api with the web Origin).
+await step(
+  "Sprint 4: Voces: motor Chatterbox (mock), Voz propia y clonación con Persona",
+  async () => {
+    const pack = (await apiJson("/api/ai/packs")).find((p) => p.id === "tts-chatterbox");
+    if (!pack) throw new Error("pack tts-chatterbox not listed by /api/ai/packs");
+    if (!pack.installed) return { skipped: "tts-chatterbox not installed (mocks off)" };
+    const { mkdtemp, readFile } = await import("node:fs/promises");
+    const os = await import("node:os");
+    const dir = await mkdtemp(path.join(os.tmpdir(), "studio-ui-m2-"));
+    const lavfi = (name, graph, extra = []) => {
+      const file = path.join(dir, name);
+      const r = spawnSync("ffmpeg", [
+        "-y",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        graph,
+        ...extra,
+        file,
+      ]);
+      if (r.status !== 0) throw new Error(`ffmpeg ${name}: ${r.stderr}`);
+      return file;
+    };
+    const selfWav = lavfi("voz-propia.wav", "sine=frequency=170:duration=9:sample_rate=44100", [
+      "-af",
+      "volume=0.5",
+    ]);
+    // A Person with a voice sample and then a signed voice consent (M1's api; uploads and consents
+    // need the web Origin; the consent covers the samples loaded before it).
+    const person = await apiSend("POST", "/api/persons", { name: "Lu E2E" });
+    const human = { origin: WEB };
+    const vf = new FormData();
+    vf.append(
+      "audio",
+      new Blob([await readFile(lavfi("lu.wav", "sine=frequency=260:duration=8"))], {
+        type: "audio/wav",
+      }),
+      "lu.wav",
+    );
+    const sample = await fetch(`${API}/api/persons/${person.id}/voice-samples`, {
+      method: "POST",
+      headers: human,
+      body: vf,
+    });
+    if (!sample.ok) throw new Error(`voice sample -> ${sample.status} ${await sample.text()}`);
+    const sig = await readFile(
+      lavfi("firma.png", "color=c=white:s=240x90,drawbox=x=20:y=40:w=200:h=6:color=black:t=fill", [
+        "-frames:v",
+        "1",
+      ]),
+    );
+    const cf = new FormData();
+    for (const [k, v] of Object.entries({
+      scope: "voice",
+      method: "firma en pantalla",
+      signer_name: "Lu E2E",
+      text_version: "2026-10-06",
+      accept: "true",
+    }))
+      cf.append(k, v);
+    cf.append("evidence", new Blob([sig], { type: "image/png" }), "firma.png");
+    const consent = await fetch(`${API}/api/persons/${person.id}/consents`, {
+      method: "POST",
+      headers: human,
+      body: cf,
+    });
+    if (consent.status !== 201)
+      throw new Error(`consent -> ${consent.status} ${await consent.text()}`);
+
+    if (!page.url().startsWith(WEB)) await page.goto(WEB, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+    await page.locator(".dv-tab", { hasText: "Voz y audio" }).click();
+    const panel = page.locator("section[aria-label='Voz y audio']");
+    await panel.getByRole("tab", { name: "Texto a voz" }).click();
+    await panel.getByLabel("Motor").selectOption("chatterbox");
+    await panel.getByTestId("chatterbox-options").waitFor({ timeout: 15_000 });
+    if ((await panel.getByLabel("Idioma").inputValue()) !== "es") throw new Error("language != es");
+    // «Voz propia»: upload disabled until «Soy yo»
+    const upload = panel.getByLabel("Subir muestra de voz propia");
+    if (!(await upload.isDisabled())) throw new Error("upload enabled without «Soy yo»");
+    await panel.getByLabel("Soy yo: es mi propia voz").check();
+    await upload.setInputFiles(selfWav);
+    await panel
+      .getByRole("list", { name: "Muestras de voz propia" })
+      .getByText(/^Voz propia \(/)
+      .first()
+      .waitFor({ timeout: 30_000 });
+    const before = new Set((await apiJson("/api/jobs?type=voice.tts&limit=200")).map((j) => j.id));
+    const generate = async (source, text) => {
+      await panel.getByLabel("Voz a clonar").selectOption(source);
+      await panel.getByRole("textbox").first().fill(text);
+      await panel.getByRole("button", { name: /Generar y añadir al cursor/ }).click();
+      for (let i = 0; i < 240; i++) {
+        const job = (await apiJson("/api/jobs?type=voice.tts&limit=200")).find(
+          (j) => !before.has(j.id),
+        );
+        if (job && ["succeeded", "failed", "canceled"].includes(job.status)) {
+          before.add(job.id);
+          const full = await apiJson(`/api/jobs/${job.id}`);
+          if (full.status !== "succeeded")
+            throw new Error(`voice.tts ${full.status}: ${full.error}`);
+          return full;
+        }
+        await sleep(500);
+      }
+      throw new Error("voice.tts job did not finish");
+    };
+    // Persons with voice consent are listed (read-only)
+    const options = await panel.getByLabel("Voz a clonar").locator("option").allTextContents();
+    if (!options.includes("Persona: Lu E2E")) {
+      await panel.getByLabel("Motor").selectOption("piper");
+      await panel.getByLabel("Motor").selectOption("chatterbox");
+    }
+    await panel.getByLabel("Fidelidad al acento de la referencia").fill("0.3");
+    const self = await generate("self", "Che, ¿viste que mañana llueve?");
+    if (self.result?.aiVoice !== "cloned" || self.payload?.cfg !== 0.3)
+      throw new Error(`Voz propia job ${JSON.stringify({ r: self.result, p: self.payload })}`);
+    await page.getByText("Marcado como voz clonada (Revisión para redes).").first().waitFor({
+      timeout: 10_000,
+    });
+    const optionsNow = await panel.getByLabel("Voz a clonar").locator("option").allTextContents();
+    if (!optionsNow.includes("Persona: Lu E2E"))
+      throw new Error(`Person not listed: ${optionsNow.join(" | ")}`);
+    const cloned = await generate(`person:${person.id}`, "Hola, soy Lu.");
+    const asset = await apiJson(`/api/media/${cloned.result.assetId}`);
+    if (asset.aiProvenance?.kind !== "voice-cloned" || asset.aiProvenance.personId !== person.id)
+      throw new Error(`Person clone provenance ${JSON.stringify(asset.aiProvenance)}`);
+    await shot(page, "s4-voces-chatterbox.png");
+    return { self: self.result.assetId, person: asset.id, options: optionsNow };
+  },
+);
+// ------------------------------------------------------------------ END sprint4:M2
+
+// ---------------------------------------------------------------- BEGIN sprint4:M1
+// «Caras»: Ajustes → Personas (create, photo, signature on the canvas, consent vigente) and the
+// «Cambiar cara» wizard against workers-with-mocks.py (packs faceswap installed, fake FaceFusion
+// that draws a box on the face). The licence is accepted in its on-screen dialog.
+const m1 = {};
+async function m1Lavfi(name, graph, extra = []) {
+  const { mkdtemp } = await import("node:fs/promises");
+  const os = await import("node:os");
+  m1.dir ??= await mkdtemp(path.join(os.tmpdir(), "studio-ui-m1-"));
+  const file = path.join(m1.dir, name);
+  const r = spawnSync("ffmpeg", ["-y", "-v", "error", "-f", "lavfi", "-i", graph, ...extra, file]);
+  if (r.status !== 0) throw new Error(`ffmpeg ${name}: ${r.stderr}`);
+  return file;
+}
+/** A Person with a photo and a face consent made through the api (web Origin). */
+async function m1ApiPerson(name) {
+  const { readFile } = await import("node:fs/promises");
+  const person = await apiSend("POST", "/api/persons", { name });
+  const photo = await m1Lavfi(`${person.id}.png`, "color=c=gray:s=320x320", ["-frames:v", "1"]);
+  const pf = new FormData();
+  pf.append("photo", new Blob([await readFile(photo)], { type: "image/png" }), "cara.png");
+  await fetch(`${API}/api/persons/${person.id}/photos`, {
+    method: "POST",
+    headers: { origin: WEB },
+    body: pf,
+  });
+  const sig = await m1Lavfi(
+    `${person.id}-firma.png`,
+    "color=c=white:s=240x90,drawbox=x=20:y=40:w=200:h=6:color=black:t=fill",
+    ["-frames:v", "1"],
+  );
+  const cf = new FormData();
+  for (const [k, v] of Object.entries({ scope: "face", method: "firma en pantalla",
+    signer_name: name, text_version: "2026-10-06", accept: "true" })) cf.append(k, v); // prettier-ignore
+  cf.append("evidence", new Blob([await readFile(sig)], { type: "image/png" }), "firma.png");
+  const res = await fetch(`${API}/api/persons/${person.id}/consents`, {
+    method: "POST",
+    headers: { origin: WEB },
+    body: cf,
+  });
+  if (res.status !== 201) throw new Error(`consent -> ${res.status} ${await res.text()}`);
+  return person;
+}
+
+await step(
+  "Sprint 4: Ajustes → Personas: crear, firmar en pantalla, consentimiento vigente",
+  async () => {
+    const name = `Martín E2E ${Date.now() % 10000}`;
+    await page.getByRole("button", { name: "Ajustes" }).click();
+    await page.getByRole("tab", { name: "Personas" }).click();
+    await page.getByPlaceholder(/Nombre de la persona/).fill(name);
+    await page.getByRole("button", { name: "Nueva persona" }).click();
+    const detail = page.getByLabel(`Persona ${name}`);
+    await detail.waitFor({ timeout: 10_000 });
+    const photo = await m1Lavfi("ui-cara.png", "color=c=gray:s=320x320", ["-frames:v", "1"]);
+    await page.getByLabel("Subir fotos").setInputFiles(photo);
+    await detail.getByAltText(`Foto de ${name}`).first().waitFor({ timeout: 15_000 });
+    const form = page.getByLabel("Registrar consentimiento", { exact: true });
+    const text = await form.getByTestId("consent-text").innerText();
+    if (!text.includes(`Yo, ${name}, mayor de edad`)) throw new Error(`consent text: ${text}`);
+    const canvas = form.getByLabel("Recuadro para firmar");
+    await canvas.scrollIntoViewIfNeeded();
+    const pad = await canvas.boundingBox();
+    await page.mouse.move(pad.x + 20, pad.y + pad.height * 0.7);
+    await page.mouse.down();
+    for (const [fx, fy] of [
+      [0.3, 0.3],
+      [0.5, 0.8],
+      [0.7, 0.2],
+      [0.9, 0.6],
+    ])
+      await page.mouse.move(pad.x + fx * pad.width, pad.y + fy * pad.height, { steps: 6 });
+    await page.mouse.up();
+    await form.getByRole("checkbox", { name: /Leí este texto con la persona/ }).check();
+    await form.getByRole("button", { name: "Registrar consentimiento" }).click();
+    await page
+      .getByLabel("Personas registradas")
+      .getByText("Rostro: vigente")
+      .first()
+      .waitFor({ timeout: 15_000 });
+    await shot(page, "s4-personas.png");
+    await page.keyboard.press("Escape");
+    const row = (await apiJson("/api/persons")).find((p) => p.name === name);
+    if (row?.face !== "vigente") throw new Error(`api: ${JSON.stringify(row)}`);
+    m1.personName = name;
+    return { person: row.id, photos: row.photos };
+  },
+);
+
+await step(
+  "Sprint 4: Cambiar cara (mock): vista previa, aplicar, insignia IA, deshacer",
+  async () => {
+    const pack = (await apiJson("/api/ai/packs")).find((p) => p.id === "faceswap");
+    if (!pack) throw new Error("pack faceswap not listed by /api/ai/packs");
+    if (!pack.installed) return { skipped: "faceswap not installed (STUDIO_MOCK_FACE=0)" };
+    await fetch(`${API}/api/ai/licences/faceswap/revoke`, { method: "POST" }).catch(
+      () => undefined,
+    );
+    const name = m1.personName ?? (await m1ApiPerson(`Lucía E2E ${Date.now() % 10000}`)).name;
+    const { readFile } = await import("node:fs/promises");
+    const file = await m1Lavfi("ui-doble.mp4", "testsrc2=s=640x360:r=25:d=3", [
+    "-c:v", "libx264", "-pix_fmt", "yuv420p",
+  ]); // prettier-ignore
+    const fd = new FormData();
+    fd.append("file", new Blob([await readFile(file)]), "ui-doble.mp4");
+    const asset = await (await fetch(`${API}/api/media`, { method: "POST", body: fd })).json();
+    for (let i = 0; i < 240; i++) {
+      const jobs = (await apiJson("/api/jobs?limit=100")).filter(
+        (j) => j.payload?.assetId === asset.id,
+      );
+      if (jobs.length && jobs.every((j) => !["queued", "running"].includes(j.status))) break;
+      await sleep(500);
+    }
+    const p = await apiSend("POST", "/api/projects", { name: "UI cambiar cara" });
+    const V = p.tracks.find((t) => t.kind === "video");
+    V.clips = [{ id: "uiface", trackId: V.id, assetId: asset.id, start: 0, in: 0, out: 3 }];
+    await apiSend("PUT", `/api/projects/${p.id}`, p);
+    await openProject(p.id);
+    await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).click();
+    await page.locator("[data-clip-id='uiface']").click({ button: "right" });
+    await page.getByRole("menuitem", { name: /Cambiar cara/ }).click();
+    // first use: the licence dialog opens on top of the wizard
+    const licence = page.getByRole("dialog", { name: /Licencia: Cambio de cara/ });
+    await licence.waitFor({ timeout: 10_000 });
+    await licence.getByRole("checkbox", { name: /uso no comercial/ }).check();
+    await licence.getByRole("button", { name: "Aceptar" }).click();
+    await licence.waitFor({ state: "detached", timeout: 10_000 });
+    const wizard = page.getByRole("dialog", { name: "Cambiar cara" });
+    await wizard.getByRole("radio", { name: new RegExp(name) }).check();
+    await wizard.getByRole("button", { name: /Siguiente/ }).click();
+    await wizard.getByRole("button", { name: "Cara 1" }).click({ timeout: 20_000 });
+    await wizard.getByRole("button", { name: /Siguiente/ }).click();
+    await wizard.getByRole("button", { name: /Vista previa de 1 fotograma/ }).click();
+    await wizard.getByAltText("Después").waitFor({ timeout: 60_000 });
+    await shot(page, "s4-cambiar-cara-vista-previa.png");
+    await wizard.getByRole("button", { name: /Siguiente/ }).click();
+    const apply = wizard.getByRole("button", { name: /Aplicar cambio de cara/ });
+    if (!(await apply.isDisabled())) throw new Error("apply enabled before the confirmation");
+    await wizard.getByRole("checkbox", { name: /nadie en el video es menor de edad/ }).check();
+    await apply.click();
+    await wizard.getByText(/^Listo:/).waitFor({ timeout: 120_000 });
+    await wizard.getByRole("button", { name: "Terminar" }).click();
+    const clipBox = page.locator("[data-clip-id='uiface']");
+    await clipBox.getByText("IA cara").waitFor({ timeout: 10_000 });
+    await clipBox.click();
+    await page.locator(".dv-tab", { hasText: "Propiedades" }).click();
+    await page.getByText(`IA: cara (${name})`).waitFor({ timeout: 10_000 });
+    const swapped = await apiJson(`/api/projects/${p.id}`);
+    const clip = swapped.tracks.flatMap((t) => t.clips).find((c) => c.id === "uiface");
+    if (!clip.faceSwap || clip.assetId === asset.id)
+      throw new Error(`clip ${JSON.stringify(clip)}`);
+    await page.getByRole("button", { name: "Deshacer cambio de cara" }).first().click();
+    await page.getByText("Cambio de cara deshecho").first().waitFor({ timeout: 10_000 });
+    const back = (await apiJson(`/api/projects/${p.id}`)).tracks
+      .flatMap((t) => t.clips)
+      .find((c) => c.id === "uiface");
+    if (back.faceSwap || back.assetId !== asset.id)
+      throw new Error(`undo: ${JSON.stringify(back)}`);
+    return { swappedAsset: clip.assetId, person: name };
+  },
+);
+// ------------------------------------------------------------------ END sprint4:M1
+
+// ---------------------------------------------------------------- BEGIN sprint4:M3
+// «Herramientas»: «Revisión para redes» detects the AI media of the project (face swap of the M1
+// step, cloned / synthetic voices of the M2 step; if none, a Chatterbox --mock voice is generated
+// here) and Ajustes → Paquetes de IA shows the faceswap licence gate + the isolated tool state.
+async function m3UiProject() {
+  const id = await page.evaluate(() => JSON.parse(localStorage.getItem("studio.project.v1")).id);
+  const project = await apiJson(`/api/projects/${id}`);
+  const kinds = { face: 0, cloned: 0, synthetic: 0 };
+  for (const t of project.tracks ?? []) {
+    const visible = t.kind !== "audio" && !t.hidden;
+    const audible = t.kind === "audio" ? !t.muted : t.kind === "video" && !t.hidden && !t.muted;
+    for (const c of t.clips ?? []) {
+      for (const assetId of [c.assetId, c.renderedAssetId, c.matte?.assetId].filter(Boolean)) {
+        const a = await apiJson(`/api/media/${assetId}`);
+        const k = a?.aiProvenance?.kind;
+        if (k === "face" && visible) kinds.face++;
+        if (k === "voice-cloned" && audible) kinds.cloned++;
+        if (k === "voice-synthetic" && audible) kinds.synthetic++;
+      }
+    }
+  }
+  return { project, kinds };
+}
+
+await step(
+  "Sprint 4: Revisión para redes detecta cara y voz IA; etiqueta al marcar redes",
+  async () => {
+    if (!page.url().startsWith(WEB)) await page.goto(WEB, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+    await sleep(2_000); // autosave of the previous steps
+    let { kinds } = await m3UiProject();
+    if (kinds.face + kinds.cloned + kinds.synthetic === 0) {
+      const pack = (await apiJson("/api/ai/packs")).find((p) => p.id === "tts-chatterbox");
+      if (!pack?.installed) return { skipped: "no AI media and tts-chatterbox not installed" };
+      await page.locator(".dv-tab", { hasText: "Voz y audio" }).click();
+      const voice = page.locator("section[aria-label='Voz y audio']");
+      await voice.getByRole("tab", { name: "Texto a voz" }).click();
+      await voice.getByLabel("Motor").selectOption("chatterbox");
+      await voice.getByRole("textbox").first().fill("Voz sintética para la revisión de redes.");
+      await voice.getByRole("button", { name: /Generar y añadir al cursor/ }).click();
+      for (let i = 0; i < 120 && kinds.synthetic === 0; i++) {
+        await sleep(1_000);
+        ({ kinds } = await m3UiProject());
+      }
+      if (kinds.synthetic === 0)
+        throw new Error("the synthetic voice clip did not reach the project");
+    }
+    await page.locator(".dv-tab", { hasText: "Exportar" }).click();
+    const panel = page.locator("section[aria-label='Exportar']");
+    const social = panel.getByRole("checkbox", { name: "Voy a subirlo a redes" });
+    if (await social.isChecked()) await social.uncheck();
+    // internal use: label off, detection visible (the export records it in its metadata anyway)
+    await panel.getByTestId("ai-label-off").waitFor({ timeout: 10_000 });
+    await panel.getByTestId("ai-detected").waitFor({ timeout: 10_000 });
+    await social.check();
+    const rows = {
+      face: await panel.getByTestId("ai-detected-face").count(),
+      cloned: await panel.getByTestId("ai-detected-voice-cloned").count(),
+      synthetic: await panel.getByTestId("ai-detected-voice-synthetic").count(),
+    };
+    for (const k of ["face", "cloned", "synthetic"])
+      if (Boolean(rows[k]) !== Boolean(kinds[k]))
+        throw new Error(
+          `detected rows ${JSON.stringify(rows)} vs project ${JSON.stringify(kinds)}`,
+        );
+    const face = panel.getByRole("checkbox", { name: /Cara generada o cambiada/ });
+    const voiceBox = panel.getByRole("checkbox", { name: /Voz generada o clonada/ });
+    if (kinds.face && !((await face.isChecked()) && (await face.isDisabled())))
+      throw new Error("«Cara» is not checked + locked with a face swap in the project");
+    if (kinds.cloned && !((await voiceBox.isChecked()) && (await voiceBox.isDisabled())))
+      throw new Error("«Voz» is not checked + locked with a cloned voice in the project");
+    if (!kinds.cloned && kinds.synthetic && !(await voiceBox.isChecked()))
+      throw new Error("synthetic voice not marked when going to social media");
+    const label = panel.getByRole("checkbox", { name: /Etiqueta «Contenido alterado con IA»/ });
+    if (!(await label.isChecked()))
+      throw new Error("AI label not proposed when marking social media");
+    const s = await shot(page, "s4-revision-redes-ia.png");
+    return { kinds, rows, shot: s };
+  },
+);
+
+await step("Sprint 4: Paquetes de IA: faceswap pide aceptar la licencia", async () => {
+  const packs = await apiJson("/api/ai/packs");
+  const faceswap = packs.find((p) => p.id === "faceswap");
+  if (!faceswap) throw new Error("pack faceswap not listed by /api/ai/packs");
+  await page.getByRole("button", { name: "Ajustes" }).click();
+  await page.getByRole("tab", { name: "Paquetes de IA" }).click();
+  const row = page.locator("[data-testid='pack-row'][data-pack-id='faceswap']");
+  await row.waitFor({ timeout: 15_000 });
+  const text = (await row.innerText()).replace(/\s+/g, " ");
+  if (!text.includes("No comercial: requiere aceptar licencia"))
+    throw new Error(`faceswap row without the licence badge: ${text.slice(0, 200)}`);
+  if (faceswap.tool && !/Entorno aislado \(tools\\facefusion\)/.test(text))
+    throw new Error(`faceswap row without the tool state: ${text.slice(0, 200)}`);
+  const licences = await apiJson("/api/ai/licences");
+  const accepted = licences.find((l) => l.id === "faceswap")?.accepted;
+  const button = row.getByRole("button", { name: accepted ? /Ver licencia/ : /Leer y aceptar/ });
+  await button.click();
+  const dialog = page
+    .getByRole("dialog")
+    .filter({ hasText: /Cambio de cara/ })
+    .last();
+  await dialog.waitFor({ timeout: 10_000 });
+  const s = await shot(page, "s4-paquetes-licencia.png");
+  await page.keyboard.press("Escape");
+  await sleep(300);
+  if (await page.getByRole("dialog").count()) await page.keyboard.press("Escape");
+  return { accepted: Boolean(accepted), tool: faceswap.tool ?? null, shot: s };
+});
+// ------------------------------------------------------------------ END sprint4:M3
+
 await browser.close();
 console.log(
   `\nconsole errors (${consoleErrors.length}):`,

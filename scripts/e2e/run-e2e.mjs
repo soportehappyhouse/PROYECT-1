@@ -22,6 +22,7 @@
 // models) only record the observed behaviour.
 
 import { spawn } from "node:child_process";
+import http from "node:http";
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import os from "node:os";
@@ -37,6 +38,11 @@ const opt = (name, def) => {
 const flag = (name) => argv.includes(`--${name}`);
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const API = opt("api", "http://127.0.0.1:3001").replace(/\/+$/, "");
+/**
+ * The exact Origin of the Studio web (HUMAN_ONLY routes: consents, licences, Person photos and voice
+ * samples, «Voz propia»). This node client plays the web where a test needs it.
+ */
+const WEB_ORIGIN = { origin: opt("web-origin", "http://localhost:3000") };
 const STORAGE = path.resolve(opt("storage", path.join(REPO, "storage")));
 const WORK = path.resolve(opt("work", path.join(os.tmpdir(), `studio-e2e-${Date.now()}`)));
 const OUT = path.resolve(opt("out", path.join(WORK, "report.json")));
@@ -121,8 +127,8 @@ async function api(method, route, body, { raw = false, headers = {} } = {}) {
   return { status: res.status, json };
 }
 
-async function ok(method, route, body, expect = [200, 201, 202, 204]) {
-  const r = await api(method, route, body);
+async function ok(method, route, body, expect = [200, 201, 202, 204], opts = {}) {
+  const r = await api(method, route, body, opts);
   assert(
     expect.includes(r.status),
     `${method} ${route} -> ${r.status} ${JSON.stringify(r.json)?.slice(0, 400)}`,
@@ -3290,6 +3296,911 @@ await step(
   },
 );
 // ------------------------------------------------------------------ END sprint 3b integration
+
+// ---------------------------------------------------------------- BEGIN sprint4:M2
+// «Voz»: Chatterbox TTS + clonación. With scripts/e2e/workers-with-mocks.py the pack
+// tts-chatterbox is reported installed and the real bridge runs with --mock (sine WAV of 0.06 s
+// per character, 220 Hz / 330 Hz with a reference); STUDIO_MOCK_CHATTERBOX=0 -> 409 checks only.
+const m2 = {};
+async function m2Pack() {
+  const pack = (await ok("GET", "/api/ai/packs")).find((x) => x.id === "tts-chatterbox");
+  assert(pack, "pack «tts-chatterbox» not listed by GET /api/ai/packs");
+  return pack;
+}
+async function m2Tts(body, wait = true) {
+  const r = await api("POST", "/api/voice/tts", {
+    provider: "chatterbox",
+    text: "Hola, che. ¿Viste que mañana llueve?",
+    ...body,
+  });
+  if (!wait || r.status !== 202) return r;
+  return { ...r, job: await waitOk(r.json.jobId, { timeoutMs: 180_000 }) };
+}
+async function m2SampleWav(name, seconds) {
+  const file = path.join(WORK, name);
+  await run(FFMPEG, [
+    "-y",
+    "-v",
+    "error",
+    "-f",
+    "lavfi",
+    "-i",
+    `sine=frequency=180:duration=${seconds}:sample_rate=44100`,
+    "-af",
+    "volume=0.5",
+    file,
+  ]);
+  return file;
+}
+
+await step("sprint4: tts chatterbox (mock) → asset voice-synthetic", async () => {
+  const pack = await m2Pack();
+  const providers = await ok("GET", "/api/voice/tts/providers");
+  const row = providers.find((p) => p.id === "chatterbox");
+  assert(row?.packId === "tts-chatterbox" && row.supportsClone === true, JSON.stringify(row));
+  if (!pack.installed) {
+    const r = await m2Tts({ voice: "chatterbox:multilingual" }, false);
+    assert(r.status === 409 && r.json?.packId === "tts-chatterbox", `-> ${r.status}`);
+    return "409 PACK_REQUIRED (workers without the pack / mocks off)";
+  }
+  assert(row.installed && row.status === "local", `provider row ${JSON.stringify(row)}`);
+  const voices = await ok("GET", "/api/voice/tts/voices");
+  assert(
+    voices.some((v) => v.id === "chatterbox:multilingual" && v.installed),
+    "chatterbox:multilingual voice not listed",
+  );
+  const text = "Hola, che. ¿Viste que mañana llueve?";
+  const { job } = await m2Tts({ voice: "chatterbox:multilingual", text });
+  const res = job.result;
+  assert(
+    res.provider === "chatterbox" && res.aiVoice === "synthetic" && res.watermark === "perth",
+    `result ${JSON.stringify(res)}`,
+  );
+  assert(res.device === "cpu" || res.device === "cuda", `device ${res.device}`);
+  const asset = await ok("GET", `/api/media/${res.assetId}`);
+  assert(
+    asset.aiAltered === true &&
+      asset.aiProvenance?.kind === "voice-synthetic" &&
+      /^chatterbox mtl-v[23]$/.test(asset.aiProvenance.tool),
+    `asset ${JSON.stringify(asset)}`,
+  );
+  const f = await ffprobe(await download(res.path, "e2e-chatterbox.wav"));
+  const a = f.streams.find((x) => x.codec_type === "audio");
+  assert(a.sample_rate === "24000" && a.channels === 1, `wav ${a.sample_rate} Hz x${a.channels}`);
+  assert(near(+f.format.duration, text.length * 0.06, 0.5), `duration ${f.format.duration}`);
+  const progress = sseFor(job.id).filter((e) => /Chatterbox/.test(e.message ?? ""));
+  return { device: res.device, rtf: res.rtf, warnings: res.warnings, sse: progress.length };
+});
+await step("sprint4: Voz propia → voice-ref + clon → voice-cloned", async () => {
+  const pack = await m2Pack();
+  const sample = await m2SampleWav("e2e-voz-propia.wav", 9);
+  const form = (attest) => {
+    const fd = new FormData();
+    if (attest) fd.append("attestSelf", "true");
+    return fd;
+  };
+  const bytes = await readFile(sample);
+  const noAttest = form(false);
+  noAttest.append("audio", new Blob([bytes], { type: "audio/wav" }), "voz.wav");
+  // audit fix 1: «Voz propia» is HUMAN_ONLY (the web Origin; this node client plays the web)
+  const anon = form(true);
+  anon.append("audio", new Blob([bytes], { type: "audio/wav" }), "voz.wav");
+  const human = await api("POST", "/api/voice/self-refs", anon);
+  assert(
+    human.status === 403 && human.json?.error?.code === "HUMAN_ONLY",
+    `no Origin -> ${human.status}`,
+  );
+  const refused = await api("POST", "/api/voice/self-refs", noAttest, { headers: WEB_ORIGIN });
+  assert(
+    refused.status === 400 && refused.json?.error?.code === "ATTEST_SELF_REQUIRED",
+    `without attestSelf -> ${refused.status}`,
+  );
+  const short = form(true);
+  short.append(
+    "audio",
+    new Blob([await readFile(await m2SampleWav("e2e-corta.wav", 3))], { type: "audio/wav" }),
+    "corta.wav",
+  );
+  const tooShort = await api("POST", "/api/voice/self-refs", short, { headers: WEB_ORIGIN });
+  assert(
+    tooShort.status === 400 && tooShort.json?.error?.code === "VOICE_SAMPLE_INVALID",
+    `3 s sample -> ${tooShort.status}`,
+  );
+  const good = form(true);
+  good.append("audio", new Blob([bytes], { type: "audio/wav" }), "voz propia.wav");
+  const ref = await ok("POST", "/api/voice/self-refs", good, [201], { headers: WEB_ORIGIN });
+  assert(ref.kind === "voice-ref" && ref.sampleRate === 24000, `ref ${JSON.stringify(ref)}`);
+  const f = await ffprobe(await download(ref.path, "e2e-voice-ref.wav"));
+  const a = f.streams.find((x) => x.codec_type === "audio");
+  assert(a.sample_rate === "24000" && a.channels === 1, `voice-ref ${a.sample_rate}x${a.channels}`);
+  const listed = await ok("GET", "/api/voice/self-refs");
+  assert(listed[0]?.id === ref.id, "the new voice-ref is not the first listed");
+  m2.selfRef = ref;
+  if (!pack.installed) return "voice-ref ok; clone skipped (no pack)";
+  const { job } = await m2Tts({ voice: "chatterbox:self", cfg: 0.3 });
+  assert(job.result.aiVoice === "cloned", `result ${JSON.stringify(job.result)}`);
+  const asset = await ok("GET", `/api/media/${job.result.assetId}`);
+  assert(
+    asset.aiProvenance?.kind === "voice-cloned" &&
+      asset.aiProvenance.self === true &&
+      asset.aiProvenance.sourceAssetId === ref.id,
+    `provenance ${JSON.stringify(asset.aiProvenance)}`,
+  );
+  // explicit voiceRef wins; a non voice-ref asset is refused
+  const explicit = await m2Tts({ voice: "x", voiceRef: { assetId: ref.id, self: true } });
+  assert(explicit.job.result.aiVoice === "cloned", "explicit voiceRef not cloned");
+  const notRef = await m2Tts(
+    { voice: "x", voiceRef: { assetId: job.result.assetId, self: true } },
+    false,
+  );
+  assert(
+    notRef.status === 400 && notRef.json?.error?.code === "INVALID_VOICE_REF",
+    `audio asset as voiceRef -> ${notRef.status}`,
+  );
+  return { voiceRef: ref.id, durationSec: ref.durationSec, cloned: asset.id };
+});
+
+await step("sprint4: voiceRef Persona sin consentimiento de voz → 403", async () => {
+  const person = await ok("POST", "/api/persons", { name: "E2E sin consentimiento" }, [200, 201]);
+  const r = await m2Tts({ voice: `chatterbox:person:${person.id}` }, false);
+  const pack = await m2Pack();
+  if (!pack.installed) {
+    assert(r.status === 409 && r.json?.packId === "tts-chatterbox", `-> ${r.status}`);
+    return "409 PACK_REQUIRED first (no pack)";
+  }
+  assert(r.status === 403, `-> ${r.status} ${JSON.stringify(r.json)}`);
+  assert(
+    r.json.error.code === "CONSENT_REQUIRED" &&
+      r.json.error.details?.personId === person.id &&
+      r.json.error.details?.scope === "voice",
+    JSON.stringify(r.json),
+  );
+  const viaRef = await m2Tts({ voice: "x", voiceRef: { personId: person.id } }, false);
+  assert(viaRef.status === 403, `voiceRef.personId -> ${viaRef.status}`);
+  const missing = await m2Tts({ voice: "chatterbox:person:no-existe" }, false);
+  assert(
+    missing.status === 404 && missing.json?.error?.code === "PERSON_NOT_FOUND",
+    `unknown person -> ${missing.status}`,
+  );
+  await api("DELETE", `/api/persons/${person.id}?confirm=1`);
+  return r.json.error.message;
+});
+
+await step(
+  "sprint4: sin pack tts-chatterbox → 409; op tts del Asistente sigue en Piper",
+  async () => {
+    const pack = await m2Pack();
+    let packCheck = "pack installed by the mocks (409 covered by api vitest)";
+    if (!pack.installed) {
+      const r = await m2Tts({ voice: "chatterbox:multilingual" }, false);
+      assert(r.status === 409 && r.json?.error === "PACK_REQUIRED", `-> ${r.status}`);
+      assert(r.json.packId === "tts-chatterbox", JSON.stringify(r.json));
+      packCheck = "409 PACK_REQUIRED tts-chatterbox";
+    }
+    const p = await ok("POST", "/api/projects", { name: "E2E asistente voz" }, [201]);
+    const before = new Set(
+      (await ok("GET", "/api/jobs?type=voice.tts&limit=200")).map((j) => j.id),
+    );
+    const applyTts = async (op) => {
+      const plan = { version: 1, summary_es: "Agrego una locución.", ops: [op] };
+      const rec = await ok("POST", "/api/console/plans", { plan, projectId: p.id }, [201]);
+      const { jobId } = await ok("POST", "/api/agent/apply", { planId: rec.id }, [202]);
+      await waitJob(jobId, { timeoutMs: 180_000 });
+      const sub = (await ok("GET", "/api/jobs?type=voice.tts&limit=200")).find(
+        (j) => !before.has(j.id),
+      );
+      assert(sub, "agent.apply did not create a voice.tts sub-job");
+      before.add(sub.id);
+      return sub;
+    };
+    const piper = await applyTts({ op: "tts", text: "Hola desde el asistente", t: 0 });
+    assert(piper.payload?.provider === "piper", `default op tts -> ${piper.payload?.provider}`);
+    let chatter = "skipped (no pack or no «Voz propia»)";
+    if (pack.installed && m2.selfRef) {
+      const sub = await applyTts({
+        op: "tts",
+        text: "Hola con mi voz",
+        t: 0,
+        voice: "chatterbox:self",
+      });
+      assert(sub.payload?.provider === "chatterbox", `chatterbox:self -> ${sub.payload?.provider}`);
+      const done = await waitJob(sub.id, { timeoutMs: 180_000 });
+      assert(done.status === "succeeded", `sub-job ${done.status}: ${done.error}`);
+      assert(done.result?.aiVoice === "cloned", `sub-job result ${JSON.stringify(done.result)}`);
+      chatter = "chatterbox:self -> cloned";
+    }
+    return { packCheck, piperStatus: piper.status, chatter };
+  },
+);
+// ------------------------------------------------------------------ END sprint4:M2
+
+// ---------------------------------------------------------------- BEGIN sprint4:M1
+// «Caras»: Personas + consentimiento + cambio de cara. With scripts/e2e/workers-with-mocks.py the
+// packs faceswap / faceswap-extra are reported installed and FaceFusion is the fake
+// scripts/e2e/fake_facefusion/facefusion.py (box on the face; a photo ending with NSFW-TEST ->
+// content analyser rejection). STUDIO_MOCK_FACE=0 on the workers -> only the 403/409 checks.
+const m1 = { origin: WEB_ORIGIN };
+async function m1Png(name, color = "gray", extra) {
+  const file = path.join(WORK, name);
+  await run(FFMPEG, ["-y", "-v", "error", "-f", "lavfi", "-i", `color=c=${color}:s=320x320`,
+    "-frames:v", "1", "-update", "1", file]); // prettier-ignore
+  if (extra) await writeFile(file, Buffer.concat([await readFile(file), Buffer.from(extra)]));
+  return file;
+}
+async function m1Form(fields, files) {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(fields)) fd.append(k, v);
+  for (const [k, f] of Object.entries(files))
+    fd.append(k, new Blob([await readFile(f.file)], { type: f.type }), f.name);
+  return fd;
+}
+async function m1Person(name, { consent = true, marker } = {}) {
+  const p = await ok("POST", "/api/persons", { name }, [201]);
+  const photo = await m1Png(`m1-${p.id}.png`, "gray", marker);
+  const fd = await m1Form({}, { photo: { file: photo, name: "cara.png", type: "image/png" } });
+  // audit fix 3: Person photos are uploaded from the web only (HUMAN_ONLY)
+  const up = await api("POST", `/api/persons/${p.id}/photos`, fd, { headers: m1.origin });
+  assert(up.status === 200, `photo ${up.status} ${JSON.stringify(up.json).slice(0, 300)}`);
+  if (consent) {
+    const r = await m1Consent(p.id, m1.origin);
+    assert(r.status === 201, `consent ${r.status} ${JSON.stringify(r.json).slice(0, 300)}`);
+  }
+  return ok("GET", `/api/persons/${p.id}`);
+}
+async function m1Consent(personId, headers = {}, scope = "face") {
+  // a real stroke: a blank (all white / transparent) signature is refused (audit fix 16)
+  const sig = path.join(WORK, `m1-firma-${personId}.png`);
+  await run(FFMPEG, ["-y", "-v", "error", "-f", "lavfi", "-i",
+    "color=c=white:s=240x90,drawbox=x=20:y=40:w=200:h=6:color=black:t=fill",
+    "-frames:v", "1", "-update", "1", sig]); // prettier-ignore
+  const fd = await m1Form(
+    { scope, method: "firma en pantalla", signer_name: "E2E Doble", text_version: "2026-10-06",
+      accept: "true" }, // prettier-ignore
+    { evidence: { file: sig, name: "firma.png", type: "image/png" } },
+  );
+  return api("POST", `/api/persons/${personId}/consents`, fd, { headers });
+}
+async function m1Licence(accept = true) {
+  const route = `/api/ai/licences/faceswap/${accept ? "accept" : "revoke"}`;
+  return api("POST", route, accept ? { text_version: "2026-10-06", accept: true } : undefined, {
+    headers: m1.origin,
+  });
+}
+async function m1Clip() {
+  if (!m1.video) {
+    const file = path.join(WORK, "m1-doble.mp4");
+    await run(FFMPEG, ["-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=25:d=3",
+      "-f", "lavfi", "-i", "sine=f=440:d=3", "-shortest", "-c:v", "libx264", "-preset", "ultrafast",
+      "-pix_fmt", "yuv420p", "-c:a", "aac", file]); // prettier-ignore
+    m1.video = await upload(file, "video/mp4");
+    await waitAssetJobs(m1.video.id, ["media.probe"]);
+  }
+  const p0 = await ok("POST", "/api/projects", { name: `E2E cara ${id("p")}` }, [201]);
+  const V = p0.tracks.find((t) => t.kind === "video");
+  const clipId = id("c");
+  V.clips = [{ id: clipId, trackId: V.id, assetId: m1.video.id, start: 0.5, in: 0.5, out: 2.5 }];
+  return { project: await ok("PUT", `/api/projects/${p0.id}`, p0), clipId };
+}
+const m1Packs = async () => (await ok("GET", "/api/ai/packs")).find((x) => x.id === "faceswap");
+
+await step("sprint4: persons CRUD + consentimiento firmado + HUMAN_ONLY", async () => {
+  const p = await m1Person("E2E Persona", { consent: false });
+  assert(p.photos.length === 1 && p.photos[0].width === 320, `photos ${JSON.stringify(p.photos)}`);
+  const noOrigin = await m1Consent(p.id, {});
+  assert(noOrigin.status === 403 && noOrigin.json.error.code === "HUMAN_ONLY", "no Origin");
+  const mcp = await m1Consent(p.id, { ...m1.origin, "X-Studio-Client": "mcp" });
+  assert(mcp.status === 403 && mcp.json.error.code === "HUMAN_ONLY", "X-Studio-Client: mcp");
+  const okc = await m1Consent(p.id, m1.origin, "both");
+  assert(okc.status === 201 && okc.json.text_sha256?.length === 64, `consent ${okc.status}`);
+  const list = await ok("GET", "/api/persons?scope=face");
+  const row = list.find((x) => x.id === p.id);
+  assert(row?.face === "vigente" && row.voice === "vigente", `summary ${JSON.stringify(row)}`);
+  const files = await fetch(`${API}/files/${okc.json.evidence_path}`);
+  assert(files.status === 404, `/files/consent/... -> ${files.status} (404 expected)`);
+  const lic = await fetch(`${API}/files/consent/licences.json`);
+  assert(lic.status === 404, `/files/consent/licences.json -> ${lic.status}`);
+  const del = await api("DELETE", `/api/persons/${p.id}`);
+  assert(del.status === 409, `delete without confirm -> ${del.status}`);
+  await ok("DELETE", `/api/persons/${p.id}?confirm=1`, undefined, [204]);
+  const gone = await api("GET", `/api/persons/${p.id}`);
+  assert(gone.status === 404 && gone.json.error.code === "PERSON_NOT_FOUND", "deleted person");
+  return { consent: okc.json.id, faces: p.photos[0].faces };
+});
+
+await step("sprint4: face.swap 403 LICENCE_REQUIRED / CONSENT_REQUIRED / revocado", async () => {
+  await m1Licence(false).catch(() => undefined);
+  const { project, clipId } = await m1Clip();
+  const nobody = await m1Person("E2E Sin consentimiento", { consent: false });
+  const body = (personId) => ({
+    personId,
+    assetId: m1.video.id,
+    target: { projectId: project.id, clipId },
+    confirmed: true,
+  });
+  const lic = await api("POST", "/api/face/swap", body(nobody.id));
+  assert(lic.status === 403 && lic.json.error.code === "LICENCE_REQUIRED", `licence ${lic.status}`);
+  const gated = await api("POST", "/api/ai/packs/faceswap/download");
+  assert(
+    gated.status === 403 && gated.json.error.code === "LICENCE_REQUIRED",
+    "pack download gate",
+  );
+  const accepted = await m1Licence(true);
+  assert(accepted.status === 200, `accept ${accepted.status}`);
+  const pack = await m1Packs();
+  const noConsent = await api("POST", "/api/face/swap", body(nobody.id));
+  if (pack?.installed) {
+    assert(
+      noConsent.status === 403 && noConsent.json.error.details.reason === "none",
+      `consent ${noConsent.status} ${JSON.stringify(noConsent.json).slice(0, 200)}`,
+    );
+  } else assert(noConsent.status === 409, `pack missing -> ${noConsent.status}`);
+  const rev = await m1Person("E2E Revocado");
+  await ok("POST", `/api/persons/${rev.id}/consents/${rev.consents[0].id}/revoke`);
+  const revoked = await api("POST", "/api/face/swap", body(rev.id));
+  if (pack?.installed)
+    assert(
+      revoked.status === 403 && revoked.json.error.details.reason === "revoked",
+      `revoked ${revoked.status}`,
+    );
+  const noConfirm = await api("POST", "/api/face/swap", { ...body(rev.id), confirmed: undefined });
+  assert(noConfirm.status === 409 && noConfirm.json.error.code === "CONFIRM_REQUIRED", "confirm");
+  return { packInstalled: !!pack?.installed, tool: pack?.tool?.state ?? null };
+});
+
+await step("sprint4: face.swap mock → asset aiAltered + clip.faceSwap + undo", async () => {
+  const pack = await m1Packs();
+  assert(pack?.installed, "pack faceswap not installed (workers-with-mocks STUDIO_MOCK_FACE)");
+  await m1Licence(true);
+  const person = await m1Person("E2E Doble Martín");
+  const { project, clipId } = await m1Clip();
+  const det = await ok("POST", "/api/face/detect", { assetId: m1.video.id, t: 1 });
+  assert(det.faces.length >= 1 && det.framePath.endsWith(".png"), `detect ${JSON.stringify(det)}`);
+  const pv = await ok("POST", "/api/face/preview", {
+    personId: person.id,
+    assetId: m1.video.id,
+    t: 1,
+    selector: { mode: "reference", t: 1, faceIndex: 0 },
+  }, [202]); // prettier-ignore
+  const preview = (await waitOk(pv.jobId, { timeoutMs: 120_000 })).result;
+  await download(preview.afterPath, "m1-after.png");
+  const r = await ok("POST", "/api/face/swap", {
+    personId: person.id,
+    assetId: m1.video.id,
+    options: { strength: 0.8, enhancer: false },
+    target: { projectId: project.id, clipId },
+    confirmed: true,
+  }, [202]); // prettier-ignore
+  const res = (await waitOk(r.jobId, { timeoutMs: 180_000 })).result;
+  const asset = await ok("GET", `/api/media/${res.assetId}`);
+  assert(
+    asset.aiAltered === true && asset.aiProvenance?.kind === "face" &&
+      asset.aiProvenance.personId === person.id && asset.aiProvenance.licences[0] === "faceswap",
+    `asset ${JSON.stringify(asset).slice(0, 400)}`,
+  ); // prettier-ignore
+  const out = await download(res.path, "m1-faceswap.mp4");
+  const st = (await ffprobe(out)).streams;
+  const dur = Number((await ffprobe(out)).format.duration);
+  assert(st.some((s) => s.codec_type === "audio") && near(dur, 2, 0.2), `output ${dur} s`);
+  const f = await frameRgb(out, 1, 320);
+  const center = f.px(160, 60);
+  assert(center[0] > 120 && center[1] < 110, `fake box not drawn: ${center}`);
+  const saved = await ok("GET", `/api/projects/${project.id}`);
+  const clip = saved.tracks.flatMap((t) => t.clips).find((c) => c.id === clipId);
+  assert(
+    clip.assetId === res.assetId && clip.in === 0 && clip.faceSwap?.prev.assetId === m1.video.id,
+    `clip ${JSON.stringify(clip).slice(0, 300)}`,
+  );
+  assert(saved.publish?.flags?.aiFace === true, "publish.flags.aiFace");
+  const undone = await ok("POST", "/api/face/undo", { projectId: project.id, clipId });
+  const back = undone.tracks.flatMap((t) => t.clips).find((c) => c.id === clipId);
+  assert(back.assetId === m1.video.id && back.in === 0.5 && !back.faceSwap, "undo");
+  return { frames: res.frames, device: res.device, preview: preview.afterPath, center };
+});
+
+await step("sprint4: NSFW mock → CONTENT_BLOCKED", async () => {
+  const pack = await m1Packs();
+  assert(pack?.installed, "pack faceswap not installed (workers-with-mocks STUDIO_MOCK_FACE)");
+  await m1Licence(true);
+  // like the real analyser, the fake screens the TARGET video (never the Persona's photos): the
+  // marker goes in the video's metadata (Studio's trim keeps it); the source photo is plain
+  const person = await m1Person("E2E Contenido");
+  const marked = path.join(WORK, "m1-nsfw.mp4");
+  await run(FFMPEG, ["-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=25:d=3",
+    "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+    "-metadata", "title=NSFW-TEST", marked]); // prettier-ignore
+  const video = await upload(marked, "video/mp4");
+  await waitAssetJobs(video.id, ["media.probe"]);
+  const p0 = await ok("POST", "/api/projects", { name: `E2E nsfw ${id("p")}` }, [201]);
+  const V = p0.tracks.find((t) => t.kind === "video");
+  const clipId = id("c");
+  V.clips = [{ id: clipId, trackId: V.id, assetId: video.id, start: 0, in: 0.5, out: 2.5 }];
+  const project = await ok("PUT", `/api/projects/${p0.id}`, p0);
+  const r = await ok("POST", "/api/face/swap", {
+    personId: person.id,
+    assetId: video.id,
+    target: { projectId: project.id, clipId },
+    confirmed: true,
+  }, [202]); // prettier-ignore
+  const job = await waitJob(r.jobId, { timeoutMs: 120_000 });
+  assert(job.status === "failed", `status ${job.status}`);
+  const full = await ok("GET", `/api/jobs/${r.jobId}`);
+  assert(full.result?.error?.code === "CONTENT_BLOCKED", `result ${JSON.stringify(full.result)}`);
+  const saved = await ok("GET", `/api/projects/${project.id}`);
+  const clip = saved.tracks.flatMap((t) => t.clips).find((c) => c.id === clipId);
+  assert(!clip.faceSwap && clip.assetId === video.id, "clip untouched");
+  // fail closed + audit fix 19: no asset and no partial files of the job
+  const leftovers = await fetch(`${API}/files/renders/face/${r.jobId}/source.mp4`);
+  assert(
+    leftovers.status === 404,
+    `renders/face/<job>/source.mp4 left behind (${leftovers.status})`,
+  );
+  return { error: job.error };
+});
+
+await step("sprint4: EditPlan face_swap sin confirmedIndexes → 409", async () => {
+  await m1Licence(true);
+  // unique name: a re-run on the same storage must not make the name ambiguous (a question)
+  const name = `E2E Plan Lucía ${id("r")}`;
+  const person = await m1Person(name);
+  const { project, clipId } = await m1Clip();
+  const plan = {
+    version: 1,
+    summary_es: "Cara de Lucía en el doble.",
+    ops: [{ op: "face_swap", clip: { id: clipId }, person: { name: name.toLowerCase() } }],
+  };
+  const rec = await ok("POST", "/api/console/plans", { plan, projectId: project.id }, [201]);
+  assert(
+    rec.ok && rec.resolved[0].person.id === person.id,
+    `plan ${JSON.stringify(rec).slice(0, 300)}`,
+  );
+  const r = await api("POST", "/api/agent/apply", { planId: rec.id });
+  assert(r.status === 409 && r.json.error.code === "CONFIRM_REQUIRED", `apply ${r.status}`);
+  return { preview: rec.preview_es[0] };
+});
+
+await step("sprint4: studio_face_swap por stdio sin confirmed → rechazado", async () => {
+  const entry = path.join(REPO, "packages", "studio-mcp", "dist", "index.js");
+  assert(existsSync(entry), "packages/studio-mcp/dist missing (pnpm build:packages)");
+  const child = spawn(process.execPath, [entry], {
+    stdio: ["pipe", "pipe", "ignore"],
+    env: { ...process.env, STUDIO_API_URL: API },
+    windowsHide: true,
+  });
+  let buf = "";
+  const waiting = new Map();
+  child.stdout.on("data", (chunk) => {
+    buf += chunk;
+    let i;
+    while ((i = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, i).trim();
+      buf = buf.slice(i + 1);
+      if (line) {
+        const msg = JSON.parse(line);
+        waiting.get(msg.id)?.(msg);
+      }
+    }
+  });
+  let n = 0;
+  const rpc = (method, params) =>
+    new Promise((resolve) => {
+      const rid = ++n;
+      const timer = setTimeout(() => resolve({ error: { message: `timeout ${method}` } }), 30_000);
+      waiting.set(rid, (msg) => {
+        clearTimeout(timer);
+        resolve(msg);
+      });
+      child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: rid, method, params }) + "\n");
+    });
+  try {
+    await rpc("initialize", {
+      protocolVersion: "2025-06-18",
+      capabilities: {},
+      clientInfo: { name: "e2e", version: "1" },
+    });
+    child.stdin.write(
+      JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n",
+    );
+    const { project, clipId } = await m1Clip();
+    const before = (await ok("GET", "/api/jobs?type=face.swap&limit=500")).length;
+    const msg = await rpc("tools/call", {
+      name: "studio_face_swap",
+      arguments: { projectId: project.id, clipId, personId: "x" },
+    });
+    const rejected = !!msg.error || msg.result?.isError === true;
+    assert(rejected, `not rejected: ${JSON.stringify(msg).slice(0, 300)}`);
+    const after = (await ok("GET", "/api/jobs?type=face.swap&limit=500")).length;
+    assert(after === before, "a face.swap job was created");
+    const persons = await rpc("tools/call", { name: "studio_list_persons", arguments: {} });
+    const text = persons.result?.content?.[0]?.text ?? "";
+    assert(!persons.result?.isError && !text.includes("consent/"), `list ${text.slice(0, 200)}`);
+    return { rejected: (msg.error?.message ?? msg.result?.content?.[0]?.text ?? "").slice(0, 120) };
+  } finally {
+    child.kill();
+  }
+});
+// ------------------------------------------------------------------ END sprint4:M1
+
+// ---------------------------------------------------------------- BEGIN sprint4:M3
+// «Herramientas»: licence-gated face swap packs end to end, perf.json sprint 4 fields, the AI
+// `comment` metadata of exports and the RVC device. With scripts/e2e/workers-with-mocks.py the
+// faceswap pack download is a fake install (still behind the workers licence check), Chatterbox
+// runs its --mock bridge and RVC has a fake voice «e2e-voz» (STUDIO_MOCK_RVC=0 turns it off).
+const M3_WEB = { origin: "http://localhost:3000" }; // assertHumanOrigin: the Studio web
+async function m3Licence() {
+  const all = await ok("GET", "/api/ai/licences");
+  const lic = all.find((l) => l.id === "faceswap");
+  assert(lic, "GET /api/ai/licences without «faceswap»");
+  return lic;
+}
+async function m3SetLicence(accepted) {
+  const lic = await m3Licence();
+  if (lic.accepted === accepted) return lic;
+  const route = `/api/ai/licences/faceswap/${accepted ? "accept" : "revoke"}`;
+  const r = await api(
+    "POST",
+    route,
+    accepted ? { text_version: lic.text_version, accept: true } : {},
+    { headers: M3_WEB },
+  );
+  assert(r.status === 200, `${route} -> ${r.status} ${JSON.stringify(r.json)?.slice(0, 300)}`);
+  return m3Licence();
+}
+
+await step(
+  "sprint4: licencia de cambio de cara de punta a punta (pack 403 → aceptar con Origin → descarga mock → revocar → face.swap 403)",
+  async () => {
+    const before = await m3Licence();
+    await m3SetLicence(false);
+    const pack = (await ok("GET", "/api/ai/packs")).find((p) => p.id === "faceswap");
+    assert(
+      pack?.licence_gate === "faceswap",
+      `pack faceswap licence_gate: ${JSON.stringify(pack)}`,
+    );
+    const denied = await api("POST", "/api/ai/packs/faceswap/download", {});
+    assert(
+      denied.status === 403 && JSON.stringify(denied.json).includes("LICENCE_REQUIRED"),
+      `download without licence -> ${denied.status} ${JSON.stringify(denied.json)?.slice(0, 300)}`,
+    );
+    // the MCP / console can never accept it (HUMAN_ONLY), the web can
+    const mcp = await api(
+      "POST",
+      "/api/ai/licences/faceswap/accept",
+      { text_version: before.text_version, accept: true },
+      { headers: { ...M3_WEB, "x-studio-client": "mcp" } },
+    );
+    assert(mcp.status === 403, `accept from mcp -> ${mcp.status}`);
+    const accepted = await m3SetLicence(true);
+    assert(accepted.accepted && accepted.acceptance?.accepted_at, "licence not accepted");
+    const { jobId } = await ok("POST", "/api/ai/packs/faceswap/download", {}, [202]);
+    const job = await waitOk(jobId, { timeoutMs: 120_000 });
+    await m3SetLicence(false);
+    const swap = await api("POST", "/api/face/swap", {
+      personId: "e2e-nadie",
+      assetId: ctx.vAsset?.id ?? "e2e-nada",
+      confirmed: true,
+    });
+    assert(
+      swap.status === 403 && JSON.stringify(swap.json).includes("LICENCE_REQUIRED"),
+      `face.swap after revoking -> ${swap.status} ${JSON.stringify(swap.json)?.slice(0, 300)}`,
+    );
+    if (before.accepted) await m3SetLicence(true); // leave it as it was
+    return { download: job.status, mcpAccept: mcp.status, swapAfterRevoke: swap.status };
+  },
+);
+
+await step("sprint4: perf.json con campos nuevos y motivos", async () => {
+  const { jobId } = await ok("POST", "/api/ai/perf/run", {}, [202]);
+  await waitOk(jobId, { timeoutMs: 1_200_000 });
+  const perf = await ok("GET", "/api/ai/perf");
+  for (const key of [
+    "rvc_device",
+    "chatterbox_rtf",
+    "chatterbox_device",
+    "facefusion_fps",
+    "facefusion_enh_fps",
+    "facefusion_device",
+  ])
+    assert(key in perf, `perf.json without ${key}: ${JSON.stringify(perf).slice(0, 300)}`);
+  assert(
+    perf.tools?.facefusion?.state && perf.tools?.chatterbox?.state,
+    `perf.json tools: ${JSON.stringify(perf.tools)}`,
+  );
+  // every component is either measured or has a Spanish reason
+  const cb = perf.chatterbox_rtf ?? perf.skipped?.chatterbox ?? perf.errors?.chatterbox;
+  const ff = perf.facefusion_fps ?? perf.skipped?.facefusion ?? perf.errors?.facefusion;
+  assert(cb != null && ff != null, `chatterbox/facefusion without value nor reason`);
+  const lic = await m3Licence();
+  if (!lic.accepted && perf.facefusion_fps == null && perf.skipped?.facefusion)
+    assert(
+      /licencia no aceptada|no instalado|Persona/.test(perf.skipped.facefusion),
+      `facefusion reason: ${perf.skipped.facefusion}`,
+    );
+  return { chatterbox: cb, facefusion: ff, tools: perf.tools, rvc: perf.rvc_device ?? null };
+});
+
+await step("sprint4: export con metadato comment de IA", async () => {
+  const pack = (await ok("GET", "/api/ai/packs")).find((p) => p.id === "tts-chatterbox");
+  const src = path.join(WORK, "e2e-m3-gris.mp4");
+  await run(FFMPEG, [
+    "-y",
+    "-v",
+    "error",
+    "-f",
+    "lavfi",
+    "-i",
+    "color=c=0x404040:s=640x360:r=25:d=3",
+    "-c:v",
+    "libx264",
+    "-pix_fmt",
+    "yuv420p",
+    src,
+  ]);
+  const video = await upload(src, "video/mp4");
+  await waitAssetJobs(video.id, ["media.probe"]);
+  const p = await ok("POST", "/api/projects", { name: "E2E metadato IA" }, [201]);
+  const V = p.tracks.find((t) => t.kind === "video");
+  const A = p.tracks.find((t) => t.kind === "audio");
+  V.clips = [{ id: id("c"), trackId: V.id, assetId: video.id, start: 0, in: 0, out: 3 }];
+  const exportComment = async (name) => {
+    await ok("PUT", `/api/projects/${p.id}`, p);
+    const { jobId } = await ok("POST", `/api/projects/${p.id}/export`, {
+      presetId: "youtube-1080p",
+      fileName: name,
+    });
+    const job = await waitOk(jobId);
+    const file = await download(job.result.path, `${name}.mp4`);
+    return (await ffprobe(file)).format?.tags?.comment;
+  };
+  const plain = await exportComment("m3-sin-ia");
+  assert(plain === undefined, `comment without AI content: ${plain}`);
+  if (!pack?.installed) return "tts-chatterbox not installed (mocks off): only the no-AI case";
+  const r = await ok("POST", "/api/voice/tts", {
+    provider: "chatterbox",
+    voice: "chatterbox:multilingual",
+    text: "Hola, esto es una voz sintética.",
+  });
+  const tts = await waitOk(r.jobId, { timeoutMs: 180_000 });
+  const voice = await ok("GET", `/api/media/${tts.result.assetId}`);
+  assert(voice.aiProvenance?.kind === "voice-synthetic", `tts asset ${JSON.stringify(voice)}`);
+  A.clips = [{ id: id("c"), trackId: A.id, assetId: voice.id, start: 0, in: 0, out: 2 }];
+  // the visible label stays OFF (internal use): the comment is there anyway (decision 9)
+  const comment = await exportComment("m3-con-ia");
+  assert(
+    comment ===
+      "Editado con Studio; contenido alterado con IA: cara sintética: no; voz clonada: no; voz sintética: sí",
+    `comment: ${comment}`,
+  );
+  return { comment };
+});
+
+await step("sprint4: RVC informa device (cpu en CI)", async () => {
+  const models = await ok("GET", "/api/voice/rvc/models");
+  if (!models.some((m) => m.id === "e2e-voz"))
+    return "sin el mock de RVC (STUDIO_MOCK_RVC=0): no hay voz de prueba";
+  const base = (await ok("GET", "/api/ai/packs")).find((p) => p.id === "rvc-base");
+  if (!base?.installed) return "rvc-base no instalado (workers sin el mock de RVC)";
+  const { jobId } = await ok("POST", "/api/voice/rvc", {
+    assetId: ctx.sAsset.id,
+    modelId: "e2e-voz",
+    pitchShift: 2,
+    f0Method: "pm",
+  });
+  const job = await waitOk(jobId, { timeoutMs: 120_000 });
+  assert(["cpu", "cuda"].includes(job.result.device), `device: ${JSON.stringify(job.result)}`);
+  return { device: job.result.device, warnings: job.result.warnings ?? [] };
+});
+// ------------------------------------------------------------------ END sprint4:M3
+
+// ---------------------------------------------------------------- BEGIN sprint4:integración
+// Seams no single module checks: the M1 face swap and the M2 cloned voice (and what RVC and the
+// voice effects derive from it, with the provenance M3 inherits) -> «Revisión para redes»
+// detection and the export `comment` (M3), before and after undoing the swap; and perf.run (M3)
+// measuring FaceFusion through the workers' FaceEngine (M1) with the Persona the ConsentGate
+// (M1) picks. Needs the mocks of scripts/e2e/workers-with-mocks.py (packs reported installed).
+const S4I_AI = "Editado con Studio; contenido alterado con IA: ";
+async function s4iComment(project, name) {
+  await ok("PUT", `/api/projects/${project.id}`, project);
+  const { jobId } = await ok("POST", `/api/projects/${project.id}/export`, {
+    presetId: "youtube-1080p",
+    fileName: name,
+  });
+  const job = await waitOk(jobId);
+  const file = await download(job.result.path, `${name}.mp4`);
+  return (await ffprobe(file)).format?.tags?.comment;
+}
+async function s4iSelfRef() {
+  const refs = await ok("GET", "/api/voice/self-refs");
+  if (refs.length) return refs[0];
+  const fd = new FormData();
+  fd.append("attestSelf", "true");
+  const wav = await m2SampleWav("s4i-voz-propia.wav", 9);
+  fd.append("audio", new Blob([await readFile(wav)], { type: "audio/wav" }), "voz.wav");
+  return ok("POST", "/api/voice/self-refs", fd, [201], { headers: WEB_ORIGIN });
+}
+
+await step(
+  "sprint4 integración: cara (M1) + voz clonada (M2) → RVC y efecto heredan → comment del export (M3) antes y después de deshacer",
+  async () => {
+    const face = await m1Packs();
+    const voice = await m2Pack();
+    if (!face?.installed || !voice.installed)
+      return "packs faceswap / tts-chatterbox not installed (workers without the mocks)";
+    const lic = await m3Licence();
+    await m3SetLicence(true);
+    try {
+      const person = await m1Person(`E2E Integración ${id("n")}`);
+      const { project, clipId } = await m1Clip();
+      const r = await ok("POST", "/api/face/swap", {
+        personId: person.id,
+        assetId: m1.video.id,
+        target: { projectId: project.id, clipId },
+        confirmed: true,
+      }, [202]); // prettier-ignore
+      const swap = (await waitOk(r.jobId, { timeoutMs: 180_000 })).result;
+      await s4iSelfRef();
+      const { job } = await m2Tts({ voice: "chatterbox:self" });
+      const cloned = job.result.assetId;
+      assert(job.result.aiVoice === "cloned", `tts ${JSON.stringify(job.result)}`);
+      // voice.effect (M3 inheritance) over the clone keeps «voice-cloned»
+      const fxJob = await ok("POST", "/api/voice/effects", {
+        assetId: cloned,
+        effects: [{ type: "robot", intensity: 0.5 }],
+      });
+      const fx = await ok("GET", `/api/media/${(await waitOk(fxJob.jobId)).result.assetId}`);
+      assert(
+        fx.aiAltered === true &&
+          fx.aiProvenance?.kind === "voice-cloned" &&
+          fx.aiProvenance.sourceAssetId === cloned,
+        `voice.effect provenance ${JSON.stringify(fx.aiProvenance)}`,
+      );
+      // RVC (M2 handler) over the clone: same kind, pointing back at it, with the RVC job id
+      let rvc = "sin el mock de RVC";
+      const models = await ok("GET", "/api/voice/rvc/models");
+      const base = (await ok("GET", "/api/ai/packs")).find((p) => p.id === "rvc-base");
+      if (models.some((m) => m.id === "e2e-voz") && base?.installed) {
+        const rv = await ok("POST", "/api/voice/rvc", {
+          assetId: cloned,
+          modelId: "e2e-voz",
+          pitchShift: 0,
+          f0Method: "pm",
+        });
+        const rj = await waitOk(rv.jobId, { timeoutMs: 120_000 });
+        const ra = await ok("GET", `/api/media/${rj.result.assetId}`);
+        assert(
+          ra.aiProvenance?.kind === "voice-cloned" &&
+            ra.aiProvenance.sourceAssetId === cloned &&
+            ra.aiProvenance.jobId === rv.jobId,
+          `RVC provenance ${JSON.stringify(ra.aiProvenance)}`,
+        );
+        rvc = `${ra.aiProvenance.kind} (${rj.result.device})`;
+      }
+      const saved = await ok("GET", `/api/projects/${project.id}`);
+      assert(saved.publish?.flags?.aiFace === true, "publish.flags.aiFace after the swap");
+      assert(saved.publish?.aiLabel !== true, "the visible label must stay off (internal use)");
+      const A = saved.tracks.find((t) => t.kind === "audio");
+      A.clips = [{ id: id("c"), trackId: A.id, assetId: fx.id, start: 0, in: 0, out: 1.5 }];
+      const both = await s4iComment(saved, "s4i-cara-voz");
+      const want = (cara) => `${S4I_AI}cara sintética: ${cara}; voz clonada: sí; voz sintética: no`;
+      assert(both === want("sí"), `comment with face + cloned voice: ${both}`);
+      await ok("POST", "/api/face/undo", { projectId: project.id, clipId });
+      const undone = await s4iComment(
+        await ok("GET", `/api/projects/${project.id}`),
+        "s4i-sin-cara",
+      );
+      assert(undone === want("no"), `comment after undoing the face swap: ${undone}`);
+      return { swap: swap.assetId, effect: fx.aiProvenance.kind, rvc, both, undone };
+    } finally {
+      if (!lic.accepted) await m3SetLicence(false);
+    }
+  },
+);
+
+await step(
+  "sprint4 integración: perf.run mide FaceFusion por el FaceEngine (M1) con la Persona del gate",
+  async () => {
+    const face = await m1Packs();
+    if (!face?.installed) return "pack faceswap not installed (workers without the mocks)";
+    const lic = await m3Licence();
+    await m3SetLicence(true);
+    // benchFaceSource() takes the first Persona by name with a face consent: «0 …» goes first
+    // (the e2e «E2E Contenido» photo is the content-analyser one and would end CONTENT_BLOCKED).
+    const person = await m1Person(`0 E2E Banco ${id("n")}`);
+    try {
+      const { jobId } = await ok("POST", "/api/ai/perf/run", {}, [202]);
+      await waitOk(jobId, { timeoutMs: 1_200_000 });
+      const perf = await ok("GET", "/api/ai/perf");
+      const why = perf.errors?.facefusion ?? perf.skipped?.facefusion ?? null;
+      assert(
+        typeof perf.facefusion_fps === "number" && perf.facefusion_fps > 0,
+        `facefusion_fps ${perf.facefusion_fps} (${why})`,
+      );
+      assert(
+        ["cpu", "cuda"].includes(perf.facefusion_device) &&
+          perf.facefusion_model === "hyperswap_1a_256",
+        `facefusion device/model ${perf.facefusion_device} ${perf.facefusion_model}`,
+      );
+      assert(typeof perf.chatterbox_rtf === "number", `chatterbox_rtf ${perf.chatterbox_rtf}`);
+      return {
+        fps: perf.facefusion_fps,
+        enh_fps: perf.facefusion_enh_fps,
+        startup_s: perf.facefusion_startup_s,
+        device: perf.facefusion_device,
+        chatterbox_rtf: perf.chatterbox_rtf,
+      };
+    } finally {
+      await api("DELETE", `/api/persons/${person.id}?confirm=1`);
+      if (!lic.accepted) await m3SetLicence(false);
+    }
+  },
+);
+// ------------------------------------------------------------------ END sprint4:integración
+
+// ---------------------------------------------------------------- BEGIN sprint4:auditoría
+// Audit corrections of sprint 4 (docs/trabajo/integracion-sprint4.md «Correcciones de auditoría»):
+// Host allowlist, biometric reads only for the web, consent bound to the photos it covered,
+// «Revocar rostro» (the newest consent wins), the workers' mirror consent/active.json, the
+// append-only hash-chained audit and the Persona-free asset names.
+function rawGet(route, headers) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(`${API}${route}`, { method: "GET", headers }, (res) => {
+      res.resume();
+      res.on("end", () => resolve(res.statusCode));
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+await step(
+  "sprint4 auditoría: Host, lecturas biométricas, consentimiento atado a las fotos, revocar rostro, espejo y auditoría",
+  async () => {
+    const u = new URL(API);
+    const bad = await rawGet("/api/persons", { host: `evil.example:${u.port}` });
+    assert(bad === 403, `foreign Host -> ${bad} (403 BAD_HOST expected)`);
+    const person = await m1Person(`E2E Auditoría ${id("n")}`);
+    const photo = person.photos[0];
+    const photoUrl = `/api/persons/${person.id}/photos/${photo.id}`;
+    const anon = await api("GET", photoUrl, undefined, { raw: true });
+    assert(anon.status === 403, `photo without Origin / Sec-Fetch-Site -> ${anon.status}`);
+    const web = await api("GET", photoUrl, undefined, { raw: true, headers: WEB_ORIGIN });
+    assert(web.status === 200, `photo with the web Origin -> ${web.status}`);
+    const consent = person.consents[0];
+    assert(consent.photo_ids?.length === 1 && consent.photo_ids[0].id === photo.id, "photo_ids");
+    // a photo added AFTER the consent is not covered (and the mirror does not list it)
+    const png = await m1Png(`m1-late-${person.id}.png`);
+    const fd = await m1Form({}, { photo: { file: png, name: "otra.png", type: "image/png" } });
+    const late = await api("POST", `/api/persons/${person.id}/photos`, fd, { headers: WEB_ORIGIN });
+    assert(late.status === 200, `late photo -> ${late.status}`);
+    let mirrorChecked = "storage not readable from here";
+    const mirrorPath = path.join(STORAGE, "consent", "active.json");
+    if (existsSync(mirrorPath)) {
+      const mirror = JSON.parse(await readFile(mirrorPath, "utf8"));
+      const entry = mirror.consents.find((e) => e.consentId === consent.id);
+      assert(entry?.photo_paths?.length === 1 && entry.photo_paths[0] === photo.path, "mirror");
+      mirrorChecked = "active.json lists only the covered photo";
+    }
+    // «Revocar rostro»: no valid face consent any more
+    const after = await ok("POST", `/api/persons/${person.id}/consents/revoke`, { scope: "face" });
+    assert(
+      after.consents.every((c) => c.revoked_at),
+      "revoke by scope",
+    );
+    const row = (await ok("GET", "/api/persons")).find((x) => x.id === person.id);
+    assert(row.face === "revocado", `summary ${JSON.stringify(row)}`);
+    // the audit: web only, hash chain intact
+    const noWeb = await api("GET", `/api/persons/${person.id}/audit`);
+    assert(noWeb.status === 403, `audit without Origin -> ${noWeb.status}`);
+    const audit = await ok("GET", `/api/persons/${person.id}/audit`, undefined, [200], {
+      headers: WEB_ORIGIN,
+    });
+    assert(audit.chain.ok === true, `audit chain ${JSON.stringify(audit.chain)}`);
+    const actions = audit.rows.map((r) => r.action);
+    for (const a of ["consent.create", "consent.revoke", "person.photo.add"])
+      assert(actions.includes(a), `audit lacks ${a}: ${actions.join(", ")}`);
+    return { badHost: bad, mirror: mirrorChecked, audit: audit.rows.length };
+  },
+);
+// ------------------------------------------------------------------ END sprint4:auditoría
 
 // ---------------------------------------------------------------- report
 sse.controller.abort();

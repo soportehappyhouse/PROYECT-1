@@ -183,3 +183,39 @@ Primera corrida: `actualizar.cmd` → Ajustes → Paquetes de IA → descargar `
 3. `matting-hq` (~230 MB) → recortar un clip con fondo complejo en calidad alta y comparar bordes con el modo normal.
 4. `vision-llm` (opcional) → Estilo → analizar un video de referencia → «Inferir con IA local»; o hacerlo desde la consola con Claude.
 5. Sigue pendiente del sprint 3: Asistente → «Evaluar modelos» (qwen3:8b / hermes3:8b) y fps sostenido del recorte.
+
+---
+
+# Sprint 4 — 2026-10-07 — Fase C (cara y voz: Personas, consentimiento, FaceFusion, Chatterbox, RVC en CUDA)
+
+**Plan:** `docs/01-PLAN-BASE-v2.md` (Sprint 4, criterio 5). **Contratos:** `docs/trabajo/sprint4-contratos.md`. **Fuentes:** `docs/trabajo/fuentes-sprint4.md`. **Integración:** `docs/trabajo/integracion-sprint4.md`. **Decisiones aplicadas:** 3 (consentimiento previo con registro por persona), 4 (etiqueta visible opcional), 6 (herramientas y modelos bajo demanda), 9 (rioplatense por clonación de voz propia, sin entrenamiento).
+
+## Entregado
+- **Personas y consentimiento**: Ajustes → Personas (fotos, muestras de voz, firma en pantalla o documento, alcance rostro/voz, vencimiento, revocación por alcance), consentimiento atado a las fotos y muestras concretas, auditoría solo-agregar con cadena de hashes y triggers en SQLite, espejo de solo lectura para los workers (`storage/consent/active.json`), `HUMAN_ONLY` (solo desde la web de Studio: ni MCP ni procesos sin Origin válido), `storage/consent/**` nunca servido, nunca en reportes, denegado a la Consola Claude.
+- **Cambio de cara**: FaceFusion 3.9.1 en venv propio (Python 3.12) como subproceso vía `tools/launch.py`, una sola aceptación de licencia en pantalla para los modelos no comerciales (versión del texto + fecha, exigida al descargar y al usar), analizador de contenido de FaceFusion siempre activo (rechazo → `CONTENT_BLOCKED`, fallo de herramienta → `TOOL_FAILED`, sin asset si no se clasifica), verificación licencia → pack → consentimiento → venv → límites al encolar y al arrancar, asistente «Cambiar cara» de 5 pasos, deshacer por clip, `studio_face_swap` con confirmación y op `face_swap` del EditPlan siempre confirmada.
+- **Voz**: Chatterbox Multilingual (V3 desde Git fijado por SHA, V2 de PyPI como respaldo) en venv propio con torch 2.6, proceso persistente con cancelación real y liberación de GPU, marca de agua PerTh siempre, Piper sigue por defecto; «Voz propia» (10 s, casilla «Soy yo», `HUMAN_ONLY`, auditada) y clonación de Personas con consentimiento de voz; todo audio generado marcado sintético y clonado cuando corresponde, RVC sobre voz real también marcado clonado.
+- **Herramientas e instalador**: runtime Python 3.12 por winget, `toolvenv` con estados, junctions compatibles con Python 3.11, lanzador con lista blanca de variables de entorno (sin tokens ni API keys, Hugging Face offline), RVC en CUDA con presupuesto de GPU y `RVC_MODEL_INCOMPATIBLE`, test de rendimiento con RVC/Chatterbox/FaceFusion, `doctor`, `.env.example`, `.gitignore`.
+- **Revisión para redes**: detección de contenido IA (cara, voz sintética/clonada) con herencia por efectos, limpieza, stems y recorte; `comment` invisible siempre en el MP4 exportado y conservado al reimportar; etiqueta visible opcional.
+- **Repo público**: `LICENSE` (todos los derechos reservados, uso personal), `NOTICE.md` de licencias de terceros, rutas de ejemplo sin nombres, CI recortada (cancelación de corridas viejas, Windows solo en PR y `main`, sin CI en cambios de solo documentación).
+- Manual §24–§27 (MD, HTML, PDF 80 páginas), `ARQUITECTURA.md`, `fuentes.md`, `INSTALACION-WINDOWS.md`, `CONSOLA-CLAUDE.md`, `CLAUDE.md` (regla 7 y dos herramientas nuevas).
+
+## Criterio 5 (plan v2)
+- Swap solo con consentimiento registrado → 🟢 en código (api y workers, al encolar y al arrancar, auditado).
+- Etiqueta opcional → 🟢 (`forSocial && aiLabel`; `comment` siempre).
+- Sin modelos no comerciales activos sin aceptación explícita en pantalla → 🟢 (403 `LICENCE_REQUIRED` en descarga, CLI, `-Full` y uso).
+- Rendimiento (fps de FaceFusion, RTF de Chatterbox, RVC < 15 s/min) → 🟡 solo medible en tu PC.
+
+## Auditoría independiente (solo lectura)
+24 hallazgos (2 altos, 12 medios, 10 bajos) + 5 puntos abiertos → **todos corregidos o decididos** (ver «Correcciones de auditoría» en `integracion-sprint4.md`). Límite declarado: Studio no tiene autenticación local; un proceso con shell en tu PC puede llegar a la API. La consola tiene denegados `curl`, `wget` y equivalentes; un PIN local queda en Descubierto.
+
+## Números
+- Agentes: investigación + contratos + Paso 0 + 3 módulos + integración + auditoría + 2 pasadas de correcciones (una perdida por límite de uso y reinicio del contenedor).
+- Tests: Node 713 (shared 106, web 228, api 283, remotion 55, motion-engines 22, studio-mcp 18), Python 459; e2e 74/74 obligatorios; ui-smoke 38/38; MCP smoke 18 herramientas.
+- Integración: 9 bugs entre módulos corregidos. Commits del sprint: 15.
+
+## Pendiente para la PC real
+1. `actualizar.cmd` → debe instalar Python 3.12 (winget) sin tocar el resto; `doctor.cmd` muestra el estado de las herramientas.
+2. Ajustes → Personas → crear una Persona con tu foto y firmar el consentimiento (rostro y voz). Ajustes → Paquetes de IA → aceptar la licencia de cambio de cara → descargar `faceswap` (~1,5 GB + venv ~1,7 GB) → «Cambiar cara» sobre un clip corto. Anotar fps y, si bloquea contenido, el texto exacto del rechazo (para fijar `FACEFUSION_NSFW_RE`).
+3. Paquetes de IA → `tts-chatterbox` (~6 GB) → Voces → motor Chatterbox → «Voz propia» (grabar 10 s) → generar un texto. Anotar tiempo real, si quedó en V3 o V2, y si la voz conserva la tonada (probar cfg 0,3/0,5/0,7).
+4. Voces → RVC con CUDA: tiempo por minuto (meta < 15 s). Test de rendimiento completo y pegar `perf.json`.
+5. Sigue pendiente de sprints anteriores: sha256 de Demucs, Asistente «Evaluar modelos», fps sostenido del recorte.

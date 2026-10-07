@@ -8,6 +8,7 @@ import {
   type ExportJobResult,
 } from "@studio/shared";
 import type { AppContext } from "../../context.js";
+import { exportAiComment } from "../../services/ai-provenance.js";
 import { disableEncoder, selectEncoder } from "../../services/encoder-select.js";
 import { presetEncoding } from "../../services/ffmpeg/encoders.js";
 import { exportBlockersMessage, findExportBlockers } from "../../services/ffmpeg/timeline.js";
@@ -132,6 +133,8 @@ export function createProjectExportHandler(
         ext,
       );
       const tmp = await jobTmpDir(app, job.id);
+      const aiComment = exportAiComment(app, project);
+      if (aiComment) ctx.log(`Metadato de IA: ${aiComment}`);
       let result: ExportJobResult = { path: rel };
       try {
         ctx.reportProgress(0.02, "Renderizando");
@@ -147,6 +150,8 @@ export function createProjectExportHandler(
             ...(req.range && { range: req.range }),
             ...(tracks.size > 0 && { tracks }),
             ...(req.burnSubtitles !== undefined && { burnSubtitles: req.burnSubtitles }),
+            // Sprint 4 (decision 9): invisible traceability of AI content, label on or off.
+            ...(aiComment && { metadataComment: aiComment }),
             ...(req.useSegmentCache !== false && {
               segmentCache: {
                 dir: path.join(app.config.storageDir, SEGMENT_CACHE_SUBDIR),

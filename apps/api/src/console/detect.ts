@@ -127,7 +127,7 @@ const execCapture: Exec = (file, args, opts) =>
 
 /**
  * Command line that runs `bin args` (Windows .cmd/.bat shims go through cmd.exe). No `/s`: cmd keeps
- * the quotes of a single quoted path with spaces ("C:\Users\Luis Perez\…\claude.cmd").
+ * the quotes of a single quoted path with spaces ("C:\Users\Usuario Demo\…\claude.cmd").
  */
 export function commandFor(
   bin: string,

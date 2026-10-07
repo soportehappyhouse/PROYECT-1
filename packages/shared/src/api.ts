@@ -77,6 +77,26 @@ export const API_ROUTES = {
   agentStatus: "/api/agent/status", // GET AgentStatus (workers proxy + pack agent-llm)
   agentEval: "/api/agent/eval", // POST AgentEvalRequest -> JobAccepted (agent.eval) | GET last result
   agentBugreport: "/api/agent/bugreport", // POST AgentBugreportRequest -> AgentBugreportResponse
+  // Sprint 4 (consent.ts, face.ts, voice.ts): Personas + consent, licences, face swap, «Voz propia».
+  persons: "/api/persons", // GET ?scope=face|voice -> PersonSummary[] | POST PersonCreate -> 201 Person
+  person: "/api/persons/:id", // GET Person | PATCH PersonPatch -> Person | DELETE ?confirm=1 -> 204
+  personPhotos: "/api/persons/:id/photos", // POST multipart `photo` -> Person
+  personPhoto: "/api/persons/:id/photos/:photoId", // GET image | DELETE -> Person
+  personVoiceSamples: "/api/persons/:id/voice-samples", // POST multipart `audio` -> Person
+  personVoiceSample: "/api/persons/:id/voice-samples/:sampleId", // GET audio | DELETE -> Person
+  personConsents: "/api/persons/:id/consents", // POST multipart ConsentCreateFields + `evidence` -> 201 Consent
+  personConsentRevoke: "/api/persons/:id/consents/:consentId/revoke", // POST -> Consent (revoked_at)
+  personConsentEvidence: "/api/persons/:id/consents/:consentId/evidence", // GET evidence file
+  personConsentsRevoke: "/api/persons/:id/consents/revoke", // POST ConsentRevokeScopeRequest -> Person (every non-revoked consent of the scope)
+  personAudit: "/api/persons/:id/audit", // GET AuditEntry[] (web only, HUMAN_ONLY)
+  aiLicences: "/api/ai/licences", // GET LicenceStatus[]
+  aiLicenceAccept: "/api/ai/licences/:id/accept", // POST LicenceAcceptRequest -> LicenceAcceptance
+  aiLicenceRevoke: "/api/ai/licences/:id/revoke", // POST -> LicenceAcceptance
+  faceDetect: "/api/face/detect", // POST FaceDetectRequest -> FaceDetectResult (sync)
+  facePreview: "/api/face/preview", // POST FacePreviewRequest -> 202 JobAccepted (face.preview)
+  faceSwap: "/api/face/swap", // POST FaceSwapRequest -> 202 JobAccepted (face.swap)
+  faceUndo: "/api/face/undo", // POST FaceUndoRequest -> Project
+  voiceSelfRefs: "/api/voice/self-refs", // GET MediaAsset[] (voice-ref) | POST multipart `audio` + attestSelf=true -> 201 MediaAsset
   files: "/files/*", // GET static files from STORAGE_DIR (renders/exports/proxies)
 } as const;
 export type ApiRouteKey = keyof typeof API_ROUTES;
@@ -90,6 +110,7 @@ export const WORKER_ROUTES = {
   transcribe: "/transcribe", // POST {inputPath, language, model, wordTimestamps} -> Transcript
   ttsVoices: "/tts/voices", // GET TtsVoice[]
   tts: "/tts", // POST {text, voice, speed, outputPath} -> {path, durationSec}
+  ttsCancel: "/tts/cancel", // POST {jobId} -> {canceled, stopped} (Chatterbox: kills the bridge, frees the GPU)
   rvcModels: "/rvc/models", // GET RvcModel[]
   rvcConvert: "/rvc/convert", // POST {inputPath, modelId, pitchShift, indexRate, f0Method, device, outputPath} -> {path}
   ttsProviders: "/tts/providers", // GET TtsProviderInfo[]
@@ -146,6 +167,88 @@ export const ApiErrorSchema = z.object({
   }),
 });
 export type ApiError = z.infer<typeof ApiErrorSchema>;
+
+/**
+ * Sprint 4 error codes (docs/trabajo/sprint4-contratos.md «Códigos de error nuevos»): HTTP status
+ * and Spanish message template (`{placeholder}` filled by formatErrorEs). Bodies are ApiError
+ * (`details` per consent.ts: ConsentRequiredDetails, LicenceRequiredDetails, ToolMissingDetails;
+ * TOOL_FAILED: `{logTail}`); workers answer `{detail, code}`. PACK_REQUIRED (flat body) and
+ * CONFIRM_REQUIRED already exist.
+ */
+export const SPRINT4_ERRORS = {
+  /** Placeholders: nombre, alcance («cara» | «voz»), motivo (CONSENT_REASON_ES). */
+  CONSENT_REQUIRED: {
+    status: 403,
+    message_es:
+      "{nombre} no tiene un consentimiento vigente para usar su {alcance} ({motivo}). " +
+      "Registralo en Ajustes → Personas.",
+  },
+  LICENCE_REQUIRED: {
+    status: 403,
+    message_es:
+      "Para usar el cambio de cara tenés que leer y aceptar su licencia (modelos no comerciales + " +
+      "OpenRAIL-AS) en pantalla: Ajustes → Paquetes de IA.",
+  },
+  HUMAN_ONLY: {
+    status: 403,
+    message_es:
+      "Esto solo se hace desde la pantalla de Studio, no desde la consola ni el asistente.",
+  },
+  /** Placeholders: herramienta (TOOL_NAME_ES), estado (TOOL_STATE_ES); state "python": TOOL_MISSING_PYTHON_ES. */
+  TOOL_MISSING: {
+    status: 409,
+    message_es:
+      "El entorno aislado de {herramienta} no está listo ({estado}). Volvé a descargar el paquete " +
+      "en Ajustes → Paquetes de IA o corré scripts\\windows\\setup.ps1 -Update.",
+  },
+  /** Placeholders: herramienta, log (last useful log line; full tail in `details.logTail`). */
+  TOOL_FAILED: { status: 502, message_es: "{herramienta} terminó con error: {log}." },
+  TEXT_OUTDATED: {
+    status: 409,
+    message_es: "El texto del consentimiento/licencia cambió: volvé a leerlo y aceptarlo.",
+  },
+  /** Placeholder: nombre. */
+  VOICE_SAMPLE_MISSING: {
+    status: 409,
+    message_es: "{nombre} no tiene una muestra de voz (5 a 60 s).",
+  },
+  CONTENT_BLOCKED: {
+    status: 422,
+    message_es:
+      "El analizador de contenido de FaceFusion bloqueó este video o imagen: no se procesa.",
+  },
+  /** Placeholder: donde («la foto» | «el fotograma elegido»). */
+  NO_FACE: { status: 422, message_es: "No se encontró una cara en {donde}." },
+  /** Placeholder: id (RVC model id). */
+  RVC_MODEL_INCOMPATIBLE: {
+    status: 422,
+    message_es: "El modelo RVC «{id}» no se puede cargar de forma segura (formato incompatible).",
+  },
+  CLIP_TOO_LONG: {
+    status: 400,
+    message_es: "Se procesan tramos de hasta 10 min y 4K: dividí el clip.",
+  },
+  VOICE_SAMPLE_INVALID: {
+    status: 400,
+    message_es: "La muestra tiene que durar entre 5 y 60 s y tener voz.",
+  },
+  PERSON_NOT_FOUND: { status: 404, message_es: "No existe esa Persona." },
+} as const satisfies Record<string, { status: number; message_es: string }>;
+export type Sprint4ErrorCode = keyof typeof SPRINT4_ERRORS;
+
+/** TOOL_MISSING message when the state is "python" (FaceFusion needs Python 3.12). */
+export const TOOL_MISSING_PYTHON_ES =
+  "Falta Python 3.12: corré scripts\\windows\\setup.ps1 -Update.";
+
+/** Spanish message of a Sprint 4 error code with its `{placeholders}` replaced (unknown ones stay). */
+export function formatErrorEs(
+  code: Sprint4ErrorCode,
+  vars: Readonly<Record<string, string | number>> = {},
+): string {
+  return SPRINT4_ERRORS[code].message_es.replace(/\{([a-z_]+)\}/g, (m, key: string) =>
+    key in vars ? String(vars[key]) : m,
+  );
+}
 
 export const HealthResponseSchema = z.object({
   status: z.enum(["ok", "degraded"]),

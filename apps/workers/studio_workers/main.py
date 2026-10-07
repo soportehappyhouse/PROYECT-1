@@ -17,6 +17,7 @@ from .routers import (
     agent,
     analyze,
     audio,
+    face,
     gpu,
     health,
     jobs,
@@ -54,6 +55,10 @@ def prepare_environment() -> None:
         write_registry(settings.models_root)  # models/packs.json (static registry)
     except OSError as exc:
         log.warning("could not write models/packs.json: %s", exc)
+    from .toolvenv import override_warnings  # noqa: PLC0415
+
+    for warning in override_warnings():  # audit fix 23
+        log.warning("%s", warning)
 
 
 @asynccontextmanager
@@ -80,6 +85,7 @@ def create_app() -> FastAPI:
     app.include_router(vision.router)
     app.include_router(agent.router)
     app.include_router(style.router)  # Sprint 3b: perfil de estilo
+    app.include_router(face.router)  # Sprint 4 M1: detectar caras + cambio de cara (FaceFusion)
     return app
 
 

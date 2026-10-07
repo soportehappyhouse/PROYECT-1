@@ -1,6 +1,8 @@
 """TTS provider interface + implementations.
 
 - piper: local, always available once a voice is installed (models/piper).
+- chatterbox (sprint 4, tts/chatterbox.py): local Chatterbox Multilingual in an isolated tool
+  venv (pack tts-chatterbox), with zero-shot cloning from a consented reference sample.
 - elevenlabs / openai: optional, enabled ONLY when the key exists in .env. Keys are read from the
   environment by pydantic-settings and never returned by any endpoint.
 """
@@ -270,10 +272,14 @@ class ElevenLabsProvider(_CloudProvider):
 
 
 def build_providers(settings: Settings) -> dict[str, TtsProvider]:
+    # Sprint 4: Chatterbox (local, isolated tool venv); Piper stays the default and the fallback.
+    from .chatterbox import ChatterboxProvider  # noqa: PLC0415 - chatterbox imports this module
+
     providers: list[TtsProvider] = [
         PiperProvider(settings),
         ElevenLabsProvider(settings),
         OpenAiProvider(settings),
+        ChatterboxProvider(settings),
     ]
     return {p.id: p for p in providers}
 

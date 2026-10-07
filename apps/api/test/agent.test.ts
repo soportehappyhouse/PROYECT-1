@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
@@ -130,11 +130,17 @@ describe("agent routes and agent.apply (mocked workers)", () => {
   };
 
   /** 4 s lavfi clip (testsrc2 + sine) registered as a media asset, in a fresh project. */
+  // The 4 s test clip is encoded once per file and copied for every project: a synchronous ffmpeg
+  // encode per test blocked the event loop and pushed short tests past their 5 s budget on slow
+  // Windows runners.
+  let baseClip: string | undefined;
   async function makeProject(): Promise<string> {
     const id = `v${Math.random().toString(36).slice(2, 8)}`;
     const rel = `media/${id}.mp4`;
     mkdirSync(path.join(storage, "media"), { recursive: true });
-    if (hasFfmpeg)
+    if (hasFfmpeg && baseClip) copyFileSync(baseClip, path.join(storage, rel));
+    else if (hasFfmpeg) {
+      baseClip = path.join(storage, rel);
       execFileSync("ffmpeg", [
         "-hide_banner",
         "-loglevel",
@@ -157,6 +163,7 @@ describe("agent routes and agent.apply (mocked workers)", () => {
         "-shortest",
         path.join(storage, rel),
       ]);
+    }
     app.ctx.repos.media.insert({
       id,
       kind: "video",
@@ -546,7 +553,7 @@ describe("agent routes and agent.apply (mocked workers)", () => {
     state.planStatus = 500;
     state.planBody = { detail: "otra cosa" };
     expect((await propose(projectId)).res.statusCode).toBe(500);
-  });
+  }, 30_000); // five sequential round trips: slow Windows runners need more than 5 s
 
   it("agentPackName / ollamaHint name the model and the manual commands", () => {
     expect(agentPackName("qwen3:8b")).toBe("Asistente local (Ollama + Qwen3 8B)");

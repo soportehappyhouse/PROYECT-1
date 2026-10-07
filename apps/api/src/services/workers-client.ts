@@ -52,10 +52,14 @@ import {
   type WorkerRvcRequest,
   type WorkerTranscribeRequest,
   type WorkerTtsRequest,
+  type WorkerChatterboxFields,
+  WorkerTtsResultSchema,
+  type WorkerTtsResult,
 } from "@studio/shared";
 import http from "node:http";
 import { z } from "zod";
 import { currentDiagnostics } from "../jobs/diagnostics.js";
+import { hideConsentPaths } from "../lib/consent-paths.js";
 
 /** Options for long synchronous worker calls. */
 export interface WorkerCallOptions {
@@ -66,19 +70,19 @@ export interface WorkerCallOptions {
    */
   onProgress?: (progress: number, message?: string) => void;
   pollMs?: number;
+  /**
+   * Long calls (node:http) have no timeout by default (0 = none): a CPU synthesis of 5000
+   * characters can take long. > 0 aborts the call after that many ms.
+   */
+  timeoutMs?: number;
 }
 
 /** Worker request bodies (shared contract, incl. the optional jobId/outputBase/provider/format). */
 export type TranscribeCall = WorkerTranscribeRequest;
-export type TtsCall = WorkerTtsRequest;
+/** Piper / cloud body, or Chatterbox with its Sprint 4 fields (one `/tts` call for all). */
+export type TtsCall = WorkerTtsRequest & WorkerChatterboxFields;
 export type RvcCall = WorkerRvcRequest;
 
-const TtsResultSchema = z.object({
-  path: z.string(),
-  durationSec: z.number().nonnegative(),
-  wavPath: z.string().nullish(),
-  sampleRate: z.number().int().nullish(),
-});
 const DenoiseResultSchema = z.object({
   path: z.string(),
   warnings: z.array(z.string()).optional(),
@@ -153,7 +157,10 @@ export interface WorkersClient {
   transcribe(req: TranscribeCall, opts?: WorkerCallOptions): Promise<TranscriptWithFiles>;
   ttsVoices(): Promise<TtsVoiceInfo[]>;
   ttsProviders(): Promise<TtsProviderInfo[]>;
-  tts(req: TtsCall, opts?: WorkerCallOptions): Promise<z.infer<typeof TtsResultSchema>>;
+  /** POST /tts (Piper, cloud, Chatterbox): WorkerTtsResult keeps device/warnings/rtf/model. */
+  tts(req: TtsCall, opts?: WorkerCallOptions): Promise<WorkerTtsResult>;
+  /** POST /tts/cancel: stops a running Chatterbox synthesis of `jobId` (kills the bridge). */
+  ttsCancel(jobId: string): Promise<unknown>;
   rvcModels(): Promise<RvcModel[]>;
   rvcConvert(req: RvcCall, opts?: WorkerCallOptions): Promise<z.infer<typeof RvcResultSchema>>;
   downloadModel(req: ModelDownloadRequest, opts?: WorkerCallOptions): Promise<ModelDownloadResult>;
@@ -175,7 +182,12 @@ export interface WorkersClient {
     req: { path: string; output_base: string },
     opts?: WorkerCallOptions,
   ): Promise<z.infer<typeof DenoiseResultSchema>>;
-  perfRun(): Promise<WorkerTaskAccepted>;
+  /** Sprint 4: `face_source_path` (gate.benchFaceSource) and accepted `licences` for FaceFusion. */
+  perfRun(body?: {
+    face_source_path?: string;
+    face_consent_id?: string;
+    licences?: string[];
+  }): Promise<WorkerTaskAccepted>;
   // ---- Sprint 2 (vision) ----
   visionMatte(req: WorkerMatteRequest): Promise<WorkerTaskAccepted>;
   visionMatteImage(
@@ -250,6 +262,8 @@ export class WorkersError extends Error {
     readonly code: string,
     /** Set when the workers answered PACK_REQUIRED (code is then "PACK_REQUIRED"). */
     readonly packRequired?: PackRequiredBody,
+    /** `details` of a coded workers error (TOOL_FAILED logTail, CONSENT_REQUIRED reason…). */
+    readonly details?: unknown,
   ) {
     super(message);
     this.name = "WorkersError";
@@ -331,14 +345,22 @@ export function createWorkersClient(baseUrl: string): WorkersClient {
     body?: unknown,
     signal?: AbortSignal,
     long = false,
+    timeoutMs = 0,
   ): Promise<T> {
     let res: { status: number; text: string };
-    // Only POST calls are recorded: GET progress polling would flood the job diagnostics.
+    // Only POST calls are recorded: GET progress polling would flood the job diagnostics. Paths
+    // under consent/ (Person photos / voice samples) are never written there (audit fix 22).
     const diag = method !== "GET" ? currentDiagnostics() : undefined;
     const record = diag?.command(
       "http",
-      `${method} ${url(route)}${body === undefined ? "" : ` ${JSON.stringify(body).slice(0, 2000)}`}`,
+      hideConsentPaths(
+        `${method} ${url(route)}${body === undefined ? "" : ` ${JSON.stringify(body).slice(0, 2000)}`}`,
+      ),
     );
+    if (long && timeoutMs > 0) {
+      const timeout = AbortSignal.timeout(timeoutMs);
+      signal = signal ? AbortSignal.any([signal, timeout]) : timeout;
+    }
     try {
       res = long
         ? await rawRequest(url(route), method, body, signal)
@@ -368,9 +390,12 @@ export function createWorkersClient(baseUrl: string): WorkersClient {
     if (res.status < 200 || res.status >= 300) {
       // FastAPI error bodies (detail + traceback when available) are the worker-side "stderr".
       diag?.stderrLine(
-        `[workers] HTTP ${res.status} ${method} ${route}: ${res.text.slice(0, 4000)}`,
+        hideConsentPaths(
+          `[workers] HTTP ${res.status} ${method} ${route}: ${res.text.slice(0, 4000)}`,
+        ),
       );
-      const detail = (json as { detail?: unknown; code?: string } | undefined) ?? {};
+      const detail =
+        (json as { detail?: unknown; code?: string; details?: unknown } | undefined) ?? {};
       const message =
         typeof detail.detail === "string"
           ? detail.detail
@@ -379,7 +404,13 @@ export function createWorkersClient(baseUrl: string): WorkersClient {
             : res.text.slice(0, 300) || `HTTP ${res.status}`;
       const pack = packRequiredFromBody(json);
       if (pack) throw new WorkersError(message, res.status, PACK_REQUIRED, pack);
-      throw new WorkersError(message, res.status, detail.code ?? `WORKERS_HTTP_${res.status}`);
+      throw new WorkersError(
+        message,
+        res.status,
+        detail.code ?? `WORKERS_HTTP_${res.status}`,
+        undefined,
+        detail.details,
+      );
     }
     return schema.parse(stripNulls(json));
   }
@@ -424,8 +455,17 @@ export function createWorkersClient(baseUrl: string): WorkersClient {
     ttsProviders: () => call("GET", WORKER_ROUTES.ttsProviders, z.array(TtsProviderInfoSchema)),
     tts: (req, opts) =>
       withProgress(req.jobId, opts, () =>
-        call("POST", WORKER_ROUTES.tts, TtsResultSchema, req, opts?.signal, true),
+        call(
+          "POST",
+          WORKER_ROUTES.tts,
+          WorkerTtsResultSchema,
+          req,
+          opts?.signal,
+          true,
+          opts?.timeoutMs ?? 0,
+        ),
       ),
+    ttsCancel: (jobId) => call("POST", WORKER_ROUTES.ttsCancel, z.unknown(), { jobId }),
     rvcModels: () =>
       call(
         "GET",
@@ -479,7 +519,7 @@ export function createWorkersClient(baseUrl: string): WorkersClient {
       call("POST", WORKER_AI_ROUTES.analyzeSilences, SilenceCutsSchema, req, opts?.signal, true),
     audioDenoise: (req, opts) =>
       call("POST", WORKER_AI_ROUTES.audioDenoise, DenoiseResultSchema, req, opts?.signal, true),
-    perfRun: () => call("POST", WORKER_AI_ROUTES.perfRun, WorkerTaskAcceptedSchema, {}),
+    perfRun: (body = {}) => call("POST", WORKER_AI_ROUTES.perfRun, WorkerTaskAcceptedSchema, body),
     visionMatte: (req) =>
       call("POST", WORKER_AI_ROUTES.visionMatte, WorkerTaskAcceptedSchema, req, undefined, true),
     visionMatteImage: (req, opts) =>

@@ -28,9 +28,28 @@ def release_ollama() -> list[str]:
     return client.unload_loaded_sync()
 
 
+def gpu_reserve_mb() -> int:
+    """GPU_RESERVE_MB (.env; empty = 800): VRAM left for Windows, the browser and NVENC before a
+    model counts as fitting. Lower it on a 6 GB card to keep Chatterbox / FaceFusion on the GPU
+    (audit fix 14); invalid values fall back to the default."""
+    from .gpu import DEFAULT_RESERVE_MB  # noqa: PLC0415
+    from .toolvenv import tool_settings  # noqa: PLC0415
+
+    try:
+        raw = str(tool_settings().gpu_reserve_mb or "").strip()
+        value = int(float(raw)) if raw else DEFAULT_RESERVE_MB
+    except (ValueError, Exception):  # noqa: BLE001 - unreadable .env: default
+        return DEFAULT_RESERVE_MB
+    return value if 0 <= value <= 8000 else DEFAULT_RESERVE_MB
+
+
 @lru_cache
 def gpu_budget() -> GpuBudget:
-    return GpuBudget(use_cuda=get_settings().use_cuda, external_release=release_ollama)
+    return GpuBudget(
+        use_cuda=get_settings().use_cuda,
+        external_release=release_ollama,
+        reserve_mb=gpu_reserve_mb(),
+    )
 
 
 @lru_cache
@@ -125,3 +144,66 @@ def reset() -> None:
     audio_queue.cache_clear()
     # tests may monkeypatch ollama_client with a plain factory (fake Ollama transport)
     getattr(ollama_client, "cache_clear", lambda: None)()
+
+
+# BEGIN sprint4:M2 — Chatterbox TTS client (one bridge subprocess per workers process)
+import threading as _threading_m2  # noqa: E402
+
+_chatterbox_clients: list = []
+_chatterbox_lock = _threading_m2.Lock()
+
+
+def chatterbox_client():  # type: ignore[no-untyped-def]  # -> tts.chatterbox.ChatterboxClient
+    """The single ChatterboxClient (starts its tool subprocess lazily; GpuBudget "chatterbox")."""
+    from .tts.chatterbox import ChatterboxClient  # noqa: PLC0415
+
+    with _chatterbox_lock:
+        if not _chatterbox_clients:
+            _chatterbox_clients.append(ChatterboxClient(get_settings(), budget=gpu_budget()))
+        return _chatterbox_clients[0]
+
+
+def _stop_chatterbox() -> None:
+    with _chatterbox_lock:
+        clients = list(_chatterbox_clients)
+        _chatterbox_clients.clear()
+    for client in clients:
+        client.stop()
+
+
+_reset_before_sprint4_m2 = reset
+
+
+def reset() -> None:  # noqa: F811 - extends reset() above (terminates the Chatterbox subprocess)
+    _stop_chatterbox()
+    _reset_before_sprint4_m2()
+
+
+# END sprint4:M2
+
+
+# BEGIN sprint4:M1 — face swap engine (FaceFusion subprocess) + its own one-at-a-time queue
+@lru_cache
+def face_engine():  # type: ignore[no-untyped-def]  # -> face.engine.FaceEngine
+    from .face.engine import FaceEngine  # noqa: PLC0415
+
+    return FaceEngine(get_settings(), budget=gpu_budget())
+
+
+@lru_cache
+def face_queue() -> TaskQueue:
+    """Face previews / swaps: one at a time (one GPU, FaceFusion uses ~3.5 GB)."""
+    return TaskQueue("face")
+
+
+_reset_before_sprint4_m1 = reset
+
+
+def reset() -> None:  # noqa: F811 - extends reset() above (face engine + queue)
+    # tests may monkeypatch them with plain factories
+    getattr(face_engine, "cache_clear", lambda: None)()
+    getattr(face_queue, "cache_clear", lambda: None)()
+    _reset_before_sprint4_m1()
+
+
+# END sprint4:M1

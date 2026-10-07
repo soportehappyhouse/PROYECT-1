@@ -37,6 +37,7 @@ import {
 } from "@studio/shared";
 import type { z } from "zod";
 import { HttpError } from "../../lib/errors.js";
+import { applyInheritedAiProvenance } from "../../services/ai-provenance.js";
 import { resolveStoragePath } from "../../services/storage.js";
 import {
   copyIntoMasks,
@@ -228,6 +229,8 @@ export function createVisionMatteHandler(
           probe: true,
         });
       }
+      // Sprint 4: the cut-out of a face-swapped video is still AI content (Revisión para redes).
+      asset = applyInheritedAiProvenance(deps, asset, src, { jobId: job.id });
       let linkedClip: VisionMatteResult["linkedClip"];
       if (req.target) {
         const matte = { assetId: asset.id, ...(req.background && { background: req.background }) };

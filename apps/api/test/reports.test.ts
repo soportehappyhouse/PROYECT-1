@@ -52,11 +52,11 @@ describe("redact", () => {
       "Authorization: Bearer abcdefghijklmnop.qrstuv",
       "GET https://freesound.org/apiv2/search?query=x&token=zzzzzzzz",
       "custom secret value: my-literal-secret",
-      "C:\\Users\\luis\\studio\\storage\\media\\a.mp4",
+      "C:\\Users\\Usuario Demo\\studio\\storage\\media\\a.mp4",
     ].join("\n");
     const out = redactText(text, {
       secrets: ["my-literal-secret"],
-      homeDir: "C:\\Users\\luis",
+      homeDir: "C:\\Users\\Usuario Demo",
     });
     expect(out).not.toContain(FAKE_ANTHROPIC);
     expect(out).not.toContain("sk-proj-1234567890abcdefghijkl");
@@ -64,7 +64,7 @@ describe("redact", () => {
     expect(out).not.toContain("abcdefghijklmnop");
     expect(out).not.toContain("zzzzzzzz");
     expect(out).not.toContain("my-literal-secret");
-    expect(out).not.toContain("luis");
+    expect(out).not.toContain("Usuario Demo");
     expect(out).toContain('"name":"ok"');
     expect(out).toContain('"token":null');
     expect(out).toContain("~\\studio\\storage");
@@ -97,11 +97,15 @@ describe("daily api log", () => {
       redact: { secrets: [FREESOUND_KEY] },
     });
     stream.write(`{"level":30,"msg":"key ${FREESOUND_KEY} ${FAKE_ANTHROPIC}"}\n`);
+    // Enough day-1 data to still be in flight at the rotation: end() must wait for it too.
+    for (let i = 0; i < 64; i++) stream.write(`{"level":30,"msg":"${"x".repeat(4096)}"}\n`);
+    stream.write('{"level":30,"msg":"last of day 1"}\n');
     now = new Date(2026, 9, 5, 0, 0, 1);
     stream.write('{"level":50,"msg":"next day"}\n');
     await stream.end();
     const day1 = readFileSync(path.join(dir, `api-${localDay(new Date(2026, 9, 4))}.log`), "utf8");
     expect(day1).toContain(REDACTED);
+    expect(day1).toContain("last of day 1");
     expect(day1).not.toContain(FREESOUND_KEY);
     expect(day1).not.toContain(FAKE_ANTHROPIC);
     expect(readFileSync(path.join(dir, "api-2026-10-05.log"), "utf8")).toContain("next day");

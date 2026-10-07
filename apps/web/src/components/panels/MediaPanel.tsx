@@ -91,7 +91,12 @@ function MediaItem({ asset, selected }: { asset: MediaAsset; selected: boolean }
   const data: AssetDragData = { type: "asset", asset };
   // Sprint 2: tracks (track.json) and SAM masks are data, not timeline media.
   // Sprint 3b: style analyses (analysis.json) too.
-  const dataOnly = asset.kind === "track" || asset.kind === "mask" || asset.kind === "analysis";
+  // Sprint 4: «Voz propia» samples (voice-ref) are references for voice cloning, not timeline media.
+  const dataOnly =
+    asset.kind === "track" ||
+    asset.kind === "mask" ||
+    asset.kind === "analysis" ||
+    asset.kind === "voice-ref";
   const { setNodeRef, attributes, listeners, isDragging } = useDraggable({
     id: `asset:${asset.id}`,
     data,
@@ -166,9 +171,14 @@ function MediaItem({ asset, selected }: { asset: MediaAsset; selected: boolean }
         <p className="truncate text-[11px] text-muted-foreground">{assetMeta(asset)}</p>
         {dataOnly ? (
           <Badge tone="muted">
-            {asset.kind === "track" ? "Seguimiento (para texto o motion)" : "Máscara (SAM 2)"}
+            {asset.kind === "track"
+              ? "Seguimiento (para texto o motion)"
+              : asset.kind === "voice-ref"
+                ? "Voz propia (muestra para clonar)"
+                : "Máscara (SAM 2)"}
           </Badge>
         ) : null}
+        <AiBadge asset={asset} />
         {motionRender ? (
           <Badge title="Render de motion graphics (overlay con alfa): no necesita proxy">
             Render{asset.hasAlpha ? " · alfa" : ""}
@@ -352,5 +362,30 @@ export function MediaPanel() {
         </p>
       </div>
     </Panel>
+  );
+}
+
+/** Sprint 4: «IA: cara» / «IA: voz» (Revisión para redes detects them from the provenance). */
+export function aiBadgeLabel(
+  asset: Pick<MediaAsset, "aiAltered" | "aiProvenance">,
+): string | undefined {
+  const kind = asset.aiProvenance?.kind;
+  if (kind === "face") return "IA: cara";
+  if (kind === "voice-cloned") return "IA: voz clonada";
+  if (kind === "voice-synthetic") return "IA: voz";
+  return asset.aiAltered ? "IA" : undefined;
+}
+
+function AiBadge({ asset }: { asset: MediaAsset }) {
+  const label = aiBadgeLabel(asset);
+  if (!label) return null;
+  return (
+    <Badge
+      tone="warning"
+      data-testid="media-ai-badge"
+      title={`Contenido alterado con IA${asset.aiProvenance?.tool ? ` (${asset.aiProvenance.tool})` : ""}: se marca solo en Revisión para redes`}
+    >
+      {label}
+    </Badge>
   );
 }

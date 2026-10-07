@@ -3,6 +3,10 @@ name: CI
 on:
   push:
     branches: [main, "claude/**"]
+    # docs-only pushes do not spend CI minutes (pull requests are always checked in full)
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
   pull_request:
 
 concurrency:
@@ -22,7 +26,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # Windows runners (2x minutes) only on pull requests and pushes to main; Ubuntu always.
+        os: ${{ (github.event_name == 'pull_request' || github.ref == 'refs/heads/main') && fromJSON('["ubuntu-latest", "windows-latest"]') || fromJSON('["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -55,12 +60,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # Windows runners (2x minutes) only on pull requests and pushes to main; Ubuntu always.
+        os: ${{ (github.event_name == 'pull_request' || github.ref == 'refs/heads/main') && fromJSON('["ubuntu-latest", "windows-latest"]') || fromJSON('["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
         shell: bash
         working-directory: apps/workers
+    env:
+      # Sprint 4 (rule 13): CI never creates the isolated tool venvs (tools/<id>/.venv) nor
+      # downloads models; the `tool_venv` pytest marker tests stay skipped.
+      STUDIO_TOOL_VENV_TESTS: "0"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -81,9 +91,14 @@ jobs:
       - run: python -m pip install -r requirements-dev.txt
       - run: python -m ruff check .
       - run: python -m ruff format --check .
+      # Sprint 4: the launcher and the bridge scripts of the isolated tools (tools/*.py, run inside
+      # tools/<id>/.venv) follow the same rules (FaceFusion's app/ is git-ignored: ruff skips it).
+      - run: python -m ruff check --config pyproject.toml ../../tools
+      - run: python -m ruff format --config pyproject.toml --check ../../tools
       - run: python -m pytest -q
 
   windows-smoke:
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     name: Windows smoke (setup.ps1 + start.ps1)
     runs-on: windows-latest
     timeout-minutes: 60
@@ -119,6 +134,18 @@ jobs:
           if ($second.executed -ne 0) { Write-Host 'FAIL: the re-run executed steps that were already done'; exit 1 }
           if ($second.omitted -lt 5) { Write-Host 'FAIL: too few steps recognized as installed'; exit 1 }
           if ($second.seconds -ge $first.seconds) { Write-Host 'FAIL: the re-run was not faster'; exit 1 }
+          # Sprint 4: the isolated tools (FaceFusion / Chatterbox) are on demand: no venv, no download.
+          foreach ($run in @($first, $second)) {
+            $tools = @($run.steps | Where-Object { $_.component -like 'Herramientas aisladas*' })
+            if ($tools.Count -lt 1) { Write-Host 'FAIL: no "Herramientas aisladas" step'; exit 1 }
+            $ran = @($tools | Where-Object { $_.state -ne 'skip' })
+            if ($ran.Count -gt 0) { Write-Host "FAIL: isolated tools ran in CI: $($ran.component -join ', ')"; exit 1 }
+            $py312 = @($run.steps | Where-Object { $_.component -eq 'Python 3.12 (herramientas)' })
+            if ($py312.Count -ne 1 -or $py312[0].state -eq 'fail') { Write-Host 'FAIL: Python 3.12 step missing or failed'; exit 1 }
+          }
+          foreach ($t in @('facefusion', 'chatterbox')) {
+            if (Test-Path "tools\$t\.venv") { Write-Host "FAIL: tools\$t\.venv exists after setup"; exit 1 }
+          }
       - name: Start services and poll health (3 min)
         run: |
           Start-Process powershell -WindowStyle Hidden -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts\windows\start.ps1', '-SingleConsole', '-NoBrowser')

@@ -11,18 +11,20 @@ import { burnSubtitlesFilter } from "../src/services/ffmpeg/builders.js";
 
 describe("filtergraph escaping", () => {
   it("converts Windows separators to forward slashes", () => {
-    expect(toForwardSlashes("C:\\Users\\yo\\jobs\\1\\job.srt")).toBe("C:/Users/yo/jobs/1/job.srt");
+    expect(toForwardSlashes("C:\\Users\\Usuario\\jobs\\1\\job.srt")).toBe(
+      "C:/Users/Usuario/jobs/1/job.srt",
+    );
   });
 
   it("escapes the drive colon of a Windows path (fuentes-editor §4.9)", () => {
-    expect(escapeFilterPath("C:\\Users\\yo\\jobs\\1\\job.srt")).toBe(
-      "'C\\:/Users/yo/jobs/1/job.srt'",
+    expect(escapeFilterPath("C:\\Users\\Usuario\\jobs\\1\\job.srt")).toBe(
+      "'C\\:/Users/Usuario/jobs/1/job.srt'",
     );
   });
 
   it("handles single quotes and spaces in paths", () => {
-    expect(escapeFilterPath("C:\\Users\\Ana María\\it's.srt")).toBe(
-      "'C\\:/Users/Ana María/it\\'\\''s.srt'",
+    expect(escapeFilterPath("C:\\Users\\Usuario Demó\\it's.srt")).toBe(
+      "'C\\:/Users/Usuario Demó/it\\'\\''s.srt'",
     );
   });
 

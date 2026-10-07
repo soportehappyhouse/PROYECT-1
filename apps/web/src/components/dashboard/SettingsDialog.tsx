@@ -23,6 +23,8 @@ import {
   useSettingsStore,
   type SettingsTab,
 } from "@/stores/settings-store";
+import { PersonsTab } from "@/components/consent/PersonsTab";
+import { FaceDialogs } from "@/components/face/FaceDialogs";
 import { AiPacksTab } from "./AiPacksTab";
 import { AssistantTab } from "./AssistantTab";
 
@@ -234,35 +236,43 @@ export function SettingsDialog() {
     if (open && requestedTab) setTab(requestedTab);
   }, [open, requestedTab]);
   return (
-    <Dialog
-      open={open}
-      onClose={() => useSettingsStore.getState().setSettingsOpen(false)}
-      title="Ajustes"
-    >
-      <div className="flex flex-col gap-4">
-        <Tabs<Tab>
-          value={tab}
-          onChange={setTab}
-          items={[
-            { value: "appearance", label: "Apariencia" },
-            { value: "shortcuts", label: "Atajos" },
-            { value: "layouts", label: "Layouts" },
-            { value: "ai-packs", label: "Paquetes de IA" },
-            { value: "assistant", label: "Asistente local" },
-          ]}
-        />
-        {tab === "appearance" ? (
-          <AppearanceTab />
-        ) : tab === "shortcuts" ? (
-          <ShortcutsTab />
-        ) : tab === "layouts" ? (
-          <LayoutsTab />
-        ) : tab === "assistant" ? (
-          <AssistantTab />
-        ) : (
-          <AiPacksTab />
-        )}
-      </div>
-    </Dialog>
+    <>
+      <Dialog
+        open={open}
+        onClose={() => useSettingsStore.getState().setSettingsOpen(false)}
+        title="Ajustes"
+      >
+        <div className="flex flex-col gap-4">
+          <Tabs<Tab>
+            value={tab}
+            onChange={setTab}
+            items={[
+              { value: "appearance", label: "Apariencia" },
+              { value: "shortcuts", label: "Atajos" },
+              { value: "layouts", label: "Layouts" },
+              { value: "ai-packs", label: "Paquetes de IA" },
+              { value: "assistant", label: "Asistente local" },
+              { value: "persons", label: "Personas" },
+            ]}
+          />
+          {tab === "appearance" ? (
+            <AppearanceTab />
+          ) : tab === "shortcuts" ? (
+            <ShortcutsTab />
+          ) : tab === "layouts" ? (
+            <LayoutsTab />
+          ) : tab === "assistant" ? (
+            <AssistantTab />
+          ) : tab === "persons" ? (
+            <PersonsTab />
+          ) : (
+            <AiPacksTab />
+          )}
+        </div>
+      </Dialog>
+      {/* Sprint 4 M1: licence dialog + «Cambiar cara» wizard (global; after Ajustes so the licence
+          dialog opened from Paquetes de IA shows on top). */}
+      <FaceDialogs />
+    </>
   );
 }

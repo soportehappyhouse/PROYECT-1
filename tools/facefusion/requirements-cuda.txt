@@ -1,0 +1,14 @@
+# FaceFusion 3.9.1 (tools/facefusion/.venv, Python 3.12) — CUDA 12 profile.
+# = requirements.txt of the 3.9.1 tag WITHOUT its onnxruntime line, plus FaceFusion's own `cuda@12`
+# pin (installer.py ONNXRUNTIME_SET). Installed with `<venv python> -m pip install -r`, never with
+# FaceFusion's install.py (it uses the pip on PATH). Every onnxruntime* is uninstalled first: the
+# CPU and GPU builds share the `onnxruntime` folder and must never live in the same venv.
+# Source: docs/trabajo/fuentes-sprint4.md §1.1-1.2 [V].
+gradio==5.50.0
+gradio-rangeslider==0.0.8
+numpy==2.4.6
+onnx==1.23.1
+opencv-python-headless==5.0.0.93
+tqdm==4.70.1
+scipy==1.18.1
+onnxruntime-gpu[cuda,cudnn]==1.24.4

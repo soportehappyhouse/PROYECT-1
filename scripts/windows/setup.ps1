@@ -4,8 +4,9 @@
   Studio - instalacion en Windows 10/11 (x64). Incremental: reconoce lo ya instalado/descargado y
   solo hace lo que falta. Desde cero tarda lo que tarde (descargas grandes); repetirlo es rapido.
 .DESCRIPTION
-  1. Prerrequisitos con winget: Git, Node.js 22, Python 3.11, FFmpeg (Gyan, build full), VC++ 2015+.
-     Si ya estan y la version alcanza: "ya instalado, se omite".
+  1. Prerrequisitos con winget: Git, Node.js 22, Python 3.11, Python 3.12 (solo para la herramienta
+     aislada de cambio de cara), FFmpeg (Gyan, build full), VC++ 2015+. Si ya estan y la version
+     alcanza: "ya instalado, se omite".
   2. .env (copia de .env.example si falta; nunca lo sobrescribe) y carpetas storage\ y models\.
   3. pnpm 12 + pnpm install (se omite si pnpm-lock.yaml y los package.json no cambiaron)
      + navegador de Remotion (se omite si ya esta).
@@ -18,10 +19,15 @@
      con -Full o si ya existe (se actualiza si cambio vision_gpl\requirements.txt). Sin -Full lo
      crean los workers al descargar el paquete "matting" desde Ajustes (python -m venv + pip).
      Reutiliza el torch del .venv principal (no baja otra copia de ~2.5 GB).
+  5c. Herramientas aisladas (sprint 4): tools\facefusion\.venv (Python 3.12, cambio de cara) y
+     tools\chatterbox\.venv (Python 3.11, voz avanzada). Se crean al descargar su paquete desde
+     Ajustes; aca solo se actualizan si ya existen (cambio su requirements/lock) o con -Full
+     (FaceFusion, ademas, solo si la licencia del cambio de cara ya se acepto en Studio).
   6. Paquetes de IA (models\packs.json): por defecto solo "core" (Whisper base + voz Daniela);
      con -Full todos en secuencia (whisper-turbo, voces-es, rvc-base, scenes, voz-limpia, matting,
-     matting-image, sam2, reframe, agent-llm, stems, ocr, vision-llm, matting-hq; los de Ollama
-     se omiten si Ollama no corre). Lo que ya esta se omite; el resto se baja bajo demanda desde
+     matting-image, sam2, reframe, agent-llm, stems, ocr, vision-llm, matting-hq, tts-chatterbox;
+     los de Ollama se omiten si Ollama no corre; faceswap/faceswap-extra solo con la licencia
+     aceptada en pantalla). Lo que ya esta se omite; el resto se baja bajo demanda desde
      Ajustes > Paquetes de IA.
   7. pnpm build (se omite si el build coincide con el hash del codigo y de .env).
   Al final: tabla con segundos por paso, "N pasos omitidos, M ejecutados" y el tiempo total
@@ -37,9 +43,11 @@
   Descarga TODOS los paquetes de IA en secuencia (~4,1 GB: Whisper large-v3-turbo, 7 voces Piper,
   RVC base, PySceneDetect, DeepFilterNet, RVM + .venv-gpl, BiRefNet-lite, SAM 2.1, YuNet; sprint 3b:
   Demucs htdemucs (stems), RapidOCR (ocr), RVM resnet50 (matting-hq); mas los modelos de Ollama
-  qwen3:8b (agent-llm) y qwen2.5vl:3b (vision-llm), ~8 GB, si Ollama esta instalado). Sin
-  -Full solo se instala "core" y el resto se pide al usar cada funcion. Se puede repetir: lo ya
-  descargado se omite y lo parcial se reanuda.
+  qwen3:8b (agent-llm) y qwen2.5vl:3b (vision-llm), ~8 GB, si Ollama esta instalado; sprint 4:
+  + ~6,2 GB de Chatterbox (tts-chatterbox, con su entorno tools\chatterbox\.venv) y, SOLO si la
+  licencia del cambio de cara ya se acepto en Studio, + ~4 GB de cambio de cara (faceswap +
+  faceswap-extra, entorno tools\facefusion\.venv)). Sin -Full solo se instala "core" y el resto
+  se pide al usar cada funcion. Se puede repetir: lo ya descargado se omite y lo parcial se reanuda.
 .PARAMETER WithCuda
   Instala torch CUDA 12.8 (cu128) y pone USE_CUDA=true en .env. Requiere GPU NVIDIA + driver 570+.
   No hace falta: si se detecta una GPU NVIDIA (nvidia-smi o el nombre del adaptador de video) CUDA
@@ -53,7 +61,8 @@
 .PARAMETER PiperVoice
   Voz Piper a descargar (default: PIPER_DEFAULT_VOICE de .env, es_AR-daniela-high).
 .PARAMETER SkipWinget
-  No usa winget: asume Git, Node.js 22, Python 3.11 y FFmpeg ya en el PATH (solo verifica).
+  No usa winget: asume Git, Node.js 22, Python 3.11 y FFmpeg ya en el PATH (solo verifica; Python
+  3.12, que solo usa el cambio de cara, se informa si falta).
 .PARAMETER SkipRvc
   Sin dependencias de RVC en el .venv (torch / infer-rvc-python; instalacion mas liviana, RVC queda
   deshabilitado). Se conserva en los re-run; -SkipRvc:$false instala RVC. Los modelos RVC base
@@ -213,6 +222,27 @@ function Install-WingetPackage {
     return ($code -eq 0 -or $code -eq -1978335189)
 }
 
+function Save-ToolRuntime([string]$Key, [string]$Path, [string]$Version) {
+    # tools\runtimes.json: the interpreter the workers use for tools\<id>\.venv (toolvenv.py reads
+    # it before trying py -3.12). Written only when it changes (git-ignored, local to this PC).
+    $entry = [ordered]@{ path = $Path; version = (($Version -replace '^Python\s+', '').Trim()) }
+    $data = [ordered]@{}
+    if (Test-Path $script:ToolRuntimesFile) {
+        try {
+            $old = Get-Content -Raw -Encoding UTF8 $script:ToolRuntimesFile | ConvertFrom-Json
+            foreach ($prop in $old.PSObject.Properties) { $data[$prop.Name] = $prop.Value }
+            $prev = $old.$Key
+            if ($prev -and $prev.path -eq $entry.path -and $prev.version -eq $entry.version) { return }
+        } catch { }
+    }
+    $entry['recorded'] = (Get-Date).ToString('s')
+    $data[$Key] = $entry
+    try {
+        if (-not (Test-Path $script:ToolsDir)) { New-Item -ItemType Directory -Force -Path $script:ToolsDir | Out-Null }
+        [IO.File]::WriteAllText($script:ToolRuntimesFile, ($data | ConvertTo-Json -Depth 4), (New-Object System.Text.UTF8Encoding $false))
+    } catch { Write-Careful "No se pudo escribir tools\runtimes.json: $($_.Exception.Message)" }
+}
+
 Write-Step 'Prerrequisitos del sistema (winget)'
 Update-SessionPath
 
@@ -281,6 +311,30 @@ if ($py311) {
     if ($pyAction -eq 'omitido') { Write-Omit "$pyVer ($py311)" }
     Add-Result 'Python 3.11' ok "$pyVer  $py311" -Action $pyAction -Seconds (Stop-StepClock)
 } else { Add-Result 'Python 3.11' fail 'no encontrado (winget install -e --id Python.Python.3.11)' -Seconds (Stop-StepClock) }
+
+# --- Python 3.12 (sprint 4: only tools\facefusion\.venv uses it; FaceFusion 3.9.1 needs >= 3.12).
+# Same mechanism as 3.11 (winget per user, pinned version, skipped when present). A missing 3.12 is a
+# warning, not an error: everything else works; the face swap pack asks for it (TOOL_MISSING python).
+Start-StepClock
+$py312Action = 'omitido'
+$py312 = Find-Python312
+if (-not $py312 -and -not $SkipWinget) {
+    $py312Action = ''
+    Write-Info 'Instalando Python 3.12 para las herramientas aisladas (cambio de cara)...'
+    if (Install-WingetPackage 'Python.Python.3.12' @('--scope', 'user', '--version', '3.12.10')) { $py312Action = 'ejecutado' }
+    elseif (Install-WingetPackage 'Python.Python.3.12' @('--scope', 'user')) { $py312Action = 'ejecutado' }
+    $py312 = Find-Python312
+}
+if ($py312) {
+    $py312Ver = Get-CmdOutput $py312 @('--version')
+    if ($py312Action -eq 'omitido') { Write-Omit "$py312Ver ($py312)" }
+    Save-ToolRuntime 'python312' $py312 $py312Ver
+    Add-Result 'Python 3.12 (herramientas)' ok "$py312Ver  $py312" -Action $py312Action -Seconds (Stop-StepClock)
+} elseif ($SkipWinget) {
+    Add-Result 'Python 3.12 (herramientas)' warn 'no encontrado (-SkipWinget); solo lo necesita el cambio de cara: winget install -e --id Python.Python.3.12' -Seconds (Stop-StepClock)
+} else {
+    Add-Result 'Python 3.12 (herramientas)' warn 'no se pudo instalar; solo lo necesita el cambio de cara (winget install -e --id Python.Python.3.12)' -Seconds (Stop-StepClock)
+}
 
 # --- FFmpeg (Gyan full build: rubberband, libass, nvenc/qsv/amf)
 Start-StepClock
@@ -635,6 +689,70 @@ if (-not $venvOk) {
     } catch {
         Add-Result 'Entorno GPL (.venv-gpl)' fail ("{0} - reintenta setup.ps1 o descarga el paquete matting desde Ajustes" -f $_.Exception.Message) -Seconds (Stop-StepClock)
     }
+}
+
+# ============================================================================ 5c. isolated tools
+# Sprint 4 (decision 1 of docs/trabajo/sprint4-contratos.md): FaceFusion (tools\facefusion\.venv,
+# Python 3.12) and Chatterbox (tools\chatterbox\.venv, torch 2.6) are created when their pack is
+# downloaded from the app. Here a venv is only brought up to date when it already exists (changed
+# requirements/lock -> recreated) or with -Full (FaceFusion only with the licence already accepted
+# on screen: nothing of the face swap on disk without it). Same code: models_cli --tool-venv.
+Write-Step 'Herramientas aisladas (tools\facefusion, tools\chatterbox)'
+if (-not $venvOk) {
+    Add-Result 'Herramientas aisladas' skip 'requiere el .venv de workers'
+} else {
+    $faceLicence = $false
+    if ($Full) {
+        $ErrorActionPreference = 'Continue'
+        Push-Location $WorkersDir
+        try { $licOut = @(& $VenvPython -m studio_workers.models_cli --licences --json 2>$null) } finally { Pop-Location }
+        $ErrorActionPreference = 'Stop'
+        $licJson = $licOut | Where-Object { "$_".StartsWith('{') } | Select-Object -Last 1
+        if ($licJson) { try { $faceLicence = [bool](($licJson | ConvertFrom-Json).licences.faceswap.accepted) } catch { } }
+    }
+    $anyTool = $false
+    foreach ($tool in @('chatterbox', 'facefusion')) {
+        $label = "Herramientas aisladas: $tool"
+        $exists = Test-Path (Get-ToolVenvPython $tool)
+        $wanted = $exists -or ($Full -and ($tool -ne 'facefusion' -or $faceLicence))
+        if (-not $wanted) {
+            $why = 'se instala al descargar el paquete desde Ajustes'
+            if ($Full -and $tool -eq 'facefusion') { $why = 'requiere aceptar la licencia del cambio de cara en Studio (Ajustes > Paquetes de IA)' }
+            Add-Result $label skip $why
+            continue
+        }
+        $anyTool = $true
+        Start-StepClock
+        $toolReport = Join-Path (Get-RunDir) "tool-venv-$tool.json"
+        $toolArgs = @('-m', 'studio_workers.models_cli', '--tool-venv', $tool, 'ensure', '--report', $toolReport)
+        if ($Force) { $toolArgs += '--force' }
+        try {
+            Invoke-Native $VenvPython $toolArgs $WorkersDir
+            $tv = Get-Content -Raw -Encoding UTF8 $toolReport | ConvertFrom-Json
+            $toolAction = 'ejecutado'
+            if ($tv.action -eq 'omitido') { $toolAction = 'omitido'; Write-Omit "tools\$tool\.venv (receta sin cambios)" }
+            $detail = "{0} - tools\{1}\.venv" -f $tv.state, $tool
+            if ($tv.variant) { $detail = "$detail ($($tv.variant))" }
+            Add-Result $label ok $detail -Action $toolAction -Seconds (Stop-StepClock)
+        } catch {
+            $msg = $_.Exception.Message
+            $tvAction = ''
+            if (Test-Path $toolReport) {
+                try {
+                    $tvErr = Get-Content -Raw -Encoding UTF8 $toolReport | ConvertFrom-Json
+                    if ($tvErr.error) { $msg = $tvErr.error }
+                    if ($tvErr.action) { $tvAction = [string]$tvErr.action }
+                } catch { }
+            }
+            if ($tvAction -eq 'licence_required') {
+                # models_cli exit 3: the face swap licence is not accepted (or was revoked)
+                Add-Result $label skip $msg -Seconds (Stop-StepClock)
+            } else {
+                Add-Result $label fail ("{0} - reintenta setup.ps1 -Update o volve a descargar el paquete desde Ajustes" -f $msg) -Seconds (Stop-StepClock)
+            }
+        }
+    }
+    if (-not $anyTool) { Write-Info 'Ningun entorno aislado instalado todavia: se crean al descargar cada paquete desde Ajustes.' }
 }
 
 # ============================================================================ 6. AI packs

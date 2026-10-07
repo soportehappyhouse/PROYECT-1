@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { PackRequiredBodySchema } from "./ai.js";
+import { IdSchema } from "./common.js";
+import { FaceSwapperModelSchema } from "./face.js";
 import { REMOTION_TEMPLATE_IDS } from "./motion.js";
 import { CAPTION_STYLE_IDS } from "./subtitles.js";
 
@@ -550,6 +552,58 @@ export const ReportBugOpSchema = z
   .strict()
   .describe("Reportar error.");
 
+/**
+ * Sprint 4 (docs/trabajo/sprint4-contratos.md, M1): face swap with a registered Person (consent
+ * checked by the api). Always confirmed (ALWAYS_CONFIRM_OPS): consent + nobody is a minor.
+ */
+export const FaceSwapOpSchema = z
+  .object({
+    op: op(
+      "face_swap",
+      "Cambiar la cara de un clip por la de una Persona registrada con consentimiento.",
+    ),
+    clip: ClipRefSchema.describe("Clip de video cuya cara se cambia."),
+    person: z
+      .union([
+        z.object({ id: IdSchema.describe("Id exacto de la Persona.") }).strict(),
+        z
+          .object({
+            name: z.string().min(1).describe("Nombre de la Persona, como lo dijo el usuario."),
+          })
+          .strict(),
+      ])
+      .describe(
+        "Persona registrada en Ajustes → Personas (con consentimiento de rostro vigente) cuya " +
+          "cara se pone: {id} o {name}.",
+      ),
+    t: TimeSchema.optional().describe(
+      "Momento del fotograma donde se elige la cara a cambiar (junto con face_index); omitir = " +
+        "la única cara del clip.",
+    ),
+    face_index: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe("Cara a cambiar en ese fotograma, de izquierda a derecha (0 = la primera)."),
+    model: FaceSwapperModelSchema.optional().describe(
+      "Modelo: hyperswap_1a_256 (recomendado), ghost_1_256 o inswapper_128_fp16 (más rápido).",
+    ),
+    enhancer: z
+      .boolean()
+      .optional()
+      .describe("Mejorar la nitidez de la cara resultante (por defecto sí)."),
+    strength: z
+      .number()
+      .min(0.1)
+      .max(1)
+      .optional()
+      .describe("Intensidad del cambio: 1 = completo, 0.5 = mitad mezclada con el original."),
+    ...common,
+  })
+  .strict()
+  .describe("Cambiar cara.");
+
 export const EditOpSchema = z
   .discriminatedUnion("op", [
     CutSilencesOpSchema,
@@ -574,6 +628,7 @@ export const EditOpSchema = z
     SetPublishOpSchema,
     ExportOpSchema,
     ReportBugOpSchema,
+    FaceSwapOpSchema,
   ])
   .describe("Una operación de edición; el campo `op` indica cuál.");
 export type EditOp = z.infer<typeof EditOpSchema>;
@@ -586,9 +641,9 @@ export const EDIT_OP_NAMES = EditOpSchema.options.map((o) => o.shape.op.value) a
 /**
  * Ops that always need confirmation whatever `confirm` says (destructive: the web leaves them
  * unchecked and asks for a separate «Confirmar borrado/exportación» click; the api needs their
- * indexes in `confirmedIndexes`).
+ * indexes in `confirmedIndexes`). Sprint 4: face_swap (consent + nobody in the video is a minor).
  */
-export const ALWAYS_CONFIRM_OPS: readonly EditOpName[] = ["delete_clip", "export"];
+export const ALWAYS_CONFIRM_OPS: readonly EditOpName[] = ["delete_clip", "export", "face_swap"];
 
 export const EDIT_PLAN_MAX_OPS = 20;
 

@@ -116,10 +116,20 @@ describe.skipIf(!hasFfmpeg)(
       return res.json<MediaAsset>();
     };
     const jobDone = async (id: string): Promise<Job> => {
-      await waitFor(
-        () => ["succeeded", "failed", "canceled"].includes(app.ctx.jobs.get(id)!.status),
-        240_000,
-      );
+      try {
+        await waitFor(
+          () => ["succeeded", "failed", "canceled"].includes(app.ctx.jobs.get(id)!.status),
+          240_000,
+        );
+      } catch (err) {
+        // A stuck job (seen once on windows-latest) must say which step and what ffmpeg printed.
+        const stuck = app.ctx.jobs.get(id)!;
+        throw new Error(
+          `${stuck.type} still ${stuck.status} after 240 s (progress ${stuck.progress}, ` +
+            `«${stuck.message ?? ""}»): ` +
+            `${String(err)}\n${app.ctx.jobs.logTail(id).join("\n")}`,
+        );
+      }
       const job = app.ctx.jobs.get(id)!;
       if (job.status === "failed")
         throw new Error(`${job.type} failed: ${job.error}\n${app.ctx.jobs.logTail(id).join("\n")}`);

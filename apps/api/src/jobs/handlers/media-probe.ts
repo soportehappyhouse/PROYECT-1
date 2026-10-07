@@ -1,6 +1,8 @@
 import { writeFile } from "node:fs/promises";
 import {
   MediaJobPayloadSchema,
+  parseAiContentComment,
+  reimportedAiProvenance,
   type FileJobResult,
   type MediaAsset,
   type MediaJobPayload,
@@ -9,6 +11,29 @@ import type { AppContext } from "../../context.js";
 import { derivativePaths, EXT_MIME } from "../../services/media-files.js";
 import type { JobHandler } from "../types.js";
 import { absPath, checkAborted, optionalStep, requireAsset } from "./util.js";
+
+/**
+ * Audit fix 10: a file exported by Studio with AI content carries «contenido alterado con IA: …» in
+ * its `comment` tag. Re-imported, it keeps being AI content (minimal provenance), so the next
+ * export writes the comment again and «Revisión para redes» keeps the boxes checked.
+ */
+export function aiFromComment(
+  asset: Pick<MediaAsset, "aiAltered" | "aiProvenance">,
+  raw: unknown,
+): Partial<Pick<MediaAsset, "aiAltered" | "aiProvenance">> {
+  if (asset.aiProvenance) return {};
+  const format = (raw as { format?: { tags?: Record<string, unknown> } } | undefined)?.format;
+  const streams = (raw as { streams?: { tags?: Record<string, unknown> }[] } | undefined)?.streams;
+  const comments = [format?.tags, ...(streams ?? []).map((s) => s.tags)]
+    .flatMap((tags) => Object.entries(tags ?? {}))
+    .filter(([k, v]) => /^comment$/i.test(k) && typeof v === "string")
+    .map(([, v]) => v as string);
+  for (const c of comments) {
+    const kinds = parseAiContentComment(c);
+    if (kinds) return reimportedAiProvenance(kinds);
+  }
+  return {};
+}
 
 /**
  * media.probe: ffprobe -> metadata on the MediaAsset (+ raw JSON in media.probe), then thumbnail,
@@ -45,6 +70,7 @@ export function createMediaProbeHandler(
         ...(meta.videoCodec && { videoCodec: meta.videoCodec }),
         ...(meta.audioCodec && { audioCodec: meta.audioCodec }),
         ...(!asset.mimeType && EXT_MIME[ext] && { mimeType: EXT_MIME[ext] }),
+        ...aiFromComment(asset, raw),
       };
       let current = app.repos.media.update(assetId, patch, raw);
       const paths = derivativePaths(assetId);

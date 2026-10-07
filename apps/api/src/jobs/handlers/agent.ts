@@ -36,6 +36,7 @@ import { buildReport } from "../../reports/builder.js";
 import { collectEnvironment } from "../../reports/environment.js";
 import { resolveOp, canvasSize, type ResolveContext } from "../../services/agent/resolve.js";
 import { projectContentHash } from "../../services/agent/project-hash.js";
+import { createConsentGate } from "../../services/persons/gate.js";
 import { clipDuration, clipEnd, round3 } from "../../services/agent/summary.js";
 import { exportBlockersMessage, findExportBlockers } from "../../services/ffmpeg/timeline.js";
 import { resolveStoragePath } from "../../services/storage.js";
@@ -308,11 +309,15 @@ export function createAgentApplyHandler(
     }
   }
 
+  const persons = createConsentGate(app.db, app.config.storageDir);
   const resolveCtx = (project: Project): ResolveContext => ({
     project,
     media: (id) => repos.media.get(id),
     presets: repos.presets.list(),
     assets: repos.media.list({ limit: 500 }),
+    // Sprint 4 M1: face_swap re-resolves the Person (consent still valid?) right before running.
+    persons: persons.summaries(),
+    faceswapLicence: persons.isLicenceAccepted("faceswap"),
   });
 
   /** Clips an op without `clip` works on (computed again on the current project). */
@@ -630,7 +635,12 @@ export function createAgentApplyHandler(
       case "tts": {
         const res = (await env.subJob(
           "voice.tts",
-          { text: op.text, voice: op.voice ?? o.defaultVoice ?? DEFAULT_VOICE, provider: "piper" },
+          {
+            text: op.text,
+            voice: op.voice ?? o.defaultVoice ?? DEFAULT_VOICE,
+            // Sprint 4: «chatterbox:*» voices (M2) go to Chatterbox; everything else stays Piper.
+            provider: op.voice?.startsWith("chatterbox:") ? "chatterbox" : "piper",
+          },
           "Texto a voz",
         )) as { assetId: string; durationSec?: number };
         const dur = res.durationSec ?? repos.media.get(res.assetId)?.durationSec;
@@ -831,6 +841,40 @@ export function createAgentApplyHandler(
           .catch(() => undefined);
         if (md?.markdown_es) await appendToReport(app.config.storageDir, report.id, md.markdown_es);
         return { reportId: report.id, zipPath: report.zipPath };
+      }
+      case "face_swap": {
+        // Sprint 4 M1: sub-job face.swap on the clip (its own preflight: licence, pack, consent of
+        // the Person, venv, limits). Only reached with the op index in confirmedIndexes.
+        const { clip, track } = locate(env.load(), op.clip.id!);
+        assertUnlocked(track);
+        if (!clip.assetId) throw new OpError("El clip no tiene video");
+        if (!("id" in op.person)) throw new OpError("No se resolvió la Persona");
+        const speed = clip.speed || 1;
+        const at = typeof op.t === "number" ? op.t : clip.start;
+        const selector =
+          op.t !== undefined || op.face_index !== undefined
+            ? {
+                mode: "reference" as const,
+                t: round3(Math.max(clip.in, clip.in + (at - clip.start) * speed)),
+                faceIndex: op.face_index ?? 0,
+              }
+            : { mode: "one" as const };
+        return env.subJob(
+          "face.swap",
+          {
+            personId: op.person.id,
+            assetId: clip.assetId,
+            selector,
+            options: {
+              ...(op.model && { model: op.model }),
+              ...(op.enhancer !== undefined && { enhancer: op.enhancer }),
+              ...(op.strength !== undefined && { strength: op.strength }),
+            },
+            target: { projectId: env.projectId, clipId: clip.id },
+            confirmed: true,
+          },
+          "Cambiar cara",
+        );
       }
     }
   }

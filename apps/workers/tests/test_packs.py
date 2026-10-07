@@ -1,5 +1,6 @@
 """Model packs: registry/contract, installed/partial detection, sequential tasks, CLI, 409."""
 
+import dataclasses
 import hashlib
 import json
 from pathlib import Path
@@ -9,6 +10,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from studio_workers import models_cli, packs
+from studio_workers.errors import CodedError
+from studio_workers.main import create_app
 from studio_workers.models_manifest import Manifest
 from studio_workers.routers import packs as packs_router
 from studio_workers.tts.piper_catalog import CATALOG
@@ -24,6 +27,8 @@ PACK_KEYS = {
     "required_by",
     "license",
     "group",
+    "licence_gate",  # sprint 4
+    "tool",  # sprint 4
 }
 
 
@@ -44,7 +49,12 @@ def test_registry_matches_contract() -> None:
         "ocr",  # sprint 3b: perfil de estilo (RapidOCR)
         "vision-llm",  # sprint 3b: perfil de estilo (Ollama qwen2.5vl:3b)
         "matting-hq",  # sprint 3b: recorte de calidad alta (RVM resnet50)
+        "tts-chatterbox",  # sprint 4 (M2 block): Chatterbox + tools/chatterbox/.venv
+        "faceswap",  # sprint 4 (M1 block): FaceFusion + tools/facefusion/.venv, licence-gated
+        "faceswap-extra",  # sprint 4 (M1 block): extra swapper models, licence-gated
     ]
+    gated = {p.id: p.licence_gate for p in packs.PACKS.values() if p.licence_gate}
+    assert gated == {"faceswap": "faceswap", "faceswap-extra": "faceswap"}  # sprint 4 (M3 gate)
     assert packs.FEATURE_PACKS["analyze.scenes"] == "scenes"
     assert packs.FEATURE_PACKS["audio.denoise"] == "voz-limpia"
     voices = [i for i in packs.PACKS["voces-es"].build_items(Path("/m"), None)]
@@ -99,6 +109,40 @@ def test_pack_required_payload() -> None:
     payload = err.payload()
     assert payload["error"] == "PACK_REQUIRED" and payload["packId"] == "scenes"
     assert payload["size_bytes"] > 0 and payload["name_es"]
+
+
+def test_pack_status_sprint4_keys(dirs) -> None:
+    _, models = dirs
+    row = packs.pack_status(packs.PACKS["core"], models)
+    assert row["licence_gate"] is None and row["tool"] is None
+    gated = dataclasses.replace(
+        packs.PACKS["scenes"],
+        licence_gate="faceswap",
+        tool_status=lambda: {"id": "facefusion", "state": "missing"},
+    )
+    row = packs.pack_status(gated, models)
+    assert row["licence_gate"] == "faceswap"
+    assert row["tool"] == {"id": "facefusion", "state": "missing"}
+
+
+def test_coded_error_answers_detail_and_code(dirs) -> None:
+    app = create_app()
+
+    def blocked() -> None:
+        raise CodedError("CONTENT_BLOCKED", "Bloqueado por el analizador.")
+
+    def failed() -> None:
+        raise CodedError("TOOL_FAILED", "FaceFusion terminó con error.", details={"logTail": ["x"]})
+
+    app.add_api_route("/_test/blocked", blocked)
+    app.add_api_route("/_test/failed", failed)
+    with TestClient(app) as c:
+        r = c.get("/_test/blocked")
+        assert r.status_code == 422
+        assert r.json() == {"detail": "Bloqueado por el analizador.", "code": "CONTENT_BLOCKED"}
+        r = c.get("/_test/failed")
+        assert r.status_code == 502 and r.json()["details"] == {"logTail": ["x"]}
+    assert CodedError("X", "y").status == 400 and CodedError("NO_FACE", "y", 418).status == 418
 
 
 def _catalog_and_transport(voice: str, onnx: bytes, cfg: bytes):
@@ -248,9 +292,11 @@ def test_cli_packs(dirs, monkeypatch: pytest.MonkeyPatch, capsys, tmp_path: Path
     monkeypatch.setattr(packs, "ollama_installed_models", lambda *a, **k: [])
     report = tmp_path / "r.json"
     assert models_cli.main(["--packs", "all", "--report", str(report)]) == 1
-    assert done == list(packs.PACKS)  # a failure does not stop the next packs
+    # sprint 4 (M3): licence-gated packs (faceswap) are skipped until the licence is accepted
+    gated = [p for p, pk in packs.PACKS.items() if pk.licence_gate]
+    assert done == [p for p in packs.PACKS if p not in gated]  # a failure does not stop the rest
     data = json.loads(report.read_text("utf-8"))
-    assert data["failed"] == 1 and data["installed"] == len(packs.PACKS) - 1
+    assert data["failed"] == 1 and data["installed"] == len(packs.PACKS) - 1 - len(gated)
 
     # Ollama down (-SkipOllama): `all` skips the Ollama packs without failing
     ollama_packs = [p for p, pk in packs.PACKS.items() if pk.ollama_models is not None]
@@ -258,7 +304,7 @@ def test_cli_packs(dirs, monkeypatch: pytest.MonkeyPatch, capsys, tmp_path: Path
     done.clear()
     monkeypatch.setattr(packs, "ollama_installed_models", lambda *a, **k: None)
     assert models_cli.main(["--packs", "all", "--report", str(report)]) == 1
-    assert done == [p for p in packs.PACKS if p not in ollama_packs]
+    assert done == [p for p in packs.PACKS if p not in ollama_packs and p not in gated]
 
 
 def test_extract_deepfilter_zip(tmp_path: Path) -> None:

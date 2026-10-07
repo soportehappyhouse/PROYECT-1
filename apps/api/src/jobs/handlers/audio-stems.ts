@@ -21,6 +21,7 @@ import {
 } from "@studio/shared";
 import { nanoid } from "nanoid";
 import { HttpError } from "../../lib/errors.js";
+import { applyInheritedAiProvenance } from "../../services/ai-provenance.js";
 import { projectContentHash } from "../../services/agent/project-hash.js";
 import { WorkersError } from "../../services/workers-client.js";
 import { registerAudioAsset, requireMediaAsset } from "../../voice-ai/media-bridge.js";
@@ -238,12 +239,14 @@ export function createAudioStemsHandler(
         const path = res.stems[name];
         if (!path) throw new Error(`Separar audio: los workers no devolvieron «${name}»`);
         const label = STEM_LABELS_ES[name];
-        const created = await registerAudioAsset(deps, {
+        const registered = await registerAudioAsset(deps, {
           path,
           name: `${asset.name} (${label.toLowerCase()})`,
           sampleRate: res.sample_rate,
           ...(durationSec !== undefined && { durationSec }),
         });
+        // Sprint 4: stems of a synthetic/cloned voice (or of a face-swapped video) inherit it.
+        const created = applyInheritedAiProvenance(deps, registered, asset, { jobId: job.id });
         stems.push({ name, label, assetId: created.id, path });
       }
       const base: StemsResult = {

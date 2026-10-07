@@ -94,8 +94,22 @@ export const VOICE_EFFECT_PRESETS: readonly { id: string; name: string; effects:
     { id: "megafono", name: "Megáfono", effects: [{ type: "megaphone" }] },
   ];
 
-export const TtsProviderSchema = z.enum(["piper", "elevenlabs", "openai"]);
+export const TtsProviderSchema = z.enum(["piper", "elevenlabs", "openai", "chatterbox"]);
 export type TtsProvider = z.infer<typeof TtsProviderSchema>;
+
+/**
+ * Sprint 4 (docs/trabajo/sprint4-contratos.md, M2): Chatterbox Multilingual checkpoint:
+ * t3_mtl23ls_v3 (git, pinned SHA) | t3_mtl23ls_v2 (PyPI 0.1.7 fallback).
+ */
+export const ChatterboxModelSchema = z.enum(["mtl-v3", "mtl-v2"]);
+export type ChatterboxModel = z.infer<typeof ChatterboxModelSchema>;
+
+/** Voice to clone: a Person with voice consent, or a «Voz propia» asset (kind "voice-ref"). */
+export const VoiceRefSchema = z.union([
+  z.object({ personId: IdSchema }).strict(),
+  z.object({ assetId: IdSchema, self: z.literal(true) }).strict(),
+]);
+export type VoiceRef = z.infer<typeof VoiceRefSchema>;
 
 export const TtsRequestSchema = z.object({
   provider: TtsProviderSchema.default("piper"),
@@ -105,6 +119,18 @@ export const TtsRequestSchema = z.object({
   /** Speaking rate multiplier. */
   speed: z.number().min(0.5).max(2).default(1),
   format: z.enum(["wav", "mp3"]).default("wav"),
+  // Sprint 4 (Chatterbox): all optional, no defaults (Piper requests do not change).
+  /** ISO 639-1 language id ("es"). */
+  language: z
+    .string()
+    .regex(/^[a-z]{2}$/)
+    .optional(),
+  model: ChatterboxModelSchema.optional(),
+  voiceRef: VoiceRefSchema.optional(),
+  exaggeration: z.number().min(0.25).max(2).optional(),
+  cfg: z.number().min(0).max(1).optional(),
+  temperature: z.number().min(0.05).max(2).optional(),
+  seed: z.number().int().min(0).optional(),
 });
 export type TtsRequest = z.infer<typeof TtsRequestSchema>;
 export type TtsRequestInput = z.input<typeof TtsRequestSchema>;

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { SceneSchema } from "./ai.js";
 import { IdSchema, SecondsSchema, TimestampSchema } from "./common.js";
+import { AiProvenanceSchema } from "./consent.js";
 
 export const MediaKindSchema = z.enum([
   "video",
@@ -14,6 +15,8 @@ export const MediaKindSchema = z.enum([
   "mask",
   /** Sprint 3b: StyleAnalysis JSON (storage/renders/style/<job>/analysis.json; thumbnail = contact sheet). */
   "analysis",
+  /** Sprint 4: «Voz propia» sample (WAV 24 kHz mono, normalized, 5–60 s; never a timeline clip). */
+  "voice-ref",
 ]);
 export type MediaKind = z.infer<typeof MediaKindSchema>;
 
@@ -61,6 +64,10 @@ export const MediaAssetSchema = z.object({
   hasAlpha: z.boolean().optional(),
   /** Scene cuts from analyze.scenes (source seconds). */
   scenes: z.array(SceneSchema).optional(),
+  /** Sprint 4: generated or altered by AI (face swap, synthetic/cloned voice, or derived from one). */
+  aiAltered: z.boolean().optional(),
+  /** Sprint 4: what generated it (traceability; the export writes a `comment` without ids/names). */
+  aiProvenance: AiProvenanceSchema.optional(),
   createdAt: TimestampSchema,
 });
 export type MediaAsset = z.infer<typeof MediaAssetSchema>;

@@ -3,7 +3,7 @@ import { SuggestedPackSchema } from "./ai.js";
 import { IdSchema, SecondsSchema } from "./common.js";
 import { LibraryItemKindSchema, LibraryItemSchema } from "./library.js";
 import { TranscriptSchema } from "./subtitles.js";
-import { TtsProviderSchema, TtsVoiceSchema } from "./voice.js";
+import { ChatterboxModelSchema, TtsProviderSchema, TtsVoiceSchema } from "./voice.js";
 
 /** Workers-backed voice/subtitle job results and the local sound library (module d). */
 export const TtsVoiceInfoSchema = TtsVoiceSchema.extend({
@@ -14,13 +14,28 @@ export const TtsVoiceInfoSchema = TtsVoiceSchema.extend({
 });
 export type TtsVoiceInfo = z.infer<typeof TtsVoiceInfoSchema>;
 
-export const TtsProviderStatusSchema = z.enum(["local", "configurado", "no configurado"]);
+export const TtsProviderStatusSchema = z.enum([
+  "local",
+  "configurado",
+  "no configurado",
+  /** Sprint 4: local provider whose model pack is not installed (Chatterbox). */
+  "falta paquete",
+]);
 
 export const TtsProviderInfoSchema = z.object({
   id: TtsProviderSchema,
   name: z.string(),
   enabled: z.boolean(),
   status: TtsProviderStatusSchema,
+  // Sprint 4 (Chatterbox row of GET /api/voice/tts/providers).
+  packId: z.string().optional(),
+  installed: z.boolean().optional(),
+  supportsClone: z.boolean().optional(),
+  models: z.array(ChatterboxModelSchema).optional(),
+  languages: z.array(z.string()).optional(),
+  gpu: z.boolean().optional(),
+  /** Default provider of the UI (decision 10: Chatterbox with pack + GPU mode, else Piper). */
+  default: z.boolean().optional(),
 });
 export type TtsProviderInfo = z.infer<typeof TtsProviderInfoSchema>;
 
@@ -106,6 +121,14 @@ export const AudioJobResultSchema = z.object({
   durationSec: SecondsSchema.optional(),
   /** Workers warnings, e.g. ["gpu_fallback_cpu"] (the web shows a toast). */
   warnings: z.array(z.string()).optional(),
+  // Sprint 4 (Chatterbox / RVC on CUDA).
+  provider: TtsProviderSchema.optional(),
+  device: z.enum(["cuda", "cpu"]).optional(),
+  aiVoice: z.enum(["synthetic", "cloned"]).optional(),
+  /** Chatterbox always applies the inaudible PerTh watermark. */
+  watermark: z.literal("perth").optional(),
+  /** Real-time factor (synthesis seconds / audio seconds). */
+  rtf: z.number().optional(),
 });
 export type AudioJobResult = z.infer<typeof AudioJobResultSchema>;
 

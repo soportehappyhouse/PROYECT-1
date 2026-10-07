@@ -59,6 +59,18 @@ __pycache__/
 
 # --- Tools / OS / editors ---
 tools/ffmpeg/
+# Sprint 4 isolated tools: only the recipes (requirements, locks, bridge scripts) are versioned.
+# FaceFusion's code is downloaded at a pinned commit into tools/facefusion/app/; venvs, downloads
+# and the Python 3.12 record of setup.ps1 stay local.
+tools/facefusion/app/
+tools/*/app/
+tools/*/app.tmp/
+tools/*/.venv/
+tools/*/.downloads/
+tools/*/.studio-source.json
+tools/runtimes.json
+# Consent evidence, signatures, voice samples and the licence mirror never leave the PC.
+storage/consent/
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json

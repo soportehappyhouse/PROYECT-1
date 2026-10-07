@@ -22,3 +22,7 @@ export * from "./track.js";
 export * from "./agent.js";
 export * from "./style.js";
 export * from "./stems.js";
+export * from "./consent.js";
+export * from "./face.js";
+export * from "./voice-clone.js";
+export * from "./ai-content.js";

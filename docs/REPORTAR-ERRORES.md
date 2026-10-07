@@ -36,7 +36,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\reportar-err
 ```
 
 Pregunta título, pasos y severidad; ejecuta `doctor.ps1`; lee los últimos 20 trabajos de
-`storage\studio.db` (con Node, o `sqlite3`; si ninguno funciona copia la base); junta los logs y tu
+`storage\studio.db` (con Node, o `sqlite3`; si ninguno funciona no adjunta trabajos: la base nunca
+se copia entera porque guarda el registro de Personas); junta los logs y tu
 `.env` con las claves tapadas; arma la misma carpeta y `.zip`, **abre el Explorador** en el zip,
 imprime el Prompt para Claude y lo deja **copiado en el portapapeles**.
 
@@ -107,6 +108,11 @@ Antes de escribir cualquier archivo se tapa con `[REDACTED]`:
 - todo lo que parezca una clave: `sk-…`/`sk-ant-…`, `ghp_…`, `hf_…`, `AKIA…`, `AIza…`, JWT,
   `Bearer …`, `?token=` / `?api_key=` en URLs, `NOMBRE_KEY=valor`, `"apiKey": "…"`;
 - tu carpeta de usuario (`C:\Users\<vos>`) se reemplaza por `~`.
+
+**Nunca** entra en un reporte el registro de Personas (sprint 4): ni los archivos de
+`storage\consent\` (fotos, muestras de voz, firmas y documentos de consentimiento, espejo de
+licencias) ni sus rutas, que en los textos aparecen como `consent/<oculto>`; el script sin conexión
+tampoco copia `studio.db`, que guarda los nombres y los consentimientos.
 
 Lo que **sí** queda y conviene mirar antes de compartir fuera de tu PC:
 

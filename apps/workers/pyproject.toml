@@ -55,3 +55,8 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+  # Sprint 4: tests that create a REAL tool venv (tools/<id>/.venv-like); opt-in with
+  # STUDIO_TOOL_VENV_TESTS=1, never in CI (no venvs, no downloads).
+  "tool_venv: creates a real isolated tool venv (opt-in, STUDIO_TOOL_VENV_TESTS=1)",
+]

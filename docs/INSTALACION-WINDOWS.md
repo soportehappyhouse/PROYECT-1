@@ -56,6 +56,8 @@ el aviso de **Control de cuentas de usuario** y eso es lo esperado.
 Qué hace:
 
 1. Con **winget** instala lo que falte: Git (≥ 2.40), **Node.js 22** (≥ 22.12), **Python 3.11**,
+   **Python 3.12** (solo lo usa el cambio de cara, en su entorno aislado; ver
+   [Herramientas aisladas](#herramientas-aisladas-cambio-de-cara-y-voz-avanzada)),
    **FFmpeg** (build "full" de Gyan) y **Visual C++ Redistributable x64**. Si ya están y la versión
    alcanza, se omiten; si son más viejos, `winget upgrade`. Node y VC++ muestran un aviso de
    **Control de cuentas (UAC)**: aceptalo.
@@ -90,41 +92,46 @@ Re-ejecutarlo con todo instalado: alrededor de un minuto (verificaciones, sin de
 
 ### Opciones útiles
 
-| Opción                                        | Para qué                                                                                    |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `-Update`                                     | Después de bajar una versión nueva: todo incremental (ver [9](#9-actualizar-y-desinstalar)) |
-| `-Force`                                      | Ignora los sellos: rehace `pnpm install`, `pip install`, el build y re-descarga modelos     |
-| `-WithCuda`                                   | GPU NVIDIA: torch CUDA 12.8 (cu128) y `USE_CUDA=true` (automático si se detecta la GPU)     |
-| `-NoCuda` (o `-WithCuda:$false`)              | Perfil CPU aunque haya GPU NVIDIA (`USE_CUDA=false`)                                        |
-| `-WhisperModel small`                         | Otro modelo de subtítulos (`tiny`, `base`, `small`, `medium`, `large-v3-turbo`)             |
-| `-PiperVoice es_MX-claude-high`               | Otra voz por defecto                                                                        |
-| `-SkipRvc` / `-SkipRvc:$false`                | Sin dependencias de RVC en el `.venv` (torch/RVC; se recuerda) / volver a instalarlas       |
-| `-SkipModels` / `-SkipBuild` / `-SkipBrowser` | Saltear pasos                                                                               |
-| `-SkipWinget`                                 | No usa winget: Git, Node 22, Python 3.11 y FFmpeg ya deben estar en el PATH                 |
-| `-SkipOllama`                                 | No instala ni inicia Ollama (el Asistente local queda deshabilitado)                        |
-| `-SkipClaude` (o `-WithClaude:$false`)        | No instala Claude Code (la Consola Claude explica cómo instalarlo después)                  |
-| `-Full`                                       | Descarga todos los paquetes de IA en secuencia (ver abajo)                                  |
+| Opción                                        | Para qué                                                                                                                                    |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-Update`                                     | Después de bajar una versión nueva: todo incremental (ver [9](#9-actualizar-y-desinstalar))                                                 |
+| `-Force`                                      | Ignora los sellos: rehace `pnpm install`, `pip install`, el build, los entornos aislados existentes (`tools\*\.venv`) y re-descarga modelos |
+| `-WithCuda`                                   | GPU NVIDIA: torch CUDA 12.8 (cu128) y `USE_CUDA=true` (automático si se detecta la GPU)                                                     |
+| `-NoCuda` (o `-WithCuda:$false`)              | Perfil CPU aunque haya GPU NVIDIA (`USE_CUDA=false`)                                                                                        |
+| `-WhisperModel small`                         | Otro modelo de subtítulos (`tiny`, `base`, `small`, `medium`, `large-v3-turbo`)                                                             |
+| `-PiperVoice es_MX-claude-high`               | Otra voz por defecto                                                                                                                        |
+| `-SkipRvc` / `-SkipRvc:$false`                | Sin dependencias de RVC en el `.venv` (torch/RVC; se recuerda) / volver a instalarlas                                                       |
+| `-SkipModels` / `-SkipBuild` / `-SkipBrowser` | Saltear pasos                                                                                                                               |
+| `-SkipWinget`                                 | No usa winget: Git, Node 22, Python 3.11 y FFmpeg ya deben estar en el PATH (3.12: aviso)                                                   |
+| `-SkipOllama`                                 | No instala ni inicia Ollama (el Asistente local queda deshabilitado)                                                                        |
+| `-SkipClaude` (o `-WithClaude:$false`)        | No instala Claude Code (la Consola Claude explica cómo instalarlo después)                                                                  |
+| `-Full`                                       | Descarga todos los paquetes de IA en secuencia (ver abajo)                                                                                  |
 
 ### Paquetes de IA (`-Full`)
 
 Por defecto `setup.ps1` instala solo el paquete **core** (Whisper base + voz Daniela). Los demás se
 descargan al usar cada función (Ajustes → Paquetes de IA, con barra de progreso). Con `-Full` se
-bajan todos ahora, uno por uno (~4,3 GB + 5,2 GB del Asistente si Ollama está instalado; repetirlo omite lo que ya está y reanuda lo parcial):
+bajan todos ahora, uno por uno (~4,3 GB + 5,2 GB del Asistente si Ollama está instalado + ~6,2 GB de
+la voz avanzada Chatterbox; el **cambio de cara** (~4 GB) solo si ya aceptaste su licencia en
+pantalla; repetirlo omite lo que ya está y reanuda lo parcial):
 
-| Paquete         | Contenido                                                             | Tamaño aprox.                                  | Lo usa                                   |
-| --------------- | --------------------------------------------------------------------- | ---------------------------------------------- | ---------------------------------------- |
-| `core`          | Whisper base + Piper es_AR-daniela-high                               | 0,3 GB                                         | subtítulos, locución                     |
-| `whisper-turbo` | Whisper large-v3-turbo (float16 en GPU)                               | 1,6 GB                                         | subtítulos (por defecto con `-WithCuda`) |
-| `voces-es`      | 7 voces Piper más (México, España)                                    | 0,5 GB                                         | locución                                 |
-| `rvc-base`      | hubert + rmvpe                                                        | 0,4 GB                                         | conversión de voz (RVC)                  |
-| `scenes`        | PySceneDetect + OpenCV (pip)                                          | 0,04 GB                                        | detectar escenas                         |
-| `voz-limpia`    | DeepFilterNet 3 (pip + pesos)                                         | 0,01–0,25 GB                                   | limpiar voz                              |
-| `matting`       | RobustVideoMatting fp16 + fp32 + `.venv-gpl`                          | 0,05 GB (0,25 GB si el `.venv` no tiene torch) | quitar fondo en video                    |
-| `matting-hq`    | RobustVideoMatting **resnet50** fp16 + fp32 (mismo `.venv-gpl`)       | 0,16 GB (+0,03 GB si `.venv-gpl` es nuevo)     | quitar fondo en alta calidad             |
-| `matting-image` | BiRefNet-lite **swin_v1_tiny** (ONNX) + onnxruntime + OpenCV          | 0,28 GB (+0,2 GB `onnxruntime-gpu` con CUDA)   | quitar fondo en imágenes                 |
-| `sam2`          | SAM 2.1 tiny + small + código `sam2` (desde GitHub, **requiere Git**) | 0,34 GB                                        | máscara por clic, seguir objeto (SAM 2)  |
-| `reframe`       | YuNet (caras) + OpenCV                                                | 0,04 GB                                        | reencuadrar, seguir objeto (rápido)      |
-| `agent-llm`     | Modelo del Asistente local vía Ollama (`qwen3:8b`, Q4)                | 5,2 GB                                         | Asistente (comandos en español), reporte |
+| Paquete          | Contenido                                                                   | Tamaño aprox.                                     | Lo usa                                        |
+| ---------------- | --------------------------------------------------------------------------- | ------------------------------------------------- | --------------------------------------------- |
+| `core`           | Whisper base + Piper es_AR-daniela-high                                     | 0,3 GB                                            | subtítulos, locución                          |
+| `whisper-turbo`  | Whisper large-v3-turbo (float16 en GPU)                                     | 1,6 GB                                            | subtítulos (por defecto con `-WithCuda`)      |
+| `voces-es`       | 7 voces Piper más (México, España)                                          | 0,5 GB                                            | locución                                      |
+| `rvc-base`       | hubert + rmvpe                                                              | 0,4 GB                                            | conversión de voz (RVC)                       |
+| `scenes`         | PySceneDetect + OpenCV (pip)                                                | 0,04 GB                                           | detectar escenas                              |
+| `voz-limpia`     | DeepFilterNet 3 (pip + pesos)                                               | 0,01–0,25 GB                                      | limpiar voz                                   |
+| `matting`        | RobustVideoMatting fp16 + fp32 + `.venv-gpl`                                | 0,05 GB (0,25 GB si el `.venv` no tiene torch)    | quitar fondo en video                         |
+| `matting-hq`     | RobustVideoMatting **resnet50** fp16 + fp32 (mismo `.venv-gpl`)             | 0,16 GB (+0,03 GB si `.venv-gpl` es nuevo)        | quitar fondo en alta calidad                  |
+| `matting-image`  | BiRefNet-lite **swin_v1_tiny** (ONNX) + onnxruntime + OpenCV                | 0,28 GB (+0,2 GB `onnxruntime-gpu` con CUDA)      | quitar fondo en imágenes                      |
+| `sam2`           | SAM 2.1 tiny + small + código `sam2` (desde GitHub, **requiere Git**)       | 0,34 GB                                           | máscara por clic, seguir objeto (SAM 2)       |
+| `reframe`        | YuNet (caras) + OpenCV                                                      | 0,04 GB                                           | reencuadrar, seguir objeto (rápido)           |
+| `agent-llm`      | Modelo del Asistente local vía Ollama (`qwen3:8b`, Q4)                      | 5,2 GB                                            | Asistente (comandos en español), reporte      |
+| `tts-chatterbox` | Chatterbox multilingüe V3 + entorno `tools\chatterbox\.venv` (torch 2.6)    | ≈ 6,2 GB (≈ 3,2 GB modelos + ≈ 3 GB entorno CUDA) | voz avanzada en español y clonación           |
+| `faceswap`       | FaceFusion 3.9.1 + modelos + entorno `tools\facefusion\.venv` (Python 3.12) | ≈ 4 GB (≈ 1,8 GB modelos + ≈ 2,2 GB entorno CUDA) | cambio de cara (**pide aceptar la licencia**) |
+| `faceswap-extra` | Modelos extra de cambio de cara (Ghost, InSwapper)                          | 0,8 GB                                            | cambio de cara (otros modelos)                |
 
 Notas de los paquetes de visión:
 
@@ -145,10 +152,51 @@ Notas de los paquetes de visión:
   `models\manifest.json` y desde ahí se comparan; hasta entonces `doctor.ps1` avisa «verificación
   pendiente de primera descarga».
 
+### Herramientas aisladas (cambio de cara y voz avanzada)
+
+El cambio de cara (FaceFusion) y la voz avanzada (Chatterbox) tienen dependencias que chocan con las
+de Studio (FaceFusion pide **Python 3.12** y `onnxruntime-gpu` 1.24.4; Chatterbox fija torch 2.6 y
+numpy < 2), y sus licencias no son las del resto (modelos no comerciales, GPL). Por eso cada una
+corre **en un proceso y un entorno aparte**:
+
+| Herramienta | Entorno                  | Python | Lo crea                                               |
+| ----------- | ------------------------ | ------ | ----------------------------------------------------- |
+| FaceFusion  | `tools\facefusion\.venv` | 3.12   | el paquete `faceswap` (solo con la licencia aceptada) |
+| Chatterbox  | `tools\chatterbox\.venv` | 3.11   | el paquete `tts-chatterbox`                           |
+
+- **Bajo demanda**: los entornos se crean al descargar su paquete desde Ajustes → Paquetes de IA (como
+  `.venv-gpl`). `setup.ps1` solo los **actualiza** si ya existen (paso «Herramientas aisladas»: si
+  cambió su `requirements*.txt` o el `*.lock.json`, el entorno se rehace) o los crea con `-Full`
+  (FaceFusion, además, solo si la licencia ya figura aceptada). Sin nada de eso, el paso aparece como
+  «se instala al descargar el paquete desde Ajustes».
+- **Python 3.12**: `setup.ps1` lo instala con winget (`Python.Python.3.12` 3.12.10, por usuario) y
+  anota la ruta en `tools\runtimes.json`; si ya está (`py -3.12`), se omite. Sin él, el paquete de cambio
+  de cara avisa «Falta Python 3.12: corré scripts\windows\setup.ps1 -Update». `FACEFUSION_BASE_PYTHON`
+  en `.env` fuerza otro intérprete.
+- El código de FaceFusion se baja **fijado por commit** (3.9.1, `72470819…`) a `tools\facefusion\app\`
+  y nunca se ejecuta su `install.py`; Chatterbox se instala desde GitHub fijado por commit (V3) y, si no
+  hay Git o GitHub no responde, cae a la V2 de PyPI (0.1.7). Nunca conviven dos `onnxruntime` en un
+  mismo entorno.
+- Siempre se ejecutan a través de `tools\launch.py`: sin `HF_TOKEN` ni API keys en el entorno, Hugging
+  Face en modo offline (los modelos los baja el paquete) y, en FaceFusion con GPU, precarga de las DLL
+  de CUDA/cuDNN (`onnxruntime.preload_dlls()`).
+- `doctor.ps1` (sección «Herramientas aisladas») muestra el estado de cada entorno (listo /
+  desactualizado / no instalado / roto / falta Python 3.12), la versión, el proveedor que cargó de
+  verdad (CUDA o CPU), la variante de Chatterbox (V3 / V2), si la licencia del cambio de cara está
+  aceptada y si el torch de RVC ve la GPU.
+- **Rutas largas**: torch y las DLL de NVIDIA crean rutas de más de 260 caracteres dentro de
+  `tools\*\.venv`. Activá `LongPathsEnabled` (ver [8](#8-solución-de-problemas)) o instalá Studio en una
+  ruta corta (`C:\dev\studio`).
+- Para borrarlos: cerrá Studio y borrá `tools\facefusion\.venv`, `tools\facefusion\app` o
+  `tools\chatterbox\.venv`; se vuelven a crear al descargar el paquete.
+
 **Primer uso recomendado** (después de instalar con GPU): Ajustes → Paquetes de IA →
-**Test de rendimiento IA** (mide Whisper, Piper, RVC, escenas y, si está `matting`, el recorte de
-personas: «Recorte de personas ≈ X fps (meta 15)»), y después **Quitar fondo** sobre un clip de
-**10 s** para confirmar que el recorte corre en la GPU antes de usarlo en un video largo.
+**Test de rendimiento IA** (mide Whisper, Piper, RVC — «RVC: X s por minuto (GPU)» —, escenas, si
+está `matting` el recorte de personas: «Recorte de personas ≈ X fps (meta 15)», si está
+`tts-chatterbox` la voz avanzada: «Chatterbox: RTF X», y si aceptaste la licencia y registraste una
+Persona con consentimiento, el cambio de cara: «X fps a 1080p»; lo que no está instalado aparece
+«no medido» con el motivo), y después **Quitar fondo** sobre un clip de **10 s** para confirmar que
+el recorte corre en la GPU antes de usarlo en un video largo.
 
 ### Asistente local (Ollama)
 
@@ -255,7 +303,11 @@ Muestra versiones, PATH, filtros de FFmpeg (incluido `rubberband`), GPU, paquete
 puertos y estado de los servicios. También el **estado de `models\manifest.json`** (archivos
 registrados por grupo, cuáles faltan o cambiaron de tamaño, la tabla presentes/faltantes de
 `models_cli --check`) y el **espacio en disco** que ocupan `models\` y `storage\` (con detalle de
-`media`, `proxies`, `renders`, etc.). No modifica nada.
+`media`, `proxies`, `renders`, etc.). Desde el sprint 4 también **Python 3.12**, los **entornos
+aislados** `tools\facefusion` y `tools\chatterbox` (estado, versión, proveedor CUDA real o CPU,
+variante V3/V2), la **licencia del cambio de cara** (aceptada o no, leída del espejo
+`storage\consent\licences.json`), el **torch de RVC** (si ve la GPU) y el **origen del hubert**
+de RVC. No modifica nada.
 
 Para ver solo los modelos:
 
@@ -278,6 +330,11 @@ apps\workers\.venv\Scripts\python.exe -m studio_workers.models_cli --check --upd
 | Falla la descarga de modelos                                         | Reintentá `setup.ps1` (o `-Update`): lo verificado se saltea y el `.part` se reanuda donde quedó. Un archivo corrupto se vuelve a bajar solo. Proxies corporativos pueden bloquear `huggingface.co`.                                                       |
 | Subtítulos con `-WithCuda` dicen "CUDA no disponible, usando CPU"    | Actualizá el driver NVIDIA (570+). faster-whisper necesita cuBLAS 12 + cuDNN 9: los toma de `torch\lib`; si aun falla, `apps\workers\.venv\Scripts\python.exe -m pip install nvidia-cublas-cu12 nvidia-cudnn-cu12`.                                        |
 | RVC tarda mucho                                                      | Normal en CPU. Usá clips cortos, `f0Method: "pm"` (más rápido) o `-WithCuda`.                                                                                                                                                                              |
+| RVC avisa `torch_cpu_build` con `USE_CUDA=true`                      | El torch del `.venv` es el de CPU: `setup.ps1 -Update -WithCuda` instala el de CUDA (cu128).                                                                                                                                                               |
+| «El modelo RVC … no se puede cargar de forma segura»                 | El `.pth` trae objetos que `torch.load` seguro rechaza (no se desactiva por seguridad): usá otra versión del modelo (exportada como diccionario de pesos).                                                                                                 |
+| «Falta Python 3.12» al usar el cambio de cara                        | `setup.ps1 -Update` (instala `Python.Python.3.12` con winget). Sin winget: instalá Python 3.12 de python.org y poné su ruta en `FACEFUSION_BASE_PYTHON` en `.env`.                                                                                         |
+| El cambio de cara corre en CPU con GPU NVIDIA                        | `doctor.ps1` → «FaceFusion (tools\facefusion)»: si dice proveedor CPU, actualizá el driver (570+) y el VC++ x64, y volvé a descargar el paquete (rehace el entorno).                                                                                       |
+| «El entorno aislado de … no está listo»                              | Ajustes → Paquetes de IA → volver a descargar el paquete (rehace `tools\<id>\.venv`) o `setup.ps1 -Update`.                                                                                                                                                |
 | `doctor.ps1` dice que falta `rubberband`                             | Los efectos de tono usan `asetrate+atempo` como respaldo. Para mejor calidad, instalá el build "full": `winget install -e --id Gyan.FFmpeg`.                                                                                                               |
 | Remotion no renderiza (Chrome Headless Shell)                        | `pnpm --filter @studio/remotion browser:ensure` (desde la raíz).                                                                                                                                                                                           |
 | `pnpm install` muy lento                                             | El antivirus escanea `node_modules`. Opcional (admin): `Add-MpPreference -ExclusionPath 'C:\dev\studio'`.                                                                                                                                                  |
@@ -308,7 +365,7 @@ apps\workers\.venv\Scripts\python.exe -m studio_workers.models_cli --check --upd
 | Opción      | Qué hace                                                                                                                                                                                                                                                                     |
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `-Update`   | Incremental tras bajar una versión nueva; conserva el perfil anterior (con o sin RVC). Si la instalación estaba en CPU y ahora se detecta una GPU NVIDIA, **cambia a CUDA sola** (torch CUDA, ~2,5 GB una vez, y `USE_CUDA=true` en `.env`, sin tocar el resto del archivo). |
-| `-Full`     | Baja **todos** los paquetes de IA ahora, en secuencia (~4,3 GB + 5,2 GB del Asistente). Sin `-Full` solo se instala `core`.                                                                                                                                                  |
+| `-Full`     | Baja **todos** los paquetes de IA ahora, en secuencia (~4,3 GB + 5,2 GB del Asistente + ~6,2 GB de Chatterbox; el cambio de cara, ~4 GB, solo con su licencia ya aceptada). Sin `-Full` solo se instala `core`.                                                              |
 | `-WithCuda` | Perfil GPU: torch CUDA 12.8 y `USE_CUDA=true`. No hace falta pasarlo: es **automático** si se detecta una GPU NVIDIA (`nvidia-smi` o el nombre del adaptador de video contiene «NVIDIA»), en la primera instalación y en `-Update`.                                          |
 | `-NoCuda`   | Perfil CPU aunque haya GPU NVIDIA (`USE_CUDA=false`). La elección queda registrada en `apps\workers\.venv\.studio-install`: los `-Update` siguientes no vuelven a cambiar a CUDA (para volver: `-WithCuda`).                                                                 |
 
@@ -320,18 +377,20 @@ en CPU usá `setup.ps1 -Update -NoCuda`. `doctor.ps1` muestra
 
 Qué se descarga y cuándo:
 
-| Paquete         | Por defecto              | Bajo demanda (al usar la función)                                       | Con `-Full` |
-| --------------- | ------------------------ | ----------------------------------------------------------------------- | ----------- |
-| `core`          | sí                       | —                                                                       | sí          |
-| `whisper-turbo` | no                       | sugerencia al transcribir con CUDA («Descargar whisper-turbo (1.6 GB)») | sí          |
-| `voces-es`      | no                       | Voz → «Descargar» (una voz o el paquete entero)                         | sí          |
-| `rvc-base`      | no (aunque instales RVC) | Conversión RVC → «Paquete requerido»                                    | sí          |
-| `scenes`        | no                       | Detectar escenas → «Paquete requerido»                                  | sí          |
-| `voz-limpia`    | no                       | Limpiar voz → «Paquete requerido»                                       | sí          |
-| `matting`       | no                       | Quitar fondo (video) → «Paquete requerido» (crea `.venv-gpl`)           | sí          |
-| `matting-image` | no                       | Quitar fondo (imagen) → «Paquete requerido»                             | sí          |
-| `sam2`          | no                       | Máscara / Seguir objeto con SAM 2 → «Paquete requerido» (requiere Git)  | sí          |
-| `reframe`       | no                       | Reencuadrar / Seguir objeto rápido → «Paquete requerido»                | sí          |
+| Paquete          | Por defecto              | Bajo demanda (al usar la función)                                                       | Con `-Full`                   |
+| ---------------- | ------------------------ | --------------------------------------------------------------------------------------- | ----------------------------- |
+| `core`           | sí                       | —                                                                                       | sí                            |
+| `whisper-turbo`  | no                       | sugerencia al transcribir con CUDA («Descargar whisper-turbo (1.6 GB)»)                 | sí                            |
+| `voces-es`       | no                       | Voz → «Descargar» (una voz o el paquete entero)                                         | sí                            |
+| `rvc-base`       | no (aunque instales RVC) | Conversión RVC → «Paquete requerido»                                                    | sí                            |
+| `scenes`         | no                       | Detectar escenas → «Paquete requerido»                                                  | sí                            |
+| `voz-limpia`     | no                       | Limpiar voz → «Paquete requerido»                                                       | sí                            |
+| `matting`        | no                       | Quitar fondo (video) → «Paquete requerido» (crea `.venv-gpl`)                           | sí                            |
+| `matting-image`  | no                       | Quitar fondo (imagen) → «Paquete requerido»                                             | sí                            |
+| `sam2`           | no                       | Máscara / Seguir objeto con SAM 2 → «Paquete requerido» (requiere Git)                  | sí                            |
+| `reframe`        | no                       | Reencuadrar / Seguir objeto rápido → «Paquete requerido»                                | sí                            |
+| `tts-chatterbox` | no                       | Voz y audio → Motor «Chatterbox» → «Descargar» (crea `tools\chatterbox\.venv`)          | sí                            |
+| `faceswap`       | no                       | Cambiar cara → leer y aceptar la licencia → «Descargar» (crea `tools\facefusion\.venv`) | solo con la licencia aceptada |
 
 **No borres** al actualizar (ahí está lo que ya descargaste o creaste):
 
@@ -341,6 +400,7 @@ Qué se descarga y cuándo:
 | `storage\`                                  | Proyectos, medios importados, proxies, renders, biblioteca  |
 | `models\` (incluye `manifest.json`)         | Voces Piper, Whisper, RVC (GB de descargas)                 |
 | `apps\workers\.venv\`                       | Entorno Python (torch, faster-whisper…): se reutiliza       |
+| `tools\*\.venv\`, `tools\facefusion\app\`   | Entornos aislados de cambio de cara y Chatterbox            |
 | `node_modules\` y `packages\*\node_modules` | Dependencias JS y el navegador de Remotion: se reutilizan   |
 
 Si borrás `node_modules\` o `.venv\` no se rompe nada, pero `setup.ps1` los vuelve a instalar

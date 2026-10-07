@@ -125,3 +125,16 @@ Si el few-shot no alcanza el 90 %, el siguiente paso es un ajuste fino liviano c
   Ajustes → Asistente local y correr "Evaluar modelos".
 - **Datos**: para LoRA conviene llegar a 1–2 mil ejemplos (parafrasear los comandos de train con
   más jerga y typos, variar proyectos); cada ejemplo nuevo pasa por `validate-dataset.py`.
+
+## Sprint 4: `face_swap`
+
+- `face_swap {clip, person: {name} | {id}, t?, face_index?, model?, enhancer?, strength?, confirm: true}`
+  (siempre confirmada, como `delete_clip` y `export`). `person.name` sale del pedido: el resumen
+  del proyecto no lista Personas; la API resuelve el nombre contra Ajustes → Personas y pregunta si
+  no existe, es ambiguo o no tiene consentimiento de rostro vigente. Sin Persona nombrada (o con
+  alguien que no es una Persona registrada) el plan pregunta: nunca se inventa una cara.
+- `golden.jsonl` sigue en 80 líneas (lo exige el validador): `g028`, `g049` y `g067` pasaron a
+  `train.jsonl` (sus ops siguen ≥ 3 veces en golden) y entraron `g101`–`g103` con `face_swap`
+  (una multi-op con `set_publish` y etiqueta de IA). `train.jsonl` suma `t256`–`t263` (6 con
+  `face_swap`: índice, cursor, modelo rápido, sin mejorador + intensidad, cara 2 a los 18 s, Ghost +
+  exportar; 2 solo preguntas: sin Persona / alguien no registrado).

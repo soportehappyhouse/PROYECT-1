@@ -34,7 +34,7 @@ if ($free) {
     $gb = [math]::Round($free / 1GB, 1)
     $state = 'ok'
     if ($gb -lt 10) { $state = 'warn' }
-    Add-Result 'Espacio libre' $state "$gb GB (recomendado >= 10 GB; CUDA ~ +4 GB)"
+    Add-Result 'Espacio libre' $state "$gb GB (recomendado >= 10 GB; CUDA ~ +4 GB; voz avanzada ~ +6,2 GB; cambio de cara ~ +4 GB)"
 }
 
 # ------------------------------------------------------------------ toolchain
@@ -51,6 +51,10 @@ $pnpm = Get-CmdOutput 'pnpm' @('--version')
 Add-Result 'pnpm (12)' $(if ($pnpm -and $pnpm.StartsWith('12.')) { 'ok' } elseif ($pnpm) { 'warn' } else { 'fail' }) "$pnpm"
 $py = Find-Python311
 Add-Result 'Python 3.11' $(if ($py) { 'ok' } else { 'fail' }) "$py"
+# Sprint 4: only the isolated face swap tool (tools\facefusion\.venv) uses Python 3.12.
+$py312 = Find-Python312
+if ($py312) { Add-Result 'Python 3.12 (herramientas)' ok ("{0}  {1}" -f (Get-CmdOutput $py312 @('--version')), $py312) }
+else { Add-Result 'Python 3.12 (herramientas)' warn 'falta: solo lo necesita el cambio de cara (setup.ps1 -Update lo instala con winget)' }
 $storeAlias = Get-Command python -ErrorAction SilentlyContinue
 if ($storeAlias -and $storeAlias.Source -match 'WindowsApps') {
     Write-Careful 'python apunta al alias de Microsoft Store. Desactivalo en Configuracion > Aplicaciones > Alias de ejecucion.'
@@ -172,7 +176,19 @@ $wh = @(Get-ChildItem -Path (Join-Path $models 'whisper') -Directory -Filter 'mo
 Add-Result 'Modelos Whisper' $(if ($wh.Count) { 'ok' } else { 'warn' }) $(if ($wh.Count) { $wh -join ', ' } else { 'ninguno (se descarga al primer uso)' })
 $rmvpe = Test-Path (Join-Path $models 'rvc\_base\rmvpe.pt')
 $hubert = Test-Path (Join-Path $models 'rvc\_base\hubert_base\config.json')
-Add-Result 'RVC base (rmvpe/hubert)' $(if ($rmvpe -and $hubert) { 'ok' } else { 'warn' }) ("rmvpe={0} hubert={1}" -f $rmvpe, $hubert)
+# Sprint 4: where the hubert came from (models\manifest.json: lj1995/VoiceConversionWebUI or the
+# r3gm/hubert_base mirror the download falls back to when the official path answers 404).
+$hubertOrigin = 'origen desconocido'
+try {
+    $mfPath = Join-Path $models 'manifest.json'
+    if (Test-Path $mfPath) {
+        $mfRvc = Get-Content -Raw -Encoding UTF8 $mfPath | ConvertFrom-Json
+        $hEntry = $mfRvc.files.'rvc/_base/hubert_base/pytorch_model.bin'
+        if ($hEntry -and $hEntry.source -match 'huggingface\.co/([^/]+/[^/]+)/') { $hubertOrigin = "hubert de $($Matches[1])" }
+        elseif ($hEntry) { $hubertOrigin = 'hubert copiado a mano' }
+    }
+} catch { }
+Add-Result 'RVC base (rmvpe/hubert)' $(if ($rmvpe -and $hubert) { 'ok' } else { 'warn' }) ("rmvpe={0} hubert={1} ({2})" -f $rmvpe, $hubert, $hubertOrigin)
 $rvcModels = @(Get-ChildItem -Path (Join-Path $models 'rvc') -Directory -ErrorAction SilentlyContinue | Where-Object { -not $_.Name.StartsWith('_') -and (Get-ChildItem $_.FullName -Filter '*.pth' -ErrorAction SilentlyContinue) } | ForEach-Object { $_.Name })
 Add-Result 'Modelos de voz RVC' $(if ($rvcModels.Count) { 'ok' } else { 'skip' }) $(if ($rvcModels.Count) { $rvcModels -join ', ' } else { 'ninguno: copia <nombre>\*.pth (+ .index) a models\rvc\' })
 $remotionExe = Find-RemotionBrowser
@@ -293,6 +309,94 @@ if ($gplState -eq 'ready' -and (Test-Path $gplPython)) {
 } else {
     Add-Result 'Entorno GPL (.venv-gpl)' skip 'no creado; se crea al descargar el paquete matting o matting-hq (recorte RVM)'
 }
+# ------------------------------------------------------------------ sprint 4: isolated tools
+# tools\facefusion\.venv (Python 3.12 + onnxruntime-gpu) and tools\chatterbox\.venv (torch 2.6):
+# state, version/variant and the provider the check really loaded (verify --no-write: doctor never
+# writes the stamp or the broken marker). Plus the licence mirror (storage\consent\licences.json,
+# read only) and the RVC torch build.
+Write-Step 'Herramientas aisladas (cambio de cara y voz avanzada)'
+$toolStateEs = @{ ready = 'listo'; stale = 'desactualizado (setup.ps1 -Update)'; missing = 'no instalado'; broken = 'roto (volve a descargar el paquete)'; python = 'falta Python 3.12 (setup.ps1 -Update)' }
+if (Test-Path $VenvPython) {
+    foreach ($tool in @('facefusion', 'chatterbox')) {
+        $label = 'FaceFusion (tools\facefusion)'
+        if ($tool -eq 'chatterbox') { $label = 'Chatterbox (tools\chatterbox)' }
+        $ErrorActionPreference = 'Continue'
+        Push-Location $WorkersDir
+        try {
+            $action = 'status'
+            if (Test-Path (Get-ToolVenvPython $tool)) { $action = 'verify' }
+            $tvOut = @(& $VenvPython -m studio_workers.models_cli --tool-venv $tool $action --no-write --json 2>$null)
+        } finally { Pop-Location }
+        $ErrorActionPreference = 'Stop'
+        $tvJson = $tvOut | Where-Object { "$_".StartsWith('{') } | Select-Object -Last 1
+        if (-not $tvJson) { Add-Result $label warn 'models_cli --tool-venv no respondio'; continue }
+        try { $tv = $tvJson | ConvertFrom-Json } catch { Add-Result $label warn 'salida ilegible'; continue }
+        $stateText = $toolStateEs[[string]$tv.state]
+        if (-not $stateText) { $stateText = [string]$tv.state }
+        $parts = @($stateText)
+        if ($tv.version) { $parts += "version $($tv.version)" }
+        if ($tv.variant) { $parts += "variant $(([string]$tv.variant).ToUpper())" }
+        if ($tool -eq 'facefusion' -and $tv.providers) {
+            $prov = 'CPU'
+            if (@($tv.providers) -contains 'CUDAExecutionProvider') { $prov = 'CUDA' }
+            if ($tv.check -and $tv.check.session) { $prov = "$prov (sesion ORT real: $($tv.check.session))" }
+            $parts += "proveedor $prov"
+        }
+        if ($tool -eq 'chatterbox' -and $tv.check -and $tv.check.torch) {
+            $cudaText = 'no'
+            if ($tv.check.cuda) { $cudaText = 'si' }
+            $parts += "torch $($tv.check.torch), CUDA $cudaText"
+        }
+        if ($tool -eq 'chatterbox' -and $tv.state -ne 'missing') {
+            # Hugging Face weights: trust on first download, then pinned to the recorded commit
+            if ($tv.hf_pinned) { $parts += ("pesos fijados en {0}" -f ([string]$tv.hf_revision).Substring(0, 7)) }
+            else { $parts += 'pesos de Hugging Face: verificacion pendiente (se fijan en la primera descarga)' }
+        }
+        if ($tv.base_python -and $tool -eq 'facefusion') { $parts += "base $($tv.base_python)" }
+        $state = 'ok'
+        if ($tv.state -eq 'missing') { $state = 'skip' }
+        elseif ($tv.state -ne 'ready') { $state = 'warn' }
+        if ($tv.state -eq 'missing') { $parts = @('no instalado: se crea al descargar su paquete desde Ajustes > Paquetes de IA') }
+        if ($tv.error) { Write-Careful ("  {0}: {1}" -f $label, $tv.error) }
+        Add-Result $label $state ($parts -join ', ')
+    }
+    # Licence mirror (written by the api on every accept/revoke; never edited here)
+    $ErrorActionPreference = 'Continue'
+    Push-Location $WorkersDir
+    try { $licOut = @(& $VenvPython -m studio_workers.models_cli --licences --json 2>$null) } finally { Pop-Location }
+    $ErrorActionPreference = 'Stop'
+    $licJson = $licOut | Where-Object { "$_".StartsWith('{') } | Select-Object -Last 1
+    if ($licJson) {
+        try {
+            $lic = $licJson | ConvertFrom-Json
+            $fs = $lic.licences.faceswap
+            if (-not $lic.exists) { Add-Result 'Licencia cambio de cara' skip 'no aceptada (se lee y acepta en Studio: Ajustes > Paquetes de IA)' }
+            elseif (-not $lic.readable) { Add-Result 'Licencia cambio de cara' warn 'storage\consent\licences.json ilegible: aceptala de nuevo en Studio' }
+            elseif ($fs.accepted) { Add-Result 'Licencia cambio de cara' ok ("aceptada ({0}, texto {1})" -f $fs.accepted_at, $fs.text_version) }
+            elseif ($fs.text_version) { Add-Result 'Licencia cambio de cara' warn ("el texto cambio ({0} -> {1}): volve a leerla y aceptarla en Studio" -f $fs.text_version, $fs.current_version) }
+            else { Add-Result 'Licencia cambio de cara' skip 'no aceptada (Ajustes > Paquetes de IA)' }
+        } catch { Add-Result 'Licencia cambio de cara' warn 'espejo de licencias ilegible' }
+    } else {
+        Add-Result 'Licencia cambio de cara' warn 'models_cli --licences no respondio'
+    }
+    # RVC on CUDA (sprint 4): the torch of the workers venv must be the cu128 build to use the GPU.
+    $rvcTorch = Get-CmdOutput $VenvPython @('-c', 'import torch; print(torch.__version__, torch.cuda.is_available())')
+    if ($rvcTorch) {
+        $rvcState = 'ok'
+        $rvcText = "torch $rvcTorch (version, CUDA disponible)"
+        if ((Get-EnvSetting 'USE_CUDA' 'false') -eq 'true' -and $rvcTorch -notmatch 'True$') {
+            $rvcState = 'warn'
+            $rvcText = "torch $rvcTorch sin CUDA con USE_CUDA=true: RVC corre en CPU (torch_cpu_build); setup.ps1 -Update -WithCuda"
+        }
+        Add-Result 'RVC (torch)' $rvcState $rvcText
+    }
+} else {
+    Add-Result 'Herramientas aisladas' skip 'requiere apps\workers\.venv'
+}
+if (-not (Test-LongPaths)) {
+    Write-Careful 'Rutas largas desactivadas: los entornos tools\*\.venv (torch, nvidia-*) pueden pasar 260 caracteres. Activalas o usa una ruta corta (C:\dev\studio).'
+}
+
 if (Test-Cmd 'nvidia-smi') {
     Write-Info 'GPU: si la VRAM se llena, el driver NVIDIA usa RAM compartida (5-10x mas lento) en vez de fallar.'
     Write-Info 'Panel de control NVIDIA > Configuracion 3D > "CUDA - Sysmem Fallback Policy": "Prefer No Sysmem Fallback" falla rapido.'

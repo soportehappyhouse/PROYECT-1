@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { IdSchema, SecondsSchema } from "./common.js";
+import { ToolIdSchema, ToolStateSchema } from "./consent.js";
 import type { Project } from "./timeline.js";
 
 /**
@@ -69,6 +70,13 @@ export const PackSchema = z.object({
   required_by: z.array(z.string()).default([]),
   license: z.string().nullish(),
   group: z.string().nullish(),
+  /**
+   * Sprint 4: licence that must be accepted on screen before downloading/using the pack
+   * (LicenceId, e.g. "faceswap"; null = none).
+   */
+  licence_gate: z.string().nullish(),
+  /** Sprint 4: state of the isolated tool venv the pack needs (tools/<id>/.venv). */
+  tool: z.object({ id: ToolIdSchema, state: ToolStateSchema }).nullish(),
 });
 export type Pack = z.infer<typeof PackSchema>;
 
@@ -168,6 +176,21 @@ export const PerfResultSchema = z.object({
   rvm_hq_halo: z.number().nullish(),
   sam2_fps: z.number().nullish(),
   yunet_fps: z.number().nullish(),
+  /**
+   * Sprint 4: RVC device; Chatterbox (pack tts-chatterbox, 150-char sentence, no clone); FaceFusion
+   * (pack faceswap + accepted licence + a Person with face consent: 3 s at 1080p, without / with
+   * the GFPGAN enhancer).
+   */
+  rvc_device: z.string().nullish(),
+  chatterbox_rtf: z.number().nullish(),
+  chatterbox_load_s: z.number().nullish(),
+  chatterbox_device: z.string().nullish(),
+  chatterbox_model: z.string().nullish(),
+  facefusion_fps: z.number().nullish(),
+  facefusion_enh_fps: z.number().nullish(),
+  facefusion_startup_s: z.number().nullish(),
+  facefusion_device: z.string().nullish(),
+  facefusion_model: z.string().nullish(),
   cpu_fallback_ok: z.boolean().default(false),
   ran_at: z.string(),
   skipped: z.record(z.string(), z.string()).default({}),
@@ -320,6 +343,11 @@ export const FEATURE_PACKS = {
   mattingHq: "matting-hq",
   sam2: "sam2",
   reframe: "reframe",
+  /** Sprint 4: face swap (FaceFusion; licence «faceswap») and extra swapper models. */
+  faceswap: "faceswap",
+  faceswapExtra: "faceswap-extra",
+  /** Sprint 4: Chatterbox Multilingual TTS + zero-shot cloning. */
+  chatterbox: "tts-chatterbox",
 } as const;
 
 /** Soft pack suggestion in a job result (e.g. whisper-turbo when CUDA is there): never a 409. */
@@ -345,6 +373,9 @@ export const FEATURE_VRAM_MB = {
   birefnet: 1800,
   /** Sprint 3b: Demucs htdemucs fp32, segment 7 s (~2 GB). */
   stems: 2000,
+  /** Sprint 4 [S]: hyperswap + GFPGAN «several GB»; Chatterbox 3.5–5 GB. */
+  faceswap: 3500,
+  chatterbox: 4500,
 } as const;
 export type GpuFeature = keyof typeof FEATURE_VRAM_MB;
 

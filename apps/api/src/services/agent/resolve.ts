@@ -1,6 +1,7 @@
 import {
   ALWAYS_CONFIRM_OPS,
   CAPTION_STYLE_PRESETS,
+  FACE_SWAPPER_INFO,
   FEATURE_PACKS,
   VOICE_EFFECT_PRESETS,
   type BaseClipRef,
@@ -11,6 +12,7 @@ import {
   type EditPlan,
   type ExportPreset,
   type Pack,
+  type PersonSummary,
   type PointTime,
   type Project,
   type Time,
@@ -28,6 +30,7 @@ import {
   trackCodes,
   type MediaLookup,
 } from "./summary.js";
+import { personsDirectory } from "./persons.js";
 
 /**
  * Sprint 3: resolve the ClipRef / Time of an EditPlan against the project (ids and seconds), write
@@ -58,6 +61,12 @@ export interface ResolveContext {
   assets?: readonly NonNullable<ReturnType<MediaLookup>>[];
   /** Workers GET /packs (undefined = unknown: no pack risk). */
   packs?: readonly Pick<Pack, "id" | "name_es" | "size_bytes" | "installed">[];
+  /**
+   * Sprint 4 (face_swap): registered Persons (GET /api/persons rows) and whether the «faceswap»
+   * licence is accepted. Absent = the directory registered by app.ts (services/agent/persons.ts).
+   */
+  persons?: readonly PersonSummary[];
+  faceswapLicence?: boolean;
 }
 
 export interface OpResolution {
@@ -671,7 +680,116 @@ function resolveInner(op: EditOp, ctx: Ctx): Out {
     }
     case "report_bug":
       return { op, preview: `Redactar reporte de error «${op.title.slice(0, 60)}»`, risks };
+    case "face_swap": {
+      const l = resolveClip(op.clip, ctx, {
+        what: "para cambiar la cara",
+        filter: isVideoMedia,
+        need: "de video",
+      });
+      const person = resolvePerson(op.person, ctx);
+      if (person.face !== "vigente")
+        throw new Unresolved(
+          `${person.name} no tiene un consentimiento de rostro vigente (${person.face}). ` +
+            `Registrá el consentimiento de ${person.name} en Ajustes → Personas.`,
+        );
+      const sourceSec = l.clip.out - l.clip.in;
+      if (sourceSec > FACE_SWAP_MAX_S)
+        throw new Unresolved(
+          `${label(l)} dura ${fmtSec(sourceSec)}: el cambio de cara procesa tramos de hasta 10 min. ` +
+            "Dividilo antes y decime qué parte.",
+        );
+      let t: number | undefined;
+      if (op.t !== undefined) {
+        t = seconds(op.t, ctx, "de la cara a cambiar");
+        if (t < l.clip.start - 1e-3 || t >= clipEnd(l.clip) - 1e-3)
+          throw new Unresolved(
+            `El momento ${fmtSec(t)} no cae dentro de ${describe(l, media)}. ¿En qué segundo se ve la cara?`,
+          );
+      } else if (op.face_index !== undefined) {
+        const cursor = ctx.cursor;
+        t =
+          cursor !== undefined && cursor >= l.clip.start && cursor < clipEnd(l.clip)
+            ? round3(cursor)
+            : round3(l.clip.start);
+      }
+      const model = op.model ?? "hyperswap_1a_256";
+      const info = FACE_SWAPPER_INFO[model];
+      risks.push("Cambio de cara con IA: queda marcado como contenido alterado.");
+      const packR = packRisk(ctx, FEATURE_PACKS.faceswap);
+      if (packR) risks.push(packR);
+      if (info.pack !== FEATURE_PACKS.faceswap) {
+        const extraR = packRisk(ctx, info.pack);
+        if (extraR) risks.push(extraR);
+      }
+      if (!faceswapLicence(ctx))
+        risks.push(
+          "Falta aceptar en pantalla la licencia del cambio de cara (Ajustes → Paquetes de IA): " +
+            "sin eso va a fallar.",
+        );
+      if (l.track.locked) risks.push(`La pista «${l.track.name}» está bloqueada: va a fallar.`);
+      risks.push(
+        `Operación larga: cambiar la cara procesa ${fmtSec(sourceSec)} de video (en CPU, varios minutos por segundo).`,
+      );
+      const which =
+        op.face_index !== undefined ? ` (cara ${op.face_index + 1} desde la izquierda)` : "";
+      return {
+        op: {
+          ...op,
+          clip: ref(l),
+          person: { id: person.id },
+          ...(t !== undefined && { t }),
+          confirm: true,
+        },
+        preview: `Cambiar la cara${which} de ${label(l)} por la de «${person.name}» (${info.name_es}; ${info.licence})`,
+        risks,
+      };
+    }
   }
+}
+
+/** Longest source range one face swap processes (CLIP_TOO_LONG in the api). */
+export const FACE_SWAP_MAX_S = 600;
+
+function personList(ctx: ResolveContext): readonly PersonSummary[] {
+  if (ctx.persons) return ctx.persons;
+  const dir = personsDirectory();
+  if (!dir)
+    throw new Unresolved(
+      "No puedo ver las Personas registradas. Registrala con su consentimiento en Ajustes → Personas.",
+    );
+  return dir.persons;
+}
+
+function faceswapLicence(ctx: ResolveContext): boolean {
+  return ctx.faceswapLicence ?? personsDirectory()?.faceswapLicence ?? true;
+}
+
+/** `person` {id} | {name} -> one registered Person, or a question (never a guess). */
+function resolvePerson(ref: { id: string } | { name: string }, ctx: ResolveContext): PersonSummary {
+  const list = personList(ctx);
+  if ("id" in ref) {
+    const hit = list.find((p) => p.id === ref.id);
+    if (!hit)
+      throw new Unresolved(
+        `No existe la Persona con id «${ref.id}». ¿Cuál es? Registrala en Ajustes → Personas.`,
+      );
+    return hit;
+  }
+  const scored = list.map((p) => ({ p, s: nameScore(p.name, ref.name) })).filter((x) => x.s > 0);
+  const best = Math.max(0, ...scored.map((x) => x.s));
+  const top = scored.filter((x) => x.s === best).map((x) => x.p);
+  if (top.length === 1) return top[0]!;
+  if (top.length === 0)
+    throw new Unresolved(
+      `No hay ninguna Persona registrada llamada «${ref.name}». Registrala con su consentimiento ` +
+        "en Ajustes → Personas.",
+    );
+  throw new Unresolved(
+    `¿Qué Persona es «${ref.name}»? Hay ${top.length}: ${top
+      .slice(0, 4)
+      .map((p) => `«${p.name}»`)
+      .join(", ")}.`,
+  );
 }
 
 function allAssets(ctx: ResolveContext) {
@@ -743,6 +861,7 @@ const TITLES: Record<EditOp["op"], string> = {
   set_publish: "Revisión para redes",
   export: "Exportar",
   report_bug: "Reportar error",
+  face_swap: "Cambiar cara",
 };
 
 export const opTitle = (op: Pick<EditOp, "op">) => TITLES[op.op] ?? op.op;

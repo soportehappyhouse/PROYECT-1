@@ -55,7 +55,8 @@ DEFAULT_VOICE = "es_AR-daniela-high"
 WHISPER_SIZES = {"base": 145_000_000, "large-v3-turbo": 1_620_000_000}
 PIPER_QUALITY_SIZES = {"high": 114_000_000, "medium": 63_000_000, "low": 63_000_000}
 PIPER_X_LOW = 28_000_000
-RVC_SIZES = {"rmvpe.pt": 181_000_000, "hubert_base/pytorch_model.bin": 190_000_000}
+# rvc-base: rmvpe.pt exact size [S] (rvc_engine.RMVPE_SIZE); hubert transformers weights ~190 MB [S]
+RVC_SIZES = {"rmvpe.pt": 181_189_687, "hubert_base/pytorch_model.bin": 190_000_000}
 
 DEEPFILTER_MODEL = "DeepFilterNet3"
 # Same file df.enhance.maybe_download_model fetches (deepfilternet 0.5.6 on PyPI [V]); size and
@@ -131,6 +132,11 @@ class Pack:
     # Name that depends on the configuration (agent-llm: after AGENT_MODEL); name_es stays the
     # static name of models/packs.json.
     name_fn: Callable[[], str] | None = None
+    # Sprint 4: licence that must be accepted on screen before downloading/using the pack
+    # (LicenceId, e.g. "faceswap"), and the {id, state} of the isolated tool venv it needs
+    # (toolvenv.status_summary) for GET /packs.
+    licence_gate: str | None = None
+    tool_status: Callable[[], dict] | None = None
 
     @property
     def display_name(self) -> str:
@@ -520,10 +526,15 @@ PACKS: dict[str, Pack] = {
                 "Codificador de contenido y estimador de tono para convertir voces con RVC."
             ),
             group="voice",
-            license="MIT (lj1995/VoiceConversionWebUI)",
+            license="MIT (lj1995/VoiceConversionWebUI; respaldo r3gm/hubert_base)",
             required_by=("rvc",),
             approx_size=sum(RVC_SIZES.values()),
             items=_rvc_items,
+            notes=(
+                "hubert_base/{config.json, pytorch_model.bin} (formato transformers) y rmvpe.pt "
+                "de lj1995/VoiceConversionWebUI; si esa ruta responde 404 se usa r3gm/hubert_base "
+                "(el que carga infer-rvc-python). models/manifest.json guarda el origen."
+            ),
         ),
         Pack(
             id="scenes",
@@ -1061,6 +1072,9 @@ def pack_status(
         "group": pack.group,
         # additive: "pinned" | "first-download" | "pending" | "none" (doctor.ps1)
         "integrity": pack_integrity(pack, root, manifest or Manifest.load(root), catalog),
+        # Sprint 4 (additive): PackSchema.licence_gate / PackSchema.tool {id, state}.
+        "licence_gate": pack.licence_gate,
+        "tool": pack.tool_status() if pack.tool_status is not None else None,
     }
 
 
@@ -1358,3 +1372,451 @@ def install_pack(
     }
     manifest.save()
     return report
+
+
+# BEGIN sprint4:M2 — pack "tts-chatterbox" (Chatterbox Multilingual TTS + zero-shot cloning)
+# Code MIT (resemble-ai/chatterbox at a pinned SHA; fallback chatterbox-tts==0.1.7 = V2 only) and
+# PerTh MIT (watermark always on). Runs ONLY in tools/chatterbox/.venv (torch 2.6.0, numpy<2),
+# created by toolvenv.ensure("chatterbox") (M3, imported lazily) after the files below. Weights:
+# public Hugging Face repo ResembleAI/chatterbox, no token. Sizes [S] (docs/trabajo/
+# fuentes-sprint4.md §2.3); sha256 not obtainable from the build sandbox -> trust on first download
+# (models/manifest.json records size + sha256, doctor shows «verificación pendiente»). Pin the HF
+# revision once `HfApi().model_info("ResembleAI/chatterbox", files_metadata=True)` is run on a PC.
+CHATTERBOX_HF_REPO = "ResembleAI/chatterbox"
+# Audit fix 13: `main` only until the first download; the commit it resolved to (X-Repo-Commit) is
+# recorded in models/manifest.json with each file's sha256 and every later download is pinned to it
+# (chatterbox_revision()). doctor shows «verificación pendiente» while nothing is recorded.
+CHATTERBOX_HF_REVISION = "main"
+CHATTERBOX_HF_BASE = f"https://huggingface.co/{CHATTERBOX_HF_REPO}/resolve/{CHATTERBOX_HF_REVISION}"
+CHATTERBOX_GROUP = "tts-chatterbox:weights"
+
+
+def chatterbox_revision(root: Path) -> tuple[str, bool]:
+    """(revision, pinned): the HF commit recorded by the first download, else ("main", False)."""
+    manifest = Manifest.load(root)
+    for entry in manifest.files.values():
+        rev = entry.get("revision") if isinstance(entry, dict) else None
+        if entry.get("group") == CHATTERBOX_GROUP and isinstance(rev, str) and len(rev) == 40:
+            return rev, True
+    return CHATTERBOX_HF_REVISION, False
+
+
+# name -> (approx size [S], minimum accepted size)
+CHATTERBOX_COMMON_FILES: dict[str, tuple[int, int]] = {
+    "ve.pt": (5_700_000, 4_000_000),
+    "s3gen.pt": (1_060_000_000, 900_000_000),
+    "grapheme_mtl_merged_expanded_v1.json": (70_000, 1_000),
+    "conds.pt": (169_000, 100_000),
+    "Cangjie5_TC.json": (1_000_000, 1_000),
+}
+CHATTERBOX_T3_FILES: dict[str, tuple[str, int, int]] = {  # variant -> (file, approx, min)
+    "v3": ("t3_mtl23ls_v3.safetensors", 2_140_000_000, 1_900_000_000),
+    "v2": ("t3_mtl23ls_v2.safetensors", 2_140_000_000, 1_900_000_000),
+}
+CHATTERBOX_VENV_SIZE = 3_000_000_000  # [S] torch 2.6.0+cu124 (~2.5 GB) + the rest
+
+
+def _chatterbox_item(name: str, min_bytes: int, root: Path | None = None) -> FileItem:
+    """A weight file at the pinned revision; a file already recorded (trust on first download)
+    must come back with the same sha256."""
+    rev, _pinned = (
+        chatterbox_revision(root) if root is not None else (CHATTERBOX_HF_REVISION, False)
+    )
+    entry = Manifest.load(root).get(f"chatterbox/{name}") if root is not None else None
+    sha = entry.get("sha256") if entry else None
+    return FileItem(
+        CHATTERBOX_GROUP,
+        name,
+        f"chatterbox/{name}",
+        f"https://huggingface.co/{CHATTERBOX_HF_REPO}/resolve/{rev}/{name}",
+        Expected(min_bytes=min_bytes, sha256=sha if isinstance(sha, str) else None),
+    )
+
+
+def chatterbox_variant(root: Path, *, git: Callable[[], bool] | None = None) -> str:
+    """T3 checkpoint the pack needs: the tool venv's stamp variant (v3 = git SHA, v2 = PyPI
+    fallback). Before the venv exists: v3, or v2 when Git is missing (ensure will fall back)."""
+    from .tts.chatterbox import T3_FILES, tool_status  # noqa: PLC0415
+
+    st = tool_status()
+    variant = st.get("variant")
+    if variant in T3_FILES:
+        return str(variant)
+    if st.get("state") == "missing":
+        return "v3" if (git or git_available)() else "v2"
+    folder = root / "chatterbox"
+    if not (folder / T3_FILES["v3"]).is_file() and (folder / T3_FILES["v2"]).is_file():
+        return "v2"
+    return "v3"
+
+
+def _chatterbox_items(root: Path, _catalog: dict | None) -> list[Item]:
+    name, _approx, min_bytes = CHATTERBOX_T3_FILES[chatterbox_variant(root)]
+    items = [_chatterbox_item(n, m, root) for n, (_a, m) in CHATTERBOX_COMMON_FILES.items()]
+    items.insert(1, _chatterbox_item(name, min_bytes, root))
+    return items
+
+
+def _chatterbox_status_rows(_root: Path) -> list[dict[str, Any]]:
+    try:
+        from . import toolvenv  # noqa: PLC0415 - M3
+
+        return toolvenv.status_rows("chatterbox")
+    except (ImportError, AttributeError):
+        from .tts.chatterbox import tool_status  # noqa: PLC0415
+
+        ready = tool_status().get("state") == "ready"
+        name = "venv:tools/chatterbox/.venv (Python 3.11, torch 2.6)"
+        return [{"name": name, "size": CHATTERBOX_VENV_SIZE, "present": ready}]
+
+
+def _chatterbox_tool_status() -> dict:
+    try:
+        from . import toolvenv  # noqa: PLC0415 - M3
+
+        return toolvenv.status_summary("chatterbox")
+    except (ImportError, AttributeError):
+        return {"id": "chatterbox", "state": "missing"}
+
+
+def _chatterbox_setup(
+    root: Path, say: Callable[[str], None], client: httpx.Client | None = None
+) -> None:
+    """post_install_env: create/update tools/chatterbox/.venv, then make sure the T3 checkpoint
+    of the variant it ended with is on disk (git failed -> V2 fallback -> download the V2 T3)."""
+    try:
+        from . import toolvenv  # noqa: PLC0415 - M3
+    except ImportError:
+        toolvenv = None  # type: ignore[assignment]
+    if toolvenv is not None and hasattr(toolvenv, "ensure"):
+        toolvenv.ensure("chatterbox", use_cuda=_use_cuda_setting(), on_line=say)
+    elif os.environ.get("CHATTERBOX_PYTHON", "").strip():
+        say("CHATTERBOX_PYTHON definido: no se crea tools/chatterbox/.venv")
+    else:
+        raise RuntimeError("Falta studio_workers/toolvenv.py: no se puede crear el entorno aislado")
+    variant = chatterbox_variant(root)
+    name, _approx, min_bytes = CHATTERBOX_T3_FILES[variant]
+    item = _chatterbox_item(name, min_bytes, root)
+    manifest = Manifest.load(root)
+    if item.status(root, manifest).state != "present":
+        say(f"el entorno quedó en Chatterbox {variant.upper()}: se baja {name}")
+        item.fetch(root, manifest, client, lambda _d, _t: None)
+        manifest.save()
+
+
+def _chatterbox_installed(root: Path) -> bool:
+    name = CHATTERBOX_T3_FILES[chatterbox_variant(root)][0]
+    return (root / "chatterbox" / name).is_file()
+
+
+PACKS["tts-chatterbox"] = Pack(
+    id="tts-chatterbox",
+    name_es="Voz avanzada (Chatterbox: español y clonación)",
+    description_es=(
+        "Texto a voz multilingüe de alta calidad (español por defecto) que puede clonar una voz "
+        "desde ~10 s de muestra: tu «Voz propia» o la de una Persona con consentimiento de voz. "
+        "Corre en un entorno aparte (tools\\chatterbox) y usa ~4–5 GB de GPU; sin GPU funciona en "
+        "CPU, bastante más lento. Todo audio generado lleva la marca de agua inaudible PerTh."
+    ),
+    group="voice",
+    license="MIT (Chatterbox y PerTh, Resemble AI); marca de agua PerTh siempre activa",
+    required_by=("voice.tts.chatterbox",),
+    approx_size=CHATTERBOX_VENV_SIZE
+    + CHATTERBOX_T3_FILES["v3"][1]
+    + sum(a for a, _m in CHATTERBOX_COMMON_FILES.values()),
+    items=_chatterbox_items,
+    installed_check=_chatterbox_installed,
+    post_install_env=_chatterbox_setup,
+    extra_status=_chatterbox_status_rows,
+    tool_status=_chatterbox_tool_status,
+    notes=(
+        f"Hugging Face {CHATTERBOX_HF_REPO}@{CHATTERBOX_HF_REVISION} (sha256 de la primera "
+        "descarga); código git 5de7a54 (V3) o chatterbox-tts 0.1.7 (V2) en tools/chatterbox/.venv"
+    ),
+)
+FEATURE_PACKS["voice.tts.chatterbox"] = "tts-chatterbox"
+# END sprint4:M2
+
+
+# BEGIN sprint4:M1 — packs "faceswap", "faceswap-extra" (FaceFusion 3.9.1, licence «faceswap»)
+# Code: FaceFusion 3.9.1 (OpenRAIL-AS) runs ONLY as a subprocess of tools/facefusion/.venv (Python
+# 3.12, onnxruntime-gpu 1.24.4), created by toolvenv.ensure("facefusion") (M3, imported lazily).
+# Weights from the public GitHub releases of facefusion/facefusion-assets: sizes measured with
+# Range requests and CRC32 = content of the published .hash files [V] (docs/trabajo/
+# fuentes-sprint4.md §1.5). FaceFusion only accepts a model when crc32(onnx) == .hash, so both go
+# to models/facefusion/ (tools/facefusion/app/.assets/models is a junction to it): with every file
+# present it downloads nothing. sha256: trust on first download (models/manifest.json). Nothing of
+# this is downloaded or run before the on-screen licence «faceswap» is accepted (licence_gate).
+FACEFUSION_ASSETS = "https://github.com/facefusion/facefusion-assets/releases/download"
+FACEFUSION_MODELS_SUBDIR = "facefusion"
+FACEFUSION_CRC_STAMP = ".studio-crc.json"
+FACEFUSION_VENV_SIZE = 2_200_000_000  # [V/S] onnxruntime-gpu 207 MB + nvidia cu12 ~1.65 GB + rest
+
+
+@dataclass(frozen=True)
+class FaceFusionModel:
+    name: str
+    release: str  # models-X.Y.Z tag of facefusion-assets
+    size_mb: float  # decimal MB [V] (Range request)
+    crc32: str | None  # [V] content of <name>.hash; None = only checked against the .hash file
+    licence: str
+    pack: str
+
+
+def _ffm(name: str, release: str, mb: float, crc: str | None, lic: str, pack: str = "faceswap"):
+    return FaceFusionModel(name, release, mb, crc, lic, pack)
+
+
+FACEFUSION_MODELS: dict[str, FaceFusionModel] = {
+    m.name: m
+    for m in (
+        _ffm("hyperswap_1a_256", "models-3.3.0", 402.7, "79e50d4b", "ResearchRAIL"),
+        _ffm("nsfw_1", "models-3.3.0", 80.4, "f602d1c5", "Apache-2.0"),
+        _ffm("nsfw_2", "models-3.3.0", 22.5, "c7fa5fe2", "Apache-2.0"),
+        _ffm("nsfw_3", "models-3.3.0", 358.2, "633a3b02", "MIT"),
+        _ffm("fairface", "models-3.0.0", 85.2, "10d79769", "CC-BY-4.0"),
+        _ffm("yoloface_8n", "models-3.0.0", 12.7, "f9a0382f", "GPL-3.0"),
+        _ffm("fan_68_5", "models-3.0.0", 0.9, "95c4a198", "OpenRAIL-M"),
+        _ffm("2dfan4", "models-3.0.0", 97.9, "a948738e", "MIT"),
+        _ffm("xseg_1", "models-3.1.0", 70.3, "f207afe3", "GPL-3.0"),
+        _ffm("bisenet_resnet_34", "models-3.0.0", 93.6, "35d17a50", "MIT"),
+        _ffm("arcface_w600k_r50", "models-3.0.0", 174.4, "1f5fefb8", "No comercial (InsightFace)"),
+        _ffm("kim_vocal_2", "models-3.0.0", 66.8, "c965a055", "No comercial"),
+        _ffm("gfpgan_1.4", "models-3.0.0", 340.3, "5a6c6364", "Apache-2.0"),
+        # faceswap-extra: chosen in «Cambiar cara» -> 409 PACK_REQUIRED faceswap-extra
+        _ffm("ghost_1_256", "models-3.0.0", 514.9, "53447f7f", "Apache-2.0", "faceswap-extra"),
+        # [U] release tag and CRC32 of crossface_ghost not read (22.1 MB [V]): checked vs .hash only
+        _ffm("crossface_ghost", "models-3.0.0", 22.1, None, "Apache-2.0", "faceswap-extra"),
+        _ffm(
+            "inswapper_128_fp16",
+            "models-3.0.0",
+            277.7,
+            "32500ff1",
+            "No comercial (InsightFace)",
+            "faceswap-extra",
+        ),
+    )
+}
+# Common modules every headless-run loads (content analyser, classifier, detector, landmarkers,
+# maskers, recognizer, voice extractor), whatever the swapper.
+FACEFUSION_BASE_MODELS: tuple[str, ...] = (
+    "nsfw_1",
+    "nsfw_2",
+    "nsfw_3",
+    "fairface",
+    "yoloface_8n",
+    "fan_68_5",
+    "2dfan4",
+    "xseg_1",
+    "bisenet_resnet_34",
+    "arcface_w600k_r50",
+    "kim_vocal_2",
+)
+FACEFUSION_SWAPPER_MODELS: dict[str, tuple[str, ...]] = {
+    "hyperswap_1a_256": ("hyperswap_1a_256",),
+    "ghost_1_256": ("ghost_1_256", "crossface_ghost"),
+    "inswapper_128_fp16": ("inswapper_128_fp16",),
+}
+FACEFUSION_ENHANCER_MODEL = "gfpgan_1.4"
+
+
+def facefusion_dir(root: Path) -> Path:
+    return root / FACEFUSION_MODELS_SUBDIR
+
+
+def facefusion_models_for(swapper: str, enhancer: bool) -> list[str]:
+    """Model files one run needs (base modules + swapper (+ crossface) + GFPGAN)."""
+    names = [*FACEFUSION_BASE_MODELS, *FACEFUSION_SWAPPER_MODELS[swapper]]
+    if enhancer:
+        names.append(FACEFUSION_ENHANCER_MODEL)
+    return names
+
+
+def _facefusion_pack_models(pack_id: str) -> list[FaceFusionModel]:
+    return [m for m in FACEFUSION_MODELS.values() if m.pack == pack_id]
+
+
+def _facefusion_items_for(pack_id: str) -> Callable[[Path, dict | None], list[Item]]:
+    def items(root: Path, _catalog: dict | None) -> list[Item]:
+        out: list[Item] = list(_yunet_items(root, _catalog)) if pack_id == "faceswap" else []
+        for m in _facefusion_pack_models(pack_id):
+            base = f"{FACEFUSION_ASSETS}/{m.release}/{m.name}"
+            rel = f"{FACEFUSION_MODELS_SUBDIR}/{m.name}"
+            min_bytes = max(1_000, int(m.size_mb * 1_000_000 * 0.97))
+            out.append(FileItem(f"{pack_id}:facefusion", f"{m.name}.onnx", f"{rel}.onnx",
+                                f"{base}.onnx", Expected(min_bytes=min_bytes)))  # fmt: skip
+            out.append(FileItem(f"{pack_id}:facefusion", f"{m.name}.hash", f"{rel}.hash",
+                                f"{base}.hash", Expected(min_bytes=8)))  # fmt: skip
+        return out
+
+    return items
+
+
+def _read_hash(path: Path) -> str:
+    try:
+        return path.read_text("utf-8", errors="replace").strip().lower()[:8]
+    except OSError:
+        return ""
+
+
+def facefusion_models_ready(root: Path, names: list[str] | tuple[str, ...]) -> list[str]:
+    """Cheap check (no hashing): names whose .onnx or .hash is missing, or whose .hash does not
+    match the pinned CRC32. [] = all there."""
+    folder = facefusion_dir(root)
+    bad: list[str] = []
+    for name in names:
+        model = FACEFUSION_MODELS[name]
+        onnx, hsh = folder / f"{name}.onnx", folder / f"{name}.hash"
+        missing = not onnx.is_file() or not hsh.is_file()
+        if missing or (model.crc32 and _read_hash(hsh) != model.crc32):
+            bad.append(name)
+    return bad
+
+
+def crc32_file(path: Path, chunk: int = 4 * 1024 * 1024) -> str:
+    import zlib  # noqa: PLC0415
+
+    crc = 0
+    with path.open("rb") as fh:
+        while block := fh.read(chunk):
+            crc = zlib.crc32(block, crc)
+    return f"{crc & 0xFFFFFFFF:08x}"
+
+
+def verify_facefusion_models(
+    root: Path, names: list[str] | tuple[str, ...], *, on_line: Callable[[str], None] | None = None
+) -> list[str]:
+    """Full check: crc32(onnx) == .hash (== pinned CRC32), as FaceFusion's hash_helper does. A
+    stamp (size + mtime per file) in models/facefusion/.studio-crc.json skips files already checked.
+    Returns the names that failed (missing or corrupt)."""
+    say = on_line or (lambda _l: None)
+    folder = facefusion_dir(root)
+    stamp_path = folder / FACEFUSION_CRC_STAMP
+    try:
+        stamp: dict[str, Any] = json.loads(stamp_path.read_text("utf-8"))
+    except (OSError, ValueError):
+        stamp = {}
+    bad = facefusion_models_ready(root, names)
+    changed = False
+    for name in names:
+        if name in bad:
+            continue
+        onnx = folder / f"{name}.onnx"
+        st = onnx.stat()
+        key = [st.st_size, st.st_mtime_ns]
+        expected = _read_hash(folder / f"{name}.hash")
+        cached = stamp.get(name)
+        if isinstance(cached, dict) and cached.get("key") == key and cached.get("crc") == expected:
+            continue
+        say(f"verificando CRC32 de {name}.onnx")
+        crc = crc32_file(onnx)
+        if crc != expected:
+            say(f"{name}.onnx dañado (CRC32 {crc}, se esperaba {expected})")
+            stamp.pop(name, None)
+            bad.append(name)
+        else:
+            stamp[name] = {"key": key, "crc": crc}
+        changed = True
+    if changed and folder.is_dir():
+        tmp = stamp_path.with_name(FACEFUSION_CRC_STAMP + ".tmp")
+        tmp.write_text(json.dumps(stamp, indent=1) + "\n", "utf-8")
+        tmp.replace(stamp_path)
+    return bad
+
+
+def _facefusion_post_install(pack_id: str) -> Callable[[Path], None]:
+    def post(root: Path) -> None:
+        names = [m.name for m in _facefusion_pack_models(pack_id)]
+        bad = verify_facefusion_models(root, names, on_line=lambda line: log.info(line))
+        if bad:
+            for name in bad:  # a corrupt file is downloaded again on the next try
+                (facefusion_dir(root) / f"{name}.onnx").unlink(missing_ok=True)
+            names = ", ".join(bad)
+            raise RuntimeError(f"Modelos de FaceFusion dañados (CRC32): {names}. Reintentá.")
+
+    return post
+
+
+def _facefusion_installed(pack_id: str) -> Callable[[Path], bool]:
+    def check(root: Path) -> bool:
+        names = [m.name for m in _facefusion_pack_models(pack_id)]
+        return not facefusion_models_ready(root, names)
+
+    return check
+
+
+def _faceswap_tool_status() -> dict:
+    from .face.tool import tool_summary  # noqa: PLC0415
+
+    return tool_summary()
+
+
+def _faceswap_status_rows(_root: Path) -> list[dict[str, Any]]:
+    from .face.tool import tool_status_rows  # noqa: PLC0415
+
+    return tool_status_rows()
+
+
+def _faceswap_env(_root: Path, say: Callable[[str], None]) -> None:
+    from .face.tool import ensure_tool  # noqa: PLC0415
+
+    ensure_tool(say)
+
+
+_FACESWAP_LICENSE = (
+    "OpenRAIL-AS (FaceFusion) + modelos no comerciales, ResearchRAIL, GPL-3, Apache, MIT, "
+    "CC-BY-4.0 — aislado en tools\\facefusion"
+)
+PACKS["faceswap"] = Pack(
+    id="faceswap",
+    name_es="Cambio de cara (FaceFusion 3.9.1)",
+    description_es=(
+        "Pone la cara de una Persona registrada con su consentimiento sobre la de un clip (por "
+        "ejemplo, un doble de riesgo). FaceFusion corre aparte (tools\\facefusion, Python 3.12) y "
+        "su analizador de contenido queda siempre activo. Requiere aceptar en pantalla la licencia "
+        "(modelos de uso no comercial). En GPU usa ~3,5 GB; sin GPU es muy lento."
+    ),
+    group="faceswap",
+    license=_FACESWAP_LICENSE,
+    required_by=("face.swap", "face.preview", "face.detect"),
+    pip=(NUMPY, OPENCV_HEADLESS),
+    approx_size=int(sum(m.size_mb for m in _facefusion_pack_models("faceswap")) * 1_000_000)
+    + YUNET_SIZE
+    + OPENCV_HEADLESS.size
+    + FACEFUSION_VENV_SIZE,
+    items=_facefusion_items_for("faceswap"),
+    post_install=_facefusion_post_install("faceswap"),
+    installed_check=_facefusion_installed("faceswap"),
+    post_install_env=_faceswap_env,
+    extra_status=_faceswap_status_rows,
+    licence_gate="faceswap",
+    tool_status=_faceswap_tool_status,
+    notes=(
+        "FaceFusion 3.9.1 (72470819) en tools/facefusion/.venv; modelos .onnx + .hash de "
+        "facefusion-assets (GitHub releases), CRC32 verificado; sha256 de la primera descarga"
+    ),
+)
+PACKS["faceswap-extra"] = Pack(
+    id="faceswap-extra",
+    name_es="Modelos extra de cambio de cara",
+    description_es=(
+        "Modelos alternativos para «Cambiar cara»: Ghost 1 (Apache-2.0, 256 px) e InSwapper "
+        "(128 px, rápido, uso no comercial). Requiere el paquete «Cambio de cara»."
+    ),
+    group="faceswap",
+    license="Apache-2.0 (Ghost) + No comercial (InsightFace, InSwapper)",
+    required_by=("face.swap.extra",),
+    approx_size=int(sum(m.size_mb for m in _facefusion_pack_models("faceswap-extra")) * 1_000_000),
+    items=_facefusion_items_for("faceswap-extra"),
+    post_install=_facefusion_post_install("faceswap-extra"),
+    installed_check=_facefusion_installed("faceswap-extra"),
+    post_install_env=_faceswap_env,
+    extra_status=_faceswap_status_rows,
+    licence_gate="faceswap",
+    tool_status=_faceswap_tool_status,
+    notes="ghost_1_256 + crossface_ghost + inswapper_128_fp16 (facefusion-assets models-3.0.0)",
+)
+FEATURE_PACKS["face.swap"] = "faceswap"
+FEATURE_PACKS["face.preview"] = "faceswap"
+FEATURE_PACKS["face.swap.extra"] = "faceswap-extra"
+# END sprint4:M1

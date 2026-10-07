@@ -12,16 +12,17 @@ from pathlib import Path
 import pytest
 from conftest import lavfi_video, needs_ffmpeg
 
-from studio_workers import packs
+from studio_workers import packs, toolvenv
 from studio_workers.config import REPO_ROOT, get_settings
 from studio_workers.errors import CodedError
-from studio_workers.face import tool
 from studio_workers.face.engine import FaceCanceled, FaceEngine
 from studio_workers.face.runner import (
+    NSFW_RE,
     HeadlessArgs,
     RunOutcome,
     classify,
     headless_args,
+    nsfw_pattern,
 )
 from studio_workers.face.schemas import FaceSelector, FaceSwapWorkerRequest
 from studio_workers.gpu import GPU_FALLBACK_CPU, GpuBudget, VramInfo
@@ -91,8 +92,23 @@ def test_classify_nsfw_tool_failed_and_launch_errors() -> None:
         RunOutcome(1, ["[FACEFUSION.CONTENT_ANALYSER] Explicit content detected"]), False
     )
     assert nsfw is not None and nsfw.code == "CONTENT_BLOCKED"
-    silent = classify(RunOutcome(1, ["[FACEFUSION.CORE] Processing step 1"]), False)
-    assert silent is not None and silent.code == "CONTENT_BLOCKED"  # heuristic: no error line
+    # the real 3.9.1 rejection only says «Processing … failed» (no «failed» in ERROR_RE any more)
+    real = classify(RunOutcome(1, ["[FACEFUSION.CORE] Processing to video failed"]), False)
+    assert real is not None and real.code == "CONTENT_BLOCKED"
+    # audit fix 6: silent / killed / OOM deaths and nsfw MODEL problems are tool failures
+    for outcome in (
+        RunOutcome(1, []),
+        RunOutcome(-9, []),
+        RunOutcome(3221225477, ["[FACEFUSION.CORE] Processing to video failed"]),
+        RunOutcome(1, ["[FACEFUSION.CORE] Processing step 1"]),
+        RunOutcome(1, ["[FACEFUSION.DOWNLOAD] Downloading nsfw_1.onnx failed"]),
+        RunOutcome(1, ["[FACEFUSION.CONTENT_ANALYSER] Validating nsfw_2 model hash", "x"]),
+        RunOutcome(1, ["Processing to video failed", "MemoryError"]),
+    ):
+        got = classify(outcome, False)
+        assert got is not None and got.code == "TOOL_FAILED", outcome
+    silent = classify(RunOutcome(1, []), False)
+    assert silent is not None and "sin mensajes" in silent.line
     cuda = classify(
         RunOutcome(1, ["loading", "error: CUDAExecutionProvider is not available"]), False
     )
@@ -106,6 +122,19 @@ def test_classify_nsfw_tool_failed_and_launch_errors() -> None:
     no_out = classify(RunOutcome(0, ["done"]), False)
     assert no_out is not None and no_out.code == "TOOL_FAILED"
     assert classify(RunOutcome(0, ["done"]), True) is None
+
+
+def test_nsfw_pattern_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FACEFUSION_NSFW_RE pins the real wording from the user's PC without a code change."""
+    monkeypatch.delenv("FACEFUSION_NSFW_RE", raising=False)
+    assert nsfw_pattern({}) is NSFW_RE
+    custom = nsfw_pattern({"FACEFUSION_NSFW_RE": r"contenido rechazado"})
+    hit = classify(RunOutcome(1, ["[X] contenido rechazado por el filtro"]), False, custom)
+    assert hit is not None and hit.code == "CONTENT_BLOCKED"
+    # the default words no longer count, but the «processing failed» heuristic still does
+    miss = classify(RunOutcome(1, ["Explicit content detected", "error: x"]), False, custom)
+    assert miss is not None and miss.code == "TOOL_FAILED"
+    assert nsfw_pattern({"FACEFUSION_NSFW_RE": "(roto"}) is NSFW_RE  # invalid -> default
 
 
 def _write_model(folder: Path, name: str, data: bytes, hsh: str | None = None) -> None:
@@ -175,14 +204,34 @@ class Spy:
 
 
 def fake_command(record: Path | None = None, env_extra: dict[str, str] | None = None):  # type: ignore[no-untyped-def]
+    """toolvenv.command() + tools/launch.py with FACEFUSION_PYTHON/APP_DIR -> the fake tool (the
+    real path: allowlisted environment, no fallback launcher)."""
+
     def command(script: str, args: list[str]) -> tuple[list[str], dict[str, str], Path]:
-        argv, env, cwd = tool._launch(script, args)
+        argv, env, cwd = toolvenv.command("facefusion", script, args)
         env = {**env, **(env_extra or {})}
         if record is not None:
-            env["FAKE_FACEFUSION_ARGV"] = str(record)
+            env["STUDIO_FAKE_FACEFUSION_ARGV"] = str(record)
         return argv, env, cwd
 
     return command
+
+
+def write_consent_mirror(storage: Path, consents: list[dict]) -> None:
+    """storage/consent/active.json as the api writes it (audit fix 4)."""
+    path = storage / "consent" / "active.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"consents": consents}), "utf-8")
+
+
+C1 = {
+    "personId": "p1",
+    "consentId": "c1",
+    "scope": "face",
+    "expires_at": None,
+    "photo_paths": ["consent/persons/p1/photos/a.png", "consent/persons/p1/photos/nsfw-test.png"],
+    "sample_paths": [],
+}
 
 
 @pytest.fixture
@@ -194,6 +243,7 @@ def ff_env(dirs: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch) -> tuple[Pa
     photos = storage / "consent" / "persons" / "p1" / "photos"
     photos.mkdir(parents=True)
     (photos / "a.png").write_bytes(b"\x89PNG fake")
+    write_consent_mirror(storage, [C1])
     return storage, models
 
 
@@ -257,7 +307,8 @@ def test_swap_range_strength_audio_and_clean_env(ff_env: tuple[Path, Path], tmp_
     assert not (storage / "renders/face/job1/ff.mp4").exists()
     argv, kwargs = spy.calls[0]
     assert kwargs["shell"] is False and isinstance(argv, list)
-    assert argv[0] == sys.executable and Path(argv[1]).name == "facefusion.py"
+    assert argv[0] == sys.executable and Path(argv[1]).name == "launch.py"
+    assert argv[argv.index("--") + 1] == "facefusion.py"
     assert Path(kwargs["cwd"]) == FAKE_APP.resolve()
     assert "HF_TOKEN" not in kwargs["env"] and kwargs["env"]["HF_HUB_OFFLINE"] == "1"
     seen = json.loads(record.read_text("utf-8"))
@@ -293,14 +344,25 @@ def test_preview_frame_reference_and_no_face(ff_env: tuple[Path, Path], tmp_path
 def test_nsfw_and_tool_failure_codes(ff_env: tuple[Path, Path]) -> None:
     storage, _ = ff_env
     lavfi_video(storage / "media" / "clip.mp4", "testsrc2=s=160x90:r=25:d=1")
+    # like the real analyser, the fake screens the TARGET: a marked SOURCE photo is processed
     nsfw = storage / "consent" / "persons" / "p1" / "photos" / "nsfw-test.png"
     nsfw.write_bytes(b"x")
     engine = make_engine(command=fake_command())
+    res = engine.run(request(source_paths=["consent/persons/p1/photos/nsfw-test.png"]), "t4a")
+    assert res["output_path"].endswith("faceswap.mp4")
+    marked = storage / "media" / "marked.mp4"
+    subprocess.run(  # noqa: S603
+        ["ffmpeg", "-y", "-v", "error", "-i", str(storage / "media" / "clip.mp4"), "-c", "copy",
+         "-metadata", "title=NSFW-TEST", str(marked)],
+        check=True,
+    )  # fmt: skip
     with pytest.raises(CodedError) as blocked:
-        engine.run(request(source_paths=["consent/persons/p1/photos/nsfw-test.png"]), "t4")
+        engine.run(request(target_path="media/marked.mp4", output_base="renders/face/j4/"), "t4")
     assert blocked.value.code == "CONTENT_BLOCKED" and blocked.value.status == 422
     assert "analizador de contenido" in str(blocked.value)
-    failing = make_engine(command=fake_command(env_extra={"FAKE_FACEFUSION_FAIL": "1"}))
+    # fail closed + audit fix 19: nothing left in renders/face/<job>/ (no asset, no source.mp4)
+    assert not (storage / "renders" / "face" / "j4").exists()
+    failing = make_engine(command=fake_command(env_extra={"STUDIO_FAKE_FACEFUSION_FAIL": "1"}))
     with pytest.raises(CodedError) as failed:
         failing.run(request(), "t5")
     assert failed.value.code == "TOOL_FAILED" and failed.value.status == 502
@@ -366,7 +428,7 @@ def test_cancel_kills_the_tree(ff_env: tuple[Path, Path]) -> None:
 
     storage, _ = ff_env
     lavfi_video(storage / "media" / "clip.mp4", "testsrc2=s=160x90:r=25:d=1")
-    engine = make_engine(command=fake_command(env_extra={"FAKE_FACEFUSION_SLEEP": "30"}))
+    engine = make_engine(command=fake_command(env_extra={"STUDIO_FAKE_FACEFUSION_SLEEP": "30"}))
     errors: list[BaseException] = []
 
     def go() -> None:
@@ -386,3 +448,98 @@ def test_cancel_kills_the_tree(ff_env: tuple[Path, Path]) -> None:
     th.join(timeout=20)
     assert not th.is_alive() and time.monotonic() - t0 < 20
     assert errors and isinstance(errors[0], FaceCanceled)
+    assert not (storage / "renders" / "face" / "job1").exists()  # audit fix 19
+
+
+def test_cancel_before_start_and_during_the_trim(
+    ff_env: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Audit fix 24: a cancel that arrives while the task is queued, or while ffmpeg trims the
+    range, stops it (the trim process is killed; FaceFusion never starts)."""
+    import threading
+    import time
+
+    from studio_workers.face import engine as engine_mod
+
+    storage, _ = ff_env
+    (storage / "media" / "clip.mp4").write_bytes(b"x")
+    launched: list[str] = []
+
+    def never(script: str, args: list[str]):  # type: ignore[no-untyped-def]
+        launched.append(script)
+        raise AssertionError("must not launch")
+
+    import studio_workers.vision.frames as frames
+
+    info = type("I", (), {"width": 64, "height": 64, "duration": 5.0, "fps_float": 25.0})()
+    monkeypatch.setattr(frames, "probe", lambda _p: info)
+    eng = make_engine(command=never)
+    eng.cancel("q1")  # canceled while queued
+    with pytest.raises(FaceCanceled):
+        eng.run(request(), "q1")
+    # a «trim» that hangs: the cancel kills it
+    sleeper = [sys.executable, "-c", "import time; time.sleep(60)"]
+    real_popen = subprocess.Popen
+
+    def fake_popen(argv, **kw):  # type: ignore[no-untyped-def]
+        return real_popen(sleeper, **kw)  # noqa: S603
+
+    monkeypatch.setattr(engine_mod.subprocess, "Popen", fake_popen)
+    errors: list[BaseException] = []
+
+    def go() -> None:
+        try:
+            eng.run(request(), "q2")
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    th = threading.Thread(target=go)
+    t0 = time.monotonic()
+    th.start()
+    for _ in range(200):
+        if eng._procs.get("q2"):
+            break
+        time.sleep(0.05)
+    assert eng.cancel("q2") is True
+    th.join(timeout=20)
+    assert not th.is_alive() and time.monotonic() - t0 < 20
+    assert errors and isinstance(errors[0], FaceCanceled)
+    assert launched == [] and not (storage / "renders" / "face" / "job1" / "source.mp4").exists()
+
+
+def test_consent_mirror_is_checked_before_launch(ff_env: tuple[Path, Path]) -> None:
+    """Audit fix 4: a non-empty consent_id is not enough: it must be a valid face consent of
+    consent/active.json listing every source photo, under consent/persons/<thatPerson>/."""
+    storage, _ = ff_env
+    (storage / "media" / "clip.mp4").write_bytes(b"x")
+    other = storage / "consent" / "persons" / "p2" / "photos"
+    other.mkdir(parents=True)
+    (other / "b.png").write_bytes(b"x")
+    (storage / "media" / "foto.png").write_bytes(b"x")
+
+    def never(script: str, args: list[str]):  # type: ignore[no-untyped-def]
+        raise AssertionError("must not launch")
+
+    eng = make_engine(command=never)
+    cases = [
+        (request(consent_id="unknown"), "none"),
+        (request(source_paths=["consent/persons/p2/photos/b.png"]), "scope"),
+        (request(source_paths=["media/foto.png"]), "scope"),
+    ]
+    for req, reason in cases:
+        with pytest.raises(CodedError) as err:
+            eng.run(req, "m1")
+        assert err.value.code == "CONSENT_REQUIRED" and err.value.status == 403
+        assert err.value.details["reason"] == reason
+    write_consent_mirror(storage, [{**C1, "expires_at": "2020-01-01T00:00:00.000Z"}])
+    with pytest.raises(CodedError) as expired:
+        eng.run(request(), "m2")
+    assert expired.value.details["reason"] == "expired"
+    write_consent_mirror(storage, [{**C1, "scope": "voice"}])
+    with pytest.raises(CodedError) as scope:
+        eng.run(request(), "m3")
+    assert scope.value.details["reason"] == "scope"
+    (storage / "consent" / "active.json").unlink()
+    with pytest.raises(CodedError) as gone:
+        eng.run(request(), "m4")
+    assert gone.value.details["reason"] == "none"

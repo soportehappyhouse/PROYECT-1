@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { inflateSync } from "node:zlib";
 import { CONSENT_DIR, LICENCE_MIRROR_PATH, type LicenceAcceptance } from "@studio/shared";
 import { resolveStoragePath } from "../storage.js";
 
@@ -116,6 +117,109 @@ export function sniffImage(buf: Buffer): ImageInfo | undefined {
   return undefined;
 }
 
+/**
+ * Pixels of an 8-bit, non-interlaced PNG as RGBA (what a canvas signature is), or undefined when it
+ * cannot be decoded here (other bit depths, interlaced, truncated, > 16 Mpx).
+ */
+export function decodePngRgba(
+  buf: Buffer,
+): { width: number; height: number; rgba: Uint8Array } | undefined {
+  if (buf.length < 33 || buf.readUInt32BE(0) !== 0x89504e47 || buf.readUInt32BE(4) !== 0x0d0a1a0a)
+    return undefined;
+  let width = 0;
+  let height = 0;
+  let depth = 0;
+  let color = -1;
+  let interlace = 0;
+  let palette: Buffer | undefined;
+  let alphas: Buffer | undefined;
+  const idat: Buffer[] = [];
+  for (let i = 8; i + 8 <= buf.length;) {
+    const len = buf.readUInt32BE(i);
+    const type = buf.toString("ascii", i + 4, i + 8);
+    const data = buf.subarray(i + 8, i + 8 + len);
+    if (data.length < len) return undefined;
+    if (type === "IHDR") {
+      width = data.readUInt32BE(0);
+      height = data.readUInt32BE(4);
+      depth = data[8]!;
+      color = data[9]!;
+      interlace = data[12]!;
+    } else if (type === "PLTE") palette = data;
+    else if (type === "tRNS") alphas = data;
+    else if (type === "IDAT") idat.push(data);
+    else if (type === "IEND") break;
+    i += 12 + len;
+  }
+  const channels = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[color];
+  if (!channels || depth !== 8 || interlace !== 0 || idat.length === 0) return undefined;
+  if (width < 1 || height < 1 || width * height > 16_777_216) return undefined;
+  const stride = width * channels;
+  let raw: Buffer;
+  try {
+    raw = inflateSync(Buffer.concat(idat), { maxOutputLength: (stride + 1) * height + 1024 });
+  } catch {
+    return undefined;
+  }
+  if (raw.length < (stride + 1) * height) return undefined;
+  const px = new Uint8Array(stride * height);
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)]!;
+    const src = y * (stride + 1) + 1;
+    const row = y * stride;
+    for (let x = 0; x < stride; x++) {
+      const a = x >= channels ? px[row + x - channels]! : 0;
+      const b = y > 0 ? px[row - stride + x]! : 0;
+      const c = x >= channels && y > 0 ? px[row - stride + x - channels]! : 0;
+      let pred = 0;
+      if (filter === 1) pred = a;
+      else if (filter === 2) pred = b;
+      else if (filter === 3) pred = (a + b) >> 1;
+      else if (filter === 4) {
+        const p = a + b - c;
+        const pa = Math.abs(p - a);
+        const pb = Math.abs(p - b);
+        const pc = Math.abs(p - c);
+        pred = pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+      } else if (filter !== 0) return undefined;
+      px[row + x] = (raw[src + x]! + pred) & 0xff;
+    }
+  }
+  const rgba = new Uint8Array(width * height * 4);
+  for (let i = 0; i < width * height; i++) {
+    const o = i * 4;
+    const s = i * channels;
+    if (color === 3) {
+      const idx = px[s]!;
+      rgba[o] = palette?.[idx * 3] ?? 0;
+      rgba[o + 1] = palette?.[idx * 3 + 1] ?? 0;
+      rgba[o + 2] = palette?.[idx * 3 + 2] ?? 0;
+      rgba[o + 3] = alphas && idx < alphas.length ? alphas[idx]! : 255;
+    } else if (color === 0 || color === 4) {
+      rgba[o] = rgba[o + 1] = rgba[o + 2] = px[s]!;
+      rgba[o + 3] = color === 4 ? px[s + 1]! : 255;
+    } else {
+      rgba[o] = px[s]!;
+      rgba[o + 1] = px[s + 1]!;
+      rgba[o + 2] = px[s + 2]!;
+      rgba[o + 3] = color === 6 ? px[s + 3]! : 255;
+    }
+  }
+  return { width, height, rgba };
+}
+
+/** Pixels that count as a stroke: visible (alpha ≥ 32) and not near-white. */
+export function signatureInk(img: { rgba: Uint8Array }): number {
+  let ink = 0;
+  const p = img.rgba;
+  for (let i = 0; i < p.length; i += 4)
+    if (p[i + 3]! >= 32 && Math.min(p[i]!, p[i + 1]!, p[i + 2]!) < 200) ink++;
+  return ink;
+}
+
+/** Audit fix 16: a signature needs at least this many stroke pixels (blank / all-white = 0). */
+export const MIN_SIGNATURE_INK = 20;
+
 export const isPdf = (buf: Buffer) => buf.length >= 5 && buf.toString("ascii", 0, 5) === "%PDF-";
 
 /** Write a buffer under storage (creates the folders). Returns the absolute path. */
@@ -134,20 +238,68 @@ export async function removeStorageFile(storageDir: string, rel: string): Promis
   await rm(resolveStoragePath(storageDir, rel), { force: true, recursive: true });
 }
 
+async function listFiles(dir: string, base = dir): Promise<string[]> {
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  const out: string[] = [];
+  for (const e of entries) {
+    const abs = path.join(dir, e.name);
+    if (e.isDirectory()) out.push(...(await listFiles(abs, base)));
+    else if (e.isFile()) out.push(path.relative(base, abs));
+  }
+  return out;
+}
+
+async function fileDigest(abs: string): Promise<{ size: number; sha256: string }> {
+  const data = await readFile(abs);
+  return { size: data.length, sha256: sha256(data) };
+}
+
 /**
- * «Borrar persona»: photos and voice samples are deleted; consents (with their evidence) move to
- * consent/archive/<id>/ (they prove what was authorized while the Person existed).
+ * «Borrar persona» (audit fix 7: never destroy evidence): the consents folder (signatures /
+ * documents) is first COPIED to consent/archive/<id>/consents-<ts>/ and every copy is checked
+ * (size + sha256) against the original; only then are the photos, voice samples and the rest of the
+ * Person's folder deleted (photos and voice last). Any failure of the archive step throws before
+ * anything is deleted (the half-made archive copy is removed; the originals stay).
  */
 export async function archivePersonFiles(storageDir: string, personId: string): Promise<void> {
   const dir = resolveStoragePath(storageDir, personRel(personId));
+  const consents = path.join(dir, "consents");
+  const archive = resolveStoragePath(storageDir, archiveRel(personId));
+  const dest = path.join(archive, `consents-${Date.now()}`);
+  const files = await listFiles(consents);
+  if (files.length > 0) {
+    try {
+      for (const rel of files) {
+        const from = path.join(consents, rel);
+        const to = path.join(dest, rel);
+        await mkdir(path.dirname(to), { recursive: true });
+        await copyFile(from, to);
+        const [a, b] = await Promise.all([fileDigest(from), fileDigest(to)]);
+        if (a.size !== b.size || a.sha256 !== b.sha256)
+          throw new Error(`la copia archivada de ${rel} no coincide con el original`);
+      }
+    } catch (err) {
+      await rm(dest, { recursive: true, force: true }).catch(() => undefined);
+      throw new Error(
+        `No se pudo archivar la evidencia de los consentimientos: no se borró nada (${String(err)})`,
+      );
+    }
+  }
+  await rm(consents, { recursive: true, force: true });
+  for (const sub of await readdir(dir).catch(() => [] as string[]))
+    if (sub !== "photos" && sub !== "voice")
+      await rm(path.join(dir, sub), { recursive: true, force: true });
   await rm(path.join(dir, "photos"), { recursive: true, force: true });
   await rm(path.join(dir, "voice"), { recursive: true, force: true });
-  const archive = resolveStoragePath(storageDir, archiveRel(personId));
-  await mkdir(archive, { recursive: true });
-  const consents = path.join(dir, "consents");
-  await rename(consents, path.join(archive, `consents-${Date.now()}`)).catch(() => undefined);
   await rm(dir, { recursive: true, force: true });
 }
+
+/** Path exists (file or folder). */
+export const exists = (abs: string) =>
+  stat(abs).then(
+    () => true,
+    () => false,
+  );
 
 /**
  * storage/consent/licences.json = {accepted: {[id]: {text_version, accepted_at}}} with the
@@ -164,11 +316,30 @@ export async function writeLicenceMirror(
       accepted[a.id] = { text_version: a.text_version, accepted_at: a.accepted_at };
   const abs = resolveStoragePath(storageDir, LICENCE_MIRROR_PATH);
   await mkdir(path.dirname(abs), { recursive: true });
-  const tmp = `${abs}.tmp`;
-  await writeFile(
-    tmp,
-    `${JSON.stringify({ accepted, updated_at: new Date().toISOString() }, null, 2)}\n`,
-    "utf8",
-  );
-  await rename(tmp, abs);
+  await writeJsonAtomic(abs, { accepted, updated_at: new Date().toISOString() });
+}
+
+/**
+ * storage/consent/active.json (audit fix 4): read-only mirror of the VALID consents for the workers
+ * ({consents: [{personId, consentId, scope, expires_at, photo_paths, sample_paths}]}); FaceFusion and
+ * Chatterbox only get files listed under the consent they are given. Only the api writes it.
+ */
+export const CONSENT_MIRROR_PATH = `${CONSENT_DIR}/active.json`;
+
+/** Atomic JSON write (.tmp -> rename): readers never see half a file. */
+export async function writeJsonAtomic(abs: string, value: unknown): Promise<void> {
+  await mkdir(path.dirname(abs), { recursive: true });
+  const tmp = `${abs}.${process.pid}.tmp`;
+  await writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await rename(tmp, abs);
+      return;
+    } catch (err) {
+      // Windows: a reader holding the file open makes the replace fail for a moment
+      const code = (err as { code?: string }).code;
+      if (attempt >= 5 || (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES")) throw err;
+      await new Promise((r) => setTimeout(r, 50 * (attempt + 1)));
+    }
+  }
 }

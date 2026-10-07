@@ -17,11 +17,13 @@ docs/trabajo/sprint4-contratos.md «M2»).
 - a child that dies mid-request is restarted ONCE and the request re-sent; a second death is
   ``TOOL_FAILED`` (502) with the last lines of its stderr in ``details.logTail``;
 - a CUDA out-of-memory restarts it on CPU (``gpu_fallback_cpu``); on CPU every result also carries
-  ``chatterbox_cpu_slow``.
+  ``chatterbox_cpu_slow``;
+- ``cancel(job_id)`` (POST /tts/cancel, audit fix 8) kills the bridge tree and releases the GPU, so
+  a canceled job really stops (the next request starts it again);
+- the VRAM it reserves is ``CHATTERBOX_VRAM_MB`` (default 4500, audit fix 14).
 
-M3's ``studio_workers.toolvenv`` is imported lazily inside the functions; until it exists the
-module falls back to ``CHATTERBOX_PYTHON`` / ``tools/chatterbox/.venv`` and runs the bridge
-directly with the same environment rules.
+M3's ``studio_workers.toolvenv`` is imported lazily inside the functions; when it cannot be
+imported the tool is ``TOOL_MISSING`` (broken): there is no fallback launcher (audit fix 9).
 """
 
 from __future__ import annotations
@@ -55,7 +57,7 @@ log = logging.getLogger("studio_workers")
 
 PACK_ID = "tts-chatterbox"
 TOOL_ID = "chatterbox"
-VRAM_MB = 4500  # FEATURE_VRAM_MB.chatterbox [S] 3.5-5 GB
+VRAM_MB = 4500  # FEATURE_VRAM_MB.chatterbox [S] 3.5-5 GB; CHATTERBOX_VRAM_MB overrides it
 MAX_TEXT = 5000
 SERVER_SCRIPT = "studio_tts_server.py"
 TOOL_DIR = REPO_ROOT / "tools" / "chatterbox"
@@ -79,75 +81,64 @@ CommandFn = Callable[[list[str]], tuple[list[str], dict[str, str], Path]]
 # ------------------------------------------------------------------------- tool venv (M3, lazy)
 
 
-def _toolvenv() -> Any | None:
+def _toolvenv() -> Any:
+    """M3's toolvenv, or TOOL_MISSING (broken): never a silent fallback (audit fix 9)."""
     try:
-        from .. import toolvenv  # noqa: PLC0415 - owned by M3, may not exist yet
-    except ImportError:
-        return None
+        from .. import toolvenv  # noqa: PLC0415 - heavy module, imported on use
+    except ImportError as exc:
+        raise _coded(
+            "TOOL_MISSING",
+            "El entorno aislado de Chatterbox no está listo (roto): falta el lanzador de "
+            f"herramientas ({exc}). Corré scripts\\windows\\setup.ps1 -Update.",
+            details={"tool": TOOL_ID, "state": "broken", "packId": PACK_ID},
+        ) from exc
     return toolvenv
-
-
-def _venv_python() -> Path:
-    venv = TOOL_DIR / ".venv"
-    return venv / "Scripts" / "python.exe" if os.name == "nt" else venv / "bin" / "python"
 
 
 def tool_status() -> dict[str, Any]:
     """``toolvenv.status("chatterbox")``: {state: ready|stale|missing|broken, variant?, ...}."""
-    tv = _toolvenv()
-    if tv is not None and hasattr(tv, "status"):
-        try:
-            return dict(tv.status(TOOL_ID))
-        except Exception as exc:  # a broken stamp must not break GET /packs
-            log.warning("toolvenv.status(chatterbox) failed: %s", exc)
-            return {"state": "broken", "error": str(exc)}
-    override = os.environ.get("CHATTERBOX_PYTHON", "").strip()
-    if override:
-        return {"state": "ready", "python": override, "override": True}
-    py = _venv_python()
-    return {"state": "ready" if py.is_file() else "missing", "python": str(py) if py else None}
+    try:
+        return dict(_toolvenv().status(TOOL_ID))
+    except Exception as exc:  # a broken stamp (or no toolvenv) must not break GET /packs
+        log.warning("toolvenv.status(chatterbox) failed: %s", exc)
+        return {"state": "broken", "error": str(exc)}
 
 
 def tool_summary() -> dict[str, str]:
     """``toolvenv.status_summary("chatterbox")`` -> PackSchema.tool {id, state}."""
-    tv = _toolvenv()
-    if tv is not None and hasattr(tv, "status_summary"):
-        try:
-            return dict(tv.status_summary(TOOL_ID))
-        except Exception as exc:
-            log.warning("toolvenv.status_summary(chatterbox) failed: %s", exc)
-            return {"id": TOOL_ID, "state": "broken"}
-    return {"id": TOOL_ID, "state": str(tool_status().get("state", "missing"))}
-
-
-def _fallback_command(args: list[str]) -> tuple[list[str], dict[str, str], Path]:
-    """Same environment rules as tools/launch.py (used only until M3's toolvenv lands)."""
-    python = os.environ.get("CHATTERBOX_PYTHON", "").strip() or str(_venv_python())
-    env = {k: v for k, v in os.environ.items() if k != "HF_TOKEN"}
-    env.update(PYTHONUTF8="1", PYTHONIOENCODING="utf-8", HF_HUB_OFFLINE="1")
-    return [python, str(TOOL_DIR / SERVER_SCRIPT), *args], env, TOOL_DIR
+    try:
+        return dict(_toolvenv().status_summary(TOOL_ID))
+    except Exception as exc:
+        log.warning("toolvenv.status_summary(chatterbox) failed: %s", exc)
+        return {"id": TOOL_ID, "state": "broken"}
 
 
 def tool_command(args: list[str]) -> tuple[list[str], dict[str, str], Path]:
     """argv, env, cwd of the bridge (``toolvenv.command`` via tools/launch.py)."""
-    tv = _toolvenv()
-    if tv is not None and hasattr(tv, "command"):
-        argv, env, cwd = tv.command(TOOL_ID, SERVER_SCRIPT, args)
-        return list(argv), dict(env), Path(cwd)
-    return _fallback_command(args)
+    argv, env, cwd = _toolvenv().command(TOOL_ID, SERVER_SCRIPT, args)
+    return list(argv), dict(env), Path(cwd)
+
+
+def vram_mb() -> int:
+    """CHATTERBOX_VRAM_MB (.env / environment; empty or invalid = 4500): what GpuBudget reserves
+    for the bridge. Lower it on a 6 GB card if Chatterbox fits (audit fix 14)."""
+    try:
+        raw = str(getattr(_toolvenv().tool_settings(), "chatterbox_vram_mb", "") or "").strip()
+    except Exception:  # unreadable .env: default
+        raw = ""
+    raw = raw or os.environ.get("CHATTERBOX_VRAM_MB", "").strip()
+    try:
+        value = int(float(raw)) if raw else VRAM_MB
+    except ValueError:
+        return VRAM_MB
+    return value if 500 <= value <= 24_000 else VRAM_MB
 
 
 def idle_seconds() -> float:
     """CHATTERBOX_IDLE_S (.env / environment; empty = 120 s)."""
-    tv = _toolvenv()
-    if tv is not None and hasattr(tv, "tool_settings"):
-        try:
-            return float(tv.tool_settings().seconds("chatterbox_idle_s", DEFAULT_IDLE_S))
-        except Exception:  # unreadable .env: default
-            return DEFAULT_IDLE_S
     try:
-        return float(os.environ.get("CHATTERBOX_IDLE_S", "") or DEFAULT_IDLE_S)
-    except ValueError:
+        return float(_toolvenv().tool_settings().seconds("chatterbox_idle_s", DEFAULT_IDLE_S))
+    except Exception:  # unreadable .env / no toolvenv: default
         return DEFAULT_IDLE_S
 
 
@@ -203,6 +194,9 @@ class _OomFallback(Exception):
     pass
 
 
+CANCELED_MSG = "Cancelado: la síntesis se detuvo."
+
+
 def _coded(code: str, detail: str, **kw: Any) -> Exception:
     from ..errors import CodedError  # noqa: PLC0415 - errors imports tts.providers
 
@@ -212,8 +206,11 @@ def _coded(code: str, detail: str, **kw: Any) -> Exception:
 def _kill_tree(proc: subprocess.Popen[str]) -> None:
     if proc.poll() is not None:
         return
-    tv = _toolvenv()
-    if tv is not None and hasattr(tv, "kill_tree"):
+    try:
+        tv = _toolvenv()
+    except Exception:
+        tv = None
+    if tv is not None:
         tv.kill_tree(proc)
         return
     try:
@@ -261,6 +258,10 @@ class ChatterboxClient:
         self.ready: dict[str, Any] | None = None
         self.starts = 0
         self.last_used = 0.0
+        self.vram_mb = vram_mb()
+        # Audit fix 8: ids canceled by POST /tts/cancel (the running one, or one still waiting).
+        self._canceled: set[str] = set()
+        self._current: str | None = None
         atexit.register(self.stop)
 
     # ------------------------------------------------------------------ lifecycle
@@ -310,6 +311,27 @@ class ChatterboxClient:
     def _unload_from_budget(self) -> None:
         self.stop()
 
+    def cancel(self, job_id: str | None = None) -> bool:
+        """POST /tts/cancel: kill the bridge tree (and free the GPU) if it is synthesizing `job_id`
+        (any request when None); a request still waiting for the lock is dropped when it gets it.
+        Never takes ``_lock``. True when a running synthesis was stopped."""
+        if job_id:
+            self._canceled.add(job_id)
+        current = self._current
+        if current is None or (job_id is not None and current != job_id):
+            return False
+        self._canceled.add(current)
+        log.info("chatterbox: cancel %s, stopping the bridge", current)
+        if self.budget is not None and self.budget.resident == "chatterbox":
+            self.budget.release("chatterbox")  # -> unload -> stop()
+        self.stop()
+        return True
+
+    def _check_canceled(self, request_id: str) -> None:
+        if request_id in self._canceled:
+            self._canceled.discard(request_id)
+            raise _coded("CANCELED", CANCELED_MSG, status=409)
+
     def _cancel_idle(self) -> None:
         timer, self._idle_timer = self._idle_timer, None
         if timer is not None:
@@ -344,7 +366,7 @@ class ChatterboxClient:
             return "cpu", ([GPU_FALLBACK_CPU] if self._force_cpu else [])
         if self.budget is None:
             return "cuda", []
-        decision = self.budget.acquire("chatterbox", VRAM_MB, self._unload_from_budget)
+        decision = self.budget.acquire("chatterbox", self.vram_mb, self._unload_from_budget)
         return decision.device, list(decision.warnings)
 
     def _start(self) -> dict[str, Any]:
@@ -356,14 +378,7 @@ class ChatterboxClient:
         ]  # fmt: skip
         argv, env, cwd = self.command(args)
         log.info("chatterbox: starting bridge (%s, %s, t3 %s)", device, Path(argv[0]).name, variant)
-        tv = _toolvenv()
-        kwargs: dict[str, Any]
-        if tv is not None and hasattr(tv, "popen_kwargs"):
-            kwargs = dict(tv.popen_kwargs())
-        elif os.name == "nt":
-            kwargs = {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200)}
-        else:
-            kwargs = {"start_new_session": True}  # own process group: os.killpg kills the tree
+        kwargs: dict[str, Any] = dict(_toolvenv().popen_kwargs())  # own group: kill the tree
         self._tail.clear()
         proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
             argv,
@@ -514,8 +529,12 @@ class ChatterboxClient:
         with self._lock:
             self._cancel_idle()
             try:
+                self._check_canceled(request["id"])
+                self._current = request["id"]
                 return self._synthesize_locked(request, on_progress)
             finally:
+                self._current = None
+                self._canceled.discard(request["id"])
                 self.last_used = time.monotonic()
                 self._schedule_idle()
 
@@ -529,6 +548,7 @@ class ChatterboxClient:
                 ready = self.ready if self.running and self.ready else self._start()
                 return self._request(request, ready, on_progress)
             except _ChildDied as exc:
+                self._check_canceled(request["id"])  # killed by cancel(): no restart
                 deaths += 1
                 self.stop()
                 if deaths > 1:
@@ -617,13 +637,16 @@ def check_voice_ref(settings: Settings, ref: VoiceRef) -> Path:
     """Defense in depth for the reference sample (the api already checked the consent gate):
     the path must resolve inside STORAGE_DIR (``..`` -> 400); «Voz propia» (``consent: "self"``)
     never lives under consent/; a Person sample must be under ``consent/persons/<id>/`` of a
-    Person that was not archived (deleted), with a well-formed consent id."""
+    Person that was not archived (deleted) AND ``consent`` must be a valid voice consent of the
+    api's mirror consent/active.json that lists this very sample (audit fix 4)."""
+    from ..consent_mirror import require_consent  # noqa: PLC0415
     from ..routers.analyze import resolve_input  # noqa: PLC0415
 
     path = resolve_input(settings, ref.path)
-    parts = PurePosixPath(settings.storage_relative(path)).parts
+    rel = settings.storage_relative(path)
+    parts = PurePosixPath(rel).parts
     if ref.consent == "self":
-        if parts and parts[0] == "consent":
+        if parts and parts[0].lower() == "consent":
             raise _consent_required("", "scope")
         return path
     if len(parts) < 4 or parts[0] != "consent" or parts[1] != "persons":
@@ -633,6 +656,7 @@ def check_voice_ref(settings: Settings, ref: VoiceRef) -> Path:
         raise _consent_required(person_id, "none")
     if (settings.storage_root / "consent" / "archive" / person_id).exists():
         raise _consent_required(person_id, "deleted")
+    require_consent(settings.storage_root, ref.consent, "voice", [rel])
     return path
 
 

@@ -5,6 +5,8 @@ import {
   detectedPublishFlags,
   hasAiContentHits,
   inheritedAiProvenance,
+  parseAiContentComment,
+  reimportedAiProvenance,
   MediaAssetSchema,
   TrackSchema,
   type AiContentAsset,
@@ -198,5 +200,40 @@ describe("inheritedAiProvenance", () => {
     });
     expect(inheritedAiProvenance(asset("plain"))).toEqual({});
     expect(inheritedAiProvenance({ id: "x", aiAltered: true })).toEqual({ aiAltered: true });
+  });
+});
+
+describe("re-imported exports (audit fix 10)", () => {
+  it("parses the comment of an export and rebuilds a minimal provenance", () => {
+    const c = aiContentComment({
+      face: [{ clipId: "c", trackId: "t", assetId: "a", label_es: "x" }],
+      voiceCloned: [],
+      voiceSynthetic: [{ clipId: "c", trackId: "t", assetId: "a", label_es: "x" }],
+    });
+    expect(parseAiContentComment(c)).toEqual(["face", "voice-synthetic"]);
+    expect(parseAiContentComment("Editado con Studio")).toBeUndefined();
+    expect(parseAiContentComment(undefined)).toBeUndefined();
+    expect(parseAiContentComment("Contenido alterado con IA")).toEqual(["voice-synthetic"]);
+    const p = reimportedAiProvenance(["face", "voice-cloned"], "2026-10-06T00:00:00.000Z");
+    expect(p).toMatchObject({
+      aiAltered: true,
+      aiProvenance: { kind: "face", extraKinds: ["voice-cloned"] },
+    });
+    const report = detectAiContent(
+      {
+        tracks: [
+          {
+            id: "t",
+            kind: "video",
+            name: "V",
+            clips: [{ id: "c", trackId: "t", assetId: "a", start: 0, in: 0, out: 1 }],
+          },
+        ] as never,
+      },
+      new Map([["a", { id: "a", name: "x", ...p }]]),
+    );
+    expect(report.face).toHaveLength(1);
+    expect(report.voiceCloned).toHaveLength(1);
+    expect(aiContentComment(report)).toContain("voz clonada: sí");
   });
 });

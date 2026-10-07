@@ -1,10 +1,9 @@
-import http from "node:http";
 import {
   CHATTERBOX_PACK_ID,
   CHATTERBOX_LANGUAGES,
   CHATTERBOX_VOICE_MULTILINGUAL,
+  PACK_REQUIRED,
   validateChatterboxRequest,
-  WorkerTtsResultSchema,
   type AiProvenance,
   type ChatterboxModel,
   type MediaAsset,
@@ -14,25 +13,19 @@ import {
   type TtsVoiceInfo,
   type WorkerChatterboxFields,
   type WorkerTtsRequest,
-  type WorkerTtsResult,
 } from "@studio/shared";
 import type { AppContext } from "../context.js";
 import { requirePack } from "../jobs/handlers/ai.js";
-import { currentDiagnostics } from "../jobs/diagnostics.js";
 import { errorBody, HttpError } from "../lib/errors.js";
 import { createConsentGate, type ConsentGate } from "../services/persons/gate.js";
-import {
-  packRequiredFromBody,
-  WorkersError,
-  type WorkerCallOptions,
-  type WorkersClient,
-} from "../services/workers-client.js";
+import { WorkersError, type WorkersClient } from "../services/workers-client.js";
 
 /**
  * Sprint 4 M2 «Voz»: Chatterbox TTS + zero-shot cloning on the api side (docs/trabajo/
  * sprint4-contratos.md «M2»): provider row, voice row, request validation, the clone source
- * (Person with voice consent through M1's ConsentGate, or a «Voz propia» `voice-ref` asset) and the
- * workers call that keeps the Sprint 4 result fields (device, warnings, watermark, rtf, model).
+ * (Person with voice consent through M1's ConsentGate, or a «Voz propia» `voice-ref` asset). The
+ * workers call is the shared `WorkersClient.tts` (its WorkerTtsResultSchema keeps device, warnings,
+ * watermark, rtf and model; open point C of the audit).
  */
 
 export type ChatterboxDeps = Pick<AppContext, "config" | "repos" | "workers"> &
@@ -248,138 +241,11 @@ export function installedModel(row: TtsProviderInfo): ChatterboxModel | undefine
 
 // ----------------------------------------------------------------------------- workers call
 
-/** A workers error with its `{code, details}` (TOOL_FAILED logTail, CONSENT_REQUIRED...). */
-export class WorkersCodedError extends WorkersError {
-  constructor(
-    message: string,
-    statusCode: number,
-    code: string,
-    readonly details?: unknown,
-  ) {
-    super(message, statusCode, code);
-    this.name = "WorkersCodedError";
-  }
-}
-
-export type TtsExtendedCall = (
-  req: WorkerTtsRequest & WorkerChatterboxFields,
-  opts?: WorkerCallOptions,
-) => Promise<WorkerTtsResult>;
-
-function rawPost(
-  target: string,
-  body: unknown,
-  signal?: AbortSignal,
-): Promise<{ status: number; text: string }> {
-  return new Promise((resolve, reject) => {
-    const payload = Buffer.from(JSON.stringify(body));
-    const req = http.request(
-      target,
-      {
-        method: "POST",
-        signal,
-        headers: { "content-type": "application/json", "content-length": payload.length },
-      },
-      (res) => {
-        const chunks: Buffer[] = [];
-        res.on("data", (c: Buffer) => chunks.push(c));
-        res.on("end", () =>
-          resolve({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString("utf8") }),
-        );
-        res.on("error", reject);
-      },
-    );
-    req.on("error", reject);
-    req.write(payload);
-    req.end();
-  });
-}
-
-/** Python `None` -> absent. */
-function stripNulls(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(stripNulls);
-  if (value && typeof value === "object")
-    return Object.fromEntries(
-      Object.entries(value).flatMap(([k, v]) => (v === null ? [] : [[k, stripNulls(v)]])),
-    );
-  return value;
-}
-
-/**
- * POST <workers>/tts keeping the Sprint 4 fields (the shared WorkersClient.tts schema strips them).
- * node:http (no 300 s undici timeout: CPU synthesis of 5000 characters can take long); progress
- * polled from GET /jobs/:jobId like the other long worker calls.
- */
-export function createTtsExtendedCall(
-  baseUrl: string,
-  workers: Pick<WorkersClient, "jobProgress">,
-): TtsExtendedCall {
-  return async (req, opts) => {
-    const url = new URL("/tts", baseUrl).toString();
-    const diag = currentDiagnostics();
-    const record = diag?.command("http", `POST ${url} ${JSON.stringify(req).slice(0, 2000)}`);
-    let timer: NodeJS.Timeout | undefined;
-    if (req.jobId && opts?.onProgress) {
-      const onProgress = opts.onProgress;
-      let last = -1;
-      timer = setInterval(() => {
-        void workers
-          .jobProgress(req.jobId!)
-          .then((p) => {
-            if (p && p.status === "running" && p.progress !== last) {
-              last = p.progress;
-              onProgress(p.progress, p.message ?? undefined);
-            }
-          })
-          .catch(() => undefined);
-      }, opts.pollMs ?? 1000);
-    }
-    let res: { status: number; text: string };
-    try {
-      res = await rawPost(url, req, opts?.signal);
-    } catch (err) {
-      record?.end(null, String(err));
-      if (opts?.signal?.aborted) throw err;
-      throw new WorkersError(
-        `Workers Python no disponibles en ${baseUrl} (¿está corriendo start.ps1?): ${String(err)}`,
-        503,
-        "WORKERS_UNAVAILABLE",
-      );
-    } finally {
-      if (timer) clearInterval(timer);
-    }
-    record?.end(res.status);
-    let json: unknown;
-    try {
-      json = res.text ? JSON.parse(res.text) : undefined;
-    } catch {
-      json = undefined;
-    }
-    if (res.status < 200 || res.status >= 300) {
-      diag?.stderrLine(`[workers] HTTP ${res.status} POST /tts: ${res.text.slice(0, 4000)}`);
-      const o = (json ?? {}) as { detail?: unknown; code?: string; details?: unknown };
-      const message =
-        typeof o.detail === "string"
-          ? o.detail
-          : o.detail !== undefined
-            ? JSON.stringify(o.detail)
-            : res.text.slice(0, 300) || `HTTP ${res.status}`;
-      const pack = packRequiredFromBody(json);
-      if (pack) throw new WorkersError(message, res.status, "PACK_REQUIRED", pack);
-      throw new WorkersCodedError(
-        message,
-        res.status,
-        o.code ?? `WORKERS_HTTP_${res.status}`,
-        o.details,
-      );
-    }
-    return WorkerTtsResultSchema.parse(stripNulls(json));
-  };
-}
-
 /** Worker failure → HttpError with the same code/details (job `result` keeps them). */
 export function workersToHttp(err: unknown): unknown {
-  if (err instanceof WorkersCodedError)
+  if (err instanceof WorkersError && err.code !== PACK_REQUIRED && err.details !== undefined)
     return asJobError(new HttpError(err.statusCode, err.code, err.message, err.details));
+  if (err instanceof WorkersError && err.code !== PACK_REQUIRED && !/^WORKERS_/.test(err.code))
+    return asJobError(new HttpError(err.statusCode, err.code, err.message));
   return err;
 }

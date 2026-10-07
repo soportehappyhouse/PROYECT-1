@@ -21,7 +21,9 @@
 | FaceFusion (s4)        | `tools/facefusion`        | FaceFusion 3.9.1, Python 3.12, onnxruntime-gpu; subproceso por trabajo de los workers                       | —      | M1/M3   |
 | Chatterbox (s4)        | `tools/chatterbox`        | Chatterbox Multilingual, Python 3.11, torch 2.6; subproceso persistente (JSON por stdin/stdout, sin puerto) | —      | M2/M3   |
 
-Todo escucha en `127.0.0.1` (sin autenticación; fuera de alcance).
+Todo escucha en `127.0.0.1` (sin autenticación; fuera de alcance). La api además rechaza con 403
+`BAD_HOST` todo pedido cuyo `Host` no sea `127.0.0.1`/`localhost`/`[::1]` con su puerto (una página
+que reapunta su dominio a 127.0.0.1, «DNS rebinding», no llega a ninguna ruta).
 
 ```mermaid
 flowchart LR
@@ -169,16 +171,18 @@ pone sus cabeceras CORS a mano (`lib/cors.ts`, `reply.hijack()`).
 | POST                 | `/api/audio/stems/undo`                                | `{undoSnapshotId, force?}` → `{project}`; 409 `PROJECT_CHANGED` si el proyecto cambió desde la separación                                                                                                                                                                                                                                                                                                              | s3b      |
 | GET / POST           | `/api/persons`                                         | `?scope=face\|voice` (solo vigentes) → `PersonSummary[]` / `PersonCreate` → 201 `Person`                                                                                                                                                                                                                                                                                                                               | s4       |
 | GET / PATCH / DELETE | `/api/persons/:id`                                     | → `Person` / `PersonPatch` → `Person` / `?confirm=1` → 204 (borra fotos y muestras, archiva consentimientos en `consent/archive/<id>/`); sin `confirm` → 409 `CONFIRM_REQUIRED`                                                                                                                                                                                                                                        | s4       |
-| POST / DELETE / GET  | `/api/persons/:id/photos[/:photoId]`                   | multipart `photo` (≤ 10, JPG/PNG/WebP ≤ 15 MB, lado ≤ 8192; cuenta caras, 0 → 422 `NO_FACE`) → `Person` / → `Person` / → imagen (nunca por `/files`; 403 `HUMAN_ONLY` con `X-Studio-Client: mcp`)                                                                                                                                                                                                                      | s4       |
-| POST / DELETE / GET  | `/api/persons/:id/voice-samples[/:sampleId]`           | multipart `audio` (5–60 s → WAV 24 kHz mono ≤ 30 s; 400 `VOICE_SAMPLE_INVALID`) → `Person` / → `Person` / → audio                                                                                                                                                                                                                                                                                                      | s4       |
-| POST                 | `/api/persons/:id/consents`                            | multipart `ConsentCreateFields` + `evidence` (firma PNG ≤ 2 MB o PDF/JPG/PNG ≤ 20 MB) → 201 `Consent`; `HUMAN_ONLY`; versión vieja → 409 `TEXT_OUTDATED`                                                                                                                                                                                                                                                               | s4       |
-| POST / GET           | `/api/persons/:id/consents/:cid/revoke` · `…/evidence` | → `Consent` con `revoked_at` · → archivo de evidencia                                                                                                                                                                                                                                                                                                                                                                  | s4       |
+| POST / DELETE / GET  | `/api/persons/:id/photos[/:photoId]`                   | multipart `photo` (≤ 10, JPG/PNG/WebP ≤ 15 MB, lado ≤ 8192; cuenta caras, 0 → 422 `NO_FACE`; `HUMAN_ONLY`) → `Person` / → `Person` / → imagen (nunca por `/files`; solo navegador: `Sec-Fetch-Site` same-origin/same-site u `Origin` exacto de la web; nunca `X-Studio-Client: mcp`)                                                                                                                                   | s4       |
+| POST / DELETE / GET  | `/api/persons/:id/voice-samples[/:sampleId]`           | multipart `audio` (tipo real por cabecera, ffmpeg con `-f` forzado y `-protocol_whitelist file,pipe`; 5–60 s → WAV 24 kHz mono ≤ 30 s; 400 `VOICE_SAMPLE_INVALID`; `HUMAN_ONLY`) → `Person` / → `Person` / → audio (solo navegador, como las fotos)                                                                                                                                                                    | s4       |
+| POST                 | `/api/persons/:id/consents`                            | multipart `ConsentCreateFields` + `evidence` (firma PNG ≤ 2 MB, no en blanco, o PDF/JPG/PNG ≤ 20 MB) → 201 `Consent` con `photo_ids`/`sample_ids` (id + sha256 de lo cargado: solo eso queda cubierto); `HUMAN_ONLY`; versión vieja → 409 `TEXT_OUTDATED`                                                                                                                                                              | s4       |
+| POST / GET           | `/api/persons/:id/consents/:cid/revoke` · `…/evidence` | → `Consent` con `revoked_at` · → archivo de evidencia (solo navegador)                                                                                                                                                                                                                                                                                                                                                 | s4       |
+| POST                 | `/api/persons/:id/consents/revoke`                     | `{scope: "face"\|"voice"\|"all"}` → `Person` («Revocar rostro / voz / todo»: todos los consentimientos no revocados de ese alcance)                                                                                                                                                                                                                                                                                    | s4       |
+| GET                  | `/api/persons/:id/audit`                               | → `{rows: ConsentAuditRow[], chain: {ok, checked, brokenAt?}}` (`HUMAN_ONLY`)                                                                                                                                                                                                                                                                                                                                          | s4       |
 | GET                  | `/api/ai/licences`                                     | → `LicenceStatus[]`                                                                                                                                                                                                                                                                                                                                                                                                    | s4       |
 | POST                 | `/api/ai/licences/:id/accept` · `/revoke`              | `LicenceAcceptRequest` → `LicenceAcceptance` (`HUMAN_ONLY`; versión vieja → 409 `TEXT_OUTDATED`) · → `LicenceAcceptance`; reescribe `consent/licences.json`                                                                                                                                                                                                                                                            | s4       |
 | POST                 | `/api/face/detect`                                     | `FaceDetectRequest` → `FaceDetectResult` (síncrono, YuNet; `faces: []` si no hay); 409 `PACK_REQUIRED` `faceswap`                                                                                                                                                                                                                                                                                                      | s4       |
 | POST                 | `/api/face/preview` · `/api/face/swap`                 | `FacePreviewRequest` / `FaceSwapRequest` (`confirmed: true`) → 202 `JobAccepted` (`face.preview` / `face.swap`); 403 `LICENCE_REQUIRED` / `CONSENT_REQUIRED`, 409 `PACK_REQUIRED` / `TOOL_MISSING`, 400 `CLIP_TOO_LONG`                                                                                                                                                                                                | s4       |
 | POST                 | `/api/face/undo`                                       | `FaceUndoRequest` → `Project` (restaura `clip.faceSwap.prev`; el asset generado queda en Medios)                                                                                                                                                                                                                                                                                                                       | s4       |
-| GET / POST           | `/api/voice/self-refs`                                 | → `MediaAsset[]` (`voice-ref`) / multipart `audio` + `attestSelf=true` → 201 `MediaAsset` «Voz propia» (WAV 24 kHz mono, 5–60 s → ≤ 30 s); se borra con `DELETE /api/media/:id`                                                                                                                                                                                                                                        | s4       |
+| GET / POST           | `/api/voice/self-refs`                                 | → `MediaAsset[]` (`voice-ref`) / multipart `audio` + `attestSelf=true` → 201 `MediaAsset` «Voz propia» (WAV 24 kHz mono, 5–60 s → ≤ 30 s; `HUMAN_ONLY`; auditoría `voice.self.attest` con el sha256); se borra con `DELETE /api/media/:id`                                                                                                                                                                             | s4       |
 | GET                  | `/files/*`                                             | estático desde `STORAGE_DIR` (sin `studio.db`, `tmp/`, `logs/`, `reports/`, `cache/` ni `consent/`, sin distinguir mayúsculas)                                                                                                                                                                                                                                                                                         | b        |
 
 **`409 PACK_REQUIRED`** (Sprint 1): cuerpo plano `PackRequiredBody = {error:"PACK_REQUIRED", packId, name_es,
@@ -193,9 +197,19 @@ usan GPU) y `POST /api/voice/tts` acepta `provider: "chatterbox"` con `language`
 (`{personId}` → consentimiento de voz o `{assetId, self: true}` → `voice-ref`), `exaggeration`, `cfg`,
 `temperature`, `seed` (voces `chatterbox:multilingual|self|person:<id>`). `POST
 /api/ai/packs/:id/download` de un pack con `licence_gate` sin aceptar → 403 `LICENCE_REQUIRED`.
-**`HUMAN_ONLY`**: registrar consentimientos y aceptar licencias exige el `Origin` de la web (lista de
-CORS) y rechaza `X-Studio-Client: mcp` (que `studio-mcp` manda siempre); las fotos, muestras y
-evidencias tampoco se entregan a ese cliente. Defensa razonable, no autenticación. Códigos nuevos
+**`HUMAN_ONLY`**: registrar consentimientos, aceptar licencias, subir fotos o muestras de una
+Persona, subir una «Voz propia» y leer la auditoría exigen el `Origin` **exacto** de la web
+(`config.webOrigin` o el mismo puerto en `localhost`/`127.0.0.1`/`[::1]`; no la lista amplia de
+CORS) y rechazan `X-Studio-Client: mcp` (que `studio-mcp` manda siempre). Las fotos, muestras y
+evidencias solo se entregan a un pedido del navegador (`Sec-Fetch-Site` same-origin/same-site u
+`Origin` exacto; la web las pide con `crossOrigin="anonymous"` / `fetch`). **Qué protege y qué no**:
+la Consola Claude (herramienta `Read`) y `studio-mcp` no pueden leer `storage/consent/`; `HUMAN_ONLY`
+frena al MCP y a cualquier cliente que no mande un `Origin` válido; la Consola además tiene
+denegados `curl`, `wget`, `Invoke-WebRequest`/`Invoke-RestMethod` (`iwr`/`irm`) y `sqlite3`. Pero
+Studio **no tiene autenticación**: un proceso local con acceso a la terminal (o la Consola con
+`python -c` / `node -e`, que las reglas por prefijo no cubren) puede falsificar esas cabeceras y
+llegar a la api. Es una defensa razonable, no seguridad fuerte; la solución real a futuro es un
+**PIN local** que solo conozca la persona (Descubierto). Códigos nuevos
 (mensajes en español): `CONSENT_REQUIRED`, `LICENCE_REQUIRED`, `HUMAN_ONLY` (403), `TOOL_MISSING`,
 `TEXT_OUTDATED`, `VOICE_SAMPLE_MISSING` (409), `TOOL_FAILED` (502, `details.logTail`),
 `CONTENT_BLOCKED`, `NO_FACE`, `RVC_MODEL_INCOMPATIBLE` (422), `CLIP_TOO_LONG`,
@@ -255,12 +269,17 @@ warnings?}` (Demucs `htdemucs`, pack `stems`, presupuesto GPU ~2 GB, CPU de resp
 
 Sprint 4: `POST /face/detect {path, t}` → `{t, width, height, frame_path, faces}` (YuNet, caras de
 izquierda a derecha); `POST /face/swap FaceSwapWorkerRequest` → `{task_id}` (cola propia `face`;
-`licence_ids` deben figurar en el espejo `consent/licences.json`, si no 403 `LICENCE_REQUIRED`); `GET
-/face/tasks/{id}` → `{status, progress, message, result: FaceTaskResult, error, code, details}`;
-`POST /face/tasks/{id}/cancel` (mata el árbol de procesos). `POST /tts` acepta los campos de
-Chatterbox (`language, model, voice_ref{path, consent}, exaggeration, cfg, temperature, seed`) y
-devuelve `device, warnings, watermark: "perth", rtf, model`; la referencia se revisa otra vez
-(`..` → 400, muestra de una Persona archivada → 403). `POST /packs/{id}/download` rechaza un pack
+`licence_ids` deben figurar en el espejo `consent/licences.json`, si no 403 `LICENCE_REQUIRED`;
+`consent_id` tiene que ser un consentimiento de rostro vigente del espejo `consent/active.json` y cada
+foto de `source_paths` estar en `consent/persons/<esaPersona>/` y en su lista, si no 403
+`CONSENT_REQUIRED`); `GET /face/tasks/{id}` → `{status, progress, message, result: FaceTaskResult,
+error, code, details}`; `POST /face/tasks/{id}/cancel` (mata el árbol de procesos, también el
+recorte previo con ffmpeg; un trabajo fallido o cancelado no deja archivos en
+`renders/face/<jobId>/`). `POST /tts` acepta los campos de Chatterbox (`language, model,
+voice_ref{path, consent}, exaggeration, cfg, temperature, seed`) y devuelve `device, warnings,
+watermark: "perth", rtf, model`; la referencia se revisa otra vez (`..` → 400, muestra de una Persona
+archivada o que no figura bajo su consentimiento de voz vigente en `consent/active.json` → 403).
+`POST /tts/cancel {jobId}` mata el puente de Chatterbox (árbol) y libera la GPU. `POST /packs/{id}/download` rechaza un pack
 con `licence_gate` sin aceptar (403). `POST /rvc/convert` devuelve `device` (CUDA con `GpuBudget`
 `rvc`, liberación a los `RVC_IDLE_S`; pickle rechazado → 422 `RVC_MODEL_INCOMPATIBLE`). `GET /packs`
 agrega `licence_gate` y `tool {id, state}` (`ready | stale | missing | broken | python`). `POST
@@ -472,8 +491,10 @@ subtítulos; igual en la pasada única y en los bloques.
 --tool-venv`, paso 5c de `setup.ps1`). Sello `.venv/.studio-tool-install` (hash de la receta +
   perfil CUDA/CPU + variante); estados `ready | stale | missing | broken | python` en `GET /packs`.
   Nunca se ejecuta el `install.py` de FaceFusion ni conviven `onnxruntime` y `onnxruntime-gpu`.
-- Toda ejecución pasa por `tools/launch.py` dentro del venv de la herramienta: sin tokens ni keys en
-  el entorno, `HF_HUB_OFFLINE=1`, UTF-8, `onnxruntime.preload_dlls()` para FaceFusion en CUDA, cwd fijo,
+- Toda ejecución pasa por `tools/launch.py` dentro del venv de la herramienta (si `toolvenv` no se
+  puede importar, `TOOL_MISSING`: no hay lanzador de respaldo): entorno por **lista permitida**
+  (`PATH`, `SYSTEMROOT`, `TEMP`/`TMP`, `HOME`/`USERPROFILE`, `LANG`/`LC_*`, `PYTHON*`, `CUDA*`/`NVIDIA*`,
+  `STUDIO_*`…; nada de tokens ni keys aunque coincidan; proxies solo para `pip`/`git`), `HF_HUB_OFFLINE=1`, UTF-8, `onnxruntime.preload_dlls()` para FaceFusion en CUDA, cwd fijo,
   argv en lista; cancelar = matar el árbol (`taskkill /T /F` / `killpg`). FaceFusion corre un
   subproceso por trabajo (`face/engine.py`, `headless-run` con argv fijado por test; el analizador
   NSFW de FaceFusion queda siempre activo → `CONTENT_BLOCKED`); Chatterbox es un subproceso
@@ -483,12 +504,23 @@ subtítulos; igual en la pasada única y en los bloques.
 - **Consentimiento** (`apps/api/src/services/persons/`): `ConsentGate` (`assertConsent`,
   `voiceSamplePath`, `assertLicence`, `isLicenceAccepted`, `benchFaceSource`, `audit`) usado por
   `face.*`, `voice.tts` y `perf.run`; los jobs repiten el chequeo al empezar (revocar con un trabajo en
-  cola lo hace fallar). La licencia del cambio de cara se guarda en SQLite y en el espejo
-  `consent/licences.json`, que leen los workers (`toolvenv.licence_accepted`), `models_cli --packs
-all` y `doctor`. `/files` rechaza `consent/`; los reportes no copian ni nombran esas rutas; la
+  cola lo hace fallar). Manda el consentimiento **más reciente** de cada alcance (revocado o vencido
+  → no hay uso, aunque haya uno anterior vigente) y cada consentimiento cubre solo las fotos y
+  muestras cargadas al aceptarlo (`photo_ids`/`sample_ids` con sha256; ausentes = consentimiento
+  anterior, cubre todo). La licencia se guarda en SQLite y la api reescribe (al cambiar algo y al
+  arrancar) dos espejos de solo lectura: `consent/licences.json` y `consent/active.json`
+  (`{personId, consentId, scope, expires_at, photo_paths, sample_paths}` de los vigentes), que los
+  workers verifican antes de FaceFusion/Chatterbox. `consent_audit` es solo de agregar (disparadores
+  SQLite que abortan `UPDATE`/`DELETE`) y encadenado (`prev_hash`/`hash` = sha256 de la fila anterior
+  y su contenido; `GET /api/persons/:id/audit` dice si la cadena está intacta). Borrar una Persona
+  copia y verifica la evidencia en `consent/archive/` antes de borrar nada. `/files` rechaza
+  `consent/`; los reportes y los diagnósticos de los trabajos no copian ni nombran esas rutas; la
   Consola Claude tiene `Read(./storage/consent/**)` denegado.
-- **Procedencia IA**: `MediaAsset.aiAltered/aiProvenance` la escriben `face.swap` (`face`) y
-  `voice.tts` (`voice-synthetic` | `voice-cloned`) y la heredan `voice.rvc`, `voice.effect`,
+- **Procedencia IA**: `MediaAsset.aiAltered/aiProvenance` la escriben `face.swap` (`face`),
+  `voice.tts` (`voice-synthetic` | `voice-cloned`) y `voice.rvc` sobre una voz real (`voice-cloned`,
+  `tool: "rvc:<modelo>"`); `media.probe` la reconstruye (mínima, con `extraKinds`) en un archivo
+  reimportado cuyo `comment` dice «contenido alterado con IA»; la heredan `voice.rvc` (de una voz ya
+  sintética o clonada), `voice.effect`,
   `audio.denoise`, `audio.stems` y `vision.matte` (`services/ai-provenance.ts`, `sourceAssetId` = el
   origen). `detectAiContent` (shared) mira los clips que llegan a la exportación y alimenta «Revisión
   para redes» (cara y voz clonada marcadas y bloqueadas) y el metadato `comment` de cada export

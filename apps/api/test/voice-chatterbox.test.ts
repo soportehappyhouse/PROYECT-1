@@ -49,13 +49,19 @@ function form(fields: Record<string, string>, file?: { name: string; data: Buffe
   return fd;
 }
 
-async function inject(app: FastifyInstance, url: string, fd: FormData) {
+/** Multipart POST as the Studio web sends it (HUMAN_ONLY routes need its exact Origin). */
+async function inject(
+  app: FastifyInstance,
+  url: string,
+  fd: FormData,
+  headers: Record<string, string> = { origin: "http://localhost:3000" },
+) {
   const res = new Response(fd);
   return app.inject({
     method: "POST",
     url,
     payload: Buffer.from(await res.arrayBuffer()),
-    headers: { "content-type": res.headers.get("content-type")! },
+    headers: { "content-type": res.headers.get("content-type")!, ...headers },
   });
 }
 
@@ -72,6 +78,10 @@ describe("Chatterbox TTS + clonación (mocked workers)", () => {
     fail: undefined as undefined | { status: number; body: unknown },
     tts: [] as Record<string, unknown>[],
     rvc: [] as Record<string, unknown>[],
+    /** POST /tts/cancel bodies; with `hold` the next /tts waits until a cancel arrives. */
+    cancels: [] as Record<string, unknown>[],
+    hold: false,
+    release: undefined as undefined | (() => void),
   };
 
   beforeAll(async () => {
@@ -138,8 +148,18 @@ describe("Chatterbox TTS + clonación (mocked workers)", () => {
               installed: true,
             },
           ]);
+        if (req.method === "POST" && url === "/tts/cancel") {
+          state.cancels.push(json);
+          state.release?.();
+          return send(200, { canceled: true, stopped: true, jobId: json.jobId });
+        }
         if (req.method === "POST" && url === "/tts") {
           state.tts.push(json);
+          if (state.hold) {
+            state.release = () =>
+              send(409, { detail: "Cancelado: la síntesis se detuvo.", code: "CANCELED" });
+            return;
+          }
           if (state.fail) return send(state.fail.status, state.fail.body);
           const out = String(json.outputPath);
           mkdirSync(path.dirname(path.join(storage, out)), { recursive: true });
@@ -188,6 +208,9 @@ describe("Chatterbox TTS + clonación (mocked workers)", () => {
     state.fail = undefined;
     state.tts.length = 0;
     state.rvc.length = 0;
+    state.cancels.length = 0;
+    state.hold = false;
+    state.release = undefined;
   });
 
   const gate = () => createConsentGate(app.ctx.db, storage);
@@ -430,10 +453,45 @@ describe("Chatterbox TTS + clonación (mocked workers)", () => {
       consentId: `c${p.id}`,
       jobId: job.id,
     });
-    expect(asset.name).toContain(p.name);
+    // audit fix 22: never the Persona's name in the asset name, nor consent/ paths in the logs
+    expect(asset.name).toContain("Voz clonada (Persona)");
+    expect(asset.name).not.toContain(p.name);
+    const logs = JSON.stringify(app.ctx.jobs.get(job.id));
+    expect(logs).not.toContain("consent/persons");
     const audit = gate().auditLog.list({ action: "voice.clone", personId: p.id });
     expect(audit).toHaveLength(1);
     expect(audit[0]).toMatchObject({ jobId: job.id, assetId: asset.id, consentId: `c${p.id}` });
+  });
+
+  it("canceling the job stops Chatterbox in the workers (POST /tts/cancel, audit fix 8)", async () => {
+    state.hold = true;
+    const res = await tts({ voice: "chatterbox:multilingual", text: "Un texto largo." });
+    expect(res.statusCode).toBe(202);
+    const id = res.json().jobId as string;
+    await waitFor(() => state.tts.length === 1, 10_000);
+    const cancel = await app.inject({ method: "POST", url: `/api/jobs/${id}/cancel` });
+    expect(cancel.statusCode).toBeLessThan(300);
+    const job = await jobEnd(id);
+    expect(job.status).toBe("canceled");
+    await waitFor(() => state.cancels.length === 1, 5_000);
+    expect(state.cancels[0]).toEqual({ jobId: id });
+  });
+
+  it("a coded workers error keeps its code and details (shared client, open point C)", async () => {
+    state.fail = {
+      status: 502,
+      body: {
+        detail: "Chatterbox terminó con error: CUDA.",
+        code: "TOOL_FAILED",
+        details: { logTail: ["x", "consent/persons/p1/voice/s1.wav"], tool: "chatterbox" },
+      },
+    };
+    const res = await tts({ voice: "chatterbox:multilingual" });
+    const job = await jobEnd(res.json().jobId);
+    expect(job.status).toBe("failed");
+    expect(job.result).toMatchObject({
+      error: { code: "TOOL_FAILED", details: { tool: "chatterbox" } },
+    });
   });
 
   it("clone of «Voz propia» (latest voice-ref, as the Assistant's tts op sends it)", async () => {
@@ -523,7 +581,7 @@ describe("Chatterbox TTS + clonación (mocked workers)", () => {
     });
   });
 
-  it("RVC returns the device and inherits the AI provenance of its source", async () => {
+  it("RVC returns the device; inherits a voice provenance; a real voice becomes cloned", async () => {
     const src = app.ctx.repos.media.insert({
       id: `clon${++seq}`,
       kind: "audio",
@@ -576,11 +634,54 @@ describe("Chatterbox TTS + clonación (mocked workers)", () => {
     });
     const j2 = await jobEnd(r2.json().jobId);
     const out2 = app.ctx.repos.media.get((j2.result as AudioJobResult).assetId!)!;
-    expect(out2.aiAltered).toBeUndefined();
-    expect(out2.aiProvenance).toBeUndefined();
+    // open point B: a real recording converted to another voice is a cloned voice
+    expect(out2.aiAltered).toBe(true);
+    expect(out2.aiProvenance).toMatchObject({
+      kind: "voice-cloned",
+      tool: "rvc:mi_voz",
+      jobId: j2.id,
+      sourceAssetId: plain.id,
+    });
+    // a synthetic (TTS) source keeps «voice-synthetic»
+    const tts = app.ctx.repos.media.insert({
+      id: `tts${++seq}`,
+      kind: "audio",
+      name: "Voz Piper",
+      path: `renders/tts${seq}.wav`,
+      sizeBytes: 1,
+      aiAltered: true,
+      aiProvenance: { kind: "voice-synthetic", tool: "piper es_AR", createdAt: now() },
+      createdAt: now(),
+    });
+    writeFileSync(path.join(storage, tts.path), wav(1));
+    const r3 = await app.inject({
+      method: "POST",
+      url: API_ROUTES.rvc,
+      payload: { assetId: tts.id, modelId: "mi_voz" },
+    });
+    const j3 = await jobEnd(r3.json().jobId);
+    const out3 = app.ctx.repos.media.get((j3.result as AudioJobResult).assetId!)!;
+    expect(out3.aiProvenance).toMatchObject({ kind: "voice-synthetic", sourceAssetId: tts.id });
   });
 
   // --------------------------------------------------------------------------- self-refs
+
+  it("self-refs: HUMAN_ONLY (fix 1): no web Origin or studio-mcp -> 403", async () => {
+    const cases: Record<string, string>[] = [
+      {},
+      { origin: "http://localhost:3000", "x-studio-client": "mcp" },
+    ];
+    for (const headers of cases) {
+      const res = await inject(
+        app,
+        API_ROUTES.voiceSelfRefs,
+        form({ attestSelf: "true" }, { name: "voz.wav", data: wav(8) }),
+        headers,
+      );
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error.code).toBe("HUMAN_ONLY");
+    }
+  });
 
   it("self-refs: attestSelf is mandatory", async () => {
     const res = await inject(
@@ -619,6 +720,21 @@ describe("Chatterbox TTS + clonación (mocked workers)", () => {
       expect(asset.durationSec!).toBeGreaterThan(9);
       expect(asset.durationSec!).toBeLessThanOrEqual(10.1);
       expect(asset.aiAltered).toBeUndefined();
+      expect(asset).not.toHaveProperty("sha256");
+      // fix 1: the «Soy yo» declaration is audited with the sha256 of the stored sample
+      const { createHash } = await import("node:crypto");
+      const { readFileSync } = await import("node:fs");
+      const attest = createConsentGate(app.ctx.db, storage).auditLog.list({
+        action: "voice.self.attest",
+      });
+      expect(attest[0]).toMatchObject({
+        assetId: asset.id,
+        data: {
+          sha256: createHash("sha256")
+            .update(readFileSync(path.join(storage, asset.path)))
+            .digest("hex"),
+        },
+      });
       const probe = spawnSync("ffprobe", [
         "-v",
         "error",

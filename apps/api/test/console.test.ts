@@ -169,7 +169,17 @@ describe("console helpers", () => {
         "Edit(./storage/**)",
         "Write(./storage/**)",
         "Read(./models/**)",
+        "Read(./storage/consent/**)",
         "WebFetch",
+        // audit open point A: no HTTP client or sqlite3 from Bash (prefix rules: a speed bump,
+        // `python -c` / `node -e` still get through; the real fix is a local PIN)
+        "Bash(curl:*)",
+        "Bash(wget:*)",
+        "Bash(Invoke-WebRequest:*)",
+        "Bash(Invoke-RestMethod:*)",
+        "Bash(iwr:*)",
+        "Bash(irm:*)",
+        "Bash(sqlite3:*)",
       ]),
     );
     // The PNGs studio-mcp hands to Claude (frames, contact sheets) live in storage/: no blanket

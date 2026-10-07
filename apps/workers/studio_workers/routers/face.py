@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter
 
 from ..config import get_settings
+from ..consent_mirror import require_consent
 from ..errors import CodedError, NotFoundError
 from ..face.schemas import FaceDetectRequest, FaceSwapWorkerRequest
 from ..face.tool import licence_accepted
@@ -29,10 +30,12 @@ def detect(req: FaceDetectRequest) -> dict[str, Any]:
 @router.post("/swap")
 def swap(req: FaceSwapWorkerRequest) -> dict[str, Any]:
     """FaceFusion headless-run -> {task_id}. Before queueing: 403 LICENCE_REQUIRED (mirror), 400
-    for paths outside storage or with `..`; the task checks the venv, models and limits."""
+    for paths outside storage or with `..`, 403 CONSENT_REQUIRED unless `consent_id` is a valid
+    face consent of consent/active.json listing every source photo (audit fix 4); the task checks
+    all of it again plus the venv, models and limits."""
     settings = get_settings()
-    for p in [*req.source_paths, req.target_path]:
-        resolve_input(settings, p)
+    sources = [resolve_input(settings, p) for p in req.source_paths]
+    resolve_input(settings, req.target_path)
     settings.storage_path(req.output_base)
     for lid in req.licence_ids:
         if not licence_accepted(lid):
@@ -42,6 +45,12 @@ def swap(req: FaceSwapWorkerRequest) -> dict[str, Any]:
                 "comerciales + OpenRAIL-AS) en pantalla: Ajustes → Paquetes de IA.",
                 details={"licenceId": lid},
             )
+    require_consent(
+        settings.storage_root,
+        req.consent_id,
+        "face",
+        [settings.storage_relative(src) for src in sources],
+    )
     engine = face_engine()
 
     def job(task: Task) -> dict[str, Any]:

@@ -254,12 +254,13 @@ describe("face swap (mocked workers)", () => {
       {},
       { photo: { data: pngHeader(512, 512), name: "a.png", type: "image/png" } },
     );
-    await app.inject({
+    const up = await app.inject({
       method: "POST",
       url: `/api/persons/${p.id}/photos`,
       payload: body.payload,
-      headers: body.headers,
+      headers: { ...body.headers, ...ORIGIN },
     });
+    expect(up.statusCode).toBe(200);
     if (withConsent) expect((await addConsent(app, p.id)).statusCode).toBe(201);
     return (await app.inject({ method: "GET", url: `/api/persons/${p.id}` })).json() as Person;
   };
@@ -486,6 +487,43 @@ describe("face swap (mocked workers)", () => {
       payload: { projectId: project.id, clipId: "clipA" },
     });
     expect(again.statusCode).toBe(409);
+  });
+
+  it("dedupe keys on clip + Person; undo restores the previous aiFace (fixes 18, 21)", async () => {
+    addAsset("v9");
+    const una = await newPerson("Una");
+    const otra = await newPerson("Otra");
+    await acceptLicence();
+    const project = await makeProject("v9");
+    // the user had already marked «cara IA» by hand
+    const marked = {
+      ...project,
+      publish: {
+        forSocial: true,
+        aiLabel: false,
+        flags: { aiFace: true, aiVoice: false, aiOther: false, music: false, thirdParty: false },
+      },
+    };
+    await app.inject({ method: "PUT", url: `/api/projects/${project.id}`, payload: marked });
+    fake.released = false;
+    fake.mode = "hold";
+    const target = { projectId: project.id, clipId: "clipA" };
+    const a = await swap({ personId: una.id, assetId: "v9", target });
+    await waitFor(() => app.ctx.jobs.get(a.json().jobId)!.status === "running");
+    const same = await swap({ personId: una.id, assetId: "v9", target });
+    const other = await swap({ personId: otra.id, assetId: "v9", target });
+    expect(same.json().jobId).toBe(a.json().jobId);
+    expect(other.json().jobId).not.toBe(a.json().jobId);
+    await app.inject({ method: "POST", url: `/api/jobs/${other.json().jobId}/cancel` });
+    fake.released = true;
+    expect((await jobEnd(a.json().jobId)).status).toBe("succeeded");
+    fake.mode = "ok";
+    const undo = await app.inject({
+      method: "POST",
+      url: "/api/face/undo",
+      payload: { projectId: project.id, clipId: "clipA" },
+    });
+    expect((undo.json() as Project).publish?.flags.aiFace).toBe(true);
   });
 
   it("revocation / licence withdrawn while the job is queued -> fails when it starts", async () => {

@@ -39,6 +39,23 @@ def accept_licence(storage: Path) -> None:
     )
 
 
+def write_consents(storage: Path, consents: list[dict]) -> None:
+    """storage/consent/active.json as the api writes it (audit fix 4)."""
+    path = storage / "consent" / "active.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"consents": consents}), "utf-8")
+
+
+C1 = {
+    "personId": "p1",
+    "consentId": "c1",
+    "scope": "both",
+    "expires_at": None,
+    "photo_paths": ["consent/persons/p1/photos/a.png"],
+    "sample_paths": [],
+}
+
+
 @pytest.fixture
 def media(dirs: tuple[Path, Path]) -> Path:
     storage, _ = dirs
@@ -46,6 +63,7 @@ def media(dirs: tuple[Path, Path]) -> Path:
     photos.mkdir(parents=True)
     (photos / "a.png").write_bytes(b"\x89PNG")
     (storage / "media" / "clip.mp4").write_bytes(b"x")
+    write_consents(storage, [C1])
     return storage
 
 
@@ -64,7 +82,14 @@ def test_licence_mirror_consent_id_and_paths(client: TestClient, media: Path) ->
     r = client.post("/face/swap", json=swap_body())
     assert r.status_code == 403 and r.json()["code"] == "LICENCE_REQUIRED"
     accept_licence(media)
-    assert tool.mirror_accepted("faceswap") is True
+    assert tool.licence_accepted("faceswap") is True
+    # audit fix 4: the consent id must be a valid face consent of the mirror listing the photos
+    unknown = client.post("/face/swap", json=swap_body(consent_id="otro"))
+    assert unknown.status_code == 403 and unknown.json()["code"] == "CONSENT_REQUIRED"
+    write_consents(media, [{**C1, "photo_paths": []}])
+    unlisted = client.post("/face/swap", json=swap_body())
+    assert unlisted.status_code == 403 and unlisted.json()["details"]["reason"] == "scope"
+    write_consents(media, [C1])
     no_consent = client.post(
         "/face/swap", json={k: v for k, v in swap_body().items() if k != "consent_id"}
     )
@@ -163,30 +188,47 @@ def test_faceswap_packs_registry(dirs: tuple[Path, Path], monkeypatch: pytest.Mo
         < 1_820e6
     )
     monkeypatch.delenv("FACEFUSION_PYTHON", raising=False)
-    monkeypatch.setattr(tool, "_toolvenv", lambda: None)
+    monkeypatch.delenv("FACEFUSION_APP_DIR", raising=False)
     row = packs.pack_status(fs, models)
     assert row["licence_gate"] == "faceswap" and row["installed"] is False
-    assert row["tool"] == {"id": "facefusion", "state": "missing"}
+    assert row["tool"]["id"] == "facefusion" and row["tool"]["state"] in ("missing", "python")
     assert any(f["name"].startswith("venv:tools/facefusion") for f in row["files"])
     assert packs.FEATURE_PACKS["face.swap"] == "faceswap"
 
 
-def test_tool_bridge_fallback_and_m3_delegation(
+def test_tool_bridge_has_no_fallback_and_delegates_to_toolvenv(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(tool, "_toolvenv", lambda: None)
+    """Audit fix 9: no local launcher with the workers' full environment. Without toolvenv the
+    tool is broken / TOOL_MISSING; with it, everything goes through toolvenv + tools/launch.py."""
+    import builtins
+    import sys
+
+    from studio_workers.errors import CodedError
+
+    real_import = builtins.__import__
+
+    def no_toolvenv(name, globals=None, locals=None, fromlist=(), level=0):  # type: ignore[no-untyped-def]
+        if fromlist and "toolvenv" in fromlist and level == 2:
+            raise ImportError("toolvenv roto")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", no_toolvenv)
+    assert tool.tool_state() == "broken"
+    assert tool.licence_accepted("faceswap") is False
+    with pytest.raises(CodedError) as err:
+        tool.command("facefusion.py", [])
+    assert err.value.code == "TOOL_MISSING" and err.value.details["state"] == "broken"
+    monkeypatch.setattr(builtins, "__import__", real_import)
+
     app = tmp_path / "app"
     app.mkdir()
     (app / "facefusion.py").write_text("print('x')", "utf-8")
     monkeypatch.setenv("FACEFUSION_APP_DIR", str(app))
-    monkeypatch.setenv("FACEFUSION_PYTHON", "python-that-does-not-exist-xyz")
-    assert tool.tool_state() == "broken"
-    import sys
-
     monkeypatch.setenv("FACEFUSION_PYTHON", sys.executable)
-    assert tool.tool_state() == "ready"
     argv, env, cwd = tool.command("facefusion.py", ["headless-run", "--x"])
-    assert argv == [sys.executable, str(app / "facefusion.py"), "headless-run", "--x"]
+    assert argv[0] == sys.executable and Path(argv[1]).name == "launch.py"
+    assert argv[-3:] == ["facefusion.py", "headless-run", "--x"]
     assert cwd == app and env["PYTHONUTF8"] == "1" and "HF_TOKEN" not in env
 
     class FakeToolvenv:

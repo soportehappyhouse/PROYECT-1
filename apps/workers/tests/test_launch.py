@@ -49,7 +49,7 @@ out = {"argv": sys.argv, "cwd": os.getcwd(), "path0": sys.path[0],
        "env": {k: os.environ.get(k) for k in ("HF_TOKEN", "OPENAI_API_KEY", "HF_HUB_OFFLINE",
                "PYTHONUTF8", "PYTHONIOENCODING", "OMP_NUM_THREADS", "HF_HOME", "PYTHONPATH",
                "ELEVENLABS_API_KEY", "PATH")}}
-with open(os.environ["OUT_FILE"], "w", encoding="utf-8") as fh:
+with open(os.environ["STUDIO_OUT_FILE"], "w", encoding="utf-8") as fh:
     json.dump(out, fh)
 """
 
@@ -66,8 +66,9 @@ def test_env_scrubbing_and_offline_flags(launch: types.ModuleType, tmp_path: Pat
         "STUDIO_MODELS_DIR": str(tmp_path / "models"),
     }
     removed = launch.scrub_env(dict(env))
+    # audit fix 9: allowlist — everything not listed goes, secrets first
     assert set(removed) == {"HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "OPENAI_API_KEY",
-                            "ELEVENLABS_API_KEY", "MY_SERVICE_SECRET"}  # fmt: skip
+                            "ELEVENLABS_API_KEY", "MY_SERVICE_SECRET", "PYTHONPATH"}  # fmt: skip
     launch.apply_env("facefusion", env)
     assert "HF_TOKEN" not in env and "OPENAI_API_KEY" not in env and "PYTHONPATH" not in env
     assert env["HF_HUB_OFFLINE"] == "1" and env["TRANSFORMERS_OFFLINE"] == "1"
@@ -79,6 +80,15 @@ def test_env_scrubbing_and_offline_flags(launch: types.ModuleType, tmp_path: Pat
     assert "OMP_NUM_THREADS" not in other and other["STUDIO_TOOL"] == "chatterbox"
 
 
+def test_launch_allowlist_matches_toolvenv(launch: types.ModuleType) -> None:
+    """tools/launch.py (stdlib only) keeps its own copy of the allowlist: same as toolvenv."""
+    assert launch.ENV_ALLOW_EXACT == toolvenv.ENV_ALLOW_EXACT
+    assert launch.ENV_ALLOW_PREFIXES == toolvenv.ENV_ALLOW_PREFIXES
+    env = {"UNKNOWN_VAR": "1", "AWS_PROFILE": "x", "LC_ALL": "es_AR.UTF-8", "SYSTEMROOT": "C:"}
+    removed = launch.scrub_env(env)
+    assert set(removed) == {"UNKNOWN_VAR", "AWS_PROFILE"} and set(env) == {"LC_ALL", "SYSTEMROOT"}
+
+
 def test_runs_script_with_argv_cwd_and_clean_env(
     launch: types.ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -86,7 +96,7 @@ def test_runs_script_with_argv_cwd_and_clean_env(
     app.mkdir()
     (app / "tool.py").write_text(SCRIPT, "utf-8")
     out = tmp_path / "out.json"
-    monkeypatch.setenv("OUT_FILE", str(out))
+    monkeypatch.setenv("STUDIO_OUT_FILE", str(out))
     monkeypatch.setenv("HF_TOKEN", "hf_secret")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-secret")
     code = launch.main(["--tool", "facefusion", "--chdir", str(app), "--", "tool.py",
@@ -105,8 +115,10 @@ def test_dash_c_mode(
     launch: types.ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     out = tmp_path / "c.json"
-    monkeypatch.setenv("OUT_FILE", str(out))
-    code = "import json, os, sys\nopen(os.environ['OUT_FILE'], 'w').write(json.dumps(sys.argv))"
+    monkeypatch.setenv("STUDIO_OUT_FILE", str(out))
+    code = (
+        "import json, os, sys\nopen(os.environ['STUDIO_OUT_FILE'], 'w').write(json.dumps(sys.argv))"
+    )
     assert launch.main(["--tool", "chatterbox", "--chdir", str(tmp_path), "--", "-c", code,
                         "x", "y"]) == 0  # fmt: skip
     assert json.loads(out.read_text()) == ["-c", "x", "y"]
@@ -216,7 +228,7 @@ def test_command_runs_through_launch_py(
     out = tmp_path / "out.json"
     monkeypatch.setenv("FACEFUSION_PYTHON", sys.executable)
     monkeypatch.setenv("FACEFUSION_APP_DIR", str(app))
-    monkeypatch.setenv("OUT_FILE", str(out))
+    monkeypatch.setenv("STUDIO_OUT_FILE", str(out))
     monkeypatch.setenv("HF_TOKEN", "hf_secret")
     monkeypatch.setenv("ELEVENLABS_API_KEY", "el-secret")
     monkeypatch.setenv("PYTHONPATH", "/somewhere")

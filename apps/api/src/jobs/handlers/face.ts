@@ -1,5 +1,6 @@
 import { stat } from "node:fs/promises";
 import {
+  coveredPhotos,
   FACE_SWAPPER_INFO,
   FacePreviewRequestSchema,
   FaceSwapRequestSchema,
@@ -35,7 +36,11 @@ import {
   type WorkerFaceSwapRequest,
   type WorkerFaceTaskResult,
 } from "../../services/persons/face-workers.js";
-import { createConsentGate, type PersonsService } from "../../services/persons/gate.js";
+import {
+  consentRequired,
+  createConsentGate,
+  type PersonsService,
+} from "../../services/persons/gate.js";
 import { resolveStoragePath } from "../../services/storage.js";
 import { JobAbortedError } from "../state.js";
 import type { JobContext, JobHandler } from "../types.js";
@@ -203,9 +208,14 @@ export function facePreflight(
         "El momento de la vista previa queda fuera del video",
       );
   }
-  const photos = person.photos.filter((p) => p.faces !== 0).map((p) => p.path);
-  if (photos.length === 0)
+  // Audit fix 3: only the photos the consent covers (captured when it was accepted).
+  const photos = coveredPhotos(person)
+    .filter((p) => p.faces !== 0)
+    .map((p) => p.path);
+  if (photos.length === 0) {
+    if (person.photos.some((p) => p.faces !== 0)) throw consentRequired(person, "face", "scope");
     throw sprint4Error("NO_FACE", { donde: `las fotos de «${person.name}» (subí al menos una)` });
+  }
   return {
     person,
     consent,
@@ -386,7 +396,15 @@ export function createFacePreviewHandler(
 /** Clip after the swap: new asset in [0, len], `faceSwap.prev` keeps what it had (undo). */
 export function swappedClip(
   clip: Clip,
-  o: { assetId: string; length: number; personId: string; consentId: string; jobId: string },
+  o: {
+    assetId: string;
+    length: number;
+    personId: string;
+    consentId: string;
+    jobId: string;
+    /** project.publish.flags.aiFace before the swap (restored by undo). */
+    prevAiFace?: boolean;
+  },
 ): { clip: Clip; droppedMatte: boolean } {
   const maskIsAsset = clip.maskRef?.type === "asset";
   const prev = {
@@ -401,7 +419,13 @@ export function swappedClip(
     assetId: o.assetId,
     in: 0,
     out: round3(o.length),
-    faceSwap: { prev, personId: o.personId, consentId: o.consentId, jobId: o.jobId },
+    faceSwap: {
+      prev,
+      personId: o.personId,
+      consentId: o.consentId,
+      jobId: o.jobId,
+      ...(o.prevAiFace !== undefined && { prevAiFace: o.prevAiFace }),
+    },
   };
   delete next.matte;
   if (maskIsAsset) delete next.maskRef;
@@ -525,6 +549,7 @@ export function createFaceSwapHandler(
               personId: pre.person.id,
               consentId: pre.consent.id,
               jobId: job.id,
+              prevAiFace: current.publish?.flags.aiFace ?? false,
             });
             if (edit.droppedMatte) {
               warnings.push("matte_removed");

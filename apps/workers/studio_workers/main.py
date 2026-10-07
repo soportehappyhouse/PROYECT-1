@@ -55,6 +55,10 @@ def prepare_environment() -> None:
         write_registry(settings.models_root)  # models/packs.json (static registry)
     except OSError as exc:
         log.warning("could not write models/packs.json: %s", exc)
+    from .toolvenv import override_warnings  # noqa: PLC0415
+
+    for warning in override_warnings():  # audit fix 23
+        log.warning("%s", warning)
 
 
 @asynccontextmanager

@@ -628,6 +628,32 @@ def test_licence_text_version_in_sync_with_shared() -> None:
     assert toolvenv.LICENCE_TEXT_VERSIONS["faceswap"] == m.group(1)
 
 
+ALLOWED = [
+    "PATH", "SYSTEMROOT", "TEMP", "TMP", "HOME", "USERPROFILE", "LANG", "LC_ALL",
+    "PYTHONUTF8", "PYTHONIOENCODING", "CUDA_VISIBLE_DEVICES", "NVIDIA_VISIBLE_DEVICES",
+    "HF_HUB_OFFLINE", "STUDIO_MODELS_DIR",
+]  # fmt: skip
+DENIED = [
+    "HF_TOKEN", "OPENAI_API_KEY", "ELEVENLABS_API_KEY", "ANTHROPIC_AUTH_TOKEN", "GITHUB_TOKEN",
+    "AWS_SECRET_ACCESS_KEY", "PYTHONPATH", "VIRTUAL_ENV", "UNKNOWN_APP_SETTING", "AWS_PROFILE",
+    "STUDIO_API_TOKEN",
+]  # fmt: skip
+
+
+def test_tool_env_is_an_allowlist() -> None:
+    """Audit fix 9 (25 names): only allowlisted variables reach a tool process; secrets never,
+    even with an allowed prefix; proxies only for installs (network=True)."""
+    assert len(ALLOWED) + len(DENIED) == 25
+    base = {name: "x" for name in ALLOWED + DENIED}
+    env = toolvenv.scrubbed_env(base)
+    assert sorted(env) == sorted(ALLOWED)
+    assert "HTTPS_PROXY" not in toolvenv.scrubbed_env({"HTTPS_PROXY": "http://p:3128"})
+    install = toolvenv.scrubbed_env(
+        {"HTTPS_PROXY": "http://p:3128", "https_proxy": "x"}, network=True
+    )
+    assert set(install) == {"HTTPS_PROXY", "https_proxy"}
+
+
 def test_secret_detection() -> None:
     secrets = ["HF_TOKEN", "hf_token", "HUGGING_FACE_HUB_TOKEN", "OPENAI_API_KEY"]
     secrets += ["ELEVENLABS_API_KEY", "GITHUB_TOKEN", "AWS_SECRET_ACCESS_KEY", "DB_PASSWORD"]
@@ -723,3 +749,13 @@ def test_idle_timer_early_wake_is_rescheduled_and_stale_timers_ignored(
     timer.cancel()
     time.sleep(0.5)
     assert fired == [1]
+
+
+def test_override_warnings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Audit fix 23: an override of the managed tool paths is logged at startup."""
+    for key in ("FACEFUSION_PYTHON", "FACEFUSION_APP_DIR", "CHATTERBOX_PYTHON"):
+        monkeypatch.delenv(key, raising=False)
+    assert toolvenv.override_warnings() == []
+    monkeypatch.setenv("FACEFUSION_APP_DIR", "scripts/e2e/fake_facefusion")
+    warnings = toolvenv.override_warnings()
+    assert len(warnings) == 1 and warnings[0].startswith("FACEFUSION_APP_DIR=")

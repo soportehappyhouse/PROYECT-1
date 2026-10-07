@@ -563,8 +563,17 @@ def bench_facefusion(
         skipped["facefusion"] = reason
         return
     photo = settings.storage_path(face_source_path)
-    if not photo.is_file():
+    if not photo.is_file() or not consent_id:
         skipped["facefusion"] = "registrá una Persona con consentimiento para medir"
+        return
+    from .consent_mirror import require_consent  # noqa: PLC0415
+
+    try:  # audit fix 4: the photo must be covered by a valid face consent of the mirror
+        require_consent(
+            settings.storage_root, consent_id, "face", [settings.storage_relative(photo)]
+        )
+    except Exception:  # noqa: BLE001 - any refusal: not measured, never run
+        skipped["facefusion"] = "la foto no tiene un consentimiento de rostro vigente"
         return
     ff = work / "facefusion"
     ff.mkdir(parents=True, exist_ok=True)
@@ -642,7 +651,7 @@ def _bench_with_face_engine(
                 selector=FaceSelector(mode="one"),
                 model=FACEFUSION_MODEL,
                 enhancer=enhancer,
-                consent_id=consent_id or "perf-bench",
+                consent_id=consent_id or "",
                 licence_ids=["faceswap"],
             )
             res = engine.run(req, f"perf-ff-{name}")

@@ -9,7 +9,14 @@
       "Edit(./storage/**)",
       "Write(./storage/**)",
       "Read(./models/**)",
-      "WebFetch"
+      "WebFetch",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(Invoke-WebRequest:*)",
+      "Bash(Invoke-RestMethod:*)",
+      "Bash(iwr:*)",
+      "Bash(irm:*)",
+      "Bash(sqlite3:*)"
     ]
   }
 }

@@ -162,11 +162,38 @@ describe("perf.run body (sprint 4)", () => {
         createdAt: now,
         updatedAt: now,
       });
-      expect(perfRunBody(app.ctx)).toEqual({
+      expect(perfRunBody(app.ctx, "job1")).toEqual({
         face_source_path: "consent/persons/per1/photos/ph1.jpg",
         face_consent_id: "con1",
         licences: ["faceswap"],
       });
+      // audit fix 11: the use of the Person's photo is audited
+      expect(gate.auditLog.list({ action: "perf.facefusion" })[0]).toMatchObject({
+        personId: "per1",
+        consentId: "con1",
+        jobId: "job1",
+      });
+      // audit fix 15: the most recent valid face consent wins (not the first name)
+      const later = new Date(Date.parse(now) + 60_000).toISOString();
+      gate.persons.insert({
+        id: "per2",
+        name: "Zoe",
+        photos: [
+          {
+            id: "ph2",
+            path: "consent/persons/per2/photos/ph2.jpg",
+            sha256: "e".repeat(64),
+            width: 640,
+            height: 480,
+            faces: 1,
+          },
+        ],
+        voiceSamples: [],
+        consents: [{ ...consent, id: "con2", personId: "per2", accepted_at: later }],
+        createdAt: now,
+        updatedAt: now,
+      });
+      expect(perfRunBody(app.ctx).face_consent_id).toBe("con2");
     } finally {
       await app.close();
     }
@@ -352,6 +379,37 @@ describe.skipIf(!hasFfmpeg)(
         sourceAssetId: voice.id,
         jobId: job.id,
       });
+    });
+
+    it("re-importing an exported file keeps it as AI content (comment tag, audit fix 10)", async () => {
+      const exported = path.join(dir, "exportado.mp4");
+      const comment =
+        "Editado con Studio; contenido alterado con IA: cara sintética: sí; voz clonada: sí; " +
+        "voz sintética: no";
+      gen(["-i", path.join(dir, "clip.mp4"), "-t", "2", "-c", "copy", "-metadata",
+        `comment=${comment}`, exported]); // prettier-ignore
+      expect(tagsOf(exported).comment).toBe(comment);
+      const asset = await upload(exported, "video/mp4");
+      await idle();
+      const probed = app.ctx.repos.media.get(asset.id)!;
+      expect(probed.aiAltered).toBe(true);
+      expect(probed.aiProvenance).toMatchObject({ kind: "face", extraKinds: ["voice-cloned"] });
+      expect(probed.aiProvenance).not.toHaveProperty("personId");
+      const project = {
+        tracks: [
+          {
+            id: "t1",
+            kind: "video" as const,
+            name: "V1",
+            clips: [{ id: "c9", trackId: "t1", assetId: asset.id, start: 0, in: 0, out: 2 }],
+          },
+        ],
+      } as unknown as Project;
+      expect(exportAiComment(app.ctx, project)).toBe(comment);
+      // a plain file stays plain
+      const plain = await upload(path.join(dir, "clip.mp4"), "video/mp4");
+      await idle();
+      expect(app.ctx.repos.media.get(plain.id)!.aiAltered).toBeUndefined();
     });
   },
 );

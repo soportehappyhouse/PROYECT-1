@@ -220,6 +220,18 @@ def verify_existing(
 # ------------------------------------------------------------------------- resumable download
 
 
+_COMMIT = re.compile(r"^[0-9a-f]{40}$")
+
+
+def _hf_commit(res: httpx.Response) -> str | None:
+    """The commit a Hugging Face `resolve/<rev>/` URL resolved to (X-Repo-Commit header)."""
+    for r in [*res.history, res]:
+        value = (r.headers.get("x-repo-commit") or "").strip().lower()
+        if _COMMIT.match(value):
+            return value
+    return None
+
+
 def _hf_meta(res: httpx.Response) -> tuple[str | None, int | None]:
     """sha256 + size that Hugging Face publishes for LFS files (X-Linked-Etag / X-Linked-Size)."""
     sha: str | None = None
@@ -250,6 +262,9 @@ class FetchResult:
     md5: str
     sha256: str
     resumed_from: int
+    # Hugging Face `X-Repo-Commit` of a `resolve/<revision>/…` download (audit fix 13: the commit
+    # `main` pointed to, recorded so later downloads pin it).
+    repo_commit: str | None = None
 
 
 def fetch_file(
@@ -277,8 +292,9 @@ def fetch_file(
             if expected.size_bytes is not None and resumed > expected.size_bytes:
                 part.unlink()
                 resumed = 0
+            commit: list[str] = []
             try:
-                total, hf_sha = _stream(http, url, part, resumed, expected, on_progress)
+                total, hf_sha = _stream(http, url, part, resumed, expected, on_progress, commit)
             except httpx.HTTPError as exc:
                 raise DownloadError(
                     f"Error de red al descargar {url}: {exc} (se reanuda al reintentar)"
@@ -303,7 +319,7 @@ def fetch_file(
             if not problems:
                 part.replace(dest)
                 log.info("downloaded %s (%d bytes, resumed from %d)", dest, written, resumed)
-                return FetchResult(written, md5, sha, resumed)
+                return FetchResult(written, md5, sha, resumed, commit[0] if commit else None)
             part.unlink(missing_ok=True)
             if resumed and attempt == 1:
                 log.warning("%s: resumed file failed verification; restarting", dest.name)
@@ -322,10 +338,14 @@ def _stream(
     offset: int,
     expected: Expected,
     on_progress: ProgressFn | None,
+    commit: list[str] | None = None,
 ) -> tuple[int | None, str | None]:
     headers = {"Range": f"bytes={offset}-"} if offset else {}
     with http.stream("GET", url, headers=headers) as res:
         hf_sha, hf_size = _hf_meta(res)
+        rev = _hf_commit(res)
+        if rev and commit is not None:
+            commit.append(rev)
         if res.status_code == 416 and offset:
             # Range starts at/after EOF: the .part may already be complete; verification decides.
             _, total = _content_range_total(res.headers.get("content-range"))
@@ -335,7 +355,7 @@ def _stream(
         if res.status_code == 416 and offset:
             # Unknown total: the .part cannot be verified; start over.
             part.unlink(missing_ok=True)
-            return _stream(http, url, part, 0, expected, on_progress)
+            return _stream(http, url, part, 0, expected, on_progress, commit)
         if res.status_code == 206 and offset:
             start, total = _content_range_total(res.headers.get("content-range"))
             if start != offset:
@@ -418,6 +438,8 @@ class FileItem:
             sha256=res.sha256,
             md5=res.md5 if self.expected.md5 else None,
         )
+        if res.repo_commit:
+            entry["revision"] = res.repo_commit
         if not (self.expected.sha256 or self.expected.md5):
             # No published hash (e.g. SAM 2.1 on dl.fbaipublicfiles.com): this first download's
             # size + sha256 become the reference that later checks (--check, deep) compare to.

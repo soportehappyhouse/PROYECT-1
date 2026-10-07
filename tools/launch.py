@@ -9,10 +9,12 @@ Runs INSIDE the tool venv (``tools/<id>/.venv``), started by the workers through
 
 Before the tool code is imported it:
 
-1. cleans the environment: no ``HF_TOKEN`` or any ``*_API_KEY`` / ``*_TOKEN`` / ``*_SECRET``
-   variable (Studio never uses tokens: only public repos), ``HF_HUB_OFFLINE=1`` (models are
-   downloaded by Studio's packs, the tool never fetches anything), ``HF_HOME=<models>/<tool>/.hf``,
-   ``PYTHONUTF8=1``, ``PYTHONIOENCODING=utf-8`` and ``OMP_NUM_THREADS=1`` for FaceFusion;
+1. cleans the environment with an ALLOWLIST (system paths, temp, locale, ``PYTHON*``,
+   ``CUDA*`` / ``NVIDIA*``, ``STUDIO_*``, …; never ``HF_TOKEN`` or any ``*_API_KEY`` /
+   ``*_TOKEN`` / ``*_SECRET`` variable: Studio never uses tokens, only public repos),
+   ``HF_HUB_OFFLINE=1`` (models are downloaded by Studio's packs, the tool never fetches
+   anything), ``HF_HOME=<models>/<tool>/.hf``, ``PYTHONUTF8=1``, ``PYTHONIOENCODING=utf-8`` and
+   ``OMP_NUM_THREADS=1`` for FaceFusion;
 2. with ``--preload-ort``: puts every ``site-packages/nvidia/*/bin`` folder on the DLL search path
    (``os.add_dll_directory`` + ``PATH``; ORT does not preload curand/nvrtc on Windows) and calls
    ``onnxruntime.preload_dlls()`` (cuBLAS, cuFFT, cudart, cuDNN 9 of the nvidia-*-cu12 wheels):
@@ -44,6 +46,24 @@ LAUNCH_FAILED = "LAUNCH_FAILED"
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent
 
+# Same allowlist as studio_workers/toolvenv.py (ENV_ALLOW_*; test_launch checks they match).
+ENV_ALLOW_EXACT = frozenset(
+    {
+        "PATH", "PATHEXT", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "OS",
+        "TEMP", "TMP", "TMPDIR", "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH",
+        "APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "PROGRAMFILES", "PROGRAMFILES(X86)",
+        "PROGRAMW6432", "COMMONPROGRAMFILES", "COMMONPROGRAMFILES(X86)", "COMMONPROGRAMW6432",
+        "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "PROCESSOR_IDENTIFIER",
+        "PROCESSOR_LEVEL", "PROCESSOR_REVISION", "USERNAME", "USER", "LOGNAME",
+        "LANG", "LANGUAGE", "TZ", "TERM", "LD_LIBRARY_PATH",
+        "HF_HUB_OFFLINE", "HF_HOME", "TRANSFORMERS_OFFLINE", "HF_HUB_DISABLE_TELEMETRY",
+        "DO_NOT_TRACK", "GRADIO_ANALYTICS_ENABLED", "TOKENIZERS_PARALLELISM",
+    }
+)  # fmt: skip
+ENV_ALLOW_PREFIXES = (
+    "LC_", "PYTHON", "CUDA", "NVIDIA", "CUDNN", "STUDIO_", "OMP_", "MKL_", "KMP_",
+    "TORCH_", "PYTORCH_", "ORT_",
+)  # fmt: skip
 _SECRET_EXACT = {
     "HF_TOKEN",
     "HUGGING_FACE_HUB_TOKEN",
@@ -52,6 +72,7 @@ _SECRET_EXACT = {
     "HF_API_TOKEN",
 }
 _SECRET_RE = re.compile(r"(?i)(_API_KEY|_APIKEY|_TOKEN|_SECRET|_SECRET_KEY|_PASSWORD|_ACCESS_KEY)$")
+_PY_LEAKS = ("PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "VIRTUAL_ENV", "CONDA_PREFIX")
 # Kept alive on purpose: os.add_dll_directory() removes the folder when its handle is collected.
 _DLL_HANDLES: list[object] = []
 
@@ -64,9 +85,17 @@ def is_secret(name: str) -> bool:
     return name.upper() in _SECRET_EXACT or bool(_SECRET_RE.search(name))
 
 
+def is_allowed(name: str) -> bool:
+    up = name.upper()
+    if is_secret(name) or up in _PY_LEAKS:
+        return False
+    return up in ENV_ALLOW_EXACT or up.startswith(ENV_ALLOW_PREFIXES)
+
+
 def scrub_env(env: MutableMapping[str, str]) -> list[str]:
-    """Remove tokens / API keys from `env` in place; returns the removed names (never values)."""
-    removed = [k for k in list(env) if is_secret(k)]
+    """Keep only allowlisted variables in `env` (in place); returns the removed names (never
+    values)."""
+    removed = [k for k in list(env) if not is_allowed(k)]
     for k in removed:
         env.pop(k, None)
     return removed

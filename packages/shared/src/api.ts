@@ -87,6 +87,8 @@ export const API_ROUTES = {
   personConsents: "/api/persons/:id/consents", // POST multipart ConsentCreateFields + `evidence` -> 201 Consent
   personConsentRevoke: "/api/persons/:id/consents/:consentId/revoke", // POST -> Consent (revoked_at)
   personConsentEvidence: "/api/persons/:id/consents/:consentId/evidence", // GET evidence file
+  personConsentsRevoke: "/api/persons/:id/consents/revoke", // POST ConsentRevokeScopeRequest -> Person (every non-revoked consent of the scope)
+  personAudit: "/api/persons/:id/audit", // GET AuditEntry[] (web only, HUMAN_ONLY)
   aiLicences: "/api/ai/licences", // GET LicenceStatus[]
   aiLicenceAccept: "/api/ai/licences/:id/accept", // POST LicenceAcceptRequest -> LicenceAcceptance
   aiLicenceRevoke: "/api/ai/licences/:id/revoke", // POST -> LicenceAcceptance
@@ -108,6 +110,7 @@ export const WORKER_ROUTES = {
   transcribe: "/transcribe", // POST {inputPath, language, model, wordTimestamps} -> Transcript
   ttsVoices: "/tts/voices", // GET TtsVoice[]
   tts: "/tts", // POST {text, voice, speed, outputPath} -> {path, durationSec}
+  ttsCancel: "/tts/cancel", // POST {jobId} -> {canceled, stopped} (Chatterbox: kills the bridge, frees the GPU)
   rvcModels: "/rvc/models", // GET RvcModel[]
   rvcConvert: "/rvc/convert", // POST {inputPath, modelId, pitchShift, indexRate, f0Method, device, outputPath} -> {path}
   ttsProviders: "/tts/providers", // GET TtsProviderInfo[]

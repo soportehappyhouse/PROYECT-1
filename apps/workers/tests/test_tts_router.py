@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import sys
 import wave
@@ -139,10 +140,29 @@ def test_clone_from_self_reference(client: TestClient, mock_tool) -> None:
     assert dominant_hz(storage / "renders" / "c1.wav") == pytest.approx(330, abs=3)
 
 
+def _voice_mirror(storage, consents) -> None:  # type: ignore[no-untyped-def]
+    path = storage / "consent" / "active.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"consents": consents}), "utf-8")
+
+
 def test_clone_from_person_sample_with_consent_layout(client: TestClient, mock_tool) -> None:
     storage, _ = mock_tool
     write_wav(storage / "consent" / "persons" / "p1" / "voice" / "s1.wav")
-    ok = tts(client, voiceRef={"path": "consent/persons/p1/voice/s1.wav", "consent": "c_1"})
+    write_wav(storage / "consent" / "persons" / "p1" / "voice" / "s2.wav")
+    ref = {"path": "consent/persons/p1/voice/s1.wav", "consent": "c_1"}
+    # audit fix 4: without the api's mirror (or with another consent) the clone is refused
+    assert tts(client, voiceRef=ref).json()["code"] == "CONSENT_REQUIRED"
+    entry = {"personId": "p1", "consentId": "c_1", "scope": "voice", "expires_at": None,
+             "photo_paths": [], "sample_paths": ["consent/persons/p1/voice/s1.wav"]}  # fmt: skip
+    _voice_mirror(storage, [{**entry, "scope": "face"}])
+    assert tts(client, voiceRef=ref).json()["details"]["reason"] == "scope"
+    _voice_mirror(storage, [{**entry, "expires_at": "2001-01-01T00:00:00Z"}])
+    assert tts(client, voiceRef=ref).json()["details"]["reason"] == "expired"
+    _voice_mirror(storage, [entry])
+    late = tts(client, voiceRef={**ref, "path": "consent/persons/p1/voice/s2.wav"})
+    assert late.status_code == 403  # added after the consent: not listed
+    ok = tts(client, voiceRef=ref)
     assert ok.status_code == 200, ok.text
     # the Person was deleted (its consents moved to consent/archive/<id>/): refused
     (storage / "consent" / "archive" / "p1").mkdir(parents=True)
@@ -265,11 +285,14 @@ def test_post_install_downloads_the_v2_checkpoint_after_fallback(
     monkeypatch.setitem(packs.CHATTERBOX_T3_FILES, "v2", ("t3_mtl23ls_v2.safetensors", 16, 8))
     hits: list[str] = []
 
+    commit = "c0ffee" + "0" * 34
+
     def handler(req: httpx.Request) -> httpx.Response:
         hits.append(str(req.url))
-        return httpx.Response(200, content=b"0123456789abcdef")
+        return httpx.Response(200, content=b"0123456789abcdef", headers={"X-Repo-Commit": commit})
 
     lines: list[str] = []
+    assert packs.chatterbox_revision(models) == ("main", False)
     with httpx.Client(transport=httpx.MockTransport(handler)) as http:
         packs._chatterbox_setup(models, lines.append, client=http)
     assert calls and calls[0]["tool"] == "chatterbox" and calls[0]["use_cuda"] is False
@@ -279,9 +302,37 @@ def test_post_install_downloads_the_v2_checkpoint_after_fallback(
     assert (models / "chatterbox" / "t3_mtl23ls_v2.safetensors").stat().st_size == 16
     entry = Manifest.load(models).get("chatterbox/t3_mtl23ls_v2.safetensors")
     assert entry and entry.get("verified") == "first-download" and len(entry["sha256"]) == 64
+    # audit fix 13: the commit `main` resolved to is recorded; later downloads are pinned to it
+    # and a re-downloaded file must have the recorded sha256
+    assert entry["revision"] == commit
+    assert packs.chatterbox_revision(models) == (commit, True)
+    items = {i.name: i for i in packs._chatterbox_items(models, None)}
+    assert all(f"/resolve/{commit}/" in i.url for i in items.values())
+    assert items["t3_mtl23ls_v2.safetensors"].expected.sha256 == entry["sha256"]
+    assert items["ve.pt"].expected.sha256 is None  # never downloaded: trust on first download
     assert any("V2" in ln for ln in lines)
     # second run: the checkpoint is there, nothing is downloaded again
     hits.clear()
     with httpx.Client(transport=httpx.MockTransport(handler)) as http:
         packs._chatterbox_setup(models, lines.append, client=http)
     assert hits == []
+
+
+def test_cancel_route_reaches_the_client(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Audit fix 8: POST /tts/cancel {jobId} -> ChatterboxClient.cancel(jobId)."""
+    from studio_workers import services
+
+    seen: list[str | None] = []
+
+    class FakeClient:
+        def cancel(self, job_id):  # type: ignore[no-untyped-def]
+            seen.append(job_id)
+            return job_id == "j9"
+
+    monkeypatch.setattr(services, "chatterbox_client", lambda: FakeClient())
+    r = client.post("/tts/cancel", json={"jobId": "j9"})
+    assert r.status_code == 200 and r.json() == {"canceled": True, "stopped": True, "jobId": "j9"}
+    assert client.post("/tts/cancel", json={}).json()["stopped"] is False
+    assert seen == ["j9", None]

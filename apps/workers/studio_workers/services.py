@@ -28,9 +28,28 @@ def release_ollama() -> list[str]:
     return client.unload_loaded_sync()
 
 
+def gpu_reserve_mb() -> int:
+    """GPU_RESERVE_MB (.env; empty = 800): VRAM left for Windows, the browser and NVENC before a
+    model counts as fitting. Lower it on a 6 GB card to keep Chatterbox / FaceFusion on the GPU
+    (audit fix 14); invalid values fall back to the default."""
+    from .gpu import DEFAULT_RESERVE_MB  # noqa: PLC0415
+    from .toolvenv import tool_settings  # noqa: PLC0415
+
+    try:
+        raw = str(tool_settings().gpu_reserve_mb or "").strip()
+        value = int(float(raw)) if raw else DEFAULT_RESERVE_MB
+    except (ValueError, Exception):  # noqa: BLE001 - unreadable .env: default
+        return DEFAULT_RESERVE_MB
+    return value if 0 <= value <= 8000 else DEFAULT_RESERVE_MB
+
+
 @lru_cache
 def gpu_budget() -> GpuBudget:
-    return GpuBudget(use_cuda=get_settings().use_cuda, external_release=release_ollama)
+    return GpuBudget(
+        use_cuda=get_settings().use_cuda,
+        external_release=release_ollama,
+        reserve_mb=gpu_reserve_mb(),
+    )
 
 
 @lru_cache

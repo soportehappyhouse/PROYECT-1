@@ -1,10 +1,13 @@
 """Face swap task: FaceFusion 3.9.1 ``headless-run`` on a trimmed clip (or one frame) with the
 photos of a Person who consented (docs/trabajo/sprint4-contratos.md «M1 · Workers»).
 
-Order of the defence-in-depth checks (the api already ran them): licence in the mirror -> isolated
-venv ready (TOOL_MISSING) -> model files + their CRC32 (PACK_REQUIRED before launching: FaceFusion
-would otherwise try to download them) -> limits (CLIP_TOO_LONG) -> reference face in the chosen
-frame (NO_FACE). GPU: ``budget.release()`` + ``acquire("facefusion", 3500, unload=kill)``; without
+Order of the defence-in-depth checks (the api already ran them): licence in the mirror -> consent
+in the mirror consent/active.json (valid, scope face, every source photo listed for it under
+consent/persons/<itsPerson>/; audit fix 4) -> isolated venv ready (TOOL_MISSING) -> model files +
+their CRC32 (PACK_REQUIRED before launching: FaceFusion would otherwise try to download them) ->
+limits (CLIP_TOO_LONG) -> reference face in the chosen frame (NO_FACE). Cancel kills FaceFusion
+AND the ffmpeg trim before it; a failed or canceled run leaves nothing in renders/face/<job>/.
+GPU: ``budget.release()`` + ``acquire("facefusion", 3500, unload=kill)``; without
 VRAM FaceFusion runs with ``--execution-providers cpu`` and the result says ``gpu_fallback_cpu``.
 
 Video: ffmpeg trims the range first (re-encoded, frame accurate) to ``source.mp4``; FaceFusion
@@ -14,7 +17,9 @@ writes ``ff.mp4``; ``strength < 1`` blends it over the source (ffmpeg ``blend``,
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import os
 import shutil
 import subprocess
 import threading
@@ -35,7 +40,7 @@ from .detect import (
     read_image,
 )
 from .detect import detect as detect_frame
-from .runner import HeadlessArgs, classify, headless_args, run_process
+from .runner import HeadlessArgs, classify, headless_args, nsfw_pattern, run_process
 from .schemas import FaceSwapWorkerRequest
 
 log = logging.getLogger("studio_workers")
@@ -89,25 +94,51 @@ def tool_missing(state: str) -> Exception:
     return _coded("TOOL_MISSING", msg, {"tool": "facefusion", "state": state, "packId": "faceswap"})
 
 
-def _ffmpeg(args: list[str], timeout: float = 3600.0) -> None:
+def _ffmpeg(
+    args: list[str],
+    timeout: float = 3600.0,
+    on_start: Callable[[subprocess.Popen], None] | None = None,
+) -> None:
+    """ffmpeg with a fixed argv; `on_start` gets the process so a cancel can kill it (fix 24)."""
     from ..vision.frames import ffmpeg_exe  # noqa: PLC0415
 
-    out = subprocess.run(  # noqa: S603 - fixed argv
-        [ffmpeg_exe(), "-y", "-v", "error", *args], capture_output=True, text=True,
-        timeout=timeout, check=False,
+    kwargs: dict[str, Any] = (
+        {"start_new_session": True}
+        if os.name != "nt"
+        else {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200)}
+    )
+    proc = subprocess.Popen(  # noqa: S603 - fixed argv
+        [ffmpeg_exe(), "-y", "-v", "error", *args], stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True, encoding="utf-8",
+        errors="replace", **kwargs,
     )  # fmt: skip
-    if out.returncode != 0:
-        raise RuntimeError(f"ffmpeg falló: {out.stderr.strip()[-400:]}")
+    if on_start is not None:
+        on_start(proc)
+    try:
+        _out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        from .runner import kill_tree  # noqa: PLC0415
+
+        kill_tree(proc)
+        raise RuntimeError("ffmpeg no terminó a tiempo") from None
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffmpeg falló: {(err or '').strip()[-400:]}")
 
 
-def trim_clip(src: Path, start: float, end: float, out: Path) -> Path:
+def trim_clip(
+    src: Path,
+    start: float,
+    end: float,
+    out: Path,
+    on_start: Callable[[subprocess.Popen], None] | None = None,
+) -> Path:
     """Frame-accurate range (re-encoded, high quality) as MP4: FaceFusion's output needs the same
     extension as its target, and the final asset is an .mp4."""
     _ffmpeg([
         "-ss", f"{start:.3f}", "-i", str(src), "-t", f"{max(0.04, end - start):.3f}",
         "-map", "0:v:0", "-map", "0:a:0?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "12",
         "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(out),
-    ])  # fmt: skip
+    ], on_start=on_start)  # fmt: skip
     return out
 
 
@@ -155,6 +186,7 @@ class FaceEngine:
         tool_state: Callable[[], str] | None = None,
         licence_ok: Callable[[str], bool] | None = None,
         spawn: Callable[..., subprocess.Popen] | None = None,
+        consent_check: Callable[[str, list[str]], str] | None = None,
     ) -> None:
         self.settings = settings
         self.budget = budget
@@ -164,6 +196,7 @@ class FaceEngine:
         self.tool_state = tool_state or tool.tool_state
         self.licence_ok = licence_ok or tool.licence_accepted
         self.spawn = spawn
+        self.consent_check = consent_check or self._consent_check
         self._lock = threading.Lock()
         self._procs: dict[str, subprocess.Popen] = {}
         self._canceled: set[str] = set()
@@ -199,6 +232,27 @@ class FaceEngine:
             procs = list(self._procs.values())
         for proc in procs:
             kill_tree(proc)
+
+    def _consent_check(self, consent_id: str, rel_paths: list[str]) -> str:
+        from ..consent_mirror import require_consent  # noqa: PLC0415
+
+        return require_consent(self.settings.storage_root, consent_id, "face", rel_paths)
+
+    def _register(self, task_id: str, proc: subprocess.Popen) -> None:
+        """Track the running child (ffmpeg trim or FaceFusion) of a task; a cancel that arrived
+        before it started kills it right away."""
+        from .runner import kill_tree  # noqa: PLC0415
+
+        with self._lock:
+            self._procs[task_id] = proc
+            canceled = task_id in self._canceled
+        if canceled:
+            kill_tree(proc)
+
+    def _check_canceled(self, task_id: str) -> None:
+        with self._lock:
+            if task_id in self._canceled:
+                raise FaceCanceled("Cancelado")
 
     def _require_models(self, model: str, enhancer: bool) -> None:
         from ..packs import (  # noqa: PLC0415
@@ -261,6 +315,7 @@ class FaceEngine:
         for lid in req.licence_ids:
             if not self.licence_ok(lid):
                 raise _coded("LICENCE_REQUIRED", MSG["LICENCE_REQUIRED"], {"licenceId": lid})
+        self.consent_check(req.consent_id, [s.storage_relative(src) for src in sources])
         state = self.tool_state()
         if state != "ready":
             raise tool_missing(state)
@@ -302,14 +357,30 @@ class FaceEngine:
         if device == "cpu" and not preview:
             warnings.append(CPU_SLOW)
         timings: dict[str, float] = {}
+        ok = False
+        partial = [out_dir / name for name in ("source.mp4", "ff.mp4", "faceswap.mp4")]
+        if preview:
+            partial = [out_dir / "before.png", out_dir / "after.png"]
         try:
+            self._check_canceled(task_id)
             if preview:
                 before = extract_frame(target, float(req.preview_t or 0.0), out_dir / "before.png")
                 ff_target, ff_out = before, out_dir / "after.png"
             else:
                 step(0.01, "recortando el tramo")
                 t0 = time.perf_counter()
-                ff_target = trim_clip(target, start, end, out_dir / "source.mp4")
+                try:
+                    ff_target = trim_clip(
+                        target,
+                        start,
+                        end,
+                        out_dir / "source.mp4",
+                        on_start=lambda proc: self._register(task_id, proc),
+                    )
+                except RuntimeError:
+                    self._check_canceled(task_id)  # killed by a cancel: not an ffmpeg error
+                    raise
+                self._check_canceled(task_id)
                 ff_out = out_dir / "ff.mp4"
                 timings["trim_s"] = round(time.perf_counter() - t0, 3)
             ff_out.unlink(missing_ok=True)
@@ -336,8 +407,7 @@ class FaceEngine:
             step(lo, "iniciando FaceFusion")
 
             def on_start(proc: subprocess.Popen) -> None:
-                with self._lock:
-                    self._procs[task_id] = proc
+                self._register(task_id, proc)
 
             outcome = run_process(
                 argv,
@@ -353,7 +423,9 @@ class FaceEngine:
                 timings["startup_s"] = outcome.startup_s
             if outcome.canceled or task_id in self._canceled:
                 raise FaceCanceled("Cancelado")
-            failure = classify(outcome, ff_out.is_file() and ff_out.stat().st_size > 0)
+            failure = classify(
+                outcome, ff_out.is_file() and ff_out.stat().st_size > 0, nsfw_pattern()
+            )
             if failure is not None:
                 log.warning("FaceFusion failed (%s): %s", failure.code, failure.line)
                 tail = {"logTail": failure.tail}
@@ -378,6 +450,7 @@ class FaceEngine:
                 result_path, before_path = final, None
                 ff_out.unlink(missing_ok=True)
                 ff_target.unlink(missing_ok=True)
+            ok = True
         finally:
             with self._lock:
                 self._procs.pop(task_id, None)
@@ -385,6 +458,11 @@ class FaceEngine:
             if device == "cuda":
                 self.budget.release("facefusion")
             shutil.rmtree(work, ignore_errors=True)
+            if not ok:  # audit fix 19: a failed / canceled run leaves no partial files behind
+                for f in partial:
+                    f.unlink(missing_ok=True)
+                with contextlib.suppress(OSError):
+                    out_dir.rmdir()  # only when empty
         timings["total_s"] = round(time.perf_counter() - t_start, 3)
         ff_seconds = timings.get("facefusion_s") or 0.0
         return {

@@ -22,12 +22,10 @@ import type { WorkerCallOptions, WorkersClient } from "../services/workers-clien
 import {
   asJobError,
   consentGate,
-  createTtsExtendedCall,
   prepareChatterbox,
   voiceProvenance,
   workerChatterboxBody,
   workersToHttp,
-  type TtsExtendedCall,
 } from "./chatterbox.js";
 import { registerAudioAsset, requireMediaAsset } from "./media-bridge.js";
 import { extractSpeechWav } from "./proc.js";
@@ -37,8 +35,6 @@ export type VoiceAiDeps = Pick<AppContext, "config" | "repos" | "queue" | "worke
   Partial<Pick<AppContext, "db">> & {
     /** Sprint 4: M1's consent gate (tests inject a fake; the app builds it from `db`). */
     gate?: ConsentGate;
-    /** Sprint 4: workers POST /tts keeping device/warnings/rtf (tests inject a fake). */
-    ttsExtended?: TtsExtendedCall;
   };
 
 /** Map worker progress (0..1) into [from, to] of the job progress bar. */
@@ -186,24 +182,37 @@ async function runChatterboxTts(
   }
   const { value, ref } = prepared;
   const outputPath = `renders/${jobId}.${payload.format}`;
-  const call = deps.ttsExtended ?? createTtsExtendedCall(deps.config.workersUrl, deps.workers);
-  ctx.reportProgress(0.05, ref ? `Clonando la voz (${ref.name})` : "Sintetizando con Chatterbox");
+  ctx.reportProgress(
+    0.05,
+    ref?.self
+      ? "Clonando tu voz"
+      : ref
+        ? "Clonando la voz de la Persona"
+        : "Sintetizando con Chatterbox",
+  );
+  // Audit fix 8: canceling the job stops Chatterbox for real (kills the bridge, frees the GPU).
+  const onAbort = () => void deps.workers.ttsCancel(jobId).catch(() => undefined);
+  ctx.signal.addEventListener("abort", onAbort, { once: true });
   let res;
   try {
     res = await viaPacks(() =>
-      call(
-        workerChatterboxBody(payload, value, ref, outputPath, jobId),
-        progressOpts(ctx, 0.05, 0.95),
-      ),
+      deps.workers.tts(workerChatterboxBody(payload, value, ref, outputPath, jobId), {
+        ...progressOpts(ctx, 0.05, 0.95),
+        timeoutMs: 0, // a CPU synthesis of 5000 characters can take long: only cancel stops it
+      }),
     );
   } catch (err) {
     throw workersToHttp(err);
+  } finally {
+    ctx.signal.removeEventListener("abort", onAbort);
   }
   const snippet = payload.text.replace(/\s+/g, " ").trim().slice(0, 40);
   const tool = chatterboxTool(res.model ?? value.model);
+  // Audit fix 22: never the Persona's name in the asset name (Media, exports, reports).
+  const voiceLabel = ref?.self ? "Voz propia" : ref ? "Voz clonada (Persona)" : "multilingüe";
   const asset = await registerAudioAsset(deps, {
     path: res.path,
-    name: `Voz Chatterbox (${ref?.name ?? "multilingüe"}): ${snippet}`,
+    name: `Voz Chatterbox (${voiceLabel}): ${snippet}`,
     durationSec: res.durationSec,
     ...(res.sampleRate && res.path.endsWith(".wav") && { sampleRate: res.sampleRate }),
     aiAltered: true,
@@ -259,13 +268,28 @@ export function createRvcHandler(deps: VoiceAiDeps): JobHandler<RvcRequest, Audi
           progressOpts(ctx, 0.02, 0.97),
         ),
       );
-      // Sprint 4: a converted synthetic/cloned voice keeps its AI marks (sourceAssetId = source).
+      // Sprint 4: a converted synthetic/cloned voice keeps its AI marks (sourceAssetId = source);
+      // open point B of the audit: a real voice converted to another voice is `voice-cloned`.
+      const kind = source.aiProvenance?.kind;
+      const provenance =
+        kind === "voice-synthetic" || kind === "voice-cloned"
+          ? inheritAiProvenance(source, { jobId: job.id })
+          : {
+              aiAltered: true,
+              aiProvenance: {
+                kind: "voice-cloned" as const,
+                tool: `rvc:${payload.modelId}`.slice(0, 120),
+                jobId: job.id,
+                sourceAssetId: source.id,
+                createdAt: new Date().toISOString(),
+              },
+            };
       const asset = await registerAudioAsset(deps, {
         path: res.path,
         name: `${source.name} (RVC ${payload.modelId})`,
         ...(res.durationSec != null && { durationSec: res.durationSec }),
         ...(res.sampleRate != null && { sampleRate: res.sampleRate }),
-        ...inheritAiProvenance(source, { jobId: job.id }),
+        ...provenance,
       });
       const usedDevice = res.device === "cuda" || res.device === "cpu" ? res.device : undefined;
       return {

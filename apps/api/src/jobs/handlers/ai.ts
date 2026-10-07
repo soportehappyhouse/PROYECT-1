@@ -350,11 +350,15 @@ export async function readPerfResult(storageDir: string): Promise<PerfResult | u
 }
 
 /**
- * Sprint 4 (M3) body of POST /perf/run: the photo of the first Person with a valid face consent
- * and the accepted licences, so the workers measure FaceFusion only with both (never a face-swap
- * model without the on-screen acceptance). The handler gets the full AppContext in app.ts.
+ * Sprint 4 (M3) body of POST /perf/run: a covered photo of the Person with the most recent valid
+ * face consent (audit fix 15) and the accepted licences, so the workers measure FaceFusion only
+ * with both (never a face-swap model without the on-screen acceptance). Using the photo is audited
+ * (`perf.facefusion`, audit fix 11). The handler gets the full AppContext in app.ts.
  */
-export function perfRunBody(deps: AiDeps): {
+export function perfRunBody(
+  deps: AiDeps,
+  jobId?: string,
+): {
   face_source_path?: string;
   face_consent_id?: string;
   licences: string[];
@@ -364,6 +368,14 @@ export function perfRunBody(deps: AiDeps): {
   const gate = createConsentGate(db, deps.config.storageDir);
   const licences = gate.isLicenceAccepted("faceswap") ? ["faceswap"] : [];
   const source = licences.length > 0 ? gate.benchFaceSource() : null;
+  if (source)
+    gate.audit({
+      action: "perf.facefusion",
+      personId: source.personId,
+      consentId: source.consentId,
+      ...(jobId && { jobId }),
+      data: { photo: source.photoPath.split("/").pop() },
+    });
   return {
     ...(source && { face_source_path: source.photoPath, face_consent_id: source.consentId }),
     licences,
@@ -387,11 +399,11 @@ export function createPerfRunHandler(
   return {
     type: "perf.run",
     parse: (p) => PerfRunPayloadSchema.parse(p ?? {}),
-    async run(_req, ctx) {
+    async run(_req, ctx, job) {
       const storage = deps.config.storageDir;
       const before = await perfMtime(storage);
       ctx.reportProgress(0.02, "Iniciando test de rendimiento IA");
-      const { task_id } = await viaPacks(() => deps.workers.perfRun(perfRunBody(deps)));
+      const { task_id } = await viaPacks(() => deps.workers.perfRun(perfRunBody(deps, job.id)));
       const pollMs = o.pollMs ?? 1000;
       const timeoutMs = o.timeoutMs ?? 30 * 60_000;
       try {

@@ -103,8 +103,13 @@ class ToolSettings(BaseSettings):
     facefusion_base_python: str = ""
     facefusion_python: str = ""
     facefusion_app_dir: str = ""
+    # Audit fix 6: regex of FaceFusion's content-analyser rejection line (empty = built-in one).
+    facefusion_nsfw_re: str = ""
     chatterbox_python: str = ""
     chatterbox_idle_s: str = ""
+    # Audit fix 14: VRAM reserved for Chatterbox (MB, empty = 4500) and the system reserve.
+    chatterbox_vram_mb: str = ""
+    gpu_reserve_mb: str = ""
     rvc_idle_s: str = ""
     ffmpeg_path: str = ""
     ffprobe_path: str = ""
@@ -271,6 +276,25 @@ def override_python(tool: ToolId) -> str:
     """FACEFUSION_PYTHON / CHATTERBOX_PYTHON (tests, e2e mocks, advanced setups) or ''."""
     spec = spec_of(tool)
     return str(getattr(tool_settings(), spec.python_env.lower(), "") or "").strip()
+
+
+OVERRIDE_KEYS = ("facefusion_python", "facefusion_app_dir", "chatterbox_python")
+
+
+def override_warnings() -> list[str]:
+    """Audit fix 23: FACEFUSION_PYTHON / FACEFUSION_APP_DIR / CHATTERBOX_PYTHON replace the managed
+    tools/<id>/.venv and app with whatever they point to (tests, e2e mocks, advanced setups). The
+    workers log a warning at startup so a forgotten override in .env is visible."""
+    st = tool_settings()
+    out: list[str] = []
+    for key in OVERRIDE_KEYS:
+        value = str(getattr(st, key, "") or "").strip()
+        if value:
+            out.append(
+                f"{key.upper()}={value} reemplaza la herramienta administrada por Studio "
+                "(tools/…): solo para pruebas; borralo de .env para usar la instalada."
+            )
+    return out
 
 
 def read_lock(tool: ToolId) -> dict[str, Any]:
@@ -678,6 +702,35 @@ def licence_status() -> dict[str, Any]:
 
 # ------------------------------------------------------------------------------ environment
 
+# Audit fix 9: tool processes get an ALLOWLIST of variables, not "everything minus secrets".
+# tools/launch.py keeps an identical copy (stdlib only; test_launch checks they stay in sync).
+ENV_ALLOW_EXACT = frozenset(
+    {
+        "PATH", "PATHEXT", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "OS",
+        "TEMP", "TMP", "TMPDIR", "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH",
+        "APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "PROGRAMFILES", "PROGRAMFILES(X86)",
+        "PROGRAMW6432", "COMMONPROGRAMFILES", "COMMONPROGRAMFILES(X86)", "COMMONPROGRAMW6432",
+        "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "PROCESSOR_IDENTIFIER",
+        "PROCESSOR_LEVEL", "PROCESSOR_REVISION", "USERNAME", "USER", "LOGNAME",
+        "LANG", "LANGUAGE", "TZ", "TERM", "LD_LIBRARY_PATH",
+        "HF_HUB_OFFLINE", "HF_HOME", "TRANSFORMERS_OFFLINE", "HF_HUB_DISABLE_TELEMETRY",
+        "DO_NOT_TRACK", "GRADIO_ANALYTICS_ENABLED", "TOKENIZERS_PARALLELISM",
+    }
+)  # fmt: skip
+ENV_ALLOW_PREFIXES = (
+    "LC_", "PYTHON", "CUDA", "NVIDIA", "CUDNN", "STUDIO_", "OMP_", "MKL_", "KMP_",
+    "TORCH_", "PYTORCH_", "ORT_",
+)  # fmt: skip
+# Only for installs (pip / git through a proxy or a corporate CA), never for a running tool.
+ENV_ALLOW_NETWORK = frozenset(
+    {
+        "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "REQUESTS_CA_BUNDLE",
+        "SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_CA_BUNDLE", "PIP_INDEX_URL",
+        "PIP_EXTRA_INDEX_URL", "PIP_TRUSTED_HOST", "PIP_CERT", "PIP_PROXY",
+        "GIT_SSL_CAINFO", "GIT_SSL_CAPATH",
+    }
+)  # fmt: skip
+
 _SECRET_EXACT = {
     "HF_TOKEN",
     "HUGGING_FACE_HUB_TOKEN",
@@ -701,14 +754,21 @@ def is_secret_var(name: str) -> bool:
     return name.upper() in _SECRET_EXACT or bool(_SECRET_RE.search(name))
 
 
-def scrubbed_env(base: Mapping[str, str] | None = None) -> dict[str, str]:
-    """Copy of the environment without tokens/API keys or the workers' Python variables (pip and
-    every tool process get this)."""
+def is_allowed_var(name: str, *, network: bool = False) -> bool:
+    """Allowlisted (and not secret-looking: a name like STUDIO_X_TOKEN still never passes)."""
+    up = name.upper()
+    if is_secret_var(name) or up in _PY_LEAKS:
+        return False
+    if up in ENV_ALLOW_EXACT or up.startswith(ENV_ALLOW_PREFIXES):
+        return True
+    return network and up in ENV_ALLOW_NETWORK
+
+
+def scrubbed_env(base: Mapping[str, str] | None = None, *, network: bool = False) -> dict[str, str]:
+    """Allowlisted copy of the environment (no tokens/API keys, no workers' Python variables, no
+    unknown variables). ``network=True`` (pip / git installs) also keeps proxies and CA bundles."""
     src = os.environ if base is None else base
-    env = {k: v for k, v in src.items() if not is_secret_var(k)}
-    for key in _PY_LEAKS:
-        env.pop(key, None)
-    return env
+    return {k: v for k, v in src.items() if is_allowed_var(k, network=network)}
 
 
 def _ffmpeg_dirs() -> list[str]:
@@ -864,7 +924,7 @@ def default_runner(
         encoding="utf-8",
         errors="replace",
         cwd=str(cwd) if cwd else None,
-        env=dict(env) if env is not None else scrubbed_env(),
+        env=dict(env) if env is not None else scrubbed_env(network=True),
     )
     assert proc.stdout is not None
     for line in proc.stdout:
@@ -886,7 +946,7 @@ class _Ctx:
     def __init__(self, runner: Runner, say: LineFn) -> None:
         self.runner = runner
         self.say = say
-        self.env = scrubbed_env()
+        self.env = scrubbed_env(network=True)
         self.lines: list[str] = []
 
     def run(

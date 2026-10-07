@@ -5,13 +5,17 @@ import {
   API_ROUTES,
   CONSENT_TEXT_VERSION,
   ConsentCreateFieldsSchema,
+  ConsentRevokeScopeRequestSchema,
+  consentCovers,
   LICENCES,
   LicenceAcceptRequestSchema,
   LicenceIdSchema,
   PersonCreateSchema,
   PersonPatchSchema,
   renderConsentText,
+  revocableConsents,
   type Consent,
+  type ConsentAuditRow,
   type LicenceAcceptance,
   type LicenceId,
   type LicenceStatus,
@@ -23,23 +27,26 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { errorBody, HttpError, sprint4Error } from "../lib/errors.js";
+import { safeInputArgs, sniffAudio } from "../services/audio-upload.js";
 import { createFaceWorkers } from "../services/persons/face-workers.js";
 import {
   archivePersonFiles,
+  decodePngRgba,
   isPdf,
   LIMITS,
+  MIN_SIGNATURE_INK,
   personRel,
   removeStorageFile,
   SAFE_ID,
   sha256,
+  signatureInk,
   sniffImage,
-  writeLicenceMirror,
   writeStorageFile,
 } from "../services/persons/files.js";
 import {
+  assertBrowserRead,
   assertHumanOrigin,
   createConsentGate,
-  isMcpRequest,
   licenceTextSha256,
   type PersonsService,
 } from "../services/persons/gate.js";
@@ -48,9 +55,11 @@ import { resolveStoragePath } from "../services/storage.js";
 /**
  * Sprint 4 M1 routes (docs/trabajo/sprint4-contratos.md «M1 · API»): the Personas registry
  * (/api/persons: CRUD, photos, voice samples, consents with history + revocation) and the on-screen
- * licences (/api/ai/licences). Creating a consent and accepting a licence are HUMAN_ONLY (browser
- * Origin of the dashboard, never `X-Studio-Client: mcp`). Files live in storage/consent/ (never
- * served by /files): photos, samples and evidence are read through these routes only.
+ * licences (/api/ai/licences). Creating a consent, uploading a photo / voice sample, reading the
+ * audit and accepting a licence are HUMAN_ONLY (exact Origin of the dashboard, never
+ * `X-Studio-Client: mcp`); photos, samples and evidence are only read by the browser
+ * (assertBrowserRead). Files live in storage/consent/ (never served by /files). Every change
+ * rewrites the workers' mirrors (consent/active.json, consent/licences.json).
  */
 
 const FILE_TOO_LARGE = "FST_REQ_FILE_TOO_LARGE";
@@ -137,8 +146,15 @@ export const personsRoutes: FastifyPluginAsync = async (app) => {
     if (!p) throw sprint4Error("PERSON_NOT_FOUND", {}, { personId: id });
     return p;
   };
-  const noMcp = (req: FastifyRequest) => {
-    if (isMcpRequest(req)) throw sprint4Error("HUMAN_ONLY");
+  const browserRead = (req: FastifyRequest) => assertBrowserRead(req, config);
+  /** Rewrite consent/active.json + licences.json after a change (the workers read them). */
+  const mirrors = async (req: FastifyRequest) => {
+    try {
+      await gate.writeMirrors();
+    } catch (err) {
+      req.log.error({ err: String(err) }, "No se pudieron escribir los espejos de consentimiento");
+      throw err;
+    }
   };
 
   // ------------------------------------------------------------------------------- persons
@@ -207,6 +223,7 @@ export const personsRoutes: FastifyPluginAsync = async (app) => {
         updatedAt: at,
       };
       gate.persons.markDeleted(archived, at);
+      await mirrors(req);
       gate.audit({
         action: "person.delete",
         personId: p.id,
@@ -222,6 +239,7 @@ export const personsRoutes: FastifyPluginAsync = async (app) => {
 
   // ------------------------------------------------------------------------------- photos
   app.post<{ Params: { id: string } }>(API_ROUTES.personPhotos, async (req) => {
+    assertHumanOrigin(req, config); // audit fix 3: biometrics only from the screen
     const p = load(req.params.id);
     if (p.photos.length >= LIMITS.photos)
       throw new HttpError(400, "LIMIT_REACHED", `Cada Persona admite hasta ${LIMITS.photos} fotos`);
@@ -259,14 +277,19 @@ export const personsRoutes: FastifyPluginAsync = async (app) => {
     };
     const current = load(p.id);
     const next = gate.persons.save({ ...current, photos: [...current.photos, photo] });
-    gate.audit({ action: "person.photo.add", personId: p.id, data: { photoId, faces } });
+    gate.audit({
+      action: "person.photo.add",
+      personId: p.id,
+      data: { photoId, faces, sha256: photo.sha256 },
+    });
+    await mirrors(req);
     return next;
   });
 
   app.get<{ Params: { id: string; photoId: string } }>(
     API_ROUTES.personPhoto,
     async (req, reply) => {
-      noMcp(req);
+      browserRead(req);
       const p = load(req.params.id);
       const photo = p.photos.find((ph) => ph.id === req.params.photoId);
       if (!photo) return reply.code(404).send(errorBody("NOT_FOUND", "Foto no encontrada"));
@@ -280,14 +303,17 @@ export const personsRoutes: FastifyPluginAsync = async (app) => {
       const p = load(req.params.id);
       const photo = p.photos.find((ph) => ph.id === req.params.photoId);
       if (!photo) return reply.code(404).send(errorBody("NOT_FOUND", "Foto no encontrada"));
+      const next = gate.persons.save({ ...p, photos: p.photos.filter((ph) => ph.id !== photo.id) });
+      await mirrors(req);
       await removeStorageFile(storage, photo.path);
       gate.audit({ action: "person.photo.delete", personId: p.id, data: { photoId: photo.id } });
-      return gate.persons.save({ ...p, photos: p.photos.filter((ph) => ph.id !== photo.id) });
+      return next;
     },
   );
 
   // ------------------------------------------------------------------------- voice samples
   app.post<{ Params: { id: string } }>(API_ROUTES.personVoiceSamples, async (req) => {
+    assertHumanOrigin(req, config); // audit fix 3: biometrics only from the screen
     const p = load(req.params.id);
     if (p.voiceSamples.length >= LIMITS.voiceSamples)
       throw new HttpError(
@@ -296,28 +322,43 @@ export const personsRoutes: FastifyPluginAsync = async (app) => {
         `Cada Persona admite hasta ${LIMITS.voiceSamples} muestras de voz`,
       );
     const up = await readUpload(req, ["audio", "file"], LIMITS.voiceBytes, "la muestra de voz");
+    // Audit fix 20: the demuxer comes from the real type, never from the client's file name.
+    const type = sniffAudio(up.data);
+    if (!type)
+      throw sprint4Error("VOICE_SAMPLE_INVALID", {}, { reason: "formato de audio no reconocido" });
     const sampleId = nanoid(12);
     const tmpDir = resolveStoragePath(storage, `tmp/persons/${sampleId}`);
     await mkdir(tmpDir, { recursive: true });
-    const ext = (path
-      .extname(up.filename)
-      .toLowerCase()
-      .match(/^\.[a-z0-9]{1,5}$/) ?? [".bin"])[0];
-    const input = path.join(tmpDir, `input${ext}`);
+    const input = path.join(tmpDir, `input.${type.ext}`);
+    const decoded = path.join(tmpDir, "decoded.wav");
     const rel = personRel(p.id, "voice", `${sampleId}.wav`);
     try {
       await writeFile(input, up.data);
-      const src = await ffmpeg.probe(input).catch(() => undefined);
+      await ffmpeg.run([
+        ...safeInputArgs(type),
+        "-i",
+        input,
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        "24000",
+        "-t",
+        String(LIMITS.voiceMaxSec + 1),
+        "-c:a",
+        "pcm_s16le",
+        decoded,
+      ]);
+      const src = await ffmpeg.probe(decoded).catch(() => undefined);
       const dur = src?.durationSec ?? 0;
-      if (!src?.hasAudio || dur < LIMITS.voiceMinSec || dur > LIMITS.voiceMaxSec)
+      if (!src?.hasAudio || dur < LIMITS.voiceMinSec || dur > LIMITS.voiceMaxSec + 0.05)
         throw sprint4Error("VOICE_SAMPLE_INVALID");
       const out = resolveStoragePath(storage, rel);
       await mkdir(path.dirname(out), { recursive: true });
       const trim = "silenceremove=start_periods=1:start_duration=0.1:start_threshold=-45dB";
       await ffmpeg.run([
         "-i",
-        input,
-        "-vn",
+        decoded,
         "-af",
         `${trim},areverse,${trim},areverse,loudnorm=I=-20:TP=-2:LRA=11`,
         "-ar",
@@ -350,8 +391,9 @@ export const personsRoutes: FastifyPluginAsync = async (app) => {
       gate.audit({
         action: "person.voice.add",
         personId: p.id,
-        data: { sampleId, durationSec: sample.durationSec },
+        data: { sampleId, durationSec: sample.durationSec, sha256: sample.sha256 },
       });
+      await mirrors(req);
       return next;
     } catch (err) {
       if (err instanceof HttpError) throw err;
@@ -364,7 +406,7 @@ export const personsRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Params: { id: string; sampleId: string } }>(
     API_ROUTES.personVoiceSample,
     async (req, reply) => {
-      noMcp(req);
+      browserRead(req);
       const p = load(req.params.id);
       const s = p.voiceSamples.find((v) => v.id === req.params.sampleId);
       if (!s) return reply.code(404).send(errorBody("NOT_FOUND", "Muestra no encontrada"));
@@ -378,9 +420,14 @@ export const personsRoutes: FastifyPluginAsync = async (app) => {
       const p = load(req.params.id);
       const s = p.voiceSamples.find((v) => v.id === req.params.sampleId);
       if (!s) return reply.code(404).send(errorBody("NOT_FOUND", "Muestra no encontrada"));
+      const next = gate.persons.save({
+        ...p,
+        voiceSamples: p.voiceSamples.filter((v) => v.id !== s.id),
+      });
+      await mirrors(req);
       await removeStorageFile(storage, s.path);
       gate.audit({ action: "person.voice.delete", personId: p.id, data: { sampleId: s.id } });
-      return gate.persons.save({ ...p, voiceSamples: p.voiceSamples.filter((v) => v.id !== s.id) });
+      return next;
     },
   );
 
@@ -430,6 +477,16 @@ export const personsRoutes: FastifyPluginAsync = async (app) => {
         throw new HttpError(400, "UNSUPPORTED_MEDIA", "La firma tiene que ser una imagen PNG");
       if (evidence.length > LIMITS.signatureBytes)
         throw new HttpError(413, "FILE_TOO_LARGE", `La firma supera ${mb(LIMITS.signatureBytes)}`);
+      // Audit fix 16: a blank canvas (all transparent / all white) is not a signature.
+      const pixels = decodePngRgba(evidence);
+      if (!pixels)
+        throw new HttpError(400, "UNSUPPORTED_MEDIA", "La firma no es una imagen PNG legible");
+      if (signatureInk(pixels) < MIN_SIGNATURE_INK)
+        throw new HttpError(
+          400,
+          "SIGNATURE_EMPTY",
+          "La firma está en blanco: que la persona firme en el recuadro.",
+        );
       ext = "png";
     } else if (isPdf(evidence)) ext = "pdf";
     else if (img && (img.type === "png" || img.type === "jpeg")) ext = img.ext;
@@ -437,6 +494,10 @@ export const personsRoutes: FastifyPluginAsync = async (app) => {
     const consentId = nanoid(12);
     const evidenceRel = personRel(p.id, "consents", consentId, `evidence.${ext}`);
     await writeStorageFile(storage, evidenceRel, evidence);
+    const current = load(p.id);
+    // Audit fix 3: the consent covers exactly the photos / samples loaded now (id + sha256).
+    const refs = (items: readonly { id: string; sha256: string }[]) =>
+      items.map((x) => ({ id: x.id, sha256: x.sha256 }));
     const consent: Consent = {
       id: consentId,
       personId: p.id,
@@ -449,9 +510,11 @@ export const personsRoutes: FastifyPluginAsync = async (app) => {
       evidence_sha256: sha256(evidence),
       scope: body.scope,
       ...(body.expires_at && { expires_at: body.expires_at }),
+      photo_ids: consentCovers(body, "face") ? refs(current.photos) : [],
+      sample_ids: consentCovers(body, "voice") ? refs(current.voiceSamples) : [],
     };
-    const current = load(p.id);
     gate.persons.save({ ...current, consents: [...current.consents, consent] });
+    await mirrors(req);
     gate.audit({
       action: "consent.create",
       personId: p.id,
@@ -463,6 +526,8 @@ export const personsRoutes: FastifyPluginAsync = async (app) => {
         text_sha256: consent.text_sha256,
         evidence_sha256: consent.evidence_sha256,
         ...(consent.expires_at && { expires_at: consent.expires_at }),
+        photo_ids: consent.photo_ids,
+        sample_ids: consent.sample_ids,
       },
     });
     return reply.code(201).send(consent);
@@ -477,6 +542,7 @@ export const personsRoutes: FastifyPluginAsync = async (app) => {
       if (c.revoked_at) return c;
       const revoked: Consent = { ...c, revoked_at: new Date().toISOString() };
       gate.persons.save({ ...p, consents: p.consents.map((x) => (x.id === c.id ? revoked : x)) });
+      await mirrors(req);
       gate.audit({
         action: "consent.revoke",
         personId: p.id,
@@ -487,10 +553,43 @@ export const personsRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
+  // Audit fix 2: «Revocar rostro» / «Revocar voz» / «Revocar todo» — every non-revoked consent of
+  // that scope (a «rostro y voz» one is revoked entirely: one consent, one revocation date).
+  app.post<{ Params: { id: string } }>(API_ROUTES.personConsentsRevoke, async (req) => {
+    const body = ConsentRevokeScopeRequestSchema.parse(req.body ?? {});
+    const p = load(req.params.id);
+    const targets = new Set(revocableConsents(p, body.scope).map((c) => c.id));
+    if (targets.size === 0) return p;
+    const at = new Date().toISOString();
+    const next = gate.persons.save({
+      ...p,
+      consents: p.consents.map((c) => (targets.has(c.id) ? { ...c, revoked_at: at } : c)),
+    });
+    await mirrors(req);
+    for (const id of targets)
+      gate.audit({
+        action: "consent.revoke",
+        personId: p.id,
+        consentId: id,
+        data: { scope: p.consents.find((c) => c.id === id)?.scope, by: body.scope },
+      });
+    return next;
+  });
+
+  // Audit fix 11: the Person's audit trail (web only) + whether the hash chain is intact.
+  app.get<{ Params: { id: string } }>(API_ROUTES.personAudit, async (req) => {
+    assertHumanOrigin(req, config);
+    const id = req.params.id;
+    if (!SAFE_ID.test(id) || !gate.persons.find(id))
+      throw sprint4Error("PERSON_NOT_FOUND", {}, { personId: id });
+    const rows: ConsentAuditRow[] = gate.auditLog.list({ personId: id, limit: 500 });
+    return { rows, chain: gate.auditLog.verify() };
+  });
+
   app.get<{ Params: { id: string; consentId: string } }>(
     API_ROUTES.personConsentEvidence,
     async (req, reply) => {
-      noMcp(req);
+      browserRead(req);
       const p = load(req.params.id);
       const c = p.consents.find((x) => x.id === req.params.consentId);
       if (!c) return reply.code(404).send(errorBody("NOT_FOUND", "Consentimiento no encontrado"));
@@ -518,7 +617,7 @@ export const personsRoutes: FastifyPluginAsync = async (app) => {
       text_sha256: licenceTextSha256(id),
       accepted_at: new Date().toISOString(),
     });
-    await writeLicenceMirror(storage, gate.licences.list());
+    await mirrors(req);
     gate.audit({
       action: "licence.accept",
       data: {
@@ -538,7 +637,7 @@ export const personsRoutes: FastifyPluginAsync = async (app) => {
     const revoked = current.revoked_at
       ? current
       : gate.licences.save({ ...current, revoked_at: new Date().toISOString() });
-    await writeLicenceMirror(storage, gate.licences.list());
+    await mirrors(req);
     gate.audit({ action: "licence.revoke", data: { licenceId: id } });
     return revoked;
   });

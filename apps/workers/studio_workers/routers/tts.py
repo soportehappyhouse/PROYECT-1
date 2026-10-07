@@ -1,4 +1,7 @@
+from typing import Any
+
 from fastapi import APIRouter
+from pydantic import BaseModel, Field
 
 from ..config import get_settings
 from ..errors import NotFoundError, require_module
@@ -76,6 +79,25 @@ def synthesize(req: TtsRequest) -> TtsResult:
         sample_rate=rate,
         provider=req.provider,
     )
+
+
+class TtsCancelRequest(BaseModel):
+    """POST /tts/cancel: the api's job id (= TtsRequest.job_id); empty = whatever is running."""
+
+    job_id: str | None = Field(default=None, alias="jobId", max_length=120)
+
+    model_config = {"populate_by_name": True}
+
+
+@router.post("/cancel")
+def cancel(req: TtsCancelRequest | None = None) -> dict[str, Any]:
+    """Audit fix 8: a canceled voice.tts job really stops Chatterbox: the bridge tree is killed and
+    the GPU released (the next request starts it again). Piper/cloud calls are short: no-op."""
+    from ..services import chatterbox_client  # noqa: PLC0415
+
+    job_id = req.job_id if req is not None else None
+    stopped = chatterbox_client().cancel(job_id)
+    return {"canceled": True, "stopped": stopped, "jobId": job_id}
 
 
 def _synthesize_chatterbox(req: TtsRequest) -> TtsResult:

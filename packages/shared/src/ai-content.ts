@@ -1,3 +1,4 @@
+import type { AiProvenance, AiProvenanceKind } from "./consent.js";
 import type { MediaAsset } from "./media.js";
 import type { Project, Track } from "./timeline.js";
 
@@ -65,27 +66,29 @@ export function detectAiContent(
         const asset = assets.get(id);
         const prov = asset?.aiProvenance;
         if (!asset || !prov) continue;
-        const bucket =
-          prov.kind === "face"
-            ? visible
-              ? report.face
-              : undefined
-            : audible
-              ? prov.kind === "voice-cloned"
-                ? report.voiceCloned
-                : report.voiceSynthetic
-              : undefined;
-        if (!bucket) continue;
-        const key = `${prov.kind}:${clip.id}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        bucket.push({
-          clipId: clip.id,
-          trackId: track.id,
-          assetId: asset.id,
-          ...(prov.personId && { personId: prov.personId }),
-          label_es: `«${asset.name}» (pista «${track.name}»)`,
-        });
+        for (const kind of new Set([prov.kind, ...(prov.extraKinds ?? [])])) {
+          const bucket =
+            kind === "face"
+              ? visible
+                ? report.face
+                : undefined
+              : audible
+                ? kind === "voice-cloned"
+                  ? report.voiceCloned
+                  : report.voiceSynthetic
+                : undefined;
+          if (!bucket) continue;
+          const key = `${kind}:${clip.id}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          bucket.push({
+            clipId: clip.id,
+            trackId: track.id,
+            assetId: asset.id,
+            ...(prov.personId && { personId: prov.personId }),
+            label_es: `«${asset.name}» (pista «${track.name}»)`,
+          });
+        }
       }
     }
   }
@@ -110,6 +113,40 @@ export function aiContentComment(r: AiContentReport): string | undefined {
     `voz clonada: ${yes(r.voiceCloned.length)}; ` +
     `voz sintética: ${yes(r.voiceSynthetic.length)}`
   );
+}
+
+/**
+ * Audit fix 10: the kinds written by aiContentComment() in an exported file's `comment` tag
+ * («contenido alterado con IA: cara sintética: sí; voz clonada: no; …»), or undefined when the
+ * comment does not say so. A comment that says it but cannot be parsed counts as «synthetic voice»
+ * so the asset is still marked.
+ */
+export function parseAiContentComment(comment: string | undefined): AiProvenanceKind[] | undefined {
+  if (!comment || !/contenido alterado con ia/i.test(comment)) return undefined;
+  const yes = (label: string) => new RegExp(`${label}\\s*:\\s*s[ií]`, "i").test(comment);
+  const kinds: AiProvenanceKind[] = [];
+  if (yes("cara sint[eé]tica")) kinds.push("face");
+  if (yes("voz clonada")) kinds.push("voice-cloned");
+  if (yes("voz sint[eé]tica")) kinds.push("voice-synthetic");
+  return kinds.length > 0 ? kinds : ["voice-synthetic"];
+}
+
+/**
+ * Minimal provenance of a file re-imported into Studio that carries the AI `comment` of an earlier
+ * export: no Person, consent or job (they belong to the original project), only the kinds.
+ */
+export function reimportedAiProvenance(
+  kinds: readonly AiProvenanceKind[],
+  createdAt: string = new Date().toISOString(),
+): Pick<MediaAsset, "aiAltered" | "aiProvenance"> {
+  const [kind = "voice-synthetic", ...rest] = kinds;
+  const provenance: AiProvenance = {
+    kind,
+    tool: "reimportado (metadato comment de una exportación con IA)",
+    ...(rest.length > 0 && { extraKinds: [...rest] }),
+    createdAt,
+  };
+  return { aiAltered: true, aiProvenance: provenance };
 }
 
 /** Checklist flags the detection implies: `locked` ones cannot be unchecked while detected. */

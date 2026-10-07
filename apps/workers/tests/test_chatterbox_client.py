@@ -410,9 +410,97 @@ def test_bridge_argv_is_a_list_with_models_dir_device_and_variant(tmp_path: Path
     assert res.model == "mtl-v2"
 
 
-def test_fallback_command_drops_hf_token(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_bridge_goes_through_toolvenv_and_has_no_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Audit fix 9: the bridge always starts via toolvenv.command + tools/launch.py (allowlisted
+    environment); without toolvenv it is TOOL_MISSING (broken), never a plain Popen."""
+    import builtins
+
     monkeypatch.setenv("HF_TOKEN", "hf_secret")
-    monkeypatch.setenv("CHATTERBOX_PYTHON", "/opt/py/python")
-    argv, env, cwd = cb._fallback_command(["--mock"])
-    assert argv == ["/opt/py/python", str(BRIDGE), "--mock"]
+    monkeypatch.setenv("CHATTERBOX_PYTHON", sys.executable)
+    argv, env, cwd = cb.tool_command(["--mock"])
+    assert argv[0] == sys.executable and Path(argv[1]).name == "launch.py"
+    assert argv[-2:] == ["studio_tts_server.py", "--mock"]
     assert "HF_TOKEN" not in env and env["HF_HUB_OFFLINE"] == "1" and cwd == BRIDGE.parent
+    real_import = builtins.__import__
+
+    def no_toolvenv(name, globals=None, locals=None, fromlist=(), level=0):  # type: ignore[no-untyped-def]
+        if fromlist and "toolvenv" in fromlist and level == 2:
+            raise ImportError("toolvenv roto")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", no_toolvenv)
+    with pytest.raises(CodedError) as err:
+        cb.tool_command(["--mock"])
+    assert err.value.code == "TOOL_MISSING" and err.value.details["state"] == "broken"
+    assert cb.tool_status()["state"] == "broken"
+
+
+HANGING_BRIDGE = """
+emit({"event": "ready", "device": device, "load_s": 0.1, "model": "mtl-v3"})
+for line in sys.stdin:
+    req = json.loads(line)
+    if req.get("op") == "synthesize":
+        emit({"event": "progress", "id": req["id"], "chunk": 1, "chunks": 3})
+        import time
+        time.sleep(120)
+"""
+
+
+def test_cancel_kills_the_running_bridge_and_frees_the_gpu(tmp_path: Path, models) -> None:
+    """Audit fix 8: POST /tts/cancel -> ChatterboxClient.cancel(job) kills the bridge tree and
+    releases the GPU budget; the request ends CANCELED (no automatic restart)."""
+    import threading
+
+    gpu = budget()
+    client = cb.ChatterboxClient(
+        settings(models, use_cuda=True), gpu, command=fake_tool(tmp_path, HANGING_BRIDGE), idle_s=0
+    )
+    errors: list[BaseException] = []
+
+    def go() -> None:
+        try:
+            client.synthesize(job_id="k1", text="Hola.", out=tmp_path / "k1.wav")
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    th = threading.Thread(target=go)
+    th.start()
+    try:
+        deadline = time.monotonic() + 15
+        while client._current != "k1" or not client.running:
+            assert time.monotonic() < deadline, "the bridge did not start"
+            time.sleep(0.05)
+        proc = client._proc
+        assert gpu.resident == "chatterbox"
+        assert client.cancel("other-job") is False  # another job: nothing happens
+        assert client.running
+        assert client.cancel("k1") is True
+        th.join(timeout=20)
+        assert not th.is_alive()
+        assert errors and isinstance(errors[0], CodedError) and errors[0].code == "CANCELED"
+        assert proc is not None and proc.poll() is not None
+        assert gpu.resident is None and not client.running and client.starts == 1
+        # a job canceled while it waited for the lock never starts the bridge
+        assert client.cancel("k2") is False
+        with pytest.raises(CodedError) as queued:
+            client.synthesize(job_id="k2", text="Hola.", out=tmp_path / "k2.wav")
+        assert queued.value.code == "CANCELED" and client.starts == 1
+    finally:
+        client.stop()
+
+
+def test_vram_reservation_is_configurable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Audit fix 14: CHATTERBOX_VRAM_MB (default 4500) and GPU_RESERVE_MB (default 800)."""
+    from studio_workers import services
+
+    monkeypatch.delenv("CHATTERBOX_VRAM_MB", raising=False)
+    monkeypatch.delenv("GPU_RESERVE_MB", raising=False)
+    assert cb.vram_mb() == 4500 and services.gpu_reserve_mb() == 800
+    monkeypatch.setenv("CHATTERBOX_VRAM_MB", "3800")
+    monkeypatch.setenv("GPU_RESERVE_MB", "500")
+    assert cb.vram_mb() == 3800 and services.gpu_reserve_mb() == 500
+    monkeypatch.setenv("CHATTERBOX_VRAM_MB", "mucho")
+    monkeypatch.setenv("GPU_RESERVE_MB", "-3")
+    assert cb.vram_mb() == 4500 and services.gpu_reserve_mb() == 800

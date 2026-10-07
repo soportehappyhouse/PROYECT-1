@@ -251,6 +251,9 @@ def _licence_ok(licence_id: str) -> bool:
     return licence_accepted(licence_id)
 
 
+LICENCE_EXIT = 3  # --tool-venv … ensure refused: licence not accepted (the api's 403)
+
+
 def run_tool_venv(tool: str, action: str, args: argparse.Namespace) -> int:
     """--tool-venv facefusion|chatterbox status|ensure|verify (setup.ps1 «Herramientas aisladas»
     and doctor.ps1). Same code as the packs (toolvenv.ensure). verify --no-write: doctor."""
@@ -259,7 +262,18 @@ def run_tool_venv(tool: str, action: str, args: argparse.Namespace) -> int:
     settings = get_settings()
     summary: dict[str, Any] = {"mode": f"tool-venv-{action}", "tool": tool}
     code = 0
-    if action == "ensure":
+    gate = getattr(_pack_or_none(toolvenv.spec_of(tool).pack_id), "licence_gate", None)  # type: ignore[arg-type]
+    if action == "ensure" and gate and not toolvenv.licence_accepted(gate):
+        # Audit open point D: same rule as the pack route (403 LICENCE_REQUIRED): nothing of the
+        # face swap on disk without the on-screen acceptance. Exit code 3 = refused by licence.
+        summary["action"] = "licence_required"
+        summary["error"] = (
+            "Para instalar el cambio de cara tenés que leer y aceptar su licencia (modelos no "
+            "comerciales + OpenRAIL-AS) en pantalla: Ajustes → Paquetes de IA."
+        )
+        print(f"ERROR: {summary['error']}", file=sys.stderr)
+        code = LICENCE_EXIT
+    elif action == "ensure":
         try:
             summary["action"] = toolvenv.ensure(
                 tool,  # type: ignore[arg-type]
@@ -281,10 +295,14 @@ def run_tool_venv(tool: str, action: str, args: argparse.Namespace) -> int:
     base = toolvenv.find_base_python(tool)  # type: ignore[arg-type]
     summary["base_python"] = base[0] if base else None
     summary["base_python_version"] = base[1] if base else None
-    pack_id = toolvenv.spec_of(tool).pack_id
-    summary["pack_id"] = pack_id
-    gate = getattr(_pack_or_none(pack_id), "licence_gate", None)
+    summary["pack_id"] = toolvenv.spec_of(tool).pack_id  # type: ignore[arg-type]
     summary["licence"] = gate
+    if tool == "chatterbox":  # audit fix 13: HF weights pinned after the first download?
+        from .packs import chatterbox_revision  # noqa: PLC0415
+
+        rev, pinned = chatterbox_revision(settings.models_root)
+        summary["hf_revision"] = rev
+        summary["hf_pinned"] = pinned
     summary["licence_accepted"] = toolvenv.licence_accepted(gate) if gate else None
     if action == "verify" and summary.get("state") == "broken" and code == 0:
         code = 1

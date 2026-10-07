@@ -48,6 +48,8 @@ interface PersonsState {
   deleteVoice: (sampleId: string) => Promise<void>;
   addConsent: (c: NewConsent) => Promise<boolean>;
   revokeConsent: (consentId: string) => Promise<void>;
+  /** «Revocar rostro» | «Revocar voz» | «Revocar todo». */
+  revokeScope: (scope: "face" | "voice" | "all") => Promise<void>;
   loadLicences: () => Promise<LicenceStatus[]>;
   acceptLicence: (id: LicenceId) => Promise<boolean>;
   revokeLicence: (id: LicenceId) => Promise<void>;
@@ -199,6 +201,16 @@ export const usePersonsStore = create<PersonsState>()((set, get) => {
       toast.success("Consentimiento revocado", {
         description: "Lo ya generado no se borra, pero no se puede usar para nada nuevo.",
       });
+    },
+    revokeScope: async (scope) => {
+      const p = await onPerson("Revocar consentimiento", (id) => personsApi.revokeScope(id, scope));
+      if (!p) return;
+      addBreadcrumb("ui", "Consentimiento revocado", { personId: p.id, scope });
+      adopt(p);
+      toast.success(
+        scope === "face" ? "Rostro revocado" : scope === "voice" ? "Voz revocada" : "Todo revocado",
+        { description: "Lo ya generado no se borra, pero no se puede usar para nada nuevo." },
+      );
     },
     loadLicences: async () => {
       try {

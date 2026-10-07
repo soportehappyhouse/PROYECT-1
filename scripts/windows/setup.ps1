@@ -736,10 +736,20 @@ if (-not $venvOk) {
             Add-Result $label ok $detail -Action $toolAction -Seconds (Stop-StepClock)
         } catch {
             $msg = $_.Exception.Message
+            $tvAction = ''
             if (Test-Path $toolReport) {
-                try { $err = (Get-Content -Raw -Encoding UTF8 $toolReport | ConvertFrom-Json).error; if ($err) { $msg = $err } } catch { }
+                try {
+                    $tvErr = Get-Content -Raw -Encoding UTF8 $toolReport | ConvertFrom-Json
+                    if ($tvErr.error) { $msg = $tvErr.error }
+                    if ($tvErr.action) { $tvAction = [string]$tvErr.action }
+                } catch { }
             }
-            Add-Result $label fail ("{0} - reintenta setup.ps1 -Update o volve a descargar el paquete desde Ajustes" -f $msg) -Seconds (Stop-StepClock)
+            if ($tvAction -eq 'licence_required') {
+                # models_cli exit 3: the face swap licence is not accepted (or was revoked)
+                Add-Result $label skip $msg -Seconds (Stop-StepClock)
+            } else {
+                Add-Result $label fail ("{0} - reintenta setup.ps1 -Update o volve a descargar el paquete desde Ajustes" -f $msg) -Seconds (Stop-StepClock)
+            }
         }
     }
     if (-not $anyTool) { Write-Info 'Ningun entorno aislado instalado todavia: se crean al descargar cada paquete desde Ajustes.' }

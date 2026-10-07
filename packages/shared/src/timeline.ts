@@ -211,6 +211,8 @@ export const ClipFaceSwapSchema = z.object({
   personId: IdSchema,
   consentId: IdSchema,
   jobId: IdSchema,
+  /** project.publish.flags.aiFace before this swap («Deshacer» restores it; audit fix 21). */
+  prevAiFace: z.boolean().optional(),
 });
 export type ClipFaceSwap = z.infer<typeof ClipFaceSwapSchema>;
 

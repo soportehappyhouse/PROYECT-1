@@ -1,6 +1,7 @@
 import {
   API_ROUTES,
   type Consent,
+  type ConsentAuditRow,
   type ConsentMethod,
   type ConsentScope,
   type LicenceAcceptance,
@@ -11,7 +12,7 @@ import {
   type PersonPatch,
   type PersonSummary,
 } from "@studio/shared";
-import { apiFetch, apiUrl } from "./api";
+import { apiFetch, ApiRequestError, apiUrl } from "./api";
 
 /**
  * Sprint 4 M1 client: Personas registry (/api/persons) and on-screen licences (/api/ai/licences).
@@ -121,8 +122,32 @@ export const personsApi = {
         params: { id, consentId },
       }),
     ),
+  /** «Revocar rostro» | «Revocar voz» | «Revocar todo»: every valid consent of that scope. */
+  revokeScope: (id: string, scope: "face" | "voice" | "all") =>
+    changed(
+      apiFetch<Person>(API_ROUTES.personConsentsRevoke, {
+        method: "POST",
+        params: { id },
+        json: { scope },
+      }),
+    ),
   evidenceUrl: (id: string, consentId: string) =>
     apiUrl(API_ROUTES.personConsentEvidence, { id, consentId }),
+  /**
+   * The evidence file as a Blob: fetched (cors mode, so the browser sends the web Origin the api
+   * requires for biometric reads) instead of a plain link, which a cross-site navigation would not.
+   */
+  evidenceBlob: async (id: string, consentId: string): Promise<Blob> => {
+    const res = await fetch(apiUrl(API_ROUTES.personConsentEvidence, { id, consentId }));
+    if (!res.ok) throw new ApiRequestError(res.status, undefined, "No se pudo abrir la evidencia");
+    return res.blob();
+  },
+  /** Audit trail of the Person (web only) + whether its hash chain is intact. */
+  audit: (id: string) =>
+    apiFetch<{
+      rows: ConsentAuditRow[];
+      chain: { ok: boolean; checked: number; brokenAt?: number };
+    }>(API_ROUTES.personAudit, { params: { id } }),
 };
 
 export const licencesApi = {

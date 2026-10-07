@@ -139,6 +139,14 @@ class MirroredFileItem(FileItem):
                 entry["verified"] = "first-download"
             if i:
                 entry["mirror"] = True
+            # Audit fix 13: say which source was used (the r3gm/* mirror is a third-party copy).
+            log.info(
+                "rvc-base: %s downloaded from %s%s (sha256 %s)",
+                self.name,
+                url,
+                " (MIRROR r3gm, copia de terceros)" if i else "",
+                res.sha256,
+            )
             return res.size
         assert last is not None
         raise last

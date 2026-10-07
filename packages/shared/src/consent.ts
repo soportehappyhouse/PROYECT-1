@@ -25,6 +25,10 @@ export type ConsentScope = z.infer<typeof ConsentScopeSchema>;
 export const ConsentMethodSchema = z.enum(["firma en pantalla", "documento adjunto"]);
 export type ConsentMethod = z.infer<typeof ConsentMethodSchema>;
 
+/** A photo or voice sample a consent covers (id + sha256 of the file at acceptance). */
+export const ConsentItemRefSchema = z.object({ id: IdSchema, sha256: Sha256Schema });
+export type ConsentItemRef = z.infer<typeof ConsentItemRefSchema>;
+
 export const ConsentSchema = z.object({
   id: IdSchema,
   personId: IdSchema,
@@ -40,6 +44,13 @@ export const ConsentSchema = z.object({
   scope: ConsentScopeSchema,
   expires_at: TimestampSchema.optional(),
   revoked_at: TimestampSchema.optional(),
+  /**
+   * Audit fix 3: the photos / voice samples the person agreed to, captured at acceptance (scope
+   * face/both -> photos, voice/both -> samples). Only these are used; a photo or sample added later
+   * needs a new consent. Absent = consent registered before this field existed (covers them all).
+   */
+  photo_ids: z.array(ConsentItemRefSchema).max(10).optional(),
+  sample_ids: z.array(ConsentItemRefSchema).max(5).optional(),
 });
 export type Consent = z.infer<typeof ConsentSchema>;
 
@@ -111,6 +122,26 @@ export const ConsentCreateFieldsSchema = z.object({
 });
 export type ConsentCreateFields = z.infer<typeof ConsentCreateFieldsSchema>;
 
+/** POST /api/persons/:id/consents/revoke: «Revocar rostro» | «Revocar voz» | «Revocar todo». */
+export const ConsentRevokeScopeRequestSchema = z
+  .object({ scope: z.enum(["face", "voice", "all"]) })
+  .strict();
+export type ConsentRevokeScopeRequest = z.infer<typeof ConsentRevokeScopeRequestSchema>;
+
+/** One row of GET /api/persons/:id/audit (append-only, hash-chained consent_audit). */
+export const ConsentAuditRowSchema = z.object({
+  id: z.number().int(),
+  at: TimestampSchema,
+  action: z.string(),
+  personId: IdSchema.optional(),
+  consentId: IdSchema.optional(),
+  jobId: IdSchema.optional(),
+  assetId: IdSchema.optional(),
+  data: z.unknown().optional(),
+  hash: Sha256Schema.optional(),
+});
+export type ConsentAuditRow = z.infer<typeof ConsentAuditRowSchema>;
+
 export const LicenceIdSchema = z.enum(["faceswap"]);
 export type LicenceId = z.infer<typeof LicenceIdSchema>;
 
@@ -178,6 +209,11 @@ export const AiProvenanceSchema = z.object({
   licences: z.array(LicenceIdSchema).optional(),
   jobId: IdSchema.optional(),
   sourceAssetId: IdSchema.optional(),
+  /**
+   * Other kinds the same file carries (audit fix 10: a re-imported export can have a synthetic
+   * face AND a cloned voice; `kind` is the first of them).
+   */
+  extraKinds: z.array(AiProvenanceKindSchema).optional(),
   createdAt: TimestampSchema,
 });
 export type AiProvenance = z.infer<typeof AiProvenanceSchema>;
@@ -273,15 +309,17 @@ function covering(
 }
 
 /**
- * The consent that authorizes `need` now: the latest one covering it that is neither revoked nor
- * expired (decision 7: history, the latest valid one counts). undefined = none.
+ * The consent that authorizes `need` now. The MOST RECENT consent covering it is authoritative
+ * (audit fix 2): when it is revoked or expired there is no active consent, even if an older one is
+ * still valid (revoking stops new uses; a new consent has to be registered). undefined = none.
  */
 export function activeConsent(
   p: { consents?: readonly Consent[] },
   need: "face" | "voice",
   now: Date = new Date(),
 ): Consent | undefined {
-  return covering(p, need).find((c) => !c.revoked_at && !consentExpired(c, now));
+  const latest = covering(p, need)[0];
+  return latest && !latest.revoked_at && !consentExpired(latest, now) ? latest : undefined;
 }
 
 /**
@@ -311,6 +349,39 @@ export function consentState(
   if (reason === "revoked") return "revocado";
   if (reason === "expired") return "vencido";
   return "sin consentimiento";
+}
+
+/** Consents of `need` that are not revoked (what «Revocar rostro» / «Revocar voz» revokes). */
+export function revocableConsents(
+  p: { consents?: readonly Consent[] },
+  need: "face" | "voice" | "all",
+): Consent[] {
+  return (p.consents ?? []).filter(
+    (c) => !c.revoked_at && (need === "all" || consentCovers(c, need)),
+  );
+}
+
+/** True when `consent` covers this photo / voice sample (same id AND same sha256). */
+export function consentCoversItem(
+  consent: Pick<Consent, "photo_ids" | "sample_ids">,
+  kind: "photo" | "sample",
+  item: { id: string; sha256: string },
+): boolean {
+  const list = kind === "photo" ? consent.photo_ids : consent.sample_ids;
+  if (!list) return true; // legacy consent (before audit fix 3): covers every item
+  return list.some((r) => r.id === item.id && r.sha256 === item.sha256);
+}
+
+/** Photos of `p` covered by its active face consent ([] without one). */
+export function coveredPhotos(p: Person, now: Date = new Date()): PersonPhoto[] {
+  const c = activeConsent(p, "face", now);
+  return c ? p.photos.filter((ph) => consentCoversItem(c, "photo", ph)) : [];
+}
+
+/** Voice samples of `p` covered by its active voice consent ([] without one). */
+export function coveredVoiceSamples(p: Person, now: Date = new Date()): PersonVoiceSample[] {
+  const c = activeConsent(p, "voice", now);
+  return c ? p.voiceSamples.filter((v) => consentCoversItem(c, "sample", v)) : [];
 }
 
 /** GET /api/persons row (no file paths). */

@@ -5,13 +5,16 @@ import {
   type LicenceId,
   type Person,
 } from "@studio/shared";
+import { createHash } from "node:crypto";
 import type { SqlDatabase } from "../../db/adapter.js";
 
 /**
  * Sprint 4 M1 (docs/trabajo/sprint4-contratos.md «M1»): Personas with their consent history, the
  * on-screen licence acceptances and the append-only consent audit. The module owns its tables:
  * `ensurePersonsSchema` is idempotent (CREATE TABLE IF NOT EXISTS, like style_presets) and never
- * competes with the numbered MIGRATIONS of db/database.ts. `consent_audit` has no delete path.
+ * competes with the numbered MIGRATIONS of db/database.ts. `consent_audit` has no delete path:
+ * SQLite triggers abort any UPDATE or DELETE on it, and every row carries `prev_hash` / `hash`
+ * (sha256 chain over the previous row) so an edit made with another tool shows up (audit fix 11).
  */
 export const PERSONS_SCHEMA_SQL = /* sql */ `
 CREATE TABLE IF NOT EXISTS persons (
@@ -36,13 +39,80 @@ CREATE TABLE IF NOT EXISTS consent_audit (
   consent_id TEXT,
   job_id TEXT,
   asset_id TEXT,
-  data TEXT
+  data TEXT,
+  prev_hash TEXT,
+  hash TEXT
 );
 CREATE INDEX IF NOT EXISTS consent_audit_person_idx ON consent_audit(person_id, at);
 `;
 
+/** Append-only enforcement, created after the (one-time) hash backfill of older storages. */
+export const CONSENT_AUDIT_TRIGGERS_SQL = /* sql */ `
+CREATE TRIGGER IF NOT EXISTS consent_audit_no_update BEFORE UPDATE ON consent_audit
+BEGIN SELECT RAISE(ABORT, 'consent_audit is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS consent_audit_no_delete BEFORE DELETE ON consent_audit
+BEGIN SELECT RAISE(ABORT, 'consent_audit is append-only'); END;
+`;
+
+/** prev_hash of the first row of the chain. */
+export const AUDIT_GENESIS = "0".repeat(64);
+
+interface RawAuditRow {
+  id: number;
+  at: string;
+  action: string;
+  person_id: string | null;
+  consent_id: string | null;
+  job_id: string | null;
+  asset_id: string | null;
+  data: string | null;
+  prev_hash: string | null;
+  hash: string | null;
+}
+
+/** sha256(prev_hash + canonical JSON of the row's content): the link of the chain. */
+export function auditRowHash(
+  prevHash: string,
+  r: Pick<
+    RawAuditRow,
+    "at" | "action" | "person_id" | "consent_id" | "job_id" | "asset_id" | "data"
+  >,
+): string {
+  const body = JSON.stringify([
+    r.at,
+    r.action,
+    r.person_id,
+    r.consent_id,
+    r.job_id,
+    r.asset_id,
+    r.data,
+  ]);
+  return createHash("sha256").update(`${prevHash}\n${body}`).digest("hex");
+}
+
 export function ensurePersonsSchema(db: SqlDatabase): void {
   db.exec(PERSONS_SCHEMA_SQL);
+  const cols = (db.prepare(`PRAGMA table_info(consent_audit)`).all() as { name: string }[]).map(
+    (c) => c.name,
+  );
+  if (!cols.includes("hash")) {
+    // Storage of the first Sprint 4 build: add the chain columns and hash the existing rows once,
+    // before the triggers exist (afterwards nothing can UPDATE the table).
+    db.transaction(() => {
+      if (!cols.includes("prev_hash"))
+        db.exec(`ALTER TABLE consent_audit ADD COLUMN prev_hash TEXT`);
+      db.exec(`ALTER TABLE consent_audit ADD COLUMN hash TEXT`);
+      const rows = db.prepare(`SELECT * FROM consent_audit ORDER BY id`).all() as RawAuditRow[];
+      let prev = AUDIT_GENESIS;
+      const upd = db.prepare(`UPDATE consent_audit SET prev_hash = ?, hash = ? WHERE id = ?`);
+      for (const r of rows) {
+        const hash = auditRowHash(prev, r);
+        upd.run(prev, hash, r.id);
+        prev = hash;
+      }
+    });
+  }
+  db.exec(CONSENT_AUDIT_TRIGGERS_SQL);
 }
 
 export interface StoredPerson {
@@ -147,27 +217,66 @@ export interface AuditEntry {
 export interface AuditRow extends AuditEntry {
   id: number;
   at: string;
+  hash?: string;
 }
 
-/** Append-only `consent_audit` (no update/delete method on purpose). */
+/** Result of walking the hash chain from the first row. */
+export interface AuditChainCheck {
+  ok: boolean;
+  checked: number;
+  /** id of the first row whose prev_hash / hash does not match. */
+  brokenAt?: number;
+}
+
+/** Append-only `consent_audit` (no update/delete method; triggers forbid them too). */
 export class ConsentAudit {
   constructor(private readonly db: SqlDatabase) {}
 
   append(e: AuditEntry): void {
-    this.db
-      .prepare(
-        `INSERT INTO consent_audit (at, action, person_id, consent_id, job_id, asset_id, data)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        new Date().toISOString(),
-        e.action,
-        e.personId ?? null,
-        e.consentId ?? null,
-        e.jobId ?? null,
-        e.assetId ?? null,
-        e.data === undefined ? null : JSON.stringify(e.data),
-      );
+    this.db.transaction(() => {
+      const last = this.db
+        .prepare(`SELECT hash FROM consent_audit ORDER BY id DESC LIMIT 1`)
+        .get() as { hash: string | null } | undefined;
+      const prev = last?.hash ?? AUDIT_GENESIS;
+      const row = {
+        at: new Date().toISOString(),
+        action: e.action,
+        person_id: e.personId ?? null,
+        consent_id: e.consentId ?? null,
+        job_id: e.jobId ?? null,
+        asset_id: e.assetId ?? null,
+        data: e.data === undefined ? null : JSON.stringify(e.data),
+      };
+      this.db
+        .prepare(
+          `INSERT INTO consent_audit
+             (at, action, person_id, consent_id, job_id, asset_id, data, prev_hash, hash)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          row.at,
+          row.action,
+          row.person_id,
+          row.consent_id,
+          row.job_id,
+          row.asset_id,
+          row.data,
+          prev,
+          auditRowHash(prev, row),
+        );
+    });
+  }
+
+  /** Recompute the chain over every row (cheap: the table holds human-scale events). */
+  verify(): AuditChainCheck {
+    const rows = this.db.prepare(`SELECT * FROM consent_audit ORDER BY id`).all() as RawAuditRow[];
+    let prev = AUDIT_GENESIS;
+    for (const r of rows) {
+      if (r.prev_hash !== prev || r.hash !== auditRowHash(prev, r))
+        return { ok: false, checked: rows.length, brokenAt: r.id };
+      prev = r.hash;
+    }
+    return { ok: true, checked: rows.length };
   }
 
   list(filter: { personId?: string; action?: string; limit?: number } = {}): AuditRow[] {
@@ -186,16 +295,7 @@ export class ConsentAudit {
         `SELECT * FROM consent_audit ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
          ORDER BY id DESC LIMIT ${Math.max(1, Math.min(1000, filter.limit ?? 200))}`,
       )
-      .all(...params) as {
-      id: number;
-      at: string;
-      action: string;
-      person_id: string | null;
-      consent_id: string | null;
-      job_id: string | null;
-      asset_id: string | null;
-      data: string | null;
-    }[];
+      .all(...params) as RawAuditRow[];
     return rows.map((r) => ({
       id: r.id,
       at: r.at,
@@ -205,6 +305,7 @@ export class ConsentAudit {
       ...(r.job_id && { jobId: r.job_id }),
       ...(r.asset_id && { assetId: r.asset_id }),
       ...(r.data && { data: JSON.parse(r.data) as unknown }),
+      ...(r.hash && { hash: r.hash }),
     }));
   }
 }

@@ -3,16 +3,22 @@
 import {
   activeConsent,
   CONSENT_SCOPE_ES,
+  consentCoversItem,
   consentExpired,
+  consentReason,
+  revocableConsents,
   type Consent,
+  type ConsentAuditRow,
   type ConsentState,
   type Person,
 } from "@studio/shared";
 import { Mic, Plus, Square, Trash2, Upload, UserRound } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import { Badge, EmptyState, ErrorNotice, Section, Spinner } from "@/components/ui/misc";
+import { errorMessage } from "@/lib/api";
 import { personsApi } from "@/lib/api-persons";
 import { cn } from "@/lib/utils";
 import { usePersonsStore } from "@/stores/persons-store";
@@ -82,6 +88,7 @@ function PersonDetail({ person }: { person: Person }) {
   const busy = usePersonsStore((s) => s.busy);
   const [showConsent, setShowConsent] = useState(person.consents.length === 0);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmRevoke, setConfirmRevoke] = useState<"face" | "voice" | "all" | undefined>();
   const [name, setName] = useState(person.name);
   const [notes, setNotes] = useState(person.notes ?? "");
   const [drag, setDrag] = useState(false);
@@ -95,6 +102,17 @@ function PersonDetail({ person }: { person: Person }) {
   };
   const face = activeConsent(person, "face");
   const voice = activeConsent(person, "voice");
+  const canRevoke = {
+    face: revocableConsents(person, "face").length > 0,
+    voice: revocableConsents(person, "voice").length > 0,
+    all: revocableConsents(person, "all").length > 0,
+  };
+  const REVOKE_ES = {
+    face: "¿Revocar el rostro? Se revocan todos sus consentimientos de rostro (uno de «rostro y voz» se revoca entero, también la voz).",
+    voice:
+      "¿Revocar la voz? Se revocan todos sus consentimientos de voz (uno de «rostro y voz» se revoca entero, también el rostro).",
+    all: "¿Revocar todo? Se revocan todos sus consentimientos.",
+  } as const;
   return (
     <div className="flex flex-col gap-4" aria-label={`Persona ${person.name}`}>
       <div className="grid grid-cols-2 gap-2">
@@ -152,11 +170,17 @@ function PersonDetail({ person }: { person: Person }) {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={personsApi.photoUrl(person.id, ph.id)}
+                crossOrigin="anonymous"
                 alt={`Foto de ${person.name}`}
                 className="h-20 w-20 rounded object-cover"
               />
               <figcaption className="text-[10px] text-muted-foreground">
                 {ph.faces === null ? "caras: ?" : `${ph.faces} cara${ph.faces === 1 ? "" : "s"}`}
+                {face && !consentCoversItem(face, "photo", ph) ? (
+                  <span className="block text-amber-700 dark:text-amber-400">
+                    sin consentimiento para esta foto
+                  </span>
+                ) : null}
               </figcaption>
               <Button
                 size="icon-sm"
@@ -191,8 +215,18 @@ function PersonDetail({ person }: { person: Person }) {
         <ul className="flex flex-col gap-1">
           {person.voiceSamples.map((v) => (
             <li key={v.id} className="flex items-center gap-2 text-xs">
-              <audio controls src={personsApi.voiceUrl(person.id, v.id)} className="h-7 flex-1" />
+              <audio
+                controls
+                crossOrigin="anonymous"
+                src={personsApi.voiceUrl(person.id, v.id)}
+                className="h-7 flex-1"
+              />
               <span className="tabular-nums">{v.durationSec.toFixed(1)} s</span>
+              {voice && !consentCoversItem(voice, "sample", v) ? (
+                <span className="text-[10px] text-amber-700 dark:text-amber-400">
+                  sin consentimiento para esta muestra
+                </span>
+              ) : null}
               <Button
                 size="icon-sm"
                 variant="ghost"
@@ -227,11 +261,53 @@ function PersonDetail({ person }: { person: Person }) {
       <Section
         title="Consentimientos"
         actions={
-          <Button size="xs" variant="outline" onClick={() => setShowConsent((v) => !v)}>
-            <Plus /> Registrar consentimiento
-          </Button>
+          <div className="flex flex-wrap gap-1">
+            {(["face", "voice", "all"] as const).map((sc) =>
+              canRevoke[sc] ? (
+                <Button
+                  key={sc}
+                  size="xs"
+                  variant="ghost"
+                  className="text-destructive"
+                  onClick={() => setConfirmRevoke(sc)}
+                >
+                  {sc === "face"
+                    ? "Revocar rostro"
+                    : sc === "voice"
+                      ? "Revocar voz"
+                      : "Revocar todo"}
+                </Button>
+              ) : null,
+            )}
+            <Button size="xs" variant="outline" onClick={() => setShowConsent((v) => !v)}>
+              <Plus /> Registrar consentimiento
+            </Button>
+          </div>
         }
       >
+        {confirmRevoke ? (
+          <ErrorNotice
+            message={REVOKE_ES[confirmRevoke]}
+            action={
+              <div className="mt-2 flex gap-2">
+                <Button
+                  size="xs"
+                  variant="destructive"
+                  onClick={() => {
+                    const sc = confirmRevoke;
+                    setConfirmRevoke(undefined);
+                    void store.revokeScope(sc);
+                  }}
+                >
+                  Sí, revocar
+                </Button>
+                <Button size="xs" variant="ghost" onClick={() => setConfirmRevoke(undefined)}>
+                  Cancelar
+                </Button>
+              </div>
+            }
+          />
+        ) : null}
         {person.consents.length === 0 ? (
           <p className="text-xs text-muted-foreground">
             Sin consentimiento no se puede usar su cara ni su voz.
@@ -245,34 +321,30 @@ function PersonDetail({ person }: { person: Person }) {
                   <Badge tone={STATE_TONE[st]}>{st}</Badge>
                   <span className="font-medium">{CONSENT_SCOPE_ES[c.scope]}</span>
                   <span className="text-muted-foreground">
-                    {c.method} · {c.signer_name} · {fmtDate(c.accepted_at)}
+                    {c.method} · firmó {c.signer_name}
+                    {c.signer_name !== person.name
+                      ? ` (la Persona ahora se llama «${person.name}»)`
+                      : ""}
+                    {" · "}
+                    {fmtDate(c.accepted_at)}
                     {c.expires_at ? ` · vence ${fmtDate(c.expires_at)}` : ""}
                     {c.revoked_at ? ` · revocado ${fmtDate(c.revoked_at)}` : ""}
+                    {coverage(c)}
                   </span>
-                  <a
+                  <button
+                    type="button"
                     className="text-primary underline"
-                    href={personsApi.evidenceUrl(person.id, c.id)}
-                    target="_blank"
-                    rel="noreferrer"
+                    onClick={() => void openEvidence(person.id, c.id)}
                   >
                     evidencia
-                  </a>
-                  {st === "vigente" ? (
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      className="ml-auto text-destructive"
-                      onClick={() => void store.revokeConsent(c.id)}
-                    >
-                      Revocar
-                    </Button>
-                  ) : null}
+                  </button>
                 </li>
               );
             })}
           </ul>
         )}
         {showConsent ? <ConsentForm person={person} onDone={() => setShowConsent(false)} /> : null}
+        <AuditLog personId={person.id} />
       </Section>
 
       <Section title="Borrar persona">
@@ -309,13 +381,96 @@ function PersonDetail({ person }: { person: Person }) {
   );
 }
 
+/** State of `need` with the shared rule (the most recent consent covering it is authoritative). */
 function stateOf(person: Person, need: "face" | "voice"): ConsentState {
-  const covering = person.consents
-    .filter((c) => c.scope === "both" || c.scope === need)
-    .sort((a, b) => b.accepted_at.localeCompare(a.accepted_at));
-  const latest = covering[0];
-  if (!latest) return "sin consentimiento";
-  return consentRowState(latest);
+  const reason = consentReason(person, need);
+  if (reason === undefined) return "vigente";
+  if (reason === "revoked") return "revocado";
+  if (reason === "expired") return "vencido";
+  return "sin consentimiento";
+}
+
+/** « · cubre 2 fotos y 1 muestra» (consents made before the binding cover everything). */
+function coverage(c: Consent): string {
+  if (!c.photo_ids && !c.sample_ids) return "";
+  const parts = [];
+  if (c.photo_ids?.length)
+    parts.push(`${c.photo_ids.length} foto${c.photo_ids.length === 1 ? "" : "s"}`);
+  if (c.sample_ids?.length)
+    parts.push(`${c.sample_ids.length} muestra${c.sample_ids.length === 1 ? "" : "s"}`);
+  return parts.length ? ` · cubre ${parts.join(" y ")}` : " · no cubre fotos ni muestras";
+}
+
+/** Evidence through fetch (the api only hands biometric files to the web: Origin required). */
+async function openEvidence(personId: string, consentId: string) {
+  const win = window.open("", "_blank");
+  try {
+    const blob = await personsApi.evidenceBlob(personId, consentId);
+    const url = URL.createObjectURL(blob);
+    if (win) win.location.href = url;
+    else window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (err) {
+    win?.close();
+    toast.error("No se pudo abrir la evidencia", { description: errorMessage(err) });
+  }
+}
+
+const AUDIT_ES: Record<string, string> = {
+  "person.create": "Persona creada",
+  "person.rename": "Nombre cambiado",
+  "person.photo.add": "Foto agregada",
+  "person.photo.delete": "Foto borrada",
+  "person.voice.add": "Muestra de voz agregada",
+  "person.voice.delete": "Muestra de voz borrada",
+  "consent.create": "Consentimiento registrado",
+  "consent.revoke": "Consentimiento revocado",
+  "face.preview": "Vista previa de cambio de cara",
+  "face.swap": "Cambio de cara",
+  "face.swap.done": "Cambio de cara terminado",
+  "face.undo": "Cambio de cara deshecho",
+  "voice.clone": "Voz clonada",
+  "perf.facefusion": "Test de rendimiento con su foto",
+};
+
+/** «Auditoría»: append-only history of this Person (hash chain checked by the api). */
+function AuditLog({ personId }: { personId: string }) {
+  const [rows, setRows] = useState<ConsentAuditRow[] | undefined>();
+  const [chainOk, setChainOk] = useState<boolean | undefined>();
+  const [open, setOpen] = useState(false);
+  const load = async () => {
+    setOpen(true);
+    try {
+      const res = await personsApi.audit(personId);
+      setRows(res.rows);
+      setChainOk(res.chain.ok);
+    } catch (err) {
+      toast.error("No se pudo leer la auditoría", { description: errorMessage(err) });
+    }
+  };
+  if (!open)
+    return (
+      <Button size="xs" variant="ghost" className="self-start" onClick={() => void load()}>
+        Ver auditoría
+      </Button>
+    );
+  return (
+    <div className="flex flex-col gap-1 text-[11px]" aria-label="Auditoría">
+      {chainOk === false ? (
+        <ErrorNotice message="La auditoría fue modificada por fuera de Studio (la cadena de hashes no coincide)." />
+      ) : null}
+      <ul className="max-h-40 overflow-auto rounded-md border p-1">
+        {(rows ?? []).map((r) => (
+          <li key={r.id} className="flex gap-2">
+            <span className="tabular-nums text-muted-foreground">
+              {new Date(r.at).toLocaleString("es-AR")}
+            </span>
+            <span>{AUDIT_ES[r.action] ?? r.action}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 /**

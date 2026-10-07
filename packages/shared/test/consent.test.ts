@@ -3,12 +3,16 @@ import {
   ALWAYS_CONFIRM_OPS,
   activeConsent,
   CONSENT_TEXT_ES,
+  consentCoversItem,
   consentReason,
   consentState,
+  coveredPhotos,
+  coveredVoiceSamples,
   EditOpSchema,
   personSummary,
   PersonSchema,
   renderConsentText,
+  revocableConsents,
   type Consent,
   type Person,
 } from "../src/index.js";
@@ -65,18 +69,23 @@ describe("consent state (M1)", () => {
     expect(consentState(p, "face", new Date("2026-10-06T11:59:59.000Z"))).toBe("vigente");
   });
 
-  it("revocation blocks the consent; a later valid one counts again (history)", () => {
+  it("revocation blocks the consent; a later valid one counts again (history, latest wins)", () => {
     const revoked = consent("c1", { revoked_at: "2026-10-02T10:00:00.000Z" });
     expect(consentState(person([revoked]), "face", NOW)).toBe("revocado");
     const renewed = consent("c2", { accepted_at: "2026-10-03T10:00:00.000Z" });
     const p = person([revoked, renewed]);
     expect(activeConsent(p, "face", NOW)?.id).toBe("c2");
-    // latest covering one revoked, older one still valid: the latest valid one counts
+    // audit fix 2: the latest covering one is authoritative — revoked, it wins over an older
+    // valid one (revoking stops new uses; a new consent has to be registered)
     const p2 = person([
       consent("old", { scope: "both" }),
       consent("new", { accepted_at: "2026-10-05T10:00:00.000Z", revoked_at: NOW.toISOString() }),
     ]);
-    expect(activeConsent(p2, "face", NOW)?.id).toBe("old");
+    expect(activeConsent(p2, "face", NOW)).toBeUndefined();
+    expect(consentState(p2, "face", NOW)).toBe("revocado");
+    expect(consentReason(p2, "face", NOW)).toBe("revoked");
+    // the newer one only covered the face: the older «both» still authorizes the voice
+    expect(activeConsent(p2, "voice", NOW)?.id).toBe("old");
     const p3 = person([
       consent("old", { revoked_at: "2026-10-02T00:00:00.000Z" }),
       consent("new", {
@@ -85,6 +94,52 @@ describe("consent state (M1)", () => {
       }),
     ]);
     expect(consentState(p3, "face", NOW)).toBe("vencido");
+  });
+
+  it("«Revocar rostro / voz / todo» picks every non-revoked consent of that scope", () => {
+    const p = person([
+      consent("f", { scope: "face" }),
+      consent("b", { scope: "both", accepted_at: "2026-10-02T10:00:00.000Z" }),
+      consent("v", { scope: "voice", accepted_at: "2026-10-03T10:00:00.000Z" }),
+      consent("r", { scope: "face", revoked_at: "2026-10-04T10:00:00.000Z" }),
+    ]);
+    expect(revocableConsents(p, "face").map((c) => c.id)).toEqual(["f", "b"]);
+    expect(revocableConsents(p, "voice").map((c) => c.id)).toEqual(["b", "v"]);
+    expect(revocableConsents(p, "all").map((c) => c.id)).toEqual(["f", "b", "v"]);
+  });
+
+  it("a consent covers only the photos / samples captured at acceptance (id + sha256)", () => {
+    const photo = (id: string, sha = SHA) => ({
+      id,
+      path: `p/${id}.png`,
+      sha256: sha,
+      width: 10,
+      height: 10,
+      faces: 1,
+    });
+    const bound = consent("c1", {
+      scope: "both",
+      photo_ids: [{ id: "ph1", sha256: SHA }],
+      sample_ids: [],
+    });
+    expect(consentCoversItem(bound, "photo", photo("ph1"))).toBe(true);
+    expect(consentCoversItem(bound, "photo", photo("ph1", "b".repeat(64)))).toBe(false);
+    expect(consentCoversItem(bound, "photo", photo("ph2"))).toBe(false);
+    expect(consentCoversItem(bound, "sample", { id: "s1", sha256: SHA })).toBe(false);
+    // legacy consent (no lists): covers everything
+    expect(consentCoversItem(consent("old"), "photo", photo("any"))).toBe(true);
+    const p = PersonSchema.parse({
+      ...person([bound]),
+      photos: [photo("ph1"), photo("ph2")],
+      voiceSamples: [{ id: "s1", path: "v/s1.wav", sha256: SHA, durationSec: 10 }],
+    });
+    expect(coveredPhotos(p, NOW).map((x) => x.id)).toEqual(["ph1"]);
+    expect(coveredVoiceSamples(p, NOW)).toEqual([]);
+    const revoked = PersonSchema.parse({
+      ...p,
+      consents: [{ ...bound, revoked_at: "2026-10-05T00:00:00.000Z" }],
+    });
+    expect(coveredPhotos(revoked, NOW)).toEqual([]);
   });
 
   it("renders the versioned text with name and scope", () => {

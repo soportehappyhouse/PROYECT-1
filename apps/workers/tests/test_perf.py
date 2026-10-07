@@ -206,6 +206,11 @@ def test_facefusion_bench_uses_the_face_engine(installed, monkeypatch, tmp_path:
     work.mkdir(parents=True)
     result: dict[str, Any] = {"skipped": {}, "errors": {}, "warnings": []}
     rel = photo.relative_to(storage).as_posix()
+    # audit fix 4: without a valid face consent of the mirror listing the photo, nothing runs
+    perf.bench_facefusion(get_settings(), work, result, rel, ["faceswap"], "con1")
+    assert seen == [] and "consentimiento" in result["skipped"]["facefusion"]
+    result = {"skipped": {}, "errors": {}, "warnings": []}
+    mirror(storage, "con1", rel)
     perf.bench_facefusion(get_settings(), work, result, rel, ["faceswap"], "con1")
     assert [r.enhancer for r in seen] == [False, True]
     assert seen[0].consent_id == "con1" and seen[0].licence_ids == ["faceswap"]
@@ -239,12 +244,24 @@ def test_facefusion_bench_with_fake_tool(installed, monkeypatch, tmp_path: Path)
     work.mkdir(parents=True)
     result: dict[str, Any] = {"skipped": {}, "errors": {}, "warnings": []}
     rel = photo.relative_to(storage).as_posix()
-    perf.bench_facefusion(get_settings(), work, result, rel, ["faceswap"])
+    mirror(storage, "con2", rel)
+    perf.bench_facefusion(get_settings(), work, result, rel, ["faceswap"], "con2")
     assert result["skipped"] == {} and result["errors"] == {}, result
     assert result["facefusion_fps"] > 0 and result["facefusion_enh_fps"] > 0
     assert result["facefusion_startup_s"] is not None
     assert result["facefusion_device"] == "cpu" and result["facefusion_model"] == "hyperswap_1a_256"
     assert (work / "facefusion" / "swap-plain.mp4").is_file()
+
+
+def mirror(storage: Path, consent_id: str, rel: str) -> None:
+    """storage/consent/active.json with one valid face consent covering `rel`."""
+    path = storage / "consent" / "active.json"
+    path.write_text(
+        json.dumps({"consents": [{"personId": "p1", "consentId": consent_id, "scope": "face",
+                                  "expires_at": None, "photo_paths": [rel],
+                                  "sample_paths": []}]}),
+        "utf-8",
+    )  # fmt: skip
 
 
 def test_facefusion_args_snapshot(tmp_path: Path) -> None:

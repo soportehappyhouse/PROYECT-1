@@ -1,14 +1,22 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { renderConsentText, type Consent, type Person, type PersonSummary } from "@studio/shared";
-import { sniffImage } from "../src/services/persons/files.js";
+import {
+  archivePersonFiles,
+  decodePngRgba,
+  signatureInk,
+  sniffImage,
+} from "../src/services/persons/files.js";
 import { hideConsentPaths } from "../src/reports/builder.js";
 import { assertHumanOrigin, createConsentGate } from "../src/services/persons/gate.js";
 import { makeApp, tempStorage } from "./helpers.js";
-import { addConsent, form, ORIGIN, pngHeader } from "./persons-helpers.js";
+import { addConsent, form, ORIGIN, pngHeader, signaturePng } from "./persons-helpers.js";
+
+/** What a browser of the Studio web sends on an <img>/<audio> of the api (127.0.0.1:3000 → :3001). */
+const SAME_SITE = { "sec-fetch-site": "same-site" };
 
 describe("sprint 4 M1: Personas + consent", () => {
   let app: FastifyInstance;
@@ -57,15 +65,26 @@ describe("sprint 4 M1: Personas + consent", () => {
   });
 
   it("photos: real type and size checked, limit 10, served only by the api (not /files, not to mcp)", async () => {
-    const upload = async (data: Buffer, name = "foto.png", field = "photo") => {
+    const upload = async (
+      data: Buffer,
+      name = "foto.png",
+      field = "photo",
+      headers: Record<string, string> = ORIGIN,
+    ) => {
       const body = await form({}, { [field]: { data, name, type: "image/png" } });
       return app.inject({
         method: "POST",
         url: `/api/persons/${person.id}/photos`,
         payload: body.payload,
-        headers: body.headers,
+        headers: { ...body.headers, ...headers },
       });
     };
+    // audit fix 3: biometrics only from the screen (exact web Origin, never studio-mcp)
+    const anonymous = await upload(pngHeader(640, 480), "foto.png", "photo", {});
+    expect(anonymous.statusCode).toBe(403);
+    expect(anonymous.json().error.code).toBe("HUMAN_ONLY");
+    const otherPort = { origin: "http://localhost:5173" };
+    expect((await upload(pngHeader(640, 480), "f.png", "photo", otherPort)).statusCode).toBe(403);
     const ok = await upload(pngHeader(640, 480));
     expect(ok.statusCode).toBe(200);
     const p = ok.json() as Person;
@@ -76,16 +95,19 @@ describe("sprint 4 M1: Personas + consent", () => {
     expect((await upload(Buffer.from("not an image"), "x.png")).statusCode).toBe(400);
     expect((await upload(pngHeader(9000, 100))).statusCode).toBe(400);
 
-    const photo = await app.inject({
-      method: "GET",
-      url: `/api/persons/${person.id}/photos/${p.photos[0]!.id}`,
-    });
+    const photoUrl = `/api/persons/${person.id}/photos/${p.photos[0]!.id}`;
+    const photo = await app.inject({ method: "GET", url: photoUrl, headers: SAME_SITE });
     expect(photo.statusCode).toBe(200);
     expect(photo.headers["content-type"]).toContain("image/png");
+    // audit fix 5: same-origin/same-site fetch metadata OR the exact web Origin; nothing -> 403
+    const viaOrigin = await app.inject({ method: "GET", url: photoUrl, headers: ORIGIN });
+    expect(viaOrigin.statusCode).toBe(200);
+    for (const headers of [{}, { "sec-fetch-site": "cross-site" }, { origin: "http://evil.test" }])
+      expect((await app.inject({ method: "GET", url: photoUrl, headers })).statusCode).toBe(403);
     const mcp = await app.inject({
       method: "GET",
-      url: `/api/persons/${person.id}/photos/${p.photos[0]!.id}`,
-      headers: { "x-studio-client": "mcp" },
+      url: photoUrl,
+      headers: { "x-studio-client": "mcp", ...SAME_SITE },
     });
     expect(mcp.statusCode).toBe(403);
     expect(mcp.json().error.code).toBe("HUMAN_ONLY");
@@ -121,16 +143,18 @@ describe("sprint 4 M1: Personas + consent", () => {
       execFileSync("ffmpeg", ["-y", "-v", "error", "-f", "lavfi", "-i", `sine=f=220:d=${sec}`, f]);
       return readFileSync(f);
     };
-    const send = async (data: Buffer) => {
-      const body = await form({}, { audio: { data, name: "muestra.wav", type: "audio/wav" } });
+    const send = async (data: Buffer, name = "muestra.wav", headers = ORIGIN) => {
+      const body = await form({}, { audio: { data, name, type: "audio/wav" } });
       return app.inject({
         method: "POST",
         url: `/api/persons/${person.id}/voice-samples`,
         payload: body.payload,
-        headers: body.headers,
+        headers: { ...body.headers, ...headers },
       });
     };
-    const ok = await send(make(7));
+    expect((await send(make(7), "muestra.wav", {} as typeof ORIGIN)).statusCode).toBe(403);
+    // audit fix 20: the client's name does not pick the demuxer (".m3u8" is still a WAV)
+    const ok = await send(make(7), "muestra.m3u8");
     expect(ok.statusCode).toBe(200);
     const s = (ok.json() as Person).voiceSamples[0]!;
     expect(s.durationSec).toBeGreaterThanOrEqual(5);
@@ -150,7 +174,16 @@ describe("sprint 4 M1: Personas + consent", () => {
     expect(short.json().error.code).toBe("VOICE_SAMPLE_INVALID");
     const junk = await send(Buffer.from("no es audio"));
     expect(junk.json().error.code).toBe("VOICE_SAMPLE_INVALID");
-    expect(createConsentGate(app.ctx.db, storage).voiceSamplePath(person.id)).toBe(s.path);
+    const playlist = await send(
+      Buffer.from(`#EXTM3U\n#EXTINF:10,\nfile://${path.join(storage, s.path)}\n`),
+      "muestra.m3u8",
+    );
+    expect(playlist.statusCode).toBe(400);
+    expect(playlist.json().error.code).toBe("VOICE_SAMPLE_INVALID");
+    // without a voice consent the sample is not usable (audit fix 3)
+    expect(() => createConsentGate(app.ctx.db, storage).voiceSamplePath(person.id)).toThrow(
+      /consentimiento/,
+    );
     expect(readdirSync(path.join(storage, "tmp", "persons"))).toEqual([]);
   }, 30_000);
 
@@ -166,11 +199,36 @@ describe("sprint 4 M1: Personas + consent", () => {
     const outdated = await addConsent(app, person.id, { text_version: "2020-01-01" });
     expect(outdated.statusCode).toBe(409);
     expect(outdated.json().error.code).toBe("TEXT_OUTDATED");
+    // audit fix 16: a blank canvas or a whitespace name is not a signature
+    for (const blank of [
+      signaturePng(300, 120, { ink: false }),
+      signaturePng(300, 120, { ink: false, white: true }),
+      pngHeader(300, 120),
+    ]) {
+      const r = await addConsent(app, person.id, {}, ORIGIN, blank);
+      expect(r.statusCode).toBe(400);
+    }
+    const spaces = await addConsent(app, person.id, { signer_name: "   " });
+    expect(spaces.statusCode).toBe(400);
     const noSign = await addConsent(app, person.id, { method: "documento adjunto" });
     expect(noSign.statusCode).toBe(201); // a PNG is also a valid signed document
     const created = await addConsent(app, person.id, { scope: "both" });
     expect(created.statusCode).toBe(201);
     const c = created.json() as Consent;
+    // audit fix 3: the consent records the photos / samples loaded now (id + sha256)
+    const now = (
+      await app.inject({ method: "GET", url: `/api/persons/${person.id}` })
+    ).json() as Person;
+    expect(c.photo_ids).toEqual(now.photos.map((x) => ({ id: x.id, sha256: x.sha256 })));
+    expect(c.sample_ids).toEqual(now.voiceSamples.map((x) => ({ id: x.id, sha256: x.sha256 })));
+    const gate = createConsentGate(app.ctx.db, storage);
+    expect(gate.voiceSamplePath(person.id)).toBe(now.voiceSamples[0]!.path);
+    // audit fix 4: read-only mirror for the workers with the covered files
+    const mirror = JSON.parse(readFileSync(path.join(storage, "consent", "active.json"), "utf8"));
+    const entry = mirror.consents.find((e: { consentId: string }) => e.consentId === c.id);
+    expect(entry).toMatchObject({ personId: person.id, scope: "both", expires_at: null });
+    expect(entry.photo_paths).toEqual(now.photos.map((x) => x.path));
+    expect(entry.sample_paths).toEqual([now.voiceSamples[0]!.path]);
     const { createHash } = await import("node:crypto");
     expect(c.text_sha256).toBe(
       createHash("sha256").update(renderConsentText("Ana Pérez", "both")).digest("hex"),
@@ -180,12 +238,55 @@ describe("sprint 4 M1: Personas + consent", () => {
       await app.inject({ method: "GET", url: "/api/persons?scope=voice" })
     ).json() as PersonSummary[];
     expect(list.map((p) => p.id)).toEqual([person.id]);
-    const evidence = await app.inject({
-      method: "GET",
-      url: `/api/persons/${person.id}/consents/${c.id}/evidence`,
-    });
+    const evidenceUrl = `/api/persons/${person.id}/consents/${c.id}/evidence`;
+    const evidence = await app.inject({ method: "GET", url: evidenceUrl, headers: ORIGIN });
     expect(evidence.statusCode).toBe(200);
     expect(evidence.headers["content-type"]).toContain("image/png");
+    expect((await app.inject({ method: "GET", url: evidenceUrl })).statusCode).toBe(403);
+    // a photo added AFTER the consent is not covered until a new consent covers it
+    const body = await form(
+      {},
+      { photo: { data: pngHeader(20, 20), name: "n.png", type: "image/png" } },
+    );
+    const added = await app.inject({
+      method: "POST",
+      url: `/api/persons/${person.id}/photos`,
+      payload: body.payload,
+      headers: { ...body.headers, ...ORIGIN },
+    });
+    const late = (added.json() as Person).photos.at(-1)!;
+    const after = JSON.parse(readFileSync(path.join(storage, "consent", "active.json"), "utf8"));
+    const e2 = after.consents.find((e: { consentId: string }) => e.consentId === c.id);
+    expect(e2.photo_paths).not.toContain(late.path);
+    expect(e2.photo_paths).toHaveLength(now.photos.length);
+  });
+
+  it("«Revocar rostro»: every valid consent of the scope; the newest revoked wins (fix 2)", async () => {
+    const created = await addConsent(app, person.id, { scope: "face" });
+    expect(created.statusCode).toBe(201);
+    let rows = (await app.inject({ method: "GET", url: "/api/persons" })).json() as PersonSummary[];
+    expect(rows[0]).toMatchObject({ face: "vigente", voice: "vigente" });
+    const r = await app.inject({
+      method: "POST",
+      url: `/api/persons/${person.id}/consents/revoke`,
+      payload: { scope: "face" },
+    });
+    expect(r.statusCode).toBe(200);
+    const p = r.json() as Person;
+    // face (and the «both» consent, which covers the face) revoked; the document one (face) too
+    expect(p.consents.filter((c) => c.scope !== "voice").every((c) => c.revoked_at)).toBe(true);
+    rows = (await app.inject({ method: "GET", url: "/api/persons" })).json() as PersonSummary[];
+    expect(rows[0]!.face).toBe("revocado");
+    const mirror = JSON.parse(readFileSync(path.join(storage, "consent", "active.json"), "utf8"));
+    expect(mirror.consents.filter((e: { personId: string }) => e.personId === person.id)).toEqual(
+      [],
+    );
+    const bad = await app.inject({
+      method: "POST",
+      url: `/api/persons/${person.id}/consents/revoke`,
+      payload: { scope: "rostro" },
+    });
+    expect(bad.statusCode).toBe(400);
   });
 
   it("revocation keeps the history and blocks new uses (state revocado)", async () => {
@@ -229,6 +330,34 @@ describe("sprint 4 M1: Personas + consent", () => {
     );
   });
 
+  it("audit: web-only endpoint, append-only (triggers) and hash chain (fix 11)", async () => {
+    const url = `/api/persons/${person.id}/audit`;
+    expect((await app.inject({ method: "GET", url })).statusCode).toBe(403);
+    expect(
+      (await app.inject({ method: "GET", url, headers: { ...ORIGIN, "x-studio-client": "mcp" } }))
+        .statusCode,
+    ).toBe(403);
+    const res = await app.inject({ method: "GET", url, headers: ORIGIN });
+    expect(res.statusCode).toBe(200);
+    const { rows, chain } = res.json() as {
+      rows: { action: string; hash: string }[];
+      chain: { ok: boolean; checked: number };
+    };
+    expect(chain.ok).toBe(true);
+    expect(rows.map((r) => r.action)).toContain("consent.create");
+    expect(rows.every((r) => /^[0-9a-f]{64}$/.test(r.hash))).toBe(true);
+    expect(() => app.ctx.db.exec("DELETE FROM consent_audit")).toThrow(/append-only/);
+    expect(() => app.ctx.db.exec("UPDATE consent_audit SET action = 'x'")).toThrow(/append-only/);
+    // a row edited with the triggers gone (another tool) breaks the chain
+    app.ctx.db.exec("DROP TRIGGER consent_audit_no_update");
+    app.ctx.db.exec("UPDATE consent_audit SET data = '{}' WHERE id = 2");
+    const gate = createConsentGate(app.ctx.db, storage);
+    expect(gate.auditLog.verify()).toMatchObject({ ok: false, brokenAt: 2 });
+    app.ctx.db.exec(
+      "CREATE TRIGGER consent_audit_no_update BEFORE UPDATE ON consent_audit BEGIN SELECT RAISE(ABORT, 'consent_audit is append-only'); END;",
+    );
+  });
+
   it("delete: photos and samples removed, consents archived, audit kept, PERSON_NOT_FOUND after", async () => {
     const res = await app.inject({ method: "DELETE", url: `/api/persons/${person.id}` });
     expect(res.statusCode).toBe(409);
@@ -246,11 +375,53 @@ describe("sprint 4 M1: Personas + consent", () => {
     expect(gate.auditLog.list({ personId: person.id, action: "person.delete" })).toHaveLength(1);
   });
 
-  it("assertHumanOrigin accepts the dashboard origins only", () => {
+  it("archive never destroys evidence: copy + verify before deleting; abort keeps everything (fix 7)", async () => {
+    const dir = tempStorage("studio-archive-");
+    const base = path.join(dir, "consent", "persons", "pA");
+    for (const [rel, data] of [
+      ["photos/f.png", "foto"],
+      ["voice/v.wav", "voz"],
+      ["consents/c1/evidence.png", "firma"],
+    ] as const) {
+      mkdirSync(path.dirname(path.join(base, rel)), { recursive: true });
+      writeFileSync(path.join(base, rel), data);
+    }
+    // the archive folder cannot be created (a FILE is in the way): nothing is deleted
+    mkdirSync(path.join(dir, "consent", "archive"), { recursive: true });
+    writeFileSync(path.join(dir, "consent", "archive", "pA"), "bloqueo");
+    await expect(archivePersonFiles(dir, "pA")).rejects.toThrow(/no se borró nada/);
+    for (const rel of ["photos/f.png", "voice/v.wav", "consents/c1/evidence.png"])
+      expect(existsSync(path.join(base, rel))).toBe(true);
+    const { rmSync } = await import("node:fs");
+    rmSync(path.join(dir, "consent", "archive", "pA"));
+    await archivePersonFiles(dir, "pA");
+    expect(existsSync(base)).toBe(false);
+    const archived = readdirSync(path.join(dir, "consent", "archive", "pA"));
+    expect(archived).toHaveLength(1);
+    const copy = path.join(dir, "consent", "archive", "pA", archived[0]!, "c1", "evidence.png");
+    expect(readFileSync(copy, "utf8")).toBe("firma");
+  });
+
+  it("signature decoder: blank / white / stroke", () => {
+    const ink = (b: Buffer) => signatureInk(decodePngRgba(b)!);
+    expect(ink(signaturePng())).toBeGreaterThan(100);
+    expect(ink(signaturePng(300, 120, { ink: false }))).toBe(0);
+    expect(ink(signaturePng(300, 120, { ink: false, white: true }))).toBe(0);
+    expect(decodePngRgba(pngHeader(10, 10))).toBeUndefined();
+  });
+
+  it("assertHumanOrigin accepts the exact dashboard origins only (fix 5)", () => {
     const cfg = { webOrigin: "http://localhost:3000" };
     expect(() =>
       assertHumanOrigin({ headers: { origin: "http://127.0.0.1:3000" } }, cfg),
     ).not.toThrow();
+    // the CORS list still lets any localhost port talk to the api, HUMAN_ONLY does not
+    expect(() =>
+      assertHumanOrigin({ headers: { origin: "http://127.0.0.1:5173" } }, cfg),
+    ).toThrow();
+    expect(() =>
+      assertHumanOrigin({ headers: { origin: "http://localhost:3000.evil" } }, cfg),
+    ).toThrow();
     expect(() => assertHumanOrigin({ headers: {} }, cfg)).toThrow();
     expect(() =>
       assertHumanOrigin(

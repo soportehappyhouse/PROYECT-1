@@ -64,10 +64,11 @@ export const faceRoutes: FastifyPluginAsync = async (app) => {
     const packs = await workers.packs().catch(() => undefined);
     const pre = facePreflight(deps, body, "swap", packs);
     if (body.target) {
-      const active = queue.activeJob(
-        "face.swap",
-        (p) => (p as { target?: { clipId?: string } }).target?.clipId === body.target!.clipId,
-      );
+      // Audit fix 18: the same clip AND the same Person (another Person is another job).
+      const active = queue.activeJob("face.swap", (p) => {
+        const q = p as { target?: { clipId?: string }; personId?: string };
+        return q.target?.clipId === body.target!.clipId && q.personId === body.personId;
+      });
       if (active) return reply.code(202).send({ jobId: active.id });
     }
     const job = queue.enqueue({
@@ -96,7 +97,8 @@ export const faceRoutes: FastifyPluginAsync = async (app) => {
       ...t,
       clips: t.clips.map((c) => (c.id === restored.id ? restored : c)),
     }));
-    // The «cara IA» flag stays while another clip still shows a face-swapped render.
+    // The «cara IA» flag stays while another clip still shows a face-swapped render; otherwise it
+    // goes back to what it was before this swap (audit fix 21), not to a forced false.
     const stillAi = tracks.some((t) =>
       t.clips.some(
         (c) =>
@@ -108,7 +110,10 @@ export const faceRoutes: FastifyPluginAsync = async (app) => {
       ...project,
       tracks,
       ...(project.publish && {
-        publish: { ...project.publish, flags: { ...project.publish.flags, aiFace: stillAi } },
+        publish: {
+          ...project.publish,
+          flags: { ...project.publish.flags, aiFace: stillAi || (fs.prevAiFace ?? false) },
+        },
       }),
     };
     const saved = repos.projects.save(project.id, next);

@@ -1,7 +1,10 @@
 import {
   activeConsent,
   CONSENT_REASON_ES,
+  consentCovers,
   consentReason,
+  coveredPhotos,
+  coveredVoiceSamples,
   LICENCES,
   personSummary,
   type Consent,
@@ -15,7 +18,7 @@ import {
 import type { FastifyRequest } from "fastify";
 import type { ApiConfig } from "../../config.js";
 import type { SqlDatabase } from "../../db/adapter.js";
-import { isAllowedOrigin } from "../../lib/cors.js";
+import { isWebOrigin } from "../../lib/cors.js";
 import { sprint4Error } from "../../lib/errors.js";
 import {
   ConsentAudit,
@@ -24,7 +27,8 @@ import {
   PersonsRepo,
   type AuditEntry,
 } from "./db.js";
-import { sha256 } from "./files.js";
+import { CONSENT_MIRROR_PATH, sha256, writeJsonAtomic, writeLicenceMirror } from "./files.js";
+import { resolveStoragePath } from "../storage.js";
 
 /**
  * Sprint 4 consent gate (docs/trabajo/sprint4-contratos.md «M1 · Gate»; fixed signature, M2 and
@@ -34,12 +38,18 @@ import { sha256 } from "./files.js";
 export interface ConsentGate {
   /** 404 PERSON_NOT_FOUND | 403 CONSENT_REQUIRED. */
   assertConsent(personId: string, need: "face" | "voice"): { person: Person; consent: Consent };
-  /** Relative to STORAGE_DIR (the most recent sample); 409 VOICE_SAMPLE_MISSING. */
+  /**
+   * Relative to STORAGE_DIR: the most recent sample COVERED by the active voice consent (audit
+   * fix 3); 403 CONSENT_REQUIRED (none / not covered) | 409 VOICE_SAMPLE_MISSING.
+   */
   voiceSamplePath(personId: string): string;
   /** 403 LICENCE_REQUIRED (also when the accepted text_version is not the current one). */
   assertLicence(id: LicenceId): LicenceAcceptance;
   isLicenceAccepted(id: LicenceId): boolean;
-  /** First Person with a valid face consent and a photo with a face (perf test source). */
+  /**
+   * Perf test source: the Person with the MOST RECENT valid face consent (audit fix 15) and a
+   * covered photo with a face.
+   */
   benchFaceSource(): { personId: string; consentId: string; photoPath: string } | null;
   /** Append-only consent_audit row. */
   audit(e: {
@@ -60,6 +70,47 @@ export interface PersonsService extends ConsentGate {
   readonly storageDir: string;
   /** Live Persons as GET /api/persons rows (optionally only those valid for `scope`). */
   summaries(scope?: "face" | "voice"): PersonSummary[];
+  /**
+   * Rewrite the read-only mirrors of the workers (audit fixes 4 / 17): consent/licences.json and
+   * consent/active.json (valid consents with the covered photo / sample paths). Called after every
+   * change of a Person, consent or licence and when the api starts.
+   */
+  writeMirrors(): Promise<void>;
+}
+
+/** One entry of storage/consent/active.json (snake_case for the workers). */
+export interface ConsentMirrorEntry {
+  personId: string;
+  consentId: string;
+  scope: Consent["scope"];
+  expires_at: string | null;
+  /** STORAGE_DIR-relative, consent/persons/<personId>/photos/… covered by this consent. */
+  photo_paths: string[];
+  /** STORAGE_DIR-relative, consent/persons/<personId>/voice/… covered by this consent. */
+  sample_paths: string[];
+}
+
+/** The valid consents of live Persons with the files each one authorizes (face / voice). */
+export function consentMirror(persons: readonly Person[], now = new Date()): ConsentMirrorEntry[] {
+  const out = new Map<string, ConsentMirrorEntry>();
+  for (const p of persons) {
+    for (const need of ["face", "voice"] as const) {
+      const c = activeConsent(p, need, now);
+      if (!c || !consentCovers(c, need)) continue;
+      const entry = out.get(c.id) ?? {
+        personId: p.id,
+        consentId: c.id,
+        scope: c.scope,
+        expires_at: c.expires_at ?? null,
+        photo_paths: [],
+        sample_paths: [],
+      };
+      if (need === "face") entry.photo_paths = coveredPhotos(p, now).map((ph) => ph.path);
+      else entry.sample_paths = coveredVoiceSamples(p, now).map((v) => v.path);
+      out.set(c.id, entry);
+    }
+  }
+  return [...out.values()];
 }
 
 /** sha256 of the licence text shown on screen (stored with the acceptance). */
@@ -130,9 +181,14 @@ export function createConsentGate(db: SqlDatabase, storageDir: string): PersonsS
     voiceSamplePath(personId) {
       const row = persons.find(personId);
       if (!row || row.deletedAt) throw sprint4Error("PERSON_NOT_FOUND", {}, { personId });
-      const last = row.person.voiceSamples.at(-1);
-      if (!last)
-        throw sprint4Error("VOICE_SAMPLE_MISSING", { nombre: row.person.name }, { personId });
+      const p = row.person;
+      if (p.voiceSamples.length === 0)
+        throw sprint4Error("VOICE_SAMPLE_MISSING", { nombre: p.name }, { personId });
+      if (!activeConsent(p, "voice"))
+        throw consentRequired(p, "voice", consentReason(p, "voice") ?? "none");
+      const last = coveredVoiceSamples(p).at(-1);
+      // samples exist but were added after the consent: a new consent has to cover them
+      if (!last) throw consentRequired(p, "voice", "scope");
       return last.path;
     },
     assertLicence(id) {
@@ -142,16 +198,26 @@ export function createConsentGate(db: SqlDatabase, storageDir: string): PersonsS
     },
     isLicenceAccepted: (id) => !!accepted(id),
     benchFaceSource() {
-      for (const p of persons.list()) {
-        const consent = activeConsent(p, "face");
-        const photo = p.photos.find((ph) => ph.faces !== 0);
-        if (consent && photo)
-          return { personId: p.id, consentId: consent.id, photoPath: photo.path };
+      const candidates = persons
+        .list()
+        .map((p) => ({ p, consent: activeConsent(p, "face") }))
+        .filter((x): x is { p: Person; consent: Consent } => !!x.consent)
+        .sort((a, b) => b.consent.accepted_at.localeCompare(a.consent.accepted_at));
+      for (const { p, consent } of candidates) {
+        const photo = coveredPhotos(p).find((ph) => ph.faces !== 0);
+        if (photo) return { personId: p.id, consentId: consent.id, photoPath: photo.path };
       }
       return null;
     },
     audit(e: AuditEntry) {
       auditLog.append(e);
+    },
+    async writeMirrors() {
+      await writeLicenceMirror(storageDir, licences.list());
+      await writeJsonAtomic(resolveStoragePath(storageDir, CONSENT_MIRROR_PATH), {
+        consents: consentMirror(persons.list()),
+        updated_at: new Date().toISOString(),
+      });
     },
   };
   byDir.set(storageDir, service);
@@ -162,16 +228,35 @@ export function createConsentGate(db: SqlDatabase, storageDir: string): PersonsS
 export const STUDIO_CLIENT_HEADER = "x-studio-client";
 
 /**
- * Consents and licence acceptances are only made from the Studio screen: the request must come
- * from the web (browser `Origin` of the dashboard, same list as CORS) and must not carry
- * `X-Studio-Client: mcp`. A reasonable defence, not strong security (Studio has no auth, §1).
+ * Consents, licence acceptances, Person photos / voice samples, «Voz propia» and the audit log are
+ * only handled from the Studio screen: the request must carry the EXACT `Origin` of the web
+ * (config.webOrigin, or the same port on localhost / 127.0.0.1; not the permissive CORS list) and
+ * must not carry `X-Studio-Client: mcp`. A reasonable defence, not authentication: Studio has no
+ * login, so a local process that forges the headers still gets through (ARQUITECTURA §1, manual §24.4).
  */
 export function assertHumanOrigin(
   req: Pick<FastifyRequest, "headers">,
   config: Pick<ApiConfig, "webOrigin">,
 ): void {
   const origin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
-  if (isMcpRequest(req) || !isAllowedOrigin(config, origin)) throw sprint4Error("HUMAN_ONLY");
+  if (isMcpRequest(req) || !isWebOrigin(config, origin)) throw sprint4Error("HUMAN_ONLY");
+}
+
+/**
+ * Biometric reads (Person photos, voice samples, consent evidence; audit fix 5): never for
+ * studio-mcp, and only for a browser request of the Studio web: `Sec-Fetch-Site: same-origin|same-site`
+ * or the exact web `Origin` (the web loads them with crossOrigin="anonymous" / fetch, so the browser
+ * sends it). curl and other scripts send neither unless they forge them (not authentication).
+ */
+export function assertBrowserRead(
+  req: Pick<FastifyRequest, "headers">,
+  config: Pick<ApiConfig, "webOrigin">,
+): void {
+  if (isMcpRequest(req)) throw sprint4Error("HUMAN_ONLY");
+  const site = req.headers["sec-fetch-site"];
+  if (site === "same-origin" || site === "same-site") return;
+  const origin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
+  if (!isWebOrigin(config, origin)) throw sprint4Error("HUMAN_ONLY");
 }
 
 /** True when the request comes from studio-mcp (files of a Person are never handed to it). */

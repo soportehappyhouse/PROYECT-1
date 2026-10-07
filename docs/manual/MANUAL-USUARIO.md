@@ -1727,8 +1727,13 @@ por ejemplo, para poner la cara del actor sobre la de su doble de riesgo
 2. **Fotos** (hasta 10; JPG, PNG o WebP de hasta 15 MB y 8192 px de lado): de frente, con buena
    luz, sin anteojos oscuros. Arrastralas o elegilas. Studio cuenta las caras de cada foto y
    rechaza la que no tiene ninguna.
-3. **Muestras de voz** (hasta 5, de 5 a 60 s, hasta 25 MB): **Grabar 10 s** o **Subir audio**. Se
-   guardan normalizadas (WAV 24 kHz mono, hasta 30 s, sin silencios en los bordes).
+3. **Muestras de voz** (hasta 5, de 5 a 60 s, hasta 25 MB; WAV, MP3, M4A, OGG, FLAC o WebM): **Grabar
+   10 s** o **Subir audio**. Se guardan normalizadas (WAV 24 kHz mono, hasta 30 s, sin silencios en
+   los bordes).
+4. **Subí las fotos y las muestras antes de registrar el consentimiento**: el consentimiento cubre
+   exactamente las que estaban cargadas en ese momento. Una foto o muestra que agregues después
+   aparece como «sin consentimiento para esta foto/muestra» y no se usa hasta que registres un
+   consentimiento nuevo.
 
 ### 24.2 Registrar el consentimiento
 
@@ -1738,20 +1743,31 @@ por ejemplo, para poner la cara del actor sobre la de su doble de riesgo
    este equipo a usar mi {alcance} para generar contenido alterado con IA en sus videos…». El
    texto tiene versión: si una versión nueva de Studio lo cambia, hay que registrarlo de nuevo.
 3. La persona **firma en pantalla** (en el recuadro, con el mouse, un lápiz o el dedo, y su
-   nombre) o adjuntás un **documento firmado** (PDF, JPG o PNG de hasta 20 MB).
+   nombre) o adjuntás un **documento firmado** (PDF, JPG o PNG de hasta 20 MB). Una firma en
+   blanco o un nombre vacío se rechazan.
 4. Marcá **«Leí este texto con la persona y lo acepta»** y tocá **Registrar consentimiento**.
-   Studio guarda el texto exacto (su huella), la firma o el documento y la fecha.
+   Studio guarda el texto exacto (su huella), la firma o el documento, la fecha y la huella de
+   cada foto y muestra que cubre. Si después le cambiás el nombre a la Persona, el consentimiento
+   conserva el nombre con el que se firmó (la lista muestra los dos).
 
 ### 24.3 Estados, revocar y borrar
 
 - Cada alcance muestra su estado: **vigente**, **vencido** (pasó la fecha), **revocado** o **sin
-  consentimiento**. Vale el último consentimiento vigente; el historial queda.
-- **Revocar**: lo ya generado no se borra, pero no se puede usar para nada nuevo (los trabajos
-  que estaban en cola fallan al empezar con «… no tiene un consentimiento vigente»).
-- **Borrar persona** (pide confirmación): borra sus fotos y muestras; los consentimientos y la
-  evidencia se archivan como prueba.
-- Cada consentimiento, revocación, cambio de cara y voz clonada queda en un **registro de
-  auditoría** que no se puede borrar desde la app.
+  consentimiento**. Manda el **consentimiento más reciente** de ese alcance: si está revocado o
+  vencido, no se puede usar la cara (o la voz) aunque haya uno anterior vigente; hay que registrar
+  uno nuevo. El historial queda.
+- **Revocar rostro**, **Revocar voz** o **Revocar todo** (piden confirmación): revocan todos los
+  consentimientos de ese alcance. Uno de «rostro y voz» se revoca entero (también la otra parte).
+  Lo ya generado no se borra, pero no se puede usar para nada nuevo (los trabajos que estaban en
+  cola fallan al empezar con «… no tiene un consentimiento vigente»).
+- **Borrar persona** (pide confirmación): primero copia los consentimientos y la evidencia al
+  archivo y verifica la copia; recién entonces borra fotos y muestras. Si el archivo falla, no se
+  borra nada.
+- Cada consentimiento, revocación, foto o muestra agregada, cambio de cara, voz clonada, «Voz
+  propia» declarada y uso de una foto en el Test de rendimiento queda en un **registro de
+  auditoría**: la base de datos rechaza modificarlo o borrarlo y cada fila lleva la huella de la
+  anterior, así que un cambio hecho por fuera de Studio se detecta. **Ver auditoría** (en la
+  Persona) lo muestra y avisa si la cadena no coincide.
 
 ### 24.4 Dónde se guarda y quién puede hacerlo
 
@@ -1861,7 +1877,9 @@ el aviso **«Va a correr en CPU»**: en CPU Chatterbox es varias veces más lent
 Chatterbox no tiene un modelo rioplatense: el acento sale de **la muestra que clona**.
 
 1. En _Texto a voz_ con Chatterbox, bajá hasta **Voz propia** y marcá **«Soy yo: es mi propia
-   voz»** (obligatorio: para otra persona se usa su consentimiento, ver §26.4).
+   voz»** (obligatorio: para otra persona se usa su consentimiento, ver §26.4). Esa declaración se
+   hace solo desde la pantalla de Studio (la Consola Claude y el Asistente no pueden subir una
+   «Voz propia») y queda en el registro de auditoría con la huella (sha256) de la muestra.
 2. **Grabar 10 s** (el navegador pide permiso al micrófono) y leé con tu tonada natural la frase
    que aparece: _«Che, ¿viste que mañana llueve? Yo llevo el paraguas, vos traé el mate y nos vemos
    en la plaza a las cinco.»_ O **Subir archivo** (5 a 60 s, hasta 25 MB; WAV, MP3, M4A, OGG o

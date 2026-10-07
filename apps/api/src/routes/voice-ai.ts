@@ -12,10 +12,12 @@ import {
 import type { FastifyInstance } from "fastify";
 import { requirePack } from "../jobs/handlers/ai.js";
 import { HttpError } from "../lib/errors.js";
+import { assertHumanOrigin } from "../services/persons/gate.js";
 import { WorkersError } from "../services/workers-client.js";
 import {
   chatterboxProviderRow,
   chatterboxVoiceRow,
+  consentGate,
   prepareChatterbox,
 } from "../voice-ai/chatterbox.js";
 import { requireMediaAsset } from "../voice-ai/media-bridge.js";
@@ -123,9 +125,17 @@ export function registerVoiceAiRoutes(app: FastifyInstance): void {
 
   // Sprint 4 «Voz propia»: voice-ref assets (the user's own voice; deleted with DELETE /api/media/:id).
   app.get(API_ROUTES.voiceSelfRefs, async () => listSelfVoiceRefs(app.ctx));
+  // Audit fix 1: HUMAN_ONLY (exact web Origin, never studio-mcp) and the «Soy yo» declaration is
+  // audited with the sha256 of the stored sample (and of the upload).
   app.post(API_ROUTES.voiceSelfRefs, async (req, reply) => {
+    assertHumanOrigin(req, config);
     const upload = await readSelfRefUpload(req);
-    const asset = await createSelfVoiceRef(app.ctx, upload);
+    const { sha256, uploadSha256, ...asset } = await createSelfVoiceRef(app.ctx, upload);
+    consentGate(app.ctx).audit({
+      action: "voice.self.attest",
+      assetId: asset.id,
+      data: { sha256, upload_sha256: uploadSha256, durationSec: asset.durationSec },
+    });
     return reply.code(201).send(asset);
   });
 

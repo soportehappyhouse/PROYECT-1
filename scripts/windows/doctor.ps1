@@ -347,6 +347,11 @@ if (Test-Path $VenvPython) {
             if ($tv.check.cuda) { $cudaText = 'si' }
             $parts += "torch $($tv.check.torch), CUDA $cudaText"
         }
+        if ($tool -eq 'chatterbox' -and $tv.state -ne 'missing') {
+            # Hugging Face weights: trust on first download, then pinned to the recorded commit
+            if ($tv.hf_pinned) { $parts += ("pesos fijados en {0}" -f ([string]$tv.hf_revision).Substring(0, 7)) }
+            else { $parts += 'pesos de Hugging Face: verificacion pendiente (se fijan en la primera descarga)' }
+        }
         if ($tv.base_python -and $tool -eq 'facefusion') { $parts += "base $($tv.base_python)" }
         $state = 'ok'
         if ($tv.state -eq 'missing') { $state = 'skip' }

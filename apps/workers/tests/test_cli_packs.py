@@ -113,10 +113,16 @@ def test_cli_tool_venv_ensure_uses_toolvenv(dirs, capsys, monkeypatch, tmp_path:
 
     monkeypatch.setattr(toolvenv, "ensure", fake_ensure)
     report = tmp_path / "tv.json"
+    # open point D: FaceFusion's venv needs the accepted licence, like the pack route (403)
+    assert models_cli.main(["--tool-venv", "facefusion", "ensure", "--report", str(report)]) == 3
+    refused = json.loads(report.read_text("utf-8"))
+    assert calls == [] and refused["action"] == "licence_required"
+    assert "aceptar su licencia" in refused["error"] and refused["licence"] == "faceswap"
+    accept(dirs[0])
     assert models_cli.main(["--tool-venv", "facefusion", "ensure", "--report", str(report)]) == 0
     assert calls == [("facefusion", False)]
     data = json.loads(report.read_text("utf-8"))
-    assert data["action"] == "omitido" and data["licence"] in ("faceswap", None)
+    assert data["action"] == "omitido" and data["licence"] == "faceswap"
 
     def boom(tool, **_):  # type: ignore[no-untyped-def]
         raise toolvenv.ToolError("pip falló")

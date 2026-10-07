@@ -2,11 +2,18 @@
 
 ``headless-run`` exits 0 (ok) or 1 (failed) whatever the reason (FaceFusion's internal codes 2 =
 args, 3 = NSFW, 4 = stopped are not exposed), so the runner captures stdout+stderr (the last 40
-lines go to ``log_tail``) and classifies the failure:
+lines go to ``log_tail``) and classifies the failure (audit fix 6):
 
-- a line of the content analyser (NSFW_RE), or exit != 0 with no output and no error/model/download
-  line (heuristic of docs/trabajo/fuentes-sprint4.md §1.4) -> 422 CONTENT_BLOCKED;
-- anything else -> 502 TOOL_FAILED with the last useful line (``details.logTail``).
+- a line of the content analyser (``NSFW_RE``, or ``FACEFUSION_NSFW_RE`` from .env when set, to pin
+  the real wording of 3.9.1 without a code change) that is NOT about the nsfw_N models themselves
+  (download / load / hash) -> 422 CONTENT_BLOCKED;
+- exit 1 with FaceFusion output, a «processing … failed» line and no error/model/download/memory
+  line (heuristic of docs/trabajo/fuentes-sprint4.md §1.4: the real rejection only says that)
+  -> 422 CONTENT_BLOCKED;
+- anything else -> 502 TOOL_FAILED with the last useful line (``details.logTail``): a run that died
+  silently (no output, killed by a signal, out of memory, another exit code), a model that could not
+  be downloaded or loaded (nsfw_N.onnx included), CUDA errors... Unclassified = TOOL_FAILED and,
+  either way, no asset is created (fail closed).
 
 The content analyser is never touched: FaceFusion validates its source by CRC32 and there is no
 flag to turn it off. Progress: the percentage FaceFusion prints (tqdm bars, "45%|").
@@ -28,18 +35,27 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 TAIL_LINES = 40
-# [U] exact wording of FaceFusion 3.9.1 when the analyser rejects a target (to pin with a real run):
-NSFW_RE = re.compile(
+# [U] exact wording of FaceFusion 3.9.1 when the analyser rejects a target (to pin with a real run;
+# meanwhile FACEFUSION_NSFW_RE in .env overrides it):
+DEFAULT_NSFW_RE = (
     r"nsfw|explicit content|inappropriate content|content[ _-]?analy[sz]er|"
-    r"contenido (expl[ií]cito|inapropiado)",
-    re.IGNORECASE,
+    r"contenido (expl[ií]cito|inapropiado)"
 )
-# Lines that make a silent exit 1 a real tool failure (models, downloads, CUDA, crashes).
+NSFW_RE = re.compile(DEFAULT_NSFW_RE, re.IGNORECASE)
+# A line about the analyser's MODELS (nsfw_1.onnx, its .hash, a download/load) is not a rejection.
+NSFW_MODEL_RE = re.compile(
+    r"nsfw_\d|\.onnx|\.hash|download|validat|load|model|checksum|crc", re.IGNORECASE
+)
+# Lines that make an exit 1 a real tool failure (models, downloads, CUDA, crashes, memory). No
+# «failed» on purpose: the real rejection only prints «Processing to video failed».
 ERROR_RE = re.compile(
-    r"error|exception|traceback|failed|fatal|not found|no such file|cannot|could not|unable|"
-    r"not available|unavailable|invalid|denied|out of memory|download",
+    r"error|exception|traceback|fatal|not found|no such file|cannot|could not|unable|"
+    r"not available|unavailable|invalid|denied|out of memory|\boom\b|memoryerror|killed|"
+    r"download",
     re.IGNORECASE,
 )
+# What FaceFusion prints when a processing step stops (the only trace of an analyser rejection).
+REJECT_HINT_RE = re.compile(r"process\w*\b.*\bfail", re.IGNORECASE)
 PROGRESS_RE = re.compile(r"(\d{1,3}(?:\.\d+)?)\s?%(?:\||\s|$)")
 
 
@@ -128,20 +144,58 @@ def _launch_error(lines: list[str]) -> str | None:
     return None
 
 
-def classify(outcome: RunOutcome, output_exists: bool) -> FaceFusionFailure | None:
-    """None when the run succeeded; else the failure to report."""
+def nsfw_pattern(env: dict[str, str] | None = None) -> re.Pattern[str]:
+    """FACEFUSION_NSFW_RE (environment / .env, empty = default) or NSFW_RE. An invalid pattern is
+    logged and ignored."""
+    raw = (env if env is not None else os.environ).get("FACEFUSION_NSFW_RE", "")
+    if not raw.strip():
+        try:
+            from ..toolvenv import tool_settings  # noqa: PLC0415 - reads .env too
+
+            raw = str(getattr(tool_settings(), "facefusion_nsfw_re", "") or "")
+        except Exception:  # unreadable settings: default pattern
+            raw = ""
+    if raw.strip():
+        try:
+            return re.compile(raw, re.IGNORECASE)
+        except re.error as exc:
+            import logging  # noqa: PLC0415
+
+            logging.getLogger("studio_workers").warning("FACEFUSION_NSFW_RE inválida: %s", exc)
+    return NSFW_RE
+
+
+def classify(
+    outcome: RunOutcome, output_exists: bool, nsfw_re: re.Pattern[str] | None = None
+) -> FaceFusionFailure | None:
+    """None when the run succeeded; else the failure to report (fail closed: anything unclear is
+    TOOL_FAILED, never a success)."""
     lines = outcome.lines
     if outcome.code == 0 and output_exists:
         return None
     launch = _launch_error(lines)
     if launch:
         return FaceFusionFailure("TOOL_FAILED", launch, lines)
-    if any(NSFW_RE.search(line) for line in lines):
+    pattern = nsfw_re or NSFW_RE
+    if any(pattern.search(line) and not NSFW_MODEL_RE.search(line) for line in lines):
         return FaceFusionFailure("CONTENT_BLOCKED", "contenido bloqueado", lines)
     errors = [line for line in lines if ERROR_RE.search(line)]
-    if outcome.code != 0 and not output_exists and not errors:
+    if (
+        outcome.code == 1
+        and not output_exists
+        and not errors
+        and any(REJECT_HINT_RE.search(line) for line in lines)
+    ):
         return FaceFusionFailure("CONTENT_BLOCKED", "contenido bloqueado", lines)
-    useful = errors[-1] if errors else (lines[-1] if lines else f"código de salida {outcome.code}")
+    if errors:
+        useful = errors[-1]
+    elif not lines:
+        useful = (
+            f"se cerró sin mensajes (código {outcome.code}; ¿memoria insuficiente o proceso "
+            "terminado?)"
+        )
+    else:
+        useful = lines[-1]
     if outcome.code == 0 and not output_exists:
         useful = f"no generó el archivo de salida ({useful})"
     return FaceFusionFailure("TOOL_FAILED", useful.strip()[:300], lines)

@@ -1,3 +1,4 @@
+import { hideConsentPaths } from "../lib/consent-paths.js";
 import { existsSync } from "node:fs";
 import { copyFile, mkdir, open, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -91,9 +92,7 @@ export async function tailFile(file: string, lines: number): Promise<string[]> {
  * Sprint 4: paths of the Personas registry (storage/consent/persons|archive/…: photos, voice
  * samples, consent evidence) are hidden in every text of a report; their files are never copied.
  */
-export function hideConsentPaths(text: string): string {
-  return text.replace(/consent([\\/]+)(persons|archive)\1[^\s"'<>]*/gi, "consent/<oculto>");
-}
+export { hideConsentPaths };
 
 /** Display a path relative to the repo when possible ("storage/reports/x"), else absolute. */
 function displayPath(abs: string): string {

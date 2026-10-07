@@ -481,4 +481,66 @@ describe("Ajustes → Personas", () => {
     });
     expect((await screen.findAllByText(/Rostro: sin consentimiento/)).length).toBeGreaterThan(0);
   });
+
+  it("«Revocar rostro» revokes by scope; photos added after the consent are flagged (audit 2/3)", async () => {
+    const SHA = "a".repeat(64);
+    const now = new Date().toISOString();
+    const photo = (id: string) => ({ id, path: `consent/persons/p1/photos/${id}.png`,
+      sha256: SHA, width: 10, height: 10, faces: 1 }); // prettier-ignore
+    const person = {
+      id: "p1",
+      name: "Ana Pérez",
+      photos: [photo("ph1"), photo("ph2")],
+      voiceSamples: [],
+      consents: [
+        {
+          id: "c1",
+          personId: "p1",
+          text_version: "2026-10-06",
+          text_sha256: SHA,
+          accepted_at: now,
+          method: "firma en pantalla",
+          signer_name: "Ana P.",
+          evidence_path: "consent/persons/p1/consents/c1/evidence.png",
+          evidence_sha256: SHA,
+          scope: "face",
+          photo_ids: [{ id: "ph1", sha256: SHA }],
+          sample_ids: [],
+        },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    };
+    const revoked = {
+      ...person,
+      consents: [{ ...person.consents[0]!, revoked_at: new Date().toISOString() }],
+    };
+    let state = person;
+    mockFetch((path, method) => {
+      if (path === "/api/persons/p1/consents/revoke" && method === "POST") {
+        state = revoked;
+        return { json: revoked };
+      }
+      if (path === "/api/persons/p1") return { json: state };
+      if (path === "/api/persons") return { json: [] };
+      return undefined;
+    });
+    usePersonsStore.setState({ list: [], status: "idle", selectedId: "p1", person });
+    render(<PersonsTab />);
+    // ph2 was uploaded after the consent: not covered
+    expect(await screen.findAllByText("sin consentimiento para esta foto")).toHaveLength(1);
+    expect(
+      screen.getByText(/firmó Ana P\. \(la Persona ahora se llama «Ana Pérez»\)/),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Revocar rostro" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Sí, revocar" }));
+    await waitFor(() =>
+      expect(calls.find((c) => c.path === "/api/persons/p1/consents/revoke")?.body).toEqual({
+        scope: "face",
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Revocar rostro" })).toBeNull(),
+    );
+  });
 });

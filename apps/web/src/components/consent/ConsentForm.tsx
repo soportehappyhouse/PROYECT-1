@@ -30,6 +30,12 @@ export function ConsentForm({ person, onDone }: { person: Person; onDone?: () =>
   const pad = useRef<SignaturePadHandle>(null);
   const busy = usePersonsStore((s) => s.busy);
   const text = renderConsentText(person.name, scope);
+  // Audit fix 3: the consent covers the photos / samples loaded NOW (later ones need a new one).
+  const photos = scope !== "voice" ? person.photos.length : 0;
+  const samples = scope !== "face" ? person.voiceSamples.length : 0;
+  const missing =
+    (scope !== "voice" && photos === 0 ? "fotos" : "") ||
+    (scope !== "face" && samples === 0 ? "muestras de voz" : "");
   const ready =
     read && signer.trim().length > 0 && (method === "firma en pantalla" ? signed : !!file) && !busy;
 
@@ -87,6 +93,17 @@ export function ConsentForm({ person, onDone }: { person: Person; onDone?: () =>
           Texto versión {CONSENT_TEXT_VERSION}
         </span>
       </blockquote>
+      <p className="text-[11px] text-muted-foreground" data-testid="consent-coverage">
+        Cubre {scope !== "voice" ? `${photos} foto${photos === 1 ? "" : "s"}` : ""}
+        {scope === "both" ? " y " : ""}
+        {scope !== "face" ? `${samples} muestra${samples === 1 ? "" : "s"} de voz` : ""} cargadas
+        ahora. Lo que subas después necesita un consentimiento nuevo.
+        {missing ? (
+          <span className="block text-amber-700 dark:text-amber-400">
+            Todavía no hay {missing}: subilas antes de registrar el consentimiento.
+          </span>
+        ) : null}
+      </p>
       <Tabs<ConsentMethod>
         value={method}
         onChange={setMethod}

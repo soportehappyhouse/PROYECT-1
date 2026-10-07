@@ -1,10 +1,12 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { VOICE_SAMPLE_LIMITS, type MediaAsset } from "@studio/shared";
 import type { FastifyRequest } from "fastify";
 import { nanoid } from "nanoid";
 import type { AppContext } from "../context.js";
 import { HttpError, sprint4Error } from "../lib/errors.js";
+import { safeInputArgs, sniffAudio } from "../services/audio-upload.js";
 import { resolveStoragePath } from "../services/storage.js";
 import { registerAudioAsset } from "./media-bridge.js";
 
@@ -12,7 +14,9 @@ import { registerAudioAsset } from "./media-bridge.js";
  * Sprint 4 M2 «Voz propia» (docs/trabajo/sprint4-contratos.md «M2»): the user's own voice sample,
  * a MediaAsset of kind "voice-ref" (WAV 24 kHz mono, edges without silence, loudness normalized,
  * at most 30 s kept). The upload must say `attestSelf=true` («Soy yo: es mi propia voz»); no
- * consent record is needed for one's own voice (decision D9). Deleted with DELETE /api/media/:id.
+ * consent record is needed for one's own voice (decision D9), but the route is HUMAN_ONLY and the
+ * declaration is audited (`voice.self.attest` with the sample's sha256, audit fix 1). Deleted with
+ * DELETE /api/media/:id.
  */
 
 const FILE_TOO_LARGE = "FST_REQ_FILE_TOO_LARGE";
@@ -75,7 +79,7 @@ function stamp(d = new Date()): string {
 export async function createSelfVoiceRef(
   deps: SelfRefDeps,
   upload: SelfRefUpload,
-): Promise<MediaAsset> {
+): Promise<MediaAsset & { sha256: string; uploadSha256: string }> {
   if (upload.attestSelf !== "true")
     throw new HttpError(
       400,
@@ -86,11 +90,11 @@ export async function createSelfVoiceRef(
   const id = nanoid();
   const tmpRel = `tmp/self-ref-${id}`;
   const tmpDir = resolveStoragePath(storage, tmpRel);
-  const ext = (path
-    .extname(upload.filename)
-    .toLowerCase()
-    .match(/^\.[a-z0-9]{1,5}$/) ?? [".bin"])[0];
-  const input = path.join(tmpDir, `input${ext}`);
+  // Audit fix 20: demuxer from the real type (magic bytes), not from the client's file name.
+  const type = sniffAudio(upload.data);
+  if (!type)
+    throw sprint4Error("VOICE_SAMPLE_INVALID", {}, { reason: "formato de audio no reconocido" });
+  const input = path.join(tmpDir, `input.${type.ext}`);
   const decoded = path.join(tmpDir, "decoded.wav");
   const rel = `media/${id}.wav`;
   const out = resolveStoragePath(storage, rel);
@@ -101,6 +105,7 @@ export async function createSelfVoiceRef(
     await writeFile(input, upload.data);
     try {
       await deps.ffmpeg.run([
+        ...safeInputArgs(type),
         "-i",
         input,
         "-vn",
@@ -147,7 +152,8 @@ export async function createSelfVoiceRef(
       await rm(out, { force: true });
       throw invalid(`sin voz suficiente (${kept.toFixed(1)} s útiles)`);
     }
-    return await registerAudioAsset(deps, {
+    const digest = (b: Buffer) => createHash("sha256").update(b).digest("hex");
+    const asset = await registerAudioAsset(deps, {
       id,
       path: rel,
       name: `Voz propia (${stamp()})`,
@@ -157,6 +163,7 @@ export async function createSelfVoiceRef(
       channels: 1,
       mimeType: "audio/wav",
     });
+    return { ...asset, sha256: digest(await readFile(out)), uploadSha256: digest(upload.data) };
   } catch (err) {
     await rm(out, { force: true }).catch(() => undefined);
     throw err;

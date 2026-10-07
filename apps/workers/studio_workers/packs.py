@@ -1383,8 +1383,24 @@ def install_pack(
 # (models/manifest.json records size + sha256, doctor shows «verificación pendiente»). Pin the HF
 # revision once `HfApi().model_info("ResembleAI/chatterbox", files_metadata=True)` is run on a PC.
 CHATTERBOX_HF_REPO = "ResembleAI/chatterbox"
-CHATTERBOX_HF_REVISION = "main"  # TODO(revision): pin the commit (see above)
+# Audit fix 13: `main` only until the first download; the commit it resolved to (X-Repo-Commit) is
+# recorded in models/manifest.json with each file's sha256 and every later download is pinned to it
+# (chatterbox_revision()). doctor shows «verificación pendiente» while nothing is recorded.
+CHATTERBOX_HF_REVISION = "main"
 CHATTERBOX_HF_BASE = f"https://huggingface.co/{CHATTERBOX_HF_REPO}/resolve/{CHATTERBOX_HF_REVISION}"
+CHATTERBOX_GROUP = "tts-chatterbox:weights"
+
+
+def chatterbox_revision(root: Path) -> tuple[str, bool]:
+    """(revision, pinned): the HF commit recorded by the first download, else ("main", False)."""
+    manifest = Manifest.load(root)
+    for entry in manifest.files.values():
+        rev = entry.get("revision") if isinstance(entry, dict) else None
+        if entry.get("group") == CHATTERBOX_GROUP and isinstance(rev, str) and len(rev) == 40:
+            return rev, True
+    return CHATTERBOX_HF_REVISION, False
+
+
 # name -> (approx size [S], minimum accepted size)
 CHATTERBOX_COMMON_FILES: dict[str, tuple[int, int]] = {
     "ve.pt": (5_700_000, 4_000_000),
@@ -1400,13 +1416,20 @@ CHATTERBOX_T3_FILES: dict[str, tuple[str, int, int]] = {  # variant -> (file, ap
 CHATTERBOX_VENV_SIZE = 3_000_000_000  # [S] torch 2.6.0+cu124 (~2.5 GB) + the rest
 
 
-def _chatterbox_item(name: str, min_bytes: int) -> FileItem:
+def _chatterbox_item(name: str, min_bytes: int, root: Path | None = None) -> FileItem:
+    """A weight file at the pinned revision; a file already recorded (trust on first download)
+    must come back with the same sha256."""
+    rev, _pinned = (
+        chatterbox_revision(root) if root is not None else (CHATTERBOX_HF_REVISION, False)
+    )
+    entry = Manifest.load(root).get(f"chatterbox/{name}") if root is not None else None
+    sha = entry.get("sha256") if entry else None
     return FileItem(
-        "tts-chatterbox:weights",
+        CHATTERBOX_GROUP,
         name,
         f"chatterbox/{name}",
-        f"{CHATTERBOX_HF_BASE}/{name}",
-        Expected(min_bytes=min_bytes),
+        f"https://huggingface.co/{CHATTERBOX_HF_REPO}/resolve/{rev}/{name}",
+        Expected(min_bytes=min_bytes, sha256=sha if isinstance(sha, str) else None),
     )
 
 
@@ -1429,8 +1452,8 @@ def chatterbox_variant(root: Path, *, git: Callable[[], bool] | None = None) -> 
 
 def _chatterbox_items(root: Path, _catalog: dict | None) -> list[Item]:
     name, _approx, min_bytes = CHATTERBOX_T3_FILES[chatterbox_variant(root)]
-    items = [_chatterbox_item(n, m) for n, (_a, m) in CHATTERBOX_COMMON_FILES.items()]
-    items.insert(1, _chatterbox_item(name, min_bytes))
+    items = [_chatterbox_item(n, m, root) for n, (_a, m) in CHATTERBOX_COMMON_FILES.items()]
+    items.insert(1, _chatterbox_item(name, min_bytes, root))
     return items
 
 
@@ -1473,7 +1496,7 @@ def _chatterbox_setup(
         raise RuntimeError("Falta studio_workers/toolvenv.py: no se puede crear el entorno aislado")
     variant = chatterbox_variant(root)
     name, _approx, min_bytes = CHATTERBOX_T3_FILES[variant]
-    item = _chatterbox_item(name, min_bytes)
+    item = _chatterbox_item(name, min_bytes, root)
     manifest = Manifest.load(root)
     if item.status(root, manifest).state != "present":
         say(f"el entorno quedó en Chatterbox {variant.upper()}: se baja {name}")

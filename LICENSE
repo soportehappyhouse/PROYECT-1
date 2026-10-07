@@ -1,0 +1,17 @@
+Studio — Copyright (c) 2026 el autor de Studio. Todos los derechos reservados.
+
+Uso personal. El código fuente se publica para consulta; no se concede licencia de uso, copia,
+modificación ni redistribución salvo autorización escrita del autor.
+
+Los componentes de terceros conservan sus propias licencias (ver NOTICE.md). En particular,
+apps/workers/vision_gpl/ es GPL-3.0-or-later y se rige por esa licencia.
+
+---
+
+Studio — Copyright (c) 2026 the author of Studio. All rights reserved.
+
+Personal use. The source code is published for reference only; no licence is granted to use,
+copy, modify or redistribute it without the author's written permission.
+
+Third-party components keep their own licences (see NOTICE.md). In particular,
+apps/workers/vision_gpl/ is GPL-3.0-or-later and is governed by that licence.

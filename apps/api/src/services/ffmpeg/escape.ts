@@ -23,7 +23,7 @@ export function toForwardSlashes(p: string): string {
 
 /**
  * Escape a file path used as a filter option (subtitles=, ass=, fontfile=, textfile=, arnndn m=).
- * `C:\Users\yo\it's.srt` -> `'C\:/Users/yo/it\'\''s.srt'`.
+ * `C:\Users\Usuario\it's.srt` -> `'C\:/Users/Usuario/it\'\''s.srt'`.
  * Prefer running ffmpeg with `cwd` = job dir and simple relative names; this is the fallback.
  */
 export function escapeFilterPath(p: string): string {

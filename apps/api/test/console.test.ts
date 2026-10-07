@@ -205,11 +205,11 @@ describe("console helpers", () => {
     expect(spawned).toEqual([["/usr/bin/claude", "--settings", CONSOLE_SETTINGS_PATH]]);
 
     // Windows .cmd shim with spaces in both paths: cmd /c keeps one quoted token → relative path.
-    const repo = "C:\\Users\\Luis Perez\\Studio";
+    const repo = "C:\\Users\\Usuario Demo\\Studio";
     const abs = `${repo}\\apps\\api\\console\\claude-console-settings.json`;
     expect(
       consoleClaudeArgs(
-        "C:\\Users\\Luis Perez\\AppData\\Roaming\\npm\\claude.cmd",
+        "C:\\Users\\Usuario Demo\\AppData\\Roaming\\npm\\claude.cmd",
         repo,
         "win32",
         abs,

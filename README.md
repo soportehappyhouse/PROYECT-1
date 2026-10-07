@@ -94,8 +94,16 @@ Todo se configura en `.env` (ver `.env.example`, documentado línea por línea).
 `.env` al repositorio. Las keys `ELEVENLABS_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
 `FREESOUND_API_KEY` y `PIXABAY_API_KEY` son opcionales: sin ellas todo funciona en local.
 
-## Licencias
+## Licencia
 
-Solo se reutiliza código MIT/Apache/BSD/CC0; las fuentes se registran en `docs/trabajo/fuentes*.md`.
+Studio: **todos los derechos reservados**, uso personal; el código se publica solo para consulta
+(ver [`LICENSE`](LICENSE)). Los componentes de terceros conservan sus licencias: resumen en
+[`NOTICE.md`](NOTICE.md) (`apps/workers/vision_gpl/` es GPL-3.0-or-later) y tabla completa en
+[`docs/trabajo/fuentes.md`](docs/trabajo/fuentes.md).
+
+## Licencias de terceros
+
+Solo se reutiliza código MIT/Apache/BSD/CC0 (salvo `apps/workers/vision_gpl/`, GPL-3.0, aislado);
+las fuentes se registran en `docs/trabajo/fuentes*.md`.
 Remotion se usa bajo su licencia gratuita (uso personal / equipos pequeños); revisá
 <https://www.remotion.dev/license> si tu caso es comercial.

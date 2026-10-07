@@ -52,11 +52,11 @@ describe("redact", () => {
       "Authorization: Bearer abcdefghijklmnop.qrstuv",
       "GET https://freesound.org/apiv2/search?query=x&token=zzzzzzzz",
       "custom secret value: my-literal-secret",
-      "C:\\Users\\luis\\studio\\storage\\media\\a.mp4",
+      "C:\\Users\\Usuario Demo\\studio\\storage\\media\\a.mp4",
     ].join("\n");
     const out = redactText(text, {
       secrets: ["my-literal-secret"],
-      homeDir: "C:\\Users\\luis",
+      homeDir: "C:\\Users\\Usuario Demo",
     });
     expect(out).not.toContain(FAKE_ANTHROPIC);
     expect(out).not.toContain("sk-proj-1234567890abcdefghijkl");
@@ -64,7 +64,7 @@ describe("redact", () => {
     expect(out).not.toContain("abcdefghijklmnop");
     expect(out).not.toContain("zzzzzzzz");
     expect(out).not.toContain("my-literal-secret");
-    expect(out).not.toContain("luis");
+    expect(out).not.toContain("Usuario Demo");
     expect(out).toContain('"name":"ok"');
     expect(out).toContain('"token":null');
     expect(out).toContain("~\\studio\\storage");

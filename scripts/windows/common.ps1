@@ -412,6 +412,46 @@ function Get-FileSha256([string]$Path) {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
+function Add-RequirementsChain([string]$Path, [System.Collections.Generic.List[string]]$Files) {
+    # Appends $Path and, depth first, every file it pulls in with -r/--requirement or
+    # -c/--constraint (resolved like pip: relative to the folder of the file that includes it).
+    # Each file once (cycles are harmless); a missing include is kept so it hashes as 'none'.
+    $full = [IO.Path]::GetFullPath($Path)
+    foreach ($f in $Files) { if ($f -ieq $full) { return } }
+    $Files.Add($full)
+    if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { return }
+    $dir = [IO.Path]::GetDirectoryName($full)
+    foreach ($raw in [IO.File]::ReadAllLines($full)) {
+        $line = $raw.Trim()
+        if ($line -notmatch '^(?:-r|--requirement|-c|--constraint)(?:\s*=\s*|\s*)(\S.*)$') { continue }
+        $target = ($Matches[1] -replace '\s+#.*$', '').Trim().Trim([char[]]@('"', "'"))
+        if (-not $target -or $target.Contains('://')) { continue }
+        if (-not [IO.Path]::IsPathRooted($target)) { $target = Join-Path $dir $target }
+        Add-RequirementsChain $target $Files
+    }
+}
+
+function Get-RequirementsHash([string]$Path) {
+    # Uppercase SHA256 for the "<profile> <HEX>" line of the .venv stamp. A file without -r/-c
+    # includes hashes exactly like Get-FileHash (stamps of older setups stay valid); with includes
+    # (requirements-cuda.txt -> requirements.txt) it is the hash of "<relative path>=<sha256>" of
+    # every file in the chain, in include order, so a change in ANY of them triggers pip install.
+    # Relative paths keep the value stable between runs and if the repo folder is moved.
+    $files = New-Object 'System.Collections.Generic.List[string]'
+    Add-RequirementsChain $Path $files
+    if ($files.Count -eq 1) { return (Get-FileSha256 $files[0]).ToUpperInvariant() }
+    $root = [IO.Path]::GetDirectoryName($files[0]).TrimEnd('\', '/')
+    $parts = @()
+    foreach ($f in $files) {
+        $name = $f
+        if ($f.StartsWith($root + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+            $name = $f.Substring($root.Length + 1)
+        }
+        $parts += ('{0}={1}' -f $name.Replace('\', '/'), (Get-FileSha256 $f))
+    }
+    return (Get-TextSha256 ($parts -join "`n")).ToUpperInvariant()
+}
+
 function Read-Stamp([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return '' }
     try { return ([IO.File]::ReadAllText($Path)).Trim() } catch { return '' }

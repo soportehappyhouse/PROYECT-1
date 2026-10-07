@@ -11,7 +11,8 @@
   3. pnpm 12 + pnpm install (se omite si pnpm-lock.yaml y los package.json no cambiaron)
      + navegador de Remotion (se omite si ya esta).
   4. Python: apps\workers\.venv con requirements.txt (CPU) o requirements-cuda.txt (-WithCuda); se
-     omite si el sello .venv\.studio-install coincide con el hash de requirements/pyproject.
+     omite si el sello .venv\.studio-install coincide con el hash de requirements (incluidos los
+     archivos que referencia con -r, p. ej. requirements-cuda.txt -> requirements.txt)/pyproject.
   5. Modelos: models_cli --check muestra la tabla presentes/faltantes y despues se baja solo lo que
      falta (descargas reanudables, verificadas, registradas en models\manifest.json). RVC base
      (hubert + rmvpe) solo con -Full; si no, se pide al usar RVC (paquete rvc-base).
@@ -573,16 +574,20 @@ if ($py311) {
         if ($SkipRvc) { $profileName = "$profileName-norvc" }
         $reqFile = 'requirements.txt'
         if ($WithCuda) { $reqFile = 'requirements-cuda.txt' }
-        # Line 1 keeps the format of older setups ("<profile> <SHA256 of requirements>") so their
-        # stamps are recognized; line 2 tracks pyproject.toml (editable install of studio_workers).
-        $line1 = "$profileName $((Get-FileHash (Join-Path $WorkersDir $reqFile) -Algorithm SHA256).Hash)"
+        # Line 1 keeps the format of older setups ("<profile> <HEX>"); the hash covers the
+        # requirements file AND every file it includes with -r/-c (requirements-cuda.txt pulls in
+        # requirements.txt: before, a dependency added there, e.g. jsonschema, did not change the CUDA
+        # stamp and pip install was skipped). Without includes (CPU) the value is the same as before;
+        # an older CUDA stamp mismatches once and reinstalls. Line 2 tracks pyproject.toml (editable
+        # install of studio_workers).
+        $line1 = "$profileName $(Get-RequirementsHash (Join-Path $WorkersDir $reqFile))"
         $line2 = "pyproject $(Get-FileSha256 (Join-Path $WorkersDir 'pyproject.toml'))"
         $stampLines = @((Read-Stamp $venvStamp) -split "`r?`n" | ForEach-Object { $_.Trim() })
         $heavyOk = (-not $Force) -and ($stampLines[0] -eq $line1)
         $editableOk = $heavyOk -and ($stampLines.Count -gt 1) -and ($stampLines[1] -eq $line2)
         # Never Activate.ps1 (blocked by execution policy): always call .venv\Scripts\python.exe.
         if (-not $heavyOk) {
-            if ($stampLines[0]) { Write-Info "Cambio el perfil o requirements ($($stampLines[0].Split(' ')[0]) -> $profileName): pip install" }
+            if ($stampLines[0]) { Write-Info "Cambio el perfil o algun requirements, incluidos los que se referencian con -r ($($stampLines[0].Split(' ')[0]) -> $profileName): pip install (un sello CUDA de una version anterior del instalador reinstala una sola vez)" }
             Invoke-Native $VenvPython @('-m', 'pip', 'install', '--upgrade', 'pip>=24', 'setuptools<=80.6.0', 'wheel') $WorkersDir
             if ($SkipRvc) {
                 Invoke-Native $VenvPython @('-m', 'pip', 'install', '-e', '.[whisper,tts]') $WorkersDir

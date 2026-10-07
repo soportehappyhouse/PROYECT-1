@@ -1637,8 +1637,9 @@ FACEFUSION_MODELS: dict[str, FaceFusionModel] = {
         _ffm("gfpgan_1.4", "models-3.0.0", 340.3, "5a6c6364", "Apache-2.0"),
         # faceswap-extra: chosen in «Cambiar cara» -> 409 PACK_REQUIRED faceswap-extra
         _ffm("ghost_1_256", "models-3.0.0", 514.9, "53447f7f", "Apache-2.0", "faceswap-extra"),
-        # [U] release tag and CRC32 of crossface_ghost not read (22.1 MB [V]): checked vs .hash only
-        _ffm("crossface_ghost", "models-3.0.0", 22.1, None, "Apache-2.0", "faceswap-extra"),
+        # ghost's embedding_converter, release models-3.4.0 (models-3.0.0 answers 404) [V]
+        # face_swapper/core.py @72470819 + crossface_ghost.hash; licence of ghost_1_256 (Apache-2.0)
+        _ffm("crossface_ghost", "models-3.4.0", 22.1, "6cabb296", "Apache-2.0", "faceswap-extra"),
         _ffm(
             "inswapper_128_fp16",
             "models-3.0.0",
@@ -1866,7 +1867,10 @@ PACKS["faceswap-extra"] = Pack(
     extra_status=_faceswap_status_rows,
     licence_gate="faceswap",
     tool_status=_faceswap_tool_status,
-    notes="ghost_1_256 + crossface_ghost + inswapper_128_fp16 (facefusion-assets models-3.0.0)",
+    notes=(
+        "ghost_1_256 + inswapper_128_fp16 (facefusion-assets models-3.0.0) + crossface_ghost "
+        "(models-3.4.0), como el registro de FaceFusion 3.9.1 (72470819)"
+    ),
 )
 FEATURE_PACKS["face.swap"] = "faceswap"
 FEATURE_PACKS["face.preview"] = "faceswap"

@@ -97,12 +97,14 @@ Argumentos verificados en `facefusion/program.py` [V] (defaults entre paréntesi
 | Modelo | Licencia (campo del código) | Tamaño | Release | Nota |
 |---|---|---|---|---|
 | `hyperswap_1a_256` (default) / `1b` / `1c` | **ResearchRAIL** (vendor FaceFusion) | 402,7 MB c/u | models-3.3.0 | CRC32 1a `79e50d4b`, 1b `36312901`, 1c `83c5ce36` |
-| `ghost_1_256` / `ghost_2_256` / `ghost_3_256` | **Apache-2.0** | 514,9 / 738,7 / 855,5 MB (+22,1 `crossface_ghost`) | models-3.0.0 / 3.4.0 | `ghost_1` CRC32 `53447f7f` |
-| `inswapper_128` / `_fp16` | **Non-Commercial** (InsightFace) | 555,3 / 277,7 MB | models-3.0.0 | fp16 CRC32 `32500ff1` |
+| `ghost_1_256` / `ghost_2_256` / `ghost_3_256` | **Apache-2.0** | 514,9 / 738,7 / 855,5 MB (+22,1 `crossface_ghost`) | models-3.0.0 (swapper) / **models-3.4.0** (`crossface_ghost`) | `ghost_1` CRC32 `53447f7f`; `crossface_ghost` CRC32 `6cabb296`, 22 083 800 B (en models-3.0.0 da 404) |
+| `inswapper_128` / `_fp16` | **Non-Commercial** (InsightFace) | 555,3 / 277,7 MB | models-3.0.0 | CRC32 `7057c6ea` / fp16 `32500ff1` |
 | `simswap_256` / `simswap_unofficial_512` | **Non-Commercial** | 220,4 / 239,2 MB (+22,1 `crossface_simswap`) | models-3.0.0 / 3.4.0 | |
 | `blendswap_256` | **Non-Commercial** | 1661,4 MB | models-3.0.0 | |
 | `alphaface_256` | **Non-Commercial** | 555,6 MB | models-3.9.0 | nuevo en 3.9.0 |
 | `uniface_256`, `hififace_unofficial_256` | **Unknown** | 407,0 / 203,8 MB (+22,1 `crossface_hififace`) | models-3.0.0 / 3.1.0 | evitar |
+
+**`faceswap-extra` verificado [V] (2026-10-07)** contra el registro de `https://raw.githubusercontent.com/facefusion/facefusion/72470819a0373be3388b3929c8f8f311f418fc3c/facefusion/processors/modules/face_swapper/core.py`: `ghost_1_256` = `sources.face_swapper` `models-3.0.0/ghost_1_256.onnx` + `sources.embedding_converter` `models-3.4.0/crossface_ghost.onnx` (no hay `arcface_ghost` en 3.9.1: el embedder de Ghost es `crossface_ghost` sobre `arcface_w600k_r50`); `inswapper_128_fp16` = `models-3.0.0/inswapper_128_fp16.onnx`. `.hash` leídos de `https://github.com/facefusion/facefusion-assets/releases/download/{release}/{archivo}.hash` y tamaños por Range request (la API de GitHub no fue accesible desde el sandbox). `models-3.0.0/crossface_ghost.onnx` responde **404** (causa del fallo de descarga del paquete).
 
 **Pack mínimo por defecto** (`hyperswap_1a_256` + `face_enhancer gfpgan_1.4`, detector `yolo_face`, landmarker `2dfan4`, occluder `xseg_1`, parser `bisenet_resnet_34`) [V tamaños/licencias]:
 

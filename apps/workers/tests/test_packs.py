@@ -125,6 +125,39 @@ def test_pack_status_sprint4_keys(dirs) -> None:
     assert row["tool"] == {"id": "facefusion", "state": "missing"}
 
 
+# FaceFusion 3.9.1 registry (facefusion/processors/modules/face_swapper/core.py @72470819):
+# (release, file stem, CRC32 in the published .hash) of every file the extra swappers download.
+FACEFUSION_EXTRA_REGISTRY = {
+    ("models-3.0.0", "ghost_1_256", "53447f7f"),  # ghost_1_256 sources.face_swapper
+    ("models-3.4.0", "crossface_ghost", "6cabb296"),  # ghost_1_256 sources.embedding_converter
+    ("models-3.0.0", "inswapper_128_fp16", "32500ff1"),  # inswapper_128_fp16 sources.face_swapper
+}
+
+
+def test_faceswap_extra_urls_match_facefusion_registry(tmp_path: Path) -> None:
+    pack = packs.PACKS["faceswap-extra"]
+    assert pack.licence_gate == "faceswap"
+    assert {(m.release, m.name, m.crc32) for m in packs._facefusion_pack_models(pack.id)} == (
+        FACEFUSION_EXTRA_REGISTRY
+    )
+    assert {m.name: m.licence for m in packs._facefusion_pack_models(pack.id)} == {
+        "ghost_1_256": "Apache-2.0",
+        "crossface_ghost": "Apache-2.0",
+        "inswapper_128_fp16": "No comercial (InsightFace)",
+    }
+    urls = {item.url for item in pack.items(tmp_path, None)}
+    base = "https://github.com/facefusion/facefusion-assets/releases/download"
+    assert urls == {
+        f"{base}/{release}/{name}.{ext}"
+        for release, name, _ in FACEFUSION_EXTRA_REGISTRY
+        for ext in ("onnx", "hash")
+    }
+    # every swapper Studio offers resolves to files of the two face-swap packs
+    for swapper, names in packs.FACEFUSION_SWAPPER_MODELS.items():
+        assert swapper in names and all(n in packs.FACEFUSION_MODELS for n in names)
+    assert packs.FACEFUSION_SWAPPER_MODELS["ghost_1_256"] == ("ghost_1_256", "crossface_ghost")
+
+
 def test_coded_error_answers_detail_and_code(dirs) -> None:
     app = create_app()
 

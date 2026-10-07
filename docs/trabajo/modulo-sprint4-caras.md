@@ -249,7 +249,7 @@ confirmás el consentimiento y que no hay menores.
   3500 MB), que `CUDAExecutionProvider` cargue en `tools\facefusion` (DLLs nvidia-cu12 + `preload_dlls`).
 - **Texto real del rechazo NSFW de 3.9.1** (fijarlo en `NSFW_RE` de `face/runner.py` y en el test) y que
   la heurística «salida 1 sin archivo ni líneas de error» no confunda otros fallos.
-- Release y CRC32 de `crossface_ghost` (`packs.py`, hoy solo contra su `.hash`), sha256 de primera
+- ~~Release y CRC32 de `crossface_ghost`~~ [V] models-3.4.0, `6cabb296` (`fuentes-sprint4.md` §1.5); sha256 de primera
   descarga de los `.onnx`, junction de modelos con rutas con espacios/tildes.
 - Calidad en primeros planos y con varias caras (`--reference-face-distance 0.3`), sincronía del audio
   tras el recorte, rendimiento del sello CRC32 (primer uso ≈ 1,8 GB a leer).

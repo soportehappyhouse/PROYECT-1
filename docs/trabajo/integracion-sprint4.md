@@ -153,3 +153,97 @@ o tiempos, sin secretos; `.gitignore` con `tools/*/app|.venv|.downloads`, `tools
 4. Unificar `TtsResultSchema` de `workers-client.ts` con los campos de Chatterbox y dejar una sola
    llamada a `/tts`.
 5. `CHATTERBOX_HF_REVISION` y sha256 de Hugging Face (ver «Solo medible»).
+
+## Correcciones de auditoría
+
+Auditoría independiente del Sprint 4 (hallazgos ALTO 1–2, MEDIO 3–14, BAJO 15–24 y puntos abiertos
+A–D decididos por el coordinador). Commits `b6764b2` (ALTO + MEDIO) y el siguiente (BAJO, puntos
+abiertos, e2e, docs). Todo verificado en el sandbox Linux (sin CI: GitHub Actions bloqueado por la
+facturación de la cuenta).
+
+| # | Hallazgo | Cambio (archivos) | Prueba |
+| - | -------- | ----------------- | ------ |
+| 1 | «Voz propia» sin `HUMAN_ONLY` ni auditoría | `routes/voice-ai.ts` (`assertHumanOrigin` + `voice.self.attest` con sha256 de la muestra guardada y de la subida), `voice-ai/self-refs.ts`; manual §26.3 | `voice-chatterbox.test.ts` «self-refs: HUMAN_ONLY», auditoría con sha256; e2e «Voz propia» (403 sin Origin) |
+| 2 | Revocar no frenaba si había un consentimiento anterior vigente | `shared/consent.ts` (`activeConsent`: manda el más reciente del alcance; `revocableConsents`), `POST /api/persons/:id/consents/revoke {scope}`, `PersonsTab.tsx` («Revocar rostro / voz / todo» con confirmación), store/api web | `consent.test.ts` (test viejo corregido + nuevo), `persons.test.ts`, `face.test.tsx`, e2e auditoría |
+| 3 | Consentimiento no atado a las fotos/muestras | `ConsentSchema.photo_ids/sample_ids` (id + sha256, opcionales: ausentes = consentimiento anterior, cubre todo); `coveredPhotos/coveredVoiceSamples`; `facePreflight` y `voiceSamplePath` usan solo lo cubierto; `POST photos/voice-samples` `HUMAN_ONLY`; UI «sin consentimiento para esta foto/muestra» y aviso en el formulario | `consent.test.ts`, `persons.test.ts`, `face.test.tsx`, e2e auditoría |
+| 4 | Workers solo pedían un `consent_id` no vacío | api reescribe `consent/active.json` (y `licences.json`) en cada cambio y al arrancar (`gate.writeMirrors`); `studio_workers/consent_mirror.py`; `routers/face.py`, `face/engine.py`, `tts/chatterbox.py` (`check_voice_ref`) y el bench de `perf.py` lo verifican (vigente, alcance, vencimiento, ruta bajo `consent/persons/<persona>/` y listada) | `test_face_runner.py::test_consent_mirror_is_checked_before_launch`, `test_face_router.py`, `test_tts_router.py`, `test_perf.py` (espejos falsos) |
+| 5 | `Origin` contra la regex de CORS; sin control de `Host` | `lib/cors.ts` (`webOrigins/isWebOrigin` exactos, `isAllowedHost`), hook `onRequest` 403 `BAD_HOST`, `assertBrowserRead` (`Sec-Fetch-Site` same-origin/same-site u `Origin` exacto) en fotos, muestras y evidencia; la web usa `crossOrigin="anonymous"` y abre la evidencia por `fetch`; e2e/ui-smoke mandan el `Origin` de la web | `security.test.ts`, `persons.test.ts`; e2e auditoría (Host ajeno → 403) |
+| 6 | NSFW: fallas de modelo/muertes silenciosas como `CONTENT_BLOCKED` | `face/runner.py` (`NSFW_MODEL_RE`, sin «failed» en `ERROR_RE`, heurística solo con exit 1 + «processing … failed», silencio/señal/OOM → `TOOL_FAILED`, `FACEFUSION_NSFW_RE`); fake FaceFusion rechaza por el DESTINO | `test_face_runner.py` (clasificación, override, destino marcado); e2e NSFW con el video marcado |
+| 7 | `archivePersonFiles` podía perder evidencia | `persons/files.ts`: copia + verificación (tamaño y sha256) antes de borrar; si falla, aborta sin borrar; fotos y voz al final | `persons.test.ts` «archive never destroys evidence» |
+| 8 | Cancelar no detenía Chatterbox | workers `POST /tts/cancel`, `ChatterboxClient.cancel()` (mata el árbol, libera la GPU, sin reintento); api `WorkersClient.ttsCancel` al abortar el job | `test_chatterbox_client.py` (puente colgado), `test_tts_router.py`, `voice-chatterbox.test.ts` |
+| 9 | Entorno por lista negra; fallbacks silenciosos | `toolvenv.py`/`tools/launch.py`: lista permitida (`ENV_ALLOW_*`, proxies solo para instalar); `face/tool.py` y `tts/chatterbox.py` sin lanzador de respaldo (`TOOL_MISSING broken`); variables del fake → `STUDIO_FAKE_FACEFUSION_*` | `test_toolvenv.py::test_tool_env_is_an_allowlist` (25 nombres), `test_launch.py` (listas iguales), `test_face_router.py`, `test_chatterbox_client.py` |
+| 10 | Reimportar un export perdía la marca IA | `media-probe.ts` (`aiFromComment`), `shared/ai-content.ts` (`parseAiContentComment`, `reimportedAiProvenance`, `extraKinds`) | `ai-provenance.test.ts` (ffprobe sobre un MP4 con `comment`), `ai-content.test.ts` |
+| 11 | Auditoría editable, sin cadena ni lectura | `persons/db.ts`: disparadores `BEFORE UPDATE/DELETE` con `RAISE(ABORT)`, `prev_hash`/`hash` (relleno único de las filas viejas), `verify()`; `GET /api/persons/:id/audit` (`HUMAN_ONLY`); filas `voice.self.attest` y `perf.facefusion`; «Ver auditoría» en la web | `persons.test.ts` «audit», `ai-provenance.test.ts`; e2e auditoría |
+| 12 | Docs prometían más de lo que se hace | manual §24.4, `ARQUITECTURA.md` (§2 HUMAN_ONLY, §5.4), `CONSOLA-CLAUDE.md`: qué frena y qué no (proceso local con terminal), reglas de la consola, PIN local a futuro | — |
+| 13 | Cadena de suministro | `models_manifest.py` guarda `X-Repo-Commit` (`revision`); `packs.chatterbox_revision()` fija URL y sha256 tras la primera descarga; `models_cli`/`doctor` («verificación pendiente» / «pesos fijados en …»); `rvc_engine.py` registra el origen de hubert/rmvpe; riesgo `r3gm/*` en `fuentes.md` | `test_tts_router.py` (commit registrado y fijado) |
+| 14 | VRAM de Chatterbox fija | `CHATTERBOX_VRAM_MB` (4500) y `GPU_RESERVE_MB` (800) en `ToolSettings`, `.env.example` (vacías), manual §11/§26.6/§27.7 | `test_chatterbox_client.py::test_vram_reservation_is_configurable` |
+| 15 | Bench por nombre | `benchFaceSource`: consentimiento de rostro más reciente + foto cubierta; auditoría `perf.facefusion` | `ai-provenance.test.ts` |
+| 16 | Firma en blanco / nombre vacío; renombrar | `decodePngRgba` + `signatureInk` (400 `SIGNATURE_EMPTY`), `signer_name` con `trim().min(1)`; la UI muestra «firmó X (la Persona ahora se llama «Y»)» | `persons.test.ts`, `face.test.tsx` |
+| 17 | `licences.json` desactualizado al arrancar | cubierto por 4 (`writeMirrors` al arrancar) | `persons.test.ts` |
+| 18 | Deduplicación por clip | `routes/face.ts`: clip + Persona | `face-swap.test.ts` «dedupe…» |
+| 19 | `source.mp4` quedaba tras fallar | `face/engine.py` borra los parciales al fallar o cancelar | `test_face_runner.py` (NSFW y cancelar) |
+| 20 | ffmpeg con la extensión del cliente | `services/audio-upload.ts` (`sniffAudio`, `-protocol_whitelist file,pipe -f <tipo>`), personas y «Voz propia» | `persons.test.ts` (WAV llamado `.m3u8`, playlist `#EXTM3U` → 400) |
+| 21 | Deshacer forzaba `aiFace=false` | `ClipFaceSwap.prevAiFace` (aditivo); undo restaura | `face-swap.test.ts` «… undo restores» |
+| 22 | Rutas `consent/` en diagnósticos; nombre de la Persona en el asset | `lib/consent-paths.ts` en `workers-client` (comando y error); asset «Voz Chatterbox (Voz clonada (Persona))» | `voice-chatterbox.test.ts` |
+| 23 | Overrides de herramientas silenciosos | `toolvenv.override_warnings()` al arrancar los workers; `.env.example` | `test_toolvenv.py::test_override_warnings`; visto en el log del e2e |
+| 24 | Cancelar en cola no mataba el recorte | `engine.py`: el `trim` es un `Popen` registrado; cancelar antes de empezar o durante el recorte lo mata | `test_face_runner.py::test_cancel_before_start_and_during_the_trim` |
+| A | Consola: `Bash` con clientes HTTP | `claude-console-settings.json` deny `curl`, `wget`, `Invoke-WebRequest`, `Invoke-RestMethod`, `iwr`, `irm`, `sqlite3`; `CONSOLA-CLAUDE.md` (prefijos evitables con `python -c`/`node -e`) | `console.test.ts` |
+| B | RVC sobre voz real | `voice-ai/handlers.ts`: `voice-cloned` (`tool: rvc:<modelo>`) salvo origen ya sintético/clonado; casilla bloqueada por la detección existente; manual §26.5/§17.7 | `voice-chatterbox.test.ts` |
+| C | Dos esquemas de resultado TTS | `WorkersClient.tts` usa `WorkerTtsResultSchema`, acepta `timeoutMs` (0 = sin límite), `WorkersError.details`; Chatterbox va por el cliente compartido; se borró `createTtsExtendedCall` | `voice-chatterbox.test.ts` (error con `details`) |
+| D | `models_cli --tool-venv facefusion ensure` sin licencia | sale con código 3 y mensaje en español; `setup.ps1` lo muestra como omitido | `test_cli_packs.py` |
+
+Además (pedido del coordinador): `LICENSE` (todos los derechos reservados, uso personal, código
+publicado para consulta), `NOTICE.md` (licencias de terceros; `apps/workers/vision_gpl/` GPL-3.0),
+sección «Licencia» del `README.md`; rutas de ejemplo con nombres de personas → `C:\Users\Usuario`
+(`Usuario Demo` donde hace falta un espacio); CI (`.github/workflows/ci.yml`): los tres trabajos de
+Windows solo en `pull_request` y en `main`, `paths-ignore` de `docs/**` y `**/*.md` en `push`,
+`concurrency` con cancelación (ya estaba).
+
+| # | Pedido | Cambio (archivos) | Prueba |
+| - | ------ | ----------------- | ------ |
+| E | Repo público: licencia | `LICENSE` (todos los derechos reservados, uso personal; español + inglés), `NOTICE.md` (`vision_gpl` GPL-3.0-or-later derivado de RobustVideoMatting en venv y proceso aparte; Remotion; FaceFusion OpenRAIL-AS + InsightFace no comercial, hyperswap ResearchRAIL, simswap CC-BY-NC 4.0, xseg GPL-3.0; Chatterbox MIT + PerTh; Demucs; SAM 2; faster-whisper; Piper; Llama 3.1 Community / Qwen; CoTracker solo en docs; enlace a `fuentes.md`), `README.md` «Licencia» | `prettier --check` |
+| F | Sin nombres de personas en rutas de ejemplo | `console.test.ts`, `detect.ts`, `reports.test.ts`, `escape.test.ts`, `services/ffmpeg/escape.ts` (JSDoc), `fuentes-editor.md` → `C:\Users\Usuario` / `C:\Users\Usuario Demo` (se conserva el espacio) | `git grep` del nombre anterior: vacío; tests de api |
+| G | CI más barata | `ci.yml`: `concurrency` `ci-${{ github.ref }}` con cancelación; matriz de Node y Python con `windows-latest` solo si `pull_request` o `refs/heads/main`; `windows-smoke` con el mismo `if`; `paths-ignore` (`docs/**`, `**/*.md`) solo en `push` | YAML validado con `yaml.safe_load` (venv de workers) |
+
+### Verificación de las correcciones (2026-10-07, desde cero)
+
+- `pnpm lint`, `format:check`, `-r typecheck`, `-r build`, `-r test` OK: shared 106, studio-mcp 18,
+  motion-engines 22, remotion 55 + 1 skip, web 228, api 283 + 1 skip. `studio-mcp smoke`: 18
+  herramientas. Workers: ruff OK, pytest **459 passed, 9 skipped**. `validate-dataset.py`: OK.
+- **`run-e2e.mjs`** (sin `--skip-motion`, storage y modelos nuevos, workers con mocks): **74/74
+  obligatorios** (544 s), con el paso nuevo «sprint4 auditoría» (Host ajeno → 403, foto sin
+  `Origin` → 403, `photo_ids`, espejo `active.json` solo con la foto cubierta, «Revocar rostro»,
+  auditoría con cadena íntegra); 3 SKIP (`--hw`, descarga de Hugging Face, ruta LLM sin Ollama) y
+  2 expected-fail (Whisper y Piper sin modelos). El log de los workers muestra el aviso de la
+  corrección 23 (`CHATTERBOX_PYTHON=… reemplaza la herramienta administrada…`).
+- **`ui-smoke.mjs --vp9-preview`** (storage nuevo, `STUDIO_MOCK_DENOISE=0`): **38/38**.
+- Manual: §9.3 (RVC → voz clonada) en `MANUAL-USUARIO.md` e `index.html`; PDF regenerado con
+  Playwright Chromium forzando la carga de las imágenes `loading="lazy"` (el PDF anterior salía
+  sin algunas capturas): 80 páginas, las 6 capturas.
+
+### Desvíos
+
+- `photo_ids`/`sample_ids` son opcionales **sin** valor por defecto: `[]` significa «no cubre
+  ninguna» (consentimiento registrado antes de subir fotos) y ausente = consentimiento anterior a
+  esta corrección (cubre todo). Con `default([])` no se podían distinguir.
+- Revocar «rostro» revoca entero un consentimiento «rostro y voz» (un consentimiento, una fecha de
+  revocación); la UI lo avisa antes de confirmar.
+- La comprobación de `Host` no mira el puerto cuando no hay socket real (`app.inject` de los tests).
+- `doctor.ps1` escribe «verificacion pendiente» sin tilde, como el resto de sus mensajes.
+
+## Descubierto
+
+- **PIN local**: Studio no tiene autenticación; `HUMAN_ONLY` reconoce a la web por `Origin` /
+  `Sec-Fetch-Site`, que un proceso local con terminal puede falsificar (también la Consola Claude
+  vía `python -c` / `node -e`, que las reglas `deny` por prefijo no cubren). La solución de fondo es
+  un PIN (o token de un solo uso) que solo conozca la persona para consentimientos, licencias y
+  biometría.
+- **Filtro NSFW de las fotos de Persona**: el analizador de FaceFusion revisa solo el destino; las
+  fotos de origen no pasan por ningún filtro (hoy se confía en que son de una Persona con
+  consentimiento). Falta un chequeo propio (p. ej. el mismo `nsfw_*.onnx`) al subirlas.
+- **Hashes de Hugging Face**: Chatterbox, hubert y rmvpe siguen en «confianza en la primera
+  descarga» (ahora con revisión y sha256 fijados después); falta fijar de antemano commit + sha256
+  publicados (`HfApi().model_info(..., files_metadata=True)` desde la PC del usuario) y
+  `--require-hashes` para los requirements de las herramientas.
+- **Texto real del rechazo NSFW de FaceFusion 3.9.1**: sigue sin fijar; mientras tanto la heurística
+  («processing … failed» con exit 1) y `FACEFUSION_NSFW_RE` en `.env`.

@@ -720,6 +720,9 @@ respaldo (algo menos natural). El build "full" de Gyan, que instala `setup.ps1`,
 - Parámetros: ver [flujo 4](#flujo-4--cambiar-la-voz-con-rvc). _Usar GPU (CUDA)_ solo se habilita
   si `USE_CUDA=true`.
 - Studio **no entrena** modelos (solo los usa).
+- El audio convertido queda marcado como **voz clonada** (aunque la grabación original sea real):
+  en Revisión para redes esa casilla se marca sola y queda bloqueada
+  ([§17.7](#177-revisión-para-redes), [§26.5](#265-marca-de-agua-y-redes)).
 
 ## 10. Atajos de teclado
 
@@ -786,9 +789,12 @@ con `start.ps1`.** Nunca lo compartas ni lo subas a internet: puede tener tus cl
 | `STYLE_NUM_CTX`                           | `8192`                                | Contexto (tokens) de esa deducción.                                                                                       |
 | `STUDIO_CLAUDE_BIN`                       | vacío (autodetecta)                   | Ruta completa a `claude` si la Consola Claude no lo encuentra solo.                                                       |
 | `FACEFUSION_BASE_PYTHON`                  | vacío (el que anotó `setup.ps1`)      | Python 3.12 con el que se crea el entorno del cambio de cara (si no lo encuentra solo).                                   |
-| `FACEFUSION_PYTHON`, `FACEFUSION_APP_DIR` | vacío                                 | Avanzado / pruebas: otro intérprete y otra carpeta de FaceFusion en vez de `tools\facefusion`.                            |
-| `CHATTERBOX_PYTHON`                       | vacío                                 | Avanzado / pruebas: otro intérprete para Chatterbox en vez de `tools\chatterbox\.venv`.                                   |
+| `FACEFUSION_PYTHON`, `FACEFUSION_APP_DIR` | vacío                                 | Solo pruebas: otro intérprete y otra carpeta de FaceFusion en vez de `tools\facefusion` (los workers avisan al arrancar). |
+| `FACEFUSION_NSFW_RE`                      | vacío (el de Studio)                  | Texto (expresión regular) del rechazo del analizador de contenido de tu FaceFusion, si Studio no lo reconoce.             |
+| `CHATTERBOX_PYTHON`                       | vacío                                 | Solo pruebas: otro intérprete para Chatterbox en vez de `tools\chatterbox\.venv` (aviso al arrancar).                     |
 | `CHATTERBOX_IDLE_S`                       | `120`                                 | Segundos sin uso antes de que Chatterbox se apague y devuelva la GPU.                                                     |
+| `CHATTERBOX_VRAM_MB`                      | vacío (4500)                          | VRAM que se reserva para Chatterbox. Bajala (p. ej. 3800) si en una GPU de 6 GB cae a CPU y entra.                        |
+| `GPU_RESERVE_MB`                          | vacío (800)                           | VRAM que se deja libre para Windows, el navegador y el codificador antes de cargar un modelo.                             |
 | `RVC_IDLE_S`                              | `300`                                 | Segundos sin uso antes de que RVC devuelva la GPU.                                                                        |
 | `ELEVENLABS_API_KEY`, `ELEVENLABS_MODEL`  | vacío, `eleven_multilingual_v2`       | Voces de ElevenLabs (opcional, pago).                                                                                     |
 | `OPENAI_API_KEY`, `OPENAI_TTS_MODEL`      | vacío, `gpt-4o-mini-tts`              | Voces de OpenAI (opcional, pago).                                                                                         |
@@ -1218,6 +1224,9 @@ video. Cada casilla muestra qué puede pasar en YouTube, TikTok o Instagram:
 - La etiqueta visible sigue siendo opcional (apagada para uso interno, propuesta al marcar
   redes). Aunque esté apagada, el archivo exportado lleva en sus metadatos (`comment`) una línea
   como «Editado con Studio; contenido alterado con IA: cara sintética: sí; …», sin nombres ni ids.
+- Si **volvés a importar** un video exportado así, Studio lee ese metadato y lo sigue tratando
+  como contenido con IA (cara y/o voz): al exportarlo otra vez vuelve a escribir la línea y las
+  casillas siguen marcadas.
 - Todo se guarda en el proyecto.
 
 ### 17.8 Problemas frecuentes
@@ -1773,9 +1782,18 @@ por ejemplo, para poner la cara del actor sobre la de su doble de riesgo
 
 - Todo queda en tu PC, en `storage\consent\`. Nunca se sube a internet, no se sirve por `/files`,
   no entra en los reportes de error y la Consola Claude no lo puede leer.
-- **Solo vos, desde la pantalla de Studio**, podés registrar consentimientos y aceptar licencias:
-  la Consola Claude y el Asistente **no pueden** (la API los rechaza con «Esto solo se hace desde
-  la pantalla de Studio, no desde la consola ni el asistente»).
+- **Solo desde la pantalla de Studio** se registran consentimientos, se aceptan licencias, se suben
+  fotos y muestras de una Persona o tu «Voz propia» y se ve la auditoría: la Consola Claude y el
+  Asistente **no pueden** (la API los rechaza con «Esto solo se hace desde la pantalla de Studio, no
+  desde la consola ni el asistente»). Las fotos, muestras y firmas solo se le muestran al navegador
+  con Studio abierto.
+- **Qué tan fuerte es esta protección**: la Consola Claude no puede leer `storage\consent\` con su
+  herramienta de lectura ni usar `curl`, `wget`, `Invoke-WebRequest`/`Invoke-RestMethod` o
+  `sqlite3`, y `studio-mcp` no tiene herramientas para esto. Pero Studio **no tiene contraseña**: la
+  API reconoce a la pantalla de Studio por cabeceras del navegador, y un programa que corra en tu
+  PC con acceso a la terminal (incluido un `python -c` o `node -e` que Claude Code te pida
+  ejecutar) podría imitarlas. Por eso **no apruebes a ciegas** los comandos que te pide la Consola.
+  Un PIN local para estas acciones queda como mejora futura.
 
 ## 25. Cambiar cara
 
@@ -1828,6 +1846,11 @@ con **FaceFusion 3.9.1**, en un entorno aparte (`tools\facefusion`).
 
 - FaceFusion revisa **siempre** el video destino y rechaza contenido explícito («El analizador de
   contenido de FaceFusion bloqueó este video o imagen: no se procesa»). Studio no lo puede apagar.
+  Revisa el **video**, no las fotos de la Persona (esas no pasan por ningún filtro: subí solo fotos
+  de la cara). Si el analizador no pudo cargar sus modelos, FaceFusion se cerró sin decir nada o se
+  quedó sin memoria, el error es «FaceFusion terminó con error…» (no «bloqueó»), y en ningún caso
+  se crea un video. Si tu versión de FaceFusion avisa el rechazo con otras palabras, se pueden
+  indicar en `FACEFUSION_NSFW_RE` ([§11](#11-variables-de-env-que-podés-tocar)).
 - El cambio de cara marca el clip como **cara alterada con IA**: en **Revisión para redes** la
   casilla queda marcada y bloqueada ([§17.7](#177-revisión-para-redes)).
 - El Asistente entiende pedidos como «poné la cara de Martín en el doble»: crea la operación
@@ -1893,7 +1916,8 @@ Chatterbox no tiene un modelo rioplatense: el acento sale de **la muestra que cl
 ### 26.4 Clonar la voz de otra persona
 
 Solo con su **consentimiento de voz** registrado en **Ajustes → Personas** (alcance «voz» o «rostro
-y voz») y una **muestra de voz** de esa persona ([§24](#24-personas-y-consentimiento)). En _Voz a
+y voz») y una **muestra de voz** de esa persona cargada **antes** de ese consentimiento
+([§24](#24-personas-y-consentimiento)): se usa la muestra más reciente que el consentimiento cubre. En _Voz a
 clonar_ solo aparecen las Personas con consentimiento **vigente**. Si se revoca o vence, Studio
 rechaza los usos nuevos (también los que estaban en cola) con un aviso y el botón **Abrir
 Personas**. Cada clon de una Persona queda en el registro de auditoría.
@@ -1903,13 +1927,18 @@ Personas**. Cada clon de una Persona queda en el registro de auditoría.
 - Todo audio de Chatterbox lleva una **marca de agua inaudible (PerTh)** que no se puede quitar:
   sirve para que se sepa que es voz generada.
 - Toda voz generada (Piper, nube o Chatterbox) queda marcada como **voz sintética**; la clonada,
-  como **voz clonada**, también después de pasarla por efectos, limpieza o RVC. Al generar un
+  como **voz clonada**, también después de pasarla por efectos, limpieza o RVC. **RVC sobre una
+  grabación real** (convertir tu voz a la de un modelo RVC) también queda como **voz clonada**: en
+  Revisión para redes la casilla de voz se marca sola y queda bloqueada (la etiqueta visible sigue
+  siendo opcional). Al generar un
   clon verás «Marcado como voz clonada (Revisión para redes)» ([§17.7](#177-revisión-para-redes)).
 
 ### 26.6 GPU, CPU y tiempos
 
-- En GPU usa **4–5 GB de VRAM**: antes de cargar libera Whisper, RVC o lo que haya en la GPU, y se
-  apaga solo tras **2 minutos** sin uso (`CHATTERBOX_IDLE_S`). La **primera** generación tarda más
+- En GPU usa **4–5 GB de VRAM** (reserva `CHATTERBOX_VRAM_MB`, 4500 por defecto; en una RTX 4050 de
+  6 GB podés probar 3800 si cae a CPU, y bajar `GPU_RESERVE_MB`): antes de cargar libera Whisper,
+  RVC o lo que haya en la GPU, y se apaga solo tras **2 minutos** sin uso (`CHATTERBOX_IDLE_S`).
+  **Cancelar** el trabajo lo detiene de verdad y devuelve la GPU al instante. La **primera** generación tarda más
   (carga ≈ 3 GB).
 - Meta en una RTX 4050: generar más rápido que el tiempo real (RTF ≤ 1). En CPU: varias veces la
   duración del audio.
@@ -1952,10 +1981,13 @@ el cambio de cara, no pasa nada: el resto funciona igual. Si lo necesitás: `set
 - `setup.ps1 -Full` baja también la voz avanzada (≈ 6,2 GB) y, **solo si ya aceptaste la
   licencia en Studio**, el cambio de cara.
 - `setup.ps1 -Update` actualiza los entornos aislados que ya existen si la versión nueva de Studio
-  cambió su receta; si no cambió nada aparece «ya instalado, se omite».
+  cambió su receta; si no cambió nada aparece «ya instalado, se omite». El de FaceFusion se omite
+  («requiere aceptar la licencia…») si la licencia del cambio de cara no está aceptada.
 - `doctor.ps1` → «Herramientas aisladas»: estado (listo / desactualizado / no instalado / roto /
   falta Python 3.12), versión, si FaceFusion cargó **CUDA de verdad** (o CPU), la variante de
-  Chatterbox (V3 o V2), la licencia del cambio de cara (aceptada o no) y si RVC usa la GPU.
+  Chatterbox (V3 o V2), si sus pesos de Hugging Face ya quedaron **fijados** (la primera descarga
+  anota la versión exacta y su huella; hasta entonces dice «verificación pendiente»), la licencia
+  del cambio de cara (aceptada o no) y si RVC usa la GPU.
 
 ### 27.5 Test de rendimiento
 
@@ -1976,4 +2008,20 @@ Lo que falta aparece como «no medido» con el motivo (por ejemplo «licencia no
 Con GPU NVIDIA y `USE_CUDA=true`, RVC usa la GPU sola (media precisión). Si `doctor` dice que el
 PyTorch no ve la GPU, corré `setup.ps1 -Update -WithCuda`. RVC devuelve la GPU a los 5 minutos sin
 uso (`RVC_IDLE_S`). Un modelo `.pth` que no se puede abrir de forma segura se rechaza («formato
-incompatible»): pedí una versión exportada solo con los pesos.
+incompatible»): pedí una versión exportada solo con los pesos. Los archivos base (hubert y rmvpe)
+se bajan del repositorio oficial; si no responde se usa una copia de un tercero (`r3gm`), y
+`doctor` y el registro de los workers dicen de dónde salió.
+
+### 27.7 Ajustar la VRAM (RTX 4050 y otras de 6 GB)
+
+Studio reserva **4500 MB** para Chatterbox y **3500 MB** para el cambio de cara, y deja **800 MB**
+libres para Windows, el navegador y el codificador de video. Si en tu placa Chatterbox cae a CPU
+(«Va a correr en CPU») aunque no tengas nada más abierto, probá en `.env`
+([§11](#11-variables-de-env-que-podés-tocar)):
+
+- `CHATTERBOX_VRAM_MB=3800` (lo que reserva Chatterbox; si después se queda sin memoria, volvé a
+  subirlo: Studio lo reintenta solo en CPU);
+- `GPU_RESERVE_MB=500` (lo que se deja libre para el resto).
+
+Cerrá Studio (`stop.ps1`) y volvé a abrirlo para que tome los valores. El Test de rendimiento
+([§27.5](#275-test-de-rendimiento)) muestra si Chatterbox corrió en la GPU.

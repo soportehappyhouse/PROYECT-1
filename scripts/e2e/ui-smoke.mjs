@@ -1593,10 +1593,30 @@ await step(
       "-af",
       "volume=0.5",
     ]);
-    // A Person with a signed voice consent and a sample (M1's api; consents need the web Origin).
+    // A Person with a voice sample and then a signed voice consent (M1's api; uploads and consents
+    // need the web Origin; the consent covers the samples loaded before it).
     const person = await apiSend("POST", "/api/persons", { name: "Lu E2E" });
     const human = { origin: WEB };
-    const sig = await readFile(lavfi("firma.png", "color=c=white:s=240x90", ["-frames:v", "1"]));
+    const vf = new FormData();
+    vf.append(
+      "audio",
+      new Blob([await readFile(lavfi("lu.wav", "sine=frequency=260:duration=8"))], {
+        type: "audio/wav",
+      }),
+      "lu.wav",
+    );
+    const sample = await fetch(`${API}/api/persons/${person.id}/voice-samples`, {
+      method: "POST",
+      headers: human,
+      body: vf,
+    });
+    if (!sample.ok) throw new Error(`voice sample -> ${sample.status} ${await sample.text()}`);
+    const sig = await readFile(
+      lavfi("firma.png", "color=c=white:s=240x90,drawbox=x=20:y=40:w=200:h=6:color=black:t=fill", [
+        "-frames:v",
+        "1",
+      ]),
+    );
     const cf = new FormData();
     for (const [k, v] of Object.entries({
       scope: "voice",
@@ -1614,19 +1634,6 @@ await step(
     });
     if (consent.status !== 201)
       throw new Error(`consent -> ${consent.status} ${await consent.text()}`);
-    const vf = new FormData();
-    vf.append(
-      "audio",
-      new Blob([await readFile(lavfi("lu.wav", "sine=frequency=260:duration=8"))], {
-        type: "audio/wav",
-      }),
-      "lu.wav",
-    );
-    const sample = await fetch(`${API}/api/persons/${person.id}/voice-samples`, {
-      method: "POST",
-      body: vf,
-    });
-    if (!sample.ok) throw new Error(`voice sample -> ${sample.status} ${await sample.text()}`);
 
     if (!page.url().startsWith(WEB)) await page.goto(WEB, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
@@ -1713,8 +1720,16 @@ async function m1ApiPerson(name) {
   const photo = await m1Lavfi(`${person.id}.png`, "color=c=gray:s=320x320", ["-frames:v", "1"]);
   const pf = new FormData();
   pf.append("photo", new Blob([await readFile(photo)], { type: "image/png" }), "cara.png");
-  await fetch(`${API}/api/persons/${person.id}/photos`, { method: "POST", body: pf });
-  const sig = await m1Lavfi(`${person.id}-firma.png`, "color=c=white:s=240x90", ["-frames:v", "1"]);
+  await fetch(`${API}/api/persons/${person.id}/photos`, {
+    method: "POST",
+    headers: { origin: WEB },
+    body: pf,
+  });
+  const sig = await m1Lavfi(
+    `${person.id}-firma.png`,
+    "color=c=white:s=240x90,drawbox=x=20:y=40:w=200:h=6:color=black:t=fill",
+    ["-frames:v", "1"],
+  );
   const cf = new FormData();
   for (const [k, v] of Object.entries({ scope: "face", method: "firma en pantalla",
     signer_name: name, text_version: "2026-10-06", accept: "true" })) cf.append(k, v); // prettier-ignore

@@ -22,6 +22,7 @@
 // models) only record the observed behaviour.
 
 import { spawn } from "node:child_process";
+import http from "node:http";
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import os from "node:os";
@@ -37,6 +38,11 @@ const opt = (name, def) => {
 const flag = (name) => argv.includes(`--${name}`);
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const API = opt("api", "http://127.0.0.1:3001").replace(/\/+$/, "");
+/**
+ * The exact Origin of the Studio web (HUMAN_ONLY routes: consents, licences, Person photos and voice
+ * samples, «Voz propia»). This node client plays the web where a test needs it.
+ */
+const WEB_ORIGIN = { origin: opt("web-origin", "http://localhost:3000") };
 const STORAGE = path.resolve(opt("storage", path.join(REPO, "storage")));
 const WORK = path.resolve(opt("work", path.join(os.tmpdir(), `studio-e2e-${Date.now()}`)));
 const OUT = path.resolve(opt("out", path.join(WORK, "report.json")));
@@ -121,8 +127,8 @@ async function api(method, route, body, { raw = false, headers = {} } = {}) {
   return { status: res.status, json };
 }
 
-async function ok(method, route, body, expect = [200, 201, 202, 204]) {
-  const r = await api(method, route, body);
+async function ok(method, route, body, expect = [200, 201, 202, 204], opts = {}) {
+  const r = await api(method, route, body, opts);
   assert(
     expect.includes(r.status),
     `${method} ${route} -> ${r.status} ${JSON.stringify(r.json)?.slice(0, 400)}`,
@@ -3376,7 +3382,15 @@ await step("sprint4: Voz propia → voice-ref + clon → voice-cloned", async ()
   const bytes = await readFile(sample);
   const noAttest = form(false);
   noAttest.append("audio", new Blob([bytes], { type: "audio/wav" }), "voz.wav");
-  const refused = await api("POST", "/api/voice/self-refs", noAttest);
+  // audit fix 1: «Voz propia» is HUMAN_ONLY (the web Origin; this node client plays the web)
+  const anon = form(true);
+  anon.append("audio", new Blob([bytes], { type: "audio/wav" }), "voz.wav");
+  const human = await api("POST", "/api/voice/self-refs", anon);
+  assert(
+    human.status === 403 && human.json?.error?.code === "HUMAN_ONLY",
+    `no Origin -> ${human.status}`,
+  );
+  const refused = await api("POST", "/api/voice/self-refs", noAttest, { headers: WEB_ORIGIN });
   assert(
     refused.status === 400 && refused.json?.error?.code === "ATTEST_SELF_REQUIRED",
     `without attestSelf -> ${refused.status}`,
@@ -3387,14 +3401,14 @@ await step("sprint4: Voz propia → voice-ref + clon → voice-cloned", async ()
     new Blob([await readFile(await m2SampleWav("e2e-corta.wav", 3))], { type: "audio/wav" }),
     "corta.wav",
   );
-  const tooShort = await api("POST", "/api/voice/self-refs", short);
+  const tooShort = await api("POST", "/api/voice/self-refs", short, { headers: WEB_ORIGIN });
   assert(
     tooShort.status === 400 && tooShort.json?.error?.code === "VOICE_SAMPLE_INVALID",
     `3 s sample -> ${tooShort.status}`,
   );
   const good = form(true);
   good.append("audio", new Blob([bytes], { type: "audio/wav" }), "voz propia.wav");
-  const ref = await ok("POST", "/api/voice/self-refs", good, [201]);
+  const ref = await ok("POST", "/api/voice/self-refs", good, [201], { headers: WEB_ORIGIN });
   assert(ref.kind === "voice-ref" && ref.sampleRate === 24000, `ref ${JSON.stringify(ref)}`);
   const f = await ffprobe(await download(ref.path, "e2e-voice-ref.wav"));
   const a = f.streams.find((x) => x.codec_type === "audio");
@@ -3505,7 +3519,7 @@ await step(
 // packs faceswap / faceswap-extra are reported installed and FaceFusion is the fake
 // scripts/e2e/fake_facefusion/facefusion.py (box on the face; a photo ending with NSFW-TEST ->
 // content analyser rejection). STUDIO_MOCK_FACE=0 on the workers -> only the 403/409 checks.
-const m1 = { origin: { origin: "http://localhost:3000" } };
+const m1 = { origin: WEB_ORIGIN };
 async function m1Png(name, color = "gray", extra) {
   const file = path.join(WORK, name);
   await run(FFMPEG, ["-y", "-v", "error", "-f", "lavfi", "-i", `color=c=${color}:s=320x320`,
@@ -3524,7 +3538,8 @@ async function m1Person(name, { consent = true, marker } = {}) {
   const p = await ok("POST", "/api/persons", { name }, [201]);
   const photo = await m1Png(`m1-${p.id}.png`, "gray", marker);
   const fd = await m1Form({}, { photo: { file: photo, name: "cara.png", type: "image/png" } });
-  const up = await api("POST", `/api/persons/${p.id}/photos`, fd);
+  // audit fix 3: Person photos are uploaded from the web only (HUMAN_ONLY)
+  const up = await api("POST", `/api/persons/${p.id}/photos`, fd, { headers: m1.origin });
   assert(up.status === 200, `photo ${up.status} ${JSON.stringify(up.json).slice(0, 300)}`);
   if (consent) {
     const r = await m1Consent(p.id, m1.origin);
@@ -3533,7 +3548,11 @@ async function m1Person(name, { consent = true, marker } = {}) {
   return ok("GET", `/api/persons/${p.id}`);
 }
 async function m1Consent(personId, headers = {}, scope = "face") {
-  const sig = await m1Png(`m1-firma-${personId}.png`, "white");
+  // a real stroke: a blank (all white / transparent) signature is refused (audit fix 16)
+  const sig = path.join(WORK, `m1-firma-${personId}.png`);
+  await run(FFMPEG, ["-y", "-v", "error", "-f", "lavfi", "-i",
+    "color=c=white:s=240x90,drawbox=x=20:y=40:w=200:h=6:color=black:t=fill",
+    "-frames:v", "1", "-update", "1", sig]); // prettier-ignore
   const fd = await m1Form(
     { scope, method: "firma en pantalla", signer_name: "E2E Doble", text_version: "2026-10-06",
       accept: "true" }, // prettier-ignore
@@ -3682,11 +3701,23 @@ await step("sprint4: NSFW mock → CONTENT_BLOCKED", async () => {
   const pack = await m1Packs();
   assert(pack?.installed, "pack faceswap not installed (workers-with-mocks STUDIO_MOCK_FACE)");
   await m1Licence(true);
-  const person = await m1Person("E2E Contenido", { marker: "NSFW-TEST" });
-  const { project, clipId } = await m1Clip();
+  // like the real analyser, the fake screens the TARGET video (never the Persona's photos): the
+  // marker goes in the video's metadata (Studio's trim keeps it); the source photo is plain
+  const person = await m1Person("E2E Contenido");
+  const marked = path.join(WORK, "m1-nsfw.mp4");
+  await run(FFMPEG, ["-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=25:d=3",
+    "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+    "-metadata", "title=NSFW-TEST", marked]); // prettier-ignore
+  const video = await upload(marked, "video/mp4");
+  await waitAssetJobs(video.id, ["media.probe"]);
+  const p0 = await ok("POST", "/api/projects", { name: `E2E nsfw ${id("p")}` }, [201]);
+  const V = p0.tracks.find((t) => t.kind === "video");
+  const clipId = id("c");
+  V.clips = [{ id: clipId, trackId: V.id, assetId: video.id, start: 0, in: 0.5, out: 2.5 }];
+  const project = await ok("PUT", `/api/projects/${p0.id}`, p0);
   const r = await ok("POST", "/api/face/swap", {
     personId: person.id,
-    assetId: m1.video.id,
+    assetId: video.id,
     target: { projectId: project.id, clipId },
     confirmed: true,
   }, [202]); // prettier-ignore
@@ -3696,7 +3727,13 @@ await step("sprint4: NSFW mock → CONTENT_BLOCKED", async () => {
   assert(full.result?.error?.code === "CONTENT_BLOCKED", `result ${JSON.stringify(full.result)}`);
   const saved = await ok("GET", `/api/projects/${project.id}`);
   const clip = saved.tracks.flatMap((t) => t.clips).find((c) => c.id === clipId);
-  assert(!clip.faceSwap && clip.assetId === m1.video.id, "clip untouched");
+  assert(!clip.faceSwap && clip.assetId === video.id, "clip untouched");
+  // fail closed + audit fix 19: no asset and no partial files of the job
+  const leftovers = await fetch(`${API}/files/renders/face/${r.jobId}/source.mp4`);
+  assert(
+    leftovers.status === 404,
+    `renders/face/<job>/source.mp4 left behind (${leftovers.status})`,
+  );
   return { error: job.error };
 });
 
@@ -3978,7 +4015,7 @@ async function s4iSelfRef() {
   fd.append("attestSelf", "true");
   const wav = await m2SampleWav("s4i-voz-propia.wav", 9);
   fd.append("audio", new Blob([await readFile(wav)], { type: "audio/wav" }), "voz.wav");
-  return ok("POST", "/api/voice/self-refs", fd, [201]);
+  return ok("POST", "/api/voice/self-refs", fd, [201], { headers: WEB_ORIGIN });
 }
 
 await step(
@@ -4097,6 +4134,73 @@ await step(
   },
 );
 // ------------------------------------------------------------------ END sprint4:integración
+
+// ---------------------------------------------------------------- BEGIN sprint4:auditoría
+// Audit corrections of sprint 4 (docs/trabajo/integracion-sprint4.md «Correcciones de auditoría»):
+// Host allowlist, biometric reads only for the web, consent bound to the photos it covered,
+// «Revocar rostro» (the newest consent wins), the workers' mirror consent/active.json, the
+// append-only hash-chained audit and the Persona-free asset names.
+function rawGet(route, headers) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(`${API}${route}`, { method: "GET", headers }, (res) => {
+      res.resume();
+      res.on("end", () => resolve(res.statusCode));
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+await step(
+  "sprint4 auditoría: Host, lecturas biométricas, consentimiento atado a las fotos, revocar rostro, espejo y auditoría",
+  async () => {
+    const u = new URL(API);
+    const bad = await rawGet("/api/persons", { host: `evil.example:${u.port}` });
+    assert(bad === 403, `foreign Host -> ${bad} (403 BAD_HOST expected)`);
+    const person = await m1Person(`E2E Auditoría ${id("n")}`);
+    const photo = person.photos[0];
+    const photoUrl = `/api/persons/${person.id}/photos/${photo.id}`;
+    const anon = await api("GET", photoUrl, undefined, { raw: true });
+    assert(anon.status === 403, `photo without Origin / Sec-Fetch-Site -> ${anon.status}`);
+    const web = await api("GET", photoUrl, undefined, { raw: true, headers: WEB_ORIGIN });
+    assert(web.status === 200, `photo with the web Origin -> ${web.status}`);
+    const consent = person.consents[0];
+    assert(consent.photo_ids?.length === 1 && consent.photo_ids[0].id === photo.id, "photo_ids");
+    // a photo added AFTER the consent is not covered (and the mirror does not list it)
+    const png = await m1Png(`m1-late-${person.id}.png`);
+    const fd = await m1Form({}, { photo: { file: png, name: "otra.png", type: "image/png" } });
+    const late = await api("POST", `/api/persons/${person.id}/photos`, fd, { headers: WEB_ORIGIN });
+    assert(late.status === 200, `late photo -> ${late.status}`);
+    let mirrorChecked = "storage not readable from here";
+    const mirrorPath = path.join(STORAGE, "consent", "active.json");
+    if (existsSync(mirrorPath)) {
+      const mirror = JSON.parse(await readFile(mirrorPath, "utf8"));
+      const entry = mirror.consents.find((e) => e.consentId === consent.id);
+      assert(entry?.photo_paths?.length === 1 && entry.photo_paths[0] === photo.path, "mirror");
+      mirrorChecked = "active.json lists only the covered photo";
+    }
+    // «Revocar rostro»: no valid face consent any more
+    const after = await ok("POST", `/api/persons/${person.id}/consents/revoke`, { scope: "face" });
+    assert(
+      after.consents.every((c) => c.revoked_at),
+      "revoke by scope",
+    );
+    const row = (await ok("GET", "/api/persons")).find((x) => x.id === person.id);
+    assert(row.face === "revocado", `summary ${JSON.stringify(row)}`);
+    // the audit: web only, hash chain intact
+    const noWeb = await api("GET", `/api/persons/${person.id}/audit`);
+    assert(noWeb.status === 403, `audit without Origin -> ${noWeb.status}`);
+    const audit = await ok("GET", `/api/persons/${person.id}/audit`, undefined, [200], {
+      headers: WEB_ORIGIN,
+    });
+    assert(audit.chain.ok === true, `audit chain ${JSON.stringify(audit.chain)}`);
+    const actions = audit.rows.map((r) => r.action);
+    for (const a of ["consent.create", "consent.revoke", "person.photo.add"])
+      assert(actions.includes(a), `audit lacks ${a}: ${actions.join(", ")}`);
+    return { badHost: bad, mirror: mirrorChecked, audit: audit.rows.length };
+  },
+);
+// ------------------------------------------------------------------ END sprint4:auditoría
 
 // ---------------------------------------------------------------- report
 sse.controller.abort();

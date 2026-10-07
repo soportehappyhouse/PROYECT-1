@@ -563,6 +563,11 @@
           </li>
           <li class="d3"><a href="#275-test-de-rendimiento">27.5 Test de rendimiento</a></li>
           <li class="d3"><a href="#276-rvc-en-la-gpu">27.6 RVC en la GPU</a></li>
+          <li class="d3">
+            <a href="#277-ajustar-la-vram-rtx-4050-y-otras-de-6-gb"
+              >27.7 Ajustar la VRAM (RTX 4050 y otras de 6 GB)</a
+            >
+          </li>
         </ol>
       </nav>
       <main>
@@ -2404,6 +2409,14 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
           <li>
             <p>Studio <strong>no entrena</strong> modelos (solo los usa).</p>
           </li>
+          <li>
+            <p>
+              El audio convertido queda marcado como <strong>voz clonada</strong> (aunque la
+              grabación original sea real): en Revisión para redes esa casilla se marca sola y queda
+              bloqueada (<a href="#177-revisión-para-redes">§17.7</a>,
+              <a href="#265-marca-de-agua-y-redes">§26.5</a>).
+            </p>
+          </li>
         </ul>
         <h2 id="10-atajos-de-teclado">10. Atajos de teclado</h2>
         <p>
@@ -2725,22 +2738,46 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
                 <td><code>FACEFUSION_PYTHON</code>, <code>FACEFUSION_APP_DIR</code></td>
                 <td>vacío</td>
                 <td>
-                  Avanzado / pruebas: otro intérprete y otra carpeta de FaceFusion en vez de
-                  <code>tools\facefusion</code>.
+                  Solo pruebas: otro intérprete y otra carpeta de FaceFusion en vez de
+                  <code>tools\facefusion</code> (los workers avisan al arrancar).
+                </td>
+              </tr>
+              <tr>
+                <td><code>FACEFUSION_NSFW_RE</code></td>
+                <td>vacío (el de Studio)</td>
+                <td>
+                  Texto (expresión regular) del rechazo del analizador de contenido de tu
+                  FaceFusion, si Studio no lo reconoce.
                 </td>
               </tr>
               <tr>
                 <td><code>CHATTERBOX_PYTHON</code></td>
                 <td>vacío</td>
                 <td>
-                  Avanzado / pruebas: otro intérprete para Chatterbox en vez de
-                  <code>tools\chatterbox\.venv</code>.
+                  Solo pruebas: otro intérprete para Chatterbox en vez de
+                  <code>tools\chatterbox\.venv</code> (aviso al arrancar).
                 </td>
               </tr>
               <tr>
                 <td><code>CHATTERBOX_IDLE_S</code></td>
                 <td><code>120</code></td>
                 <td>Segundos sin uso antes de que Chatterbox se apague y devuelva la GPU.</td>
+              </tr>
+              <tr>
+                <td><code>CHATTERBOX_VRAM_MB</code></td>
+                <td>vacío (4500)</td>
+                <td>
+                  VRAM que se reserva para Chatterbox. Bajala (p. ej. 3800) si en una GPU de 6 GB
+                  cae a CPU y entra.
+                </td>
+              </tr>
+              <tr>
+                <td><code>GPU_RESERVE_MB</code></td>
+                <td>vacío (800)</td>
+                <td>
+                  VRAM que se deja libre para Windows, el navegador y el codificador antes de cargar
+                  un modelo.
+                </td>
               </tr>
               <tr>
                 <td><code>RVC_IDLE_S</code></td>
@@ -3869,6 +3906,11 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
             (<code>comment</code>) una línea como «Editado con Studio; contenido alterado con IA:
             cara sintética: sí; …», sin nombres ni ids.
           </li>
+          <li>
+            Si <strong>volvés a importar</strong> un video exportado así, Studio lee ese metadato y
+            lo sigue tratando como contenido con IA (cara y/o voz): al exportarlo otra vez vuelve a
+            escribir la línea y las casillas siguen marcadas.
+          </li>
           <li>Todo se guarda en el proyecto.</li>
         </ul>
         <h3 id="178-problemas-frecuentes">17.8 Problemas frecuentes</h3>
@@ -4961,9 +5003,15 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
             caras de cada foto y rechaza la que no tiene ninguna.
           </li>
           <li>
-            <strong>Muestras de voz</strong> (hasta 5, de 5 a 60 s, hasta 25 MB):
-            <strong>Grabar 10 s</strong> o <strong>Subir audio</strong>. Se guardan normalizadas
-            (WAV 24 kHz mono, hasta 30 s, sin silencios en los bordes).
+            <strong>Muestras de voz</strong> (hasta 5, de 5 a 60 s, hasta 25 MB; WAV, MP3, M4A, OGG,
+            FLAC o WebM): <strong>Grabar 10 s</strong> o <strong>Subir audio</strong>. Se guardan
+            normalizadas (WAV 24 kHz mono, hasta 30 s, sin silencios en los bordes).
+          </li>
+          <li>
+            <strong>Subí las fotos y las muestras antes de registrar el consentimiento</strong>: el
+            consentimiento cubre exactamente las que estaban cargadas en ese momento. Una foto o
+            muestra que agregues después aparece como «sin consentimiento para esta foto/muestra» y
+            no se usa hasta que registres un consentimiento nuevo.
           </li>
         </ol>
         <h3 id="242-registrar-el-consentimiento">24.2 Registrar el consentimiento</h3>
@@ -4982,33 +5030,44 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
           <li>
             La persona <strong>firma en pantalla</strong> (en el recuadro, con el mouse, un lápiz o
             el dedo, y su nombre) o adjuntás un <strong>documento firmado</strong> (PDF, JPG o PNG
-            de hasta 20 MB).
+            de hasta 20 MB). Una firma en blanco o un nombre vacío se rechazan.
           </li>
           <li>
             Marcá <strong>«Leí este texto con la persona y lo acepta»</strong> y tocá
             <strong>Registrar consentimiento</strong>. Studio guarda el texto exacto (su huella), la
-            firma o el documento y la fecha.
+            firma o el documento, la fecha y la huella de cada foto y muestra que cubre. Si después
+            le cambiás el nombre a la Persona, el consentimiento conserva el nombre con el que se
+            firmó (la lista muestra los dos).
           </li>
         </ol>
         <h3 id="243-estados-revocar-y-borrar">24.3 Estados, revocar y borrar</h3>
         <ul>
           <li>
             Cada alcance muestra su estado: <strong>vigente</strong>, <strong>vencido</strong> (pasó
-            la fecha), <strong>revocado</strong> o <strong>sin consentimiento</strong>. Vale el
-            último consentimiento vigente; el historial queda.
+            la fecha), <strong>revocado</strong> o <strong>sin consentimiento</strong>. Manda el
+            <strong>consentimiento más reciente</strong> de ese alcance: si está revocado o vencido,
+            no se puede usar la cara (o la voz) aunque haya uno anterior vigente; hay que registrar
+            uno nuevo. El historial queda.
           </li>
           <li>
-            <strong>Revocar</strong>: lo ya generado no se borra, pero no se puede usar para nada
-            nuevo (los trabajos que estaban en cola fallan al empezar con «… no tiene un
-            consentimiento vigente»).
+            <strong>Revocar rostro</strong>, <strong>Revocar voz</strong> o
+            <strong>Revocar todo</strong> (piden confirmación): revocan todos los consentimientos de
+            ese alcance. Uno de «rostro y voz» se revoca entero (también la otra parte). Lo ya
+            generado no se borra, pero no se puede usar para nada nuevo (los trabajos que estaban en
+            cola fallan al empezar con «… no tiene un consentimiento vigente»).
           </li>
           <li>
-            <strong>Borrar persona</strong> (pide confirmación): borra sus fotos y muestras; los
-            consentimientos y la evidencia se archivan como prueba.
+            <strong>Borrar persona</strong> (pide confirmación): primero copia los consentimientos y
+            la evidencia al archivo y verifica la copia; recién entonces borra fotos y muestras. Si
+            el archivo falla, no se borra nada.
           </li>
           <li>
-            Cada consentimiento, revocación, cambio de cara y voz clonada queda en un
-            <strong>registro de auditoría</strong> que no se puede borrar desde la app.
+            Cada consentimiento, revocación, foto o muestra agregada, cambio de cara, voz clonada,
+            «Voz propia» declarada y uso de una foto en el Test de rendimiento queda en un
+            <strong>registro de auditoría</strong>: la base de datos rechaza modificarlo o borrarlo
+            y cada fila lleva la huella de la anterior, así que un cambio hecho por fuera de Studio
+            se detecta. <strong>Ver auditoría</strong> (en la Persona) lo muestra y avisa si la
+            cadena no coincide.
           </li>
         </ul>
         <h3 id="244-dónde-se-guarda-y-quién-puede-hacerlo">
@@ -5021,10 +5080,23 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
             lo puede leer.
           </li>
           <li>
-            <strong>Solo vos, desde la pantalla de Studio</strong>, podés registrar consentimientos
-            y aceptar licencias: la Consola Claude y el Asistente <strong>no pueden</strong> (la API
-            los rechaza con «Esto solo se hace desde la pantalla de Studio, no desde la consola ni
-            el asistente»).
+            <strong>Solo desde la pantalla de Studio</strong> se registran consentimientos, se
+            aceptan licencias, se suben fotos y muestras de una Persona o tu «Voz propia» y se ve la
+            auditoría: la Consola Claude y el Asistente <strong>no pueden</strong> (la API los
+            rechaza con «Esto solo se hace desde la pantalla de Studio, no desde la consola ni el
+            asistente»). Las fotos, muestras y firmas solo se le muestran al navegador con Studio
+            abierto.
+          </li>
+          <li>
+            <strong>Qué tan fuerte es esta protección</strong>: la Consola Claude no puede leer
+            <code>storage\consent\</code> con su herramienta de lectura ni usar <code>curl</code>,
+            <code>wget</code>, <code>Invoke-WebRequest</code>/<code>Invoke-RestMethod</code> o
+            <code>sqlite3</code>, y <code>studio-mcp</code> no tiene herramientas para esto. Pero
+            Studio <strong>no tiene contraseña</strong>: la API reconoce a la pantalla de Studio por
+            cabeceras del navegador, y un programa que corra en tu PC con acceso a la terminal
+            (incluido un <code>python -c</code> o <code>node -e</code> que Claude Code te pida
+            ejecutar) podría imitarlas. Por eso <strong>no apruebes a ciegas</strong> los comandos
+            que te pide la Consola. Un PIN local para estas acciones queda como mejora futura.
           </li>
         </ul>
         <h2 id="25-cambiar-cara">25. Cambiar cara</h2>
@@ -5113,7 +5185,15 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
           <li>
             FaceFusion revisa <strong>siempre</strong> el video destino y rechaza contenido
             explícito («El analizador de contenido de FaceFusion bloqueó este video o imagen: no se
-            procesa»). Studio no lo puede apagar.
+            procesa»). Studio no lo puede apagar. Revisa el <strong>video</strong>, no las fotos de
+            la Persona (esas no pasan por ningún filtro: subí solo fotos de la cara). Si el
+            analizador no pudo cargar sus modelos, FaceFusion se cerró sin decir nada o se quedó sin
+            memoria, el error es «FaceFusion terminó con error…» (no «bloqueó»), y en ningún caso se
+            crea un video. Si tu versión de FaceFusion avisa el rechazo con otras palabras, se
+            pueden indicar en <code>FACEFUSION_NSFW_RE</code> (<a
+              href="#11-variables-de-env-que-podés-tocar"
+              >§11</a
+            >).
           </li>
           <li>
             El cambio de cara marca el clip como <strong>cara alterada con IA</strong>: en
@@ -5210,7 +5290,9 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
           <li>
             En <em>Texto a voz</em> con Chatterbox, bajá hasta <strong>Voz propia</strong> y marcá
             <strong>«Soy yo: es mi propia voz»</strong> (obligatorio: para otra persona se usa su
-            consentimiento, ver §26.4).
+            consentimiento, ver §26.4). Esa declaración se hace solo desde la pantalla de Studio (la
+            Consola Claude y el Asistente no pueden subir una «Voz propia») y queda en el registro
+            de auditoría con la huella (sha256) de la muestra.
           </li>
           <li>
             <strong>Grabar 10 s</strong> (el navegador pide permiso al micrófono) y leé con tu
@@ -5236,12 +5318,13 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
         <p>
           Solo con su <strong>consentimiento de voz</strong> registrado en
           <strong>Ajustes → Personas</strong> (alcance «voz» o «rostro y voz») y una
-          <strong>muestra de voz</strong> de esa persona (<a href="#24-personas-y-consentimiento"
-            >§24</a
-          >). En <em>Voz a clonar</em> solo aparecen las Personas con consentimiento
-          <strong>vigente</strong>. Si se revoca o vence, Studio rechaza los usos nuevos (también
-          los que estaban en cola) con un aviso y el botón <strong>Abrir Personas</strong>. Cada
-          clon de una Persona queda en el registro de auditoría.
+          <strong>muestra de voz</strong> de esa persona cargada <strong>antes</strong> de ese
+          consentimiento (<a href="#24-personas-y-consentimiento">§24</a>): se usa la muestra más
+          reciente que el consentimiento cubre. En <em>Voz a clonar</em> solo aparecen las Personas
+          con consentimiento <strong>vigente</strong>. Si se revoca o vence, Studio rechaza los usos
+          nuevos (también los que estaban en cola) con un aviso y el botón
+          <strong>Abrir Personas</strong>. Cada clon de una Persona queda en el registro de
+          auditoría.
         </p>
         <h3 id="265-marca-de-agua-y-redes">26.5 Marca de agua y redes</h3>
         <ul>
@@ -5252,16 +5335,25 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
           <li>
             Toda voz generada (Piper, nube o Chatterbox) queda marcada como
             <strong>voz sintética</strong>; la clonada, como <strong>voz clonada</strong>, también
-            después de pasarla por efectos, limpieza o RVC. Al generar un clon verás «Marcado como
-            voz clonada (Revisión para redes)» (<a href="#177-revisión-para-redes">§17.7</a>).
+            después de pasarla por efectos, limpieza o RVC.
+            <strong>RVC sobre una grabación real</strong> (convertir tu voz a la de un modelo RVC)
+            también queda como <strong>voz clonada</strong>: en Revisión para redes la casilla de
+            voz se marca sola y queda bloqueada (la etiqueta visible sigue siendo opcional). Al
+            generar un clon verás «Marcado como voz clonada (Revisión para redes)» (<a
+              href="#177-revisión-para-redes"
+              >§17.7</a
+            >).
           </li>
         </ul>
         <h3 id="266-gpu-cpu-y-tiempos">26.6 GPU, CPU y tiempos</h3>
         <ul>
           <li>
-            En GPU usa <strong>4–5 GB de VRAM</strong>: antes de cargar libera Whisper, RVC o lo que
-            haya en la GPU, y se apaga solo tras <strong>2 minutos</strong> sin uso
-            (<code>CHATTERBOX_IDLE_S</code>). La <strong>primera</strong> generación tarda más
+            En GPU usa <strong>4–5 GB de VRAM</strong> (reserva <code>CHATTERBOX_VRAM_MB</code>,
+            4500 por defecto; en una RTX 4050 de 6 GB podés probar 3800 si cae a CPU, y bajar
+            <code>GPU_RESERVE_MB</code>): antes de cargar libera Whisper, RVC o lo que haya en la
+            GPU, y se apaga solo tras <strong>2 minutos</strong> sin uso
+            (<code>CHATTERBOX_IDLE_S</code>). <strong>Cancelar</strong> el trabajo lo detiene de
+            verdad y devuelve la GPU al instante. La <strong>primera</strong> generación tarda más
             (carga ≈ 3 GB).
           </li>
           <li>
@@ -5351,13 +5443,16 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
           <li>
             <code>setup.ps1 -Update</code> actualiza los entornos aislados que ya existen si la
             versión nueva de Studio cambió su receta; si no cambió nada aparece «ya instalado, se
-            omite».
+            omite». El de FaceFusion se omite («requiere aceptar la licencia…») si la licencia del
+            cambio de cara no está aceptada.
           </li>
           <li>
             <code>doctor.ps1</code> → «Herramientas aisladas»: estado (listo / desactualizado / no
             instalado / roto / falta Python 3.12), versión, si FaceFusion cargó
-            <strong>CUDA de verdad</strong> (o CPU), la variante de Chatterbox (V3 o V2), la
-            licencia del cambio de cara (aceptada o no) y si RVC usa la GPU.
+            <strong>CUDA de verdad</strong> (o CPU), la variante de Chatterbox (V3 o V2), si sus
+            pesos de Hugging Face ya quedaron <strong>fijados</strong> (la primera descarga anota la
+            versión exacta y su huella; hasta entonces dice «verificación pendiente»), la licencia
+            del cambio de cara (aceptada o no) y si RVC usa la GPU.
           </li>
         </ul>
         <h3 id="275-test-de-rendimiento">27.5 Test de rendimiento</h3>
@@ -5393,6 +5488,33 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
           <code>setup.ps1 -Update -WithCuda</code>. RVC devuelve la GPU a los 5 minutos sin uso
           (<code>RVC_IDLE_S</code>). Un modelo <code>.pth</code> que no se puede abrir de forma
           segura se rechaza («formato incompatible»): pedí una versión exportada solo con los pesos.
+          Los archivos base (hubert y rmvpe) se bajan del repositorio oficial; si no responde se usa
+          una copia de un tercero (<code>r3gm</code>), y <code>doctor</code> y el registro de los
+          workers dicen de dónde salió.
+        </p>
+        <h3 id="277-ajustar-la-vram-rtx-4050-y-otras-de-6-gb">
+          27.7 Ajustar la VRAM (RTX 4050 y otras de 6 GB)
+        </h3>
+        <p>
+          Studio reserva <strong>4500 MB</strong> para Chatterbox y <strong>3500 MB</strong> para el
+          cambio de cara, y deja <strong>800 MB</strong> libres para Windows, el navegador y el
+          codificador de video. Si en tu placa Chatterbox cae a CPU («Va a correr en CPU») aunque no
+          tengas nada más abierto, probá en <code>.env</code> (<a
+            href="#11-variables-de-env-que-podés-tocar"
+            >§11</a
+          >):
+        </p>
+        <ul>
+          <li>
+            <code>CHATTERBOX_VRAM_MB=3800</code> (lo que reserva Chatterbox; si después se queda sin
+            memoria, volvé a subirlo: Studio lo reintenta solo en CPU);
+          </li>
+          <li><code>GPU_RESERVE_MB=500</code> (lo que se deja libre para el resto).</li>
+        </ul>
+        <p>
+          Cerrá Studio (<code>stop.ps1</code>) y volvé a abrirlo para que tome los valores. El Test
+          de rendimiento (<a href="#275-test-de-rendimiento">§27.5</a>) muestra si Chatterbox corrió
+          en la GPU.
         </p>
       </main>
     </div>

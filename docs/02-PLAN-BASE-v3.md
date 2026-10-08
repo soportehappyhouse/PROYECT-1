@@ -1,6 +1,6 @@
-# PLAN-BASE v3 (propuesta) — Fluidez y autonomía profesional
+# PLAN-BASE v3 — Fluidez y autonomía profesional (congelado 2026-10-08)
 
-**Estado:** propuesta para decisión del usuario (2026-10-08). **Base:** `docs/trabajo/auditoria-fluidez.md`
+**Estado:** aprobado por el usuario el 2026-10-08: orden 5 → 6 → 7, un solo brand kit, destino principal 9:16 (Reels/TikTok). **Base:** `docs/trabajo/auditoria-fluidez.md`
 (26 hallazgos sobre la app real) y `docs/trabajo/referencias-fluidez-autonomia.md` (referencias externas).
 
 ## Objetivo
@@ -56,8 +56,10 @@ modelos pesados a la vez en 6 GB, multicámara automática, vista previa 4K mult
 - Sprint 7: «Pulir para redes» sobre un video de 3 min termina sin intervención y pasa «Revisar
   resultado»; el usuario solo aprueba plan y exportación.
 
-## Preguntas para el usuario (una sola ronda)
+## Decisiones del usuario (2026-10-08)
 
-1. ¿Orden 5 → 6 → 7, o 6 antes que 5?
-2. Brand kit: ¿una identidad (tu canal) o varias?
-3. «Pulir para redes»: ¿destino principal Reels/TikTok 9:16 o YouTube 16:9?
+| #   | Pregunta          | Decisión                                  |
+| --- | ----------------- | ----------------------------------------- |
+| 1   | Orden             | 5 → 6 → 7                                 |
+| 2   | Brand kit         | Uno (el canal del usuario)                |
+| 3   | Destino principal | 9:16 (Reels/TikTok); 16:9 como secundario |

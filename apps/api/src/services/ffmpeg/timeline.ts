@@ -24,10 +24,12 @@ import {
   type Project,
   type TextStyle,
   type Track,
+  type TrackRole,
   type VideoEncoderId,
+  type AspectFit,
 } from "@studio/shared";
 import { buildAss } from "./ass.js";
-import { atempoChain, buildAudioFxGraph } from "./audio-fx.js";
+import { atempoChain, buildAudioFxGraph, duckingFragment } from "./audio-fx.js";
 import {
   blurredBackgroundFilter,
   enableBetween,
@@ -96,6 +98,43 @@ export interface CompileExportOptions {
    * (decision 9). Ignored for segment windows and audio-only renders (added at the final mux).
    */
   metadataComment?: string;
+  /**
+   * Sprint 5: how a canvas of another aspect fills the preset (absent = legacy: reframe when
+   * project.reframe applies, else blurred background). See effectiveAspectFit.
+   */
+  aspectFit?: AspectFit;
+  /** Sprint 5: render only the video ([vout], `-an`); the audio is mixed and muxed apart. */
+  videoOnly?: boolean;
+  /** Sprint 5: audio codec argv of the audioOnly render (e.g. ["-c:a", "pcm_f32le"]). */
+  audioCodecArgs?: string[];
+  /**
+   * Sprint 5: automatic ducking by track role: `music` tracks go through sidechaincompress keyed by
+   * the `voice` tracks (bus per role) before the final amix. Absent = plain amix as before.
+   */
+  audioMix?: AudioMixPlan;
+}
+
+/** Sprint 5: roles of the tracks (track id -> role) and the ducking compressor, when on. */
+export interface AudioMixPlan {
+  roles: ReadonlyMap<string, TrackRole>;
+  duck?: { threshold: number; ratio: number; attackMs: number; releaseMs: number; levelSc: number };
+}
+
+/**
+ * Sprint 5: framing used for a preset of another aspect: undefined when the aspect is the same or
+ * the preset keeps the framing (GIF / alpha); otherwise the requested fit, or the legacy default
+ * (reframe when project.reframe applies, else blur).
+ */
+export function effectiveAspectFit(
+  project: Pick<Project, "reframe" | "settings">,
+  preset: Pick<ExportPreset, "width" | "height" | "alpha" | "container" | "videoCodec">,
+  requested?: AspectFit,
+): AspectFit | undefined {
+  if (preset.alpha || preset.container === "gif" || preset.videoCodec === "gif") return undefined;
+  const W = even(project.settings.width);
+  const H = even(project.settings.height);
+  if (Math.abs(W / H - even(preset.width) / even(preset.height)) < 0.01) return undefined;
+  return requested ?? (reframeApplies(project, preset) ? "reframe" : "blur");
 }
 
 /** `-metadata comment=<text>` (one argv element: spawn without a shell, no quoting needed). */
@@ -112,6 +151,8 @@ export interface CompiledExport {
   files: { name: string; content: string }[];
   durationSec: number;
   warnings: string[];
+  /** Sprint 5: tracks in the ducking buses (only when the sidechain was built). */
+  ducked?: { voiceTracks: number; musicTracks: number };
 }
 
 const EPS = 1e-3;
@@ -249,6 +290,7 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
         );
   const win = o.window;
   const audioOnly = !win && o.audioOnly === true;
+  const videoOnly = !win && !audioOnly && o.videoOnly === true;
   /** Video graph parts are skipped in audioOnly mode (no decoding of unused video). */
   const vadd = (part: string) => {
     if (!audioOnly) g.add(part);
@@ -279,6 +321,9 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
     `color=c=${alpha ? "black@0" : "black"}:s=${W}x${H}:r=${FPS}:d=${sec(T)},format=${alpha ? "yuva420p" : "yuv420p"}[${cur}]`,
   );
   const audioLabels: string[] = [];
+  /** Sprint 5: track of each audio label (role buses of the automatic ducking). */
+  const audioTracks: string[] = [];
+  let audioTrackId = "";
 
   const asset = (id: string | undefined): TimelineAsset | undefined =>
     id ? o.assets.get(id) : undefined;
@@ -292,7 +337,7 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
     fadeIn: number,
     fadeOut: number,
   ) => {
-    if (gif || win || clip.volume <= 0 || dur <= EPS) return;
+    if (gif || win || videoOnly || clip.volume <= 0 || dur <= EPS) return;
     const pre = g.label("ap");
     const post = g.label("aq");
     const out = g.label("a");
@@ -317,6 +362,7 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
     if (ms > 0) tail.push(`adelay=${ms}|${ms}`);
     g.add(`[${post}]${tail.join(",")}[${out}]`);
     audioLabels.push(out);
+    audioTracks.push(audioTrackId);
   };
 
   /** Playable clips of a visual track (unrendered motion / missing media are skipped with a warning). */
@@ -1010,6 +1056,7 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
   const blendOf = (c: Clip) => blendModeToFfmpeg(c.blendMode);
 
   for (const track of tracksInZOrder(project.tracks)) {
+    audioTrackId = track.id;
     if (track.kind === "audio") {
       if (track.muted || gif) continue;
       for (const clip of [...track.clips].sort((a, b) => a.start - b.start)) {
@@ -1130,7 +1177,12 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
       g.add(`[${cur}]${post.join(",")}[${next}]`);
       cur = next;
     }
-    if (!sameAspect && reframeApplies(project, preset)) {
+    const fit = effectiveAspectFit(project, preset, o.aspectFit);
+    if (fit === "reframe" && !reframeApplies(project, preset))
+      throw new Error(
+        "Primero reencuadrá el video (Vista previa → Reencuadrar) o pedíselo al Asistente.",
+      );
+    if (!sameAspect && fit === "reframe") {
       // Sprint 2 reframe: crop of the target aspect whose center follows project.reframe
       // (absolute timeline seconds: local t + window / range start), fitted to the preset.
       const rf = project.reframe!;
@@ -1167,6 +1219,14 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
           ? "null"
           : `scale=${PW}:${PH}:force_original_aspect_ratio=decrease,pad=${PW}:${PH}:(ow-iw)/2:(oh-ih)/2:color=${alpha ? "black@0" : "black"}`;
       g.add(`[${cur}]${fit},setsar=1,format=${enc.pixFmt}[vout]`);
+    } else if (fit === "center") {
+      // Sprint 5: centered crop of the preset aspect (no bars), scaled to the preset size.
+      const target = PW / PH;
+      const cw = W / H > target ? Math.min(W, even(H * target)) : W;
+      const ch = W / H > target ? H : Math.min(H, even(W / target));
+      g.add(
+        `[${cur}]crop=w=${cw}:h=${ch}:x=${Math.floor((W - cw) / 2)}:y=${Math.floor((H - ch) / 2)},scale=${PW}:${PH},setsar=1,format=${enc.pixFmt}[vout]`,
+      );
     } else {
       const next = g.label("rf");
       g.add(
@@ -1180,7 +1240,48 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
   }
 
   const outDur = re - rs;
-  if (!gif && !win) {
+  let ducked: CompiledExport["ducked"];
+  if (!gif && !win && !videoOnly) {
+    // Sprint 5: automatic ducking: voice bus keys a compressor on the music bus.
+    const duck = o.audioMix?.duck;
+    if (duck && audioLabels.length) {
+      const roleOf = (i: number) => o.audioMix!.roles.get(audioTracks[i]!) ?? "other";
+      const idx = audioLabels.map((_, i) => i);
+      const voice = idx.filter((i) => roleOf(i) === "voice");
+      const music = idx.filter((i) => roleOf(i) === "music");
+      if (voice.length && music.length) {
+        const bus = (ids: number[], out: string) =>
+          ids.length === 1
+            ? `[${audioLabels[ids[0]!]}]anull[${out}]`
+            : `${ids.map((i) => `[${audioLabels[i]}]`).join("")}amix=inputs=${ids.length}:duration=longest:dropout_transition=0:normalize=0[${out}]`;
+        g.add(bus(voice, "dkvbus"));
+        g.add(bus(music, "dkmbus"));
+        g.add(
+          duckingFragment(
+            {
+              type: "ducking",
+              musicAssetId: "",
+              musicVolume: 1,
+              threshold: duck.threshold,
+              ratio: duck.ratio,
+              attackMs: duck.attackMs,
+              releaseMs: duck.releaseMs,
+            },
+            "dkvbus",
+            "dkmbus",
+            "dkmix",
+            "dk",
+            { padWholeDur: re, levelSc: duck.levelSc },
+          ),
+        );
+        const rest = idx.filter((i) => !voice.includes(i) && !music.includes(i));
+        const tracksOf = (ids: number[]) => new Set(ids.map((i) => audioTracks[i])).size;
+        ducked = { voiceTracks: tracksOf(voice), musicTracks: tracksOf(music) };
+        const keep = rest.map((i) => audioLabels[i]!);
+        audioLabels.length = 0;
+        audioLabels.push("dkmix", ...keep);
+      }
+    }
     if (audioLabels.length) {
       const ins = audioLabels.map((l) => `[${l}]`).join("");
       const trim = rs > EPS ? `atrim=start=${sec(rs)}:end=${sec(re)}` : `atrim=end=${sec(re)}`;
@@ -1202,30 +1303,32 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
   g.files.unshift({ name: "graph.txt", content: graph });
   const scriptFlag = (o.ffmpegMajor ?? 6) >= 7 ? "-/filter_complex" : "-filter_complex_script";
   const outputArgs = audioOnly
-    ? ["-map", "[aout]", "-vn", ...enc.audio]
-    : win
-      ? [
-          "-map",
-          "[vout]",
-          ...enc.video,
-          ...segmentSafetyArgs(enc.video),
-          "-g",
-          String(win.gopFrames),
-          "-force_key_frames",
-          "0",
-          "-frames:v",
-          String(win.frames),
-          "-an",
-        ]
-      : [
-          "-map",
-          "[vout]",
-          ...(gif ? [] : ["-map", "[aout]"]),
-          ...enc.video,
-          ...enc.audio,
-          ...(gif ? [] : metadataArgs(o.metadataComment)),
-          ...enc.container,
-        ];
+    ? ["-map", "[aout]", "-vn", ...(o.audioCodecArgs ?? enc.audio)]
+    : videoOnly
+      ? ["-map", "[vout]", ...enc.video, "-an", ...enc.container]
+      : win
+        ? [
+            "-map",
+            "[vout]",
+            ...enc.video,
+            ...segmentSafetyArgs(enc.video),
+            "-g",
+            String(win.gopFrames),
+            "-force_key_frames",
+            "0",
+            "-frames:v",
+            String(win.frames),
+            "-an",
+          ]
+        : [
+            "-map",
+            "[vout]",
+            ...(gif ? [] : ["-map", "[aout]"]),
+            ...enc.video,
+            ...enc.audio,
+            ...(gif ? [] : metadataArgs(o.metadataComment)),
+            ...enc.container,
+          ];
   const args = [
     ...g.inputs.flat(),
     scriptFlag,
@@ -1235,7 +1338,14 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
     sec(outDur),
     o.output,
   ];
-  return { args, graph, files: g.files, durationSec: outDur, warnings: g.warnings };
+  return {
+    args,
+    graph,
+    files: g.files,
+    durationSec: outDur,
+    warnings: g.warnings,
+    ...(ducked && { ducked }),
+  };
 }
 
 /** Media display size from the resolved assets (track geometry). */

@@ -384,7 +384,10 @@ export const TOOLS = [
     description:
       "Exporta el proyecto con un preset (youtube-1080p, youtube-4k, reels-tiktok, youtube-shorts, " +
       "gif-480, webm-alpha o uno propio). Exportar escribe un archivo nuevo: confirmalo antes con " +
-      "el usuario y pasá confirmed=true solo si dijo que sí. Espera el resultado y devuelve la ruta.",
+      "el usuario y pasá confirmed=true solo si dijo que sí. Espera el resultado y devuelve la ruta. " +
+      "Si el video es horizontal y el preset vertical (Reels, Shorts) hay que elegir el encuadre " +
+      "(aspectFit): reframe = seguir la cara (requiere reencuadrar antes), center = recortar al " +
+      "centro, blur = entero con franjas borrosas. Si falta, preguntale al usuario cuál prefiere.",
     input: {
       preset: z.string().min(1).describe("Id del preset de exportación."),
       confirmed: z.literal(true).describe("true = el usuario confirmó la exportación."),
@@ -392,20 +395,43 @@ export const TOOLS = [
       fileName: z.string().max(120).optional(),
       range: z.object({ start: z.number().min(0), end: z.number().positive() }).optional(),
       burnSubtitles: z.boolean().optional(),
+      aspectFit: z
+        .enum(["reframe", "center", "blur"])
+        .optional()
+        .describe(
+          "Encuadre de un video horizontal en un preset vertical: reframe (seguir la cara), " +
+            "center (recortar al centro) o blur (franjas borrosas). Solo con la elección del usuario.",
+        ),
       wait: z.boolean().optional(),
     },
     destructive: true,
-    run: async ({ preset, projectId, fileName, range, burnSubtitles, wait }, deps) => {
+    run: async ({ preset, projectId, fileName, range, burnSubtitles, aspectFit, wait }, deps) => {
       const id = await resolveProjectId(deps.api, projectId);
-      const res = await deps.api.post<{ jobId: string }>(
-        `/api/projects/${encodeURIComponent(id)}/export`,
-        {
-          presetId: preset,
-          ...(fileName && { fileName }),
-          ...(range && { range }),
-          ...(burnSubtitles !== undefined && { burnSubtitles }),
-        },
-      );
+      let res: { jobId: string };
+      try {
+        res = await deps.api.post<{ jobId: string }>(
+          `/api/projects/${encodeURIComponent(id)}/export`,
+          {
+            presetId: preset,
+            ...(fileName && { fileName }),
+            ...(range && { range }),
+            ...(burnSubtitles !== undefined && { burnSubtitles }),
+            ...(aspectFit && { aspectFit }),
+          },
+        );
+      } catch (err) {
+        // Sprint 5: explain the three framings so Claude asks the user (never picks one alone).
+        if (err instanceof StudioApiError && err.code === "ASPECT_CHOICE_REQUIRED")
+          throw new StudioApiError(
+            err.status,
+            err.code,
+            `${err.message} Preguntale al usuario y volvé a llamar con aspectFit: «reframe» ` +
+              '(seguir la cara: primero reencuadrá con un plan {op:"reframe", target:"9:16"}), ' +
+              "«center» (recortar al centro) o «blur» (entero con franjas borrosas).",
+            err.details,
+          );
+        throw err;
+      }
       if (wait === false) return { jobId: res.jobId, status: "queued" };
       return { jobId: res.jobId, job: await waitJob(deps, res.jobId, 3600) };
     },

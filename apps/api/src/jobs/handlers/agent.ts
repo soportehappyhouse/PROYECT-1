@@ -46,6 +46,10 @@ import { isAbortError, JobAbortedError } from "../state.js";
 import type { JobContext, JobHandler } from "../types.js";
 import { requirePack, viaPacks } from "./ai.js";
 import { pollWorkerTask, WorkerTaskError } from "./util.js";
+// BEGIN sprint5:M3
+import { ExportPresetSchema, libraryRole, type TrackRole } from "@studio/shared";
+import { resolveExportAspect } from "../../services/export/aspect-check.js";
+// END sprint5:M3
 
 /**
  * Sprint 3 job `agent.apply` (lane edit): run the confirmed ops of a stored AgentPlan in order on
@@ -689,6 +693,9 @@ export function createAgentApplyHandler(
       case "add_audio": {
         let assetId = op.asset?.id;
         let dur = assetId ? repos.media.get(assetId)?.durationSec : undefined;
+        // BEGIN sprint5:M3 (library sounds get a mix role: music/ambience duck under the voice)
+        let audioRole: TrackRole | undefined = op.duck ? "music" : undefined;
+        // END sprint5:M3
         if (!assetId) {
           const index = new LibraryIndex(app.db, app.config.storageDir, app.config.ffmpegPath);
           const found = await index.search({
@@ -700,6 +707,9 @@ export function createAgentApplyHandler(
           const item = found.items.find((i) => i.path);
           if (!item)
             throw new OpError(`No encontré audio para «${op.query}» en la biblioteca local`);
+          // BEGIN sprint5:M3
+          audioRole ??= libraryRole(item.kind);
+          // END sprint5:M3
           const id = nanoid();
           const rel = `media/${id}${path.extname(item.path!).toLowerCase()}`;
           const dest = resolveStoragePath(app.config.storageDir, rel);
@@ -720,6 +730,16 @@ export function createAgentApplyHandler(
           volume,
           out: round3(dur),
         });
+        // BEGIN sprint5:M3 (role of a new track only: never relabel a track the user set up)
+        if (audioRole) {
+          const project = env.load();
+          const track = project.tracks.find((t) => t.clips.some((c) => c.id === clip.id));
+          if (track && !track.role && track.clips.every((c) => c.id === clip.id)) {
+            track.role = audioRole;
+            env.save(project);
+          }
+        }
+        // END sprint5:M3
         return { assetId, clipId: clip.id, volume };
       }
       case "remove_background": {
@@ -808,6 +828,18 @@ export function createAgentApplyHandler(
           findExportBlockers(project, (id) => !!repos.media.get(id)),
         );
         if (blocked) throw new OpError(blocked);
+        // BEGIN sprint5:M3 (framing of another aspect: never blurred bars unless chosen)
+        const stored = repos.presets.get(op.preset);
+        let aspectFit = op.aspect_fit;
+        if (stored) {
+          try {
+            aspectFit = resolveExportAspect(project, ExportPresetSchema.parse(stored), aspectFit);
+          } catch (err) {
+            if (err instanceof HttpError) throw new OpError(err.message);
+            throw err;
+          }
+        }
+        // END sprint5:M3
         return env.subJob(
           "project.export",
           {
@@ -815,6 +847,9 @@ export function createAgentApplyHandler(
             presetId: op.preset,
             ...(op.name && { fileName: op.name }),
             ...(op.burn_subtitles !== undefined && { burnSubtitles: op.burn_subtitles }),
+            // BEGIN sprint5:M3
+            ...(aspectFit && { aspectFit }),
+            // END sprint5:M3
           },
           "Exportar",
         );

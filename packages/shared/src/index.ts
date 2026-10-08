@@ -30,3 +30,5 @@ export * from "./texts-es.js";
 export * from "./hotkeys.js";
 export * from "./projects.js";
 export * from "./job-progress.js";
+export * from "./audio-mix.js";
+export * from "./aspect.js";

@@ -169,14 +169,18 @@ describe("MotionPanel engines (B2)", () => {
 });
 
 describe("ExportPanel presets (B5)", () => {
-  it("starts on YouTube 1080p and shows GIF container/codec for the GIF preset", () => {
+  it("starts on Reels / TikTok (9:16 principal); «Otro» lists the presets (GIF container/codec)", () => {
     const gifFirst = [...DEFAULT_EXPORT_PRESETS, ...EXTRA_EXPORT_PRESETS].sort((a, b) =>
       a.name.localeCompare(b.name),
     );
     useExportPresetsStore.setState({ presets: gifFirst, source: "api", error: undefined });
     render(<ExportPanel />);
+    expect(screen.getByTestId("export-dest-reels-tiktok").getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    fireEvent.click(screen.getByTestId("export-dest-other"));
     const preset = screen.getByLabelText("Preset de exportación") as HTMLSelectElement;
-    expect(preset.value).toBe("youtube-1080p");
+    expect(preset.value).toBe("reels-tiktok");
     fireEvent.change(preset, { target: { value: "gif-480" } });
     expect((screen.getByLabelText("Contenedor") as HTMLSelectElement).value).toBe("gif");
     expect((screen.getByLabelText("Códec de video") as HTMLSelectElement).value).toBe("gif");
@@ -221,6 +225,7 @@ describe("ExportPanel burn subtitles (manual bug 2)", () => {
     vi.spyOn(api, "saveProject").mockImplementation(async (x) => x);
     const exportProject = vi.spyOn(api, "exportProject").mockResolvedValue({ jobId: "j1" });
     render(<ExportPanel />);
+    fireEvent.click(screen.getByTestId("export-dest-youtube-1080p"));
     const burn = screen.getByLabelText(/Quemar subtítulos/) as HTMLInputElement;
     expect(burn.checked).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: /Exportar/ }));

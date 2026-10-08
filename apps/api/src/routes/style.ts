@@ -20,7 +20,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 import { readAnalysis } from "../jobs/handlers/style.js";
 import { errorBody, HttpError, PackRequiredError } from "../lib/errors.js";
-import { resolvePlan } from "../services/agent/resolve.js";
+import { resolvePlanForRecord } from "../services/agent/aspect.js";
 import { StylePresetRepo } from "../services/style/presets.js";
 
 /** Text of the 409 when the local vision model is missing (the console needs no download). */
@@ -180,7 +180,8 @@ export const styleRoutes: FastifyPluginAsync = async (app) => {
     if (!validation.ok)
       throw new HttpError(500, "PLAN_INVALID", `Plan inválido: ${validation.errors.join("; ")}`);
     const packs = await workers.packs().catch(() => undefined);
-    const r = resolvePlan(validation.plan, {
+    // Sprint 5: plan expanded for 9:16 (reframe added or a PlanChoice).
+    const r = resolvePlanForRecord(validation.plan, {
       project,
       media,
       presets: repos.presets.list(),

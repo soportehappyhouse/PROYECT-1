@@ -53,6 +53,9 @@ import { useExportPresetsStore } from "@/stores/export-presets-store";
 import { useJobsStore } from "@/stores/jobs-store";
 import { usePacksStore } from "@/stores/packs-store";
 import { Panel } from "./Panel";
+// BEGIN sprint5:M3
+import { PlanChoices } from "./PlanChoices";
+// END sprint5:M3
 
 export const ASSISTANT_EXAMPLES = [
   "Cortá los silencios",
@@ -560,6 +563,9 @@ function PlanView() {
           </p>
         ))}
         <QuestionsForm />
+        {/* BEGIN sprint5:M3 */}
+        <PlanChoices />
+        {/* END sprint5:M3 */}
         {ops.length > 0 ? (
           <ul className="flex flex-col gap-1" aria-label="Operaciones">
             {ops.map((_, i) => (

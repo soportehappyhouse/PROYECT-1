@@ -25,6 +25,14 @@ import { appendToReport, readAgentEval } from "../jobs/handlers/agent.js";
 import { errorBody, HttpError, PackRequiredError } from "../lib/errors.js";
 import { projectContentHash } from "../services/agent/project-hash.js";
 import { opTitle, resolvePlan, type ResolveContext } from "../services/agent/resolve.js";
+// BEGIN sprint5:M3
+import { AGENT_PLAN_CHOOSE_ROUTE, AgentPlanChooseRequestSchema } from "@studio/shared";
+import {
+  applyPlanChoice,
+  resolveExpandedPlan,
+  resolvePlanForRecord,
+} from "../services/agent/aspect.js";
+// END sprint5:M3
 import { buildProjectSummary } from "../services/agent/summary.js";
 import { WorkersError } from "../services/workers-client.js";
 
@@ -216,10 +224,16 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
         choices: [],
       };
     } else {
-      const r = resolvePlan(validation.plan, {
-        ...resolveContext(project, body.cursor, assets),
-        ...(packs && { packs }),
-      });
+      // BEGIN sprint5:M3 (plan expanded for 9:16: reframe added or a PlanChoice)
+      const r = resolvePlanForRecord(
+        validation.plan,
+        {
+          ...resolveContext(project, body.cursor, assets),
+          ...(packs && { packs }),
+        },
+        resolvePlan,
+      );
+      // END sprint5:M3
       record = {
         ...base,
         ok: r.unresolved.length === 0 && validation.plan.ops.length > 0,
@@ -273,10 +287,16 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
           { errors: validation.errors },
         );
       const packs = await workers.packs().catch(() => undefined);
-      const r = resolvePlan(validation.plan, {
-        ...resolveContext(project, body.cursor),
-        ...(packs && { packs }),
-      });
+      // BEGIN sprint5:M3 (plan expanded for 9:16: reframe added or a PlanChoice)
+      const r = resolvePlanForRecord(
+        validation.plan,
+        {
+          ...resolveContext(project, body.cursor),
+          ...(packs && { packs }),
+        },
+        resolvePlan,
+      );
+      // END sprint5:M3
       record =
         repos.agentPlans.update(record.id, {
           plan: validation.plan,
@@ -483,4 +503,49 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
       ...(appended && body.reportId && { reportId: body.reportId }),
     };
   });
+
+  // BEGIN sprint5:M3
+  /**
+   * Sprint 5 (PlanChoices): pick an option of a pending choice (e.g. how to frame horizontal ->
+   * 9:16). The option is applied to the stored plan (patch, then insert), the plan is expanded and
+   * resolved again on the current project and the updated record is returned for a new preview.
+   */
+  app.post<{ Params: { id: string } }>(AGENT_PLAN_CHOOSE_ROUTE, async (req, reply) => {
+    const body = AgentPlanChooseRequestSchema.parse(req.body);
+    const record = repos.agentPlans.get(req.params.id);
+    if (!record) return reply.code(404).send(notFound());
+    if (record.status !== "proposed" || !record.plan)
+      throw new HttpError(409, "PLAN_NOT_PROPOSED", "Este plan ya no se puede cambiar");
+    const choice = (record.choices ?? []).find((c) => c.id === body.choiceId);
+    const option = choice?.options.find((o) => o.id === body.optionId);
+    if (!choice || !option)
+      throw new HttpError(404, "NOT_FOUND", "Esa elección ya no está en el plan: pedí otro plan");
+    const project = repos.projects.get(record.projectId);
+    if (!project) return reply.code(404).send(errorBody("NOT_FOUND", "Proyecto no encontrado"));
+    const validation = validateEditPlan(applyPlanChoice(record.plan, option));
+    if (!validation.ok)
+      throw new HttpError(
+        400,
+        "PLAN_INVALID",
+        `El plan no es válido: ${validation.errors.join("; ")}`,
+      );
+    const packs = await workers.packs().catch(() => undefined);
+    const r = resolveExpandedPlan(
+      validation.plan,
+      { ...resolveContext(project), ...(packs && { packs }) },
+      resolvePlan,
+    );
+    const updated = repos.agentPlans.update(record.id, {
+      ...r,
+      ok: r.unresolved.length === 0 && r.plan.ops.length > 0,
+      errors: [],
+      edited: true,
+    });
+    req.log.info(
+      { plan: record.id, choice: body.choiceId, option: body.optionId },
+      "Elección del plan",
+    );
+    return updated ?? record;
+  });
+  // END sprint5:M3
 };

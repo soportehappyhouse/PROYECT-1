@@ -6,6 +6,7 @@ import {
   effectiveBurnSubtitles,
   subtitlesToBurn,
   tracksInZOrder,
+  type AspectFit,
   type Clip,
   type ExportPreset,
   type Project,
@@ -14,6 +15,7 @@ import {
 import { presetEncoding, segmentSafetyArgs } from "./encoders.js";
 import {
   clipDuration,
+  effectiveAspectFit,
   reframeApplies,
   sliceClipsToWindow,
   type TimelineAsset,
@@ -175,6 +177,8 @@ export interface SegmentHashInput {
   burnSubtitles?: boolean;
   fontFile?: string;
   ffmpegVersion?: string;
+  /** Sprint 5: requested framing (hashed only when it differs from the legacy default). */
+  aspectFit?: AspectFit;
 }
 
 /**
@@ -310,6 +314,10 @@ export function segmentHash(h: SegmentHashInput): string {
         reframe: reframeApplies(project, h.preset)
           ? { r: project.reframe, at: win.start }
           : undefined,
+        // Sprint 5: a framing other than the legacy one (center, or blur despite reframe keyframes).
+        fit: ((eff) => (eff !== effectiveAspectFit(project, p) ? eff : undefined))(
+          effectiveAspectFit(project, p, h.aspectFit),
+        ),
         label: aiLabelText(project.publish),
         labelStyle: aiLabelText(project.publish) ? project.captionStyle : undefined,
         font: h.fontFile,

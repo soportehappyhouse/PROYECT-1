@@ -2412,6 +2412,103 @@ await step("Sprint 5: Trabajos muestra 3/20, faltan ~X y Cancelar", async () => 
 });
 // ------------------------------------------------------------------ END sprint5:M1
 
+// ---------------------------------------------------------------- BEGIN sprint5:M3
+const s5m3 = {};
+/** Horizontal 640×360 project (testsrc2 + 440 Hz tone, 3 s) opened in the dashboard, on Exportar. */
+async function s5m3Project() {
+  if (!page.url().startsWith(WEB)) {
+    await page.goto(WEB, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+  }
+  s5m3.video ??= await lavfiUpload("ui-s5-m3.mp4", "testsrc2=s=640x360:r=25:d=3", [
+    "-f",
+    "lavfi",
+    "-i",
+    "sine=frequency=440:duration=3",
+    "-c:v",
+    "libx264",
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-shortest",
+  ]);
+  const p = await apiSend("POST", "/api/projects", { name: "UI S5 Reels horizontal" });
+  p.settings = { ...p.settings, width: 640, height: 360 };
+  const V = p.tracks.find((t) => t.kind === "video");
+  V.clips = [{ id: "s5m3c", trackId: V.id, assetId: s5m3.video.id, start: 0, in: 0, out: 3 }];
+  await apiSend("PUT", `/api/projects/${p.id}`, p);
+  await openProject(p.id);
+  await page.locator(".dv-tab", { hasText: "Exportar" }).click();
+  const panel = page.locator("section[aria-label='Exportar']");
+  await panel.waitFor();
+  return { p, panel };
+}
+
+await step("Sprint 5: Exportar → Reels con video horizontal pide elegir encuadre", async () => {
+  const { panel } = await s5m3Project();
+  s5m3.panel = panel;
+  const reels = panel.getByTestId("export-dest-reels-tiktok");
+  if ((await reels.getAttribute("aria-pressed")) !== "true")
+    throw new Error("Reels / TikTok is not the default destination");
+  const choice = panel.getByTestId("export-aspect-choice");
+  await choice.waitFor({ timeout: 5_000 });
+  const text = (await choice.textContent()) ?? "";
+  if (!/horizontal/.test(text) || !/Seguir la cara/.test(text) || !/franjas borrosas/.test(text))
+    throw new Error(`choice: ${text}`);
+  const exportBtn = panel.getByRole("button", { name: "Exportar", exact: true });
+  if (!(await exportBtn.isDisabled())) throw new Error("Exportar enabled without a framing choice");
+  await panel.getByLabel(/Recortar al centro/).check();
+  if (await exportBtn.isDisabled()) throw new Error("Exportar still disabled after «al centro»");
+  return { text: text.slice(0, 160), shot: await shot(page, "s5-export-encuadre.png") };
+});
+
+await step("Sprint 5: resultado con ruta, LUFS y Abrir carpeta", async () => {
+  const panel = s5m3.panel ?? (await s5m3Project()).panel;
+  if (!(await panel.getByLabel(/Recortar al centro/).isChecked()))
+    await panel.getByLabel(/Recortar al centro/).check();
+  const revealed = [];
+  await page.route(`${API}/api/system/reveal`, async (route) => {
+    revealed.push(route.request().postDataJSON());
+    await route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' });
+  });
+  await panel.getByRole("button", { name: "Exportar", exact: true }).click();
+  const card = panel.getByTestId("export-result");
+  await card.waitFor({ timeout: 300_000 });
+  const lufs = panel.getByTestId("export-result-lufs");
+  await lufs.waitFor({ timeout: 10_000 });
+  const lufsText = (await lufs.textContent())?.trim();
+  if (!/^−1[34],\d LUFS$/.test(lufsText ?? "")) throw new Error(`LUFS badge: ${lufsText}`);
+  const pathText = (await card.textContent()) ?? "";
+  if (!pathText.includes("exports/")) throw new Error(`result: ${pathText}`);
+  await card.getByRole("button", { name: /Abrir carpeta/ }).click();
+  for (let i = 0; i < 20 && revealed.length === 0; i++) await sleep(200);
+  await page.unroute(`${API}/api/system/reveal`);
+  if (!revealed[0]?.path?.startsWith("exports/"))
+    throw new Error(`reveal: ${JSON.stringify(revealed)}`);
+  return {
+    lufs: lufsText,
+    reveal: revealed[0].path,
+    shot: await shot(page, "s5-export-resultado.png"),
+  };
+});
+
+await step("Sprint 5: Revisión para redes muestra Sonoridad y Formato", async () => {
+  const panel = s5m3.panel ?? (await s5m3Project()).panel;
+  const loud = panel.getByTestId("social-check-loudness").first();
+  await loud.waitFor({ timeout: 10_000 });
+  const format = panel.getByTestId("social-check-format").first();
+  const out = {
+    loudness: [await loud.getAttribute("data-ok"), (await loud.textContent())?.trim()],
+    format: [await format.getAttribute("data-ok"), (await format.textContent())?.trim()],
+  };
+  if (out.loudness[0] !== "true") throw new Error(`Sonoridad: ${JSON.stringify(out.loudness)}`);
+  if (out.format[0] !== "true" || !/sin franjas/.test(out.format[1] ?? ""))
+    throw new Error(`Formato: ${JSON.stringify(out.format)}`);
+  return out;
+});
+// ------------------------------------------------------------------ END sprint5:M3
+
 await browser.close();
 console.log(
   `\nconsole errors (${consoleErrors.length}):`,

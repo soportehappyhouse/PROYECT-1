@@ -1,17 +1,31 @@
-import { mkdir, open, rm } from "node:fs/promises";
+import { mkdir, open, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import {
+  AUTO_DUCK,
+  AUTO_DUCK_SIDECHAIN_GAIN,
+  duckRatioFor,
   ExportJobPayloadSchema,
   ExportPresetSchema,
+  inferTrackRole,
+  loudnessFor,
+  ProjectAudioMixSchema,
   SEGMENT_CACHE_SUBDIR,
   type ExportJobPayload,
   type ExportJobResult,
+  type MediaAsset,
+  type Project,
+  type TrackRole,
 } from "@studio/shared";
 import type { AppContext } from "../../context.js";
 import { exportAiComment } from "../../services/ai-provenance.js";
 import { disableEncoder, selectEncoder } from "../../services/encoder-select.js";
 import { presetEncoding } from "../../services/ffmpeg/encoders.js";
-import { exportBlockersMessage, findExportBlockers } from "../../services/ffmpeg/timeline.js";
+import { resolveExportAspect } from "../../services/export/aspect-check.js";
+import {
+  exportBlockersMessage,
+  findExportBlockers,
+  type AudioMixPlan,
+} from "../../services/ffmpeg/timeline.js";
 import type { TimelineAsset } from "../../services/ffmpeg.js";
 import { fileStamp, slugify } from "../../services/media-files.js";
 import { loadTrackFiles } from "../../services/vision-assets.js";
@@ -37,6 +51,34 @@ async function reserveExportPath(app: AppContext, base: string, ext: string): Pr
 }
 
 /**
+ * Sprint 5: roles of the audible tracks and the ducking compressor (music under voice) when
+ * `autoDuck` (request, else project.audioMix.autoDuck, default on) and both roles are present.
+ */
+export function exportAudioMix(
+  project: Project,
+  assetOf: (id: string) => MediaAsset | undefined,
+  autoDuck: boolean | undefined,
+): AudioMixPlan {
+  const roles = new Map<string, TrackRole>();
+  for (const t of project.tracks) roles.set(t.id, inferTrackRole(t, assetOf));
+  const mix = ProjectAudioMixSchema.parse(project.audioMix ?? {});
+  const on = autoDuck ?? mix.autoDuck;
+  const audible = project.tracks.filter((t) => !t.muted && t.clips.length > 0);
+  const has = (r: TrackRole) => audible.some((t) => roles.get(t.id) === r);
+  if (!on || !has("voice") || !has("music")) return { roles };
+  return {
+    roles,
+    duck: {
+      threshold: AUTO_DUCK.threshold,
+      ratio: duckRatioFor(mix.duckDb),
+      attackMs: AUTO_DUCK.attackMs,
+      releaseMs: AUTO_DUCK.releaseMs,
+      levelSc: AUTO_DUCK_SIDECHAIN_GAIN,
+    },
+  };
+}
+
+/**
  * project.export: compile the timeline into FFmpeg graphs and render to storage/exports. With
  * `useSegmentCache` (default) the video is rendered by blocks cached in storage/cache/segments.
  */
@@ -58,7 +100,14 @@ export function createProjectExportHandler(
         findExportBlockers(project, (id) => !!app.repos.media.get(id), req.range),
       );
       if (blocked) throw new Error(blocked);
-      ctx.reportProgress(0.01, "Preparando exportación");
+      // Sprint 5: framing of another aspect (409 texts as job errors when it changed meanwhile).
+      const aspectFit = resolveExportAspect(project, preset, req.aspectFit);
+      const loudness = req.normalizeLoudness === false ? null : loudnessFor(preset);
+      const audioMix = exportAudioMix(project, (id) => app.repos.media.get(id), req.autoDuck);
+      ctx.reportProgress(0.01, "Preparando exportación", {
+        stage_es: "Preparando exportación",
+        cancellable: true,
+      });
       const ids = new Set<string>();
       const trackIds = new Set<string>();
       const maskIds = new Set<string>();
@@ -137,8 +186,14 @@ export function createProjectExportHandler(
       if (aiComment) ctx.log(`Metadato de IA: ${aiComment}`);
       let result: ExportJobResult = { path: rel };
       try {
-        ctx.reportProgress(0.02, "Renderizando");
-        ctx.log(`Encoder: ${encoder} · preset ${preset.id}`);
+        ctx.reportProgress(0.02, "Renderizando", { stage_es: "Video", cancellable: true });
+        ctx.log(
+          `Encoder: ${encoder} · preset ${preset.id}` +
+            (aspectFit ? ` · encuadre ${aspectFit}` : "") +
+            (loudness
+              ? ` · sonoridad ${loudness.integrated} LUFS / ${loudness.truePeak} dBTP`
+              : ""),
+        );
         const outcome = await app.ffmpeg.exportProject(
           {
             project,
@@ -152,6 +207,9 @@ export function createProjectExportHandler(
             ...(req.burnSubtitles !== undefined && { burnSubtitles: req.burnSubtitles }),
             // Sprint 4 (decision 9): invisible traceability of AI content, label on or off.
             ...(aiComment && { metadataComment: aiComment }),
+            ...(aspectFit && { aspectFit }),
+            loudness,
+            audioMix,
             ...(req.useSegmentCache !== false && {
               segmentCache: {
                 dir: path.join(app.config.storageDir, SEGMENT_CACHE_SUBDIR),
@@ -163,15 +221,25 @@ export function createProjectExportHandler(
             signal: ctx.signal,
             log: ctx.log,
             onProgress: (r, message) =>
-              ctx.reportProgress(0.02 + r * 0.97, message ?? "Renderizando"),
+              ctx.reportProgress(0.02 + r * 0.97, message ?? "Renderizando", {
+                stage_es: (message ?? "Renderizando").slice(0, 120),
+                cancellable: true,
+              }),
           },
         );
         if (outcome.fellBack) disableEncoder(app.repos.settings, encoder);
+        const size = await stat(absPath(app, rel)).catch(() => undefined);
         result = {
           path: rel,
           mode: outcome.mode,
           ...(outcome.segments && { segments: outcome.segments }),
           ...(outcome.fallbackReason && { fallbackReason: outcome.fallbackReason }),
+          durationS: Math.round(outcome.durationSec * 1000) / 1000,
+          ...(size && { sizeBytes: size.size }),
+          ...(aspectFit && { aspectFit }),
+          ...(outcome.loudness && { loudness: outcome.loudness }),
+          ...(outcome.ducked && { ducked: outcome.ducked }),
+          ...(outcome.warningCodes?.length && { warnings: outcome.warningCodes }),
         };
       } catch (err) {
         await rm(absPath(app, rel), { force: true }); // drop the reserved (partial) output

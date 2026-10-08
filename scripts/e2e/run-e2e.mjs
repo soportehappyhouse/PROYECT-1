@@ -2141,11 +2141,30 @@ await step(
     );
     assert(plan.route === "deterministic", `route ${plan.route}`);
     assert(plan.model == null, `model ${plan.model} (the LLM must not be used)`);
+    // Sprint 5 (H6): the video is horizontal: the api inserts reframe(face) before the export
+    // when the «reframe» pack is installed, or leaves a framing choice (here: «al centro»).
+    let current = plan;
+    if (plan.choices?.length) {
+      const exportAt = plan.plan.ops.findIndex((o) => o.op === "export");
+      assert(
+        !plan.ok && plan.resolved[exportAt] === null && plan.choices[0].options.length === 3,
+        `choice ${JSON.stringify(plan).slice(0, 400)}`,
+      );
+      current = await ok("POST", `/api/agent/plans/${plan.id}/choose`, {
+        choiceId: plan.choices[0].id,
+        optionId: "center",
+      });
+    } else
+      assert(
+        plan.plan.ops.map((o) => o.op).join(",") === "reframe,export" && plan.added?.length === 1,
+        `reframe not added: ${JSON.stringify(plan).slice(0, 400)}`,
+      );
+    const ei = current.plan.ops.findIndex((o) => o.op === "export");
     assert(
-      plan.ok && plan.plan.ops.length === 1 && plan.resolved[0]?.preset === "reels-tiktok",
-      `plan ${JSON.stringify(plan).slice(0, 400)}`,
+      current.ok && current.resolved[ei]?.preset === "reels-tiktok",
+      `plan ${JSON.stringify(current).slice(0, 400)}`,
     );
-    assert(plan.resolved[0].confirm === true, "export must always ask for confirmation");
+    assert(current.resolved[ei].confirm === true, "export must always ask for confirmation");
     // export is destructive: without the separate confirmation (confirmedIndexes) -> 409
     const unconfirmed = await api("POST", "/api/agent/apply", { planId: plan.id });
     assert(
@@ -2155,12 +2174,15 @@ await step(
     const { jobId } = await ok(
       "POST",
       "/api/agent/apply",
-      { planId: plan.id, confirmedIndexes: [0] },
+      { planId: plan.id, confirmedIndexes: [ei] },
       [202],
     );
     const job = await waitOk(jobId, { timeoutMs: 300_000 });
-    assert(job.result.applied === 1 && !job.result.failed, `apply ${JSON.stringify(job.result)}`);
-    const exported = job.result.steps[0].result;
+    assert(
+      job.result.applied === current.plan.ops.length && !job.result.failed,
+      `apply ${JSON.stringify(job.result)}`,
+    );
+    const exported = job.result.steps[ei].result;
     const file = await download(exported.path, "agente-reels.mp4");
     const v = (await ffprobe(file)).streams.find((x) => x.codec_type === "video");
     assert(v.width === 1080 && v.height === 1920, `export ${v.width}x${v.height}`);
@@ -4413,6 +4435,212 @@ await step("sprint5: workers apagados → 503 WORKERS_UNAVAILABLE con start.cmd"
   }
 });
 // ------------------------------------------------------------------ END sprint5:M1
+
+// ---------------------------------------------------------------- BEGIN sprint5:M3
+/** ffprobe + lavfi ebur128 of a local file (cwd = its folder: `C:\` breaks the filter parser). */
+async function s5Ebur128(file) {
+  const out = await run(
+    FFPROBE,
+    [
+      "-v",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      `amovie=${path.basename(file)},ebur128=metadata=1:peak=true`,
+      "-show_entries",
+      "frame_tags=lavfi.r128.I,lavfi.r128.true_peaks_ch0,lavfi.r128.true_peaks_ch1",
+      "-of",
+      "json",
+    ],
+    { cwd: path.dirname(file) },
+  );
+  const frames = (JSON.parse(out).frames ?? []).filter((f) => f.tags?.["lavfi.r128.I"]);
+  const tags = frames.at(-1)?.tags ?? {};
+  const toDb = (v) => (v > 0 ? 20 * Math.log10(v) : v);
+  const peaks = ["lavfi.r128.true_peaks_ch0", "lavfi.r128.true_peaks_ch1"]
+    .map((k) => Number(tags[k]))
+    .filter(Number.isFinite)
+    .map(toDb);
+  return { I: Number(tags["lavfi.r128.I"]), TP: Math.max(...peaks) };
+}
+
+/** RMS (dB) of the audio of `file` in [start, start+dur) after `filters` (astats). */
+async function s5Rms(file, start, dur, filters) {
+  const err = await new Promise((resolve, reject) => {
+    const p = spawn(
+      FFMPEG,
+      [
+        "-hide_banner",
+        "-nostats",
+        "-ss",
+        String(start),
+        "-t",
+        String(dur),
+        "-i",
+        file,
+        "-vn",
+        "-af",
+        `${filters},astats=measure_perchannel=none:measure_overall=RMS_level`,
+        "-f",
+        "null",
+        "-",
+      ],
+      { windowsHide: true },
+    );
+    let e = "";
+    p.stderr.on("data", (d) => (e += d));
+    p.on("error", reject);
+    p.on("close", () => resolve(e));
+  });
+  const m = /RMS level dB:\s*(-?[\d.]+)/.exec(err);
+  assert(m, `astats: ${err.slice(-300)}`);
+  return Number(m[1]);
+}
+
+/** Tone WAV (lavfi sine) at `db` for `seconds`. */
+async function s5Tone(name, freq, seconds, db) {
+  const file = path.join(WORK, name);
+  await run(FFMPEG, [
+    "-y",
+    "-v",
+    "error",
+    "-f",
+    "lavfi",
+    "-i",
+    `sine=frequency=${freq}:sample_rate=48000:duration=${seconds}`,
+    "-af",
+    `volume=${db}dB`,
+    "-ac",
+    "2",
+    file,
+  ]);
+  const asset = await upload(file, "audio/wav");
+  await waitAssetJobs(asset.id, ["media.probe"]);
+  return asset;
+}
+
+/** Horizontal project: the moving-box video + voice (role voice) + music (role music). */
+async function s5MixProject(name, voice, music, voiceAt = 2) {
+  const { video } = await sprint2Media();
+  const p = await sprint2Project(name, video);
+  const A = p.tracks.find((t) => t.kind === "audio");
+  const clip = (trackId, assetId, start, dur) => ({
+    id: id("c"),
+    trackId,
+    assetId,
+    start,
+    in: 0,
+    out: dur,
+  });
+  const musicTrack = { ...A, id: id("tr"), name: "Música", role: "music", clips: [] };
+  musicTrack.clips = [clip(musicTrack.id, music.id, 0, S2.dur)];
+  p.tracks = [
+    ...p.tracks.filter((t) => t.kind !== "audio"),
+    { ...A, role: "voice", clips: [clip(A.id, voice.id, voiceAt, 2)] },
+    musicTrack,
+  ];
+  return ok("PUT", `/api/projects/${p.id}`, p);
+}
+
+await step("sprint5: export reels-tiktok con loudnorm −14 LUFS (ffprobe ebur128)", async () => {
+  const voice = await s5Tone("s5-voz.wav", 1000, 2, -12);
+  const music = await s5Tone("s5-musica.wav", 220, S2.dur, -20);
+  const p = await s5MixProject("S5 sonoridad", voice, music);
+  const { jobId } = await ok("POST", `/api/projects/${p.id}/export`, {
+    presetId: "reels-tiktok",
+    aspectFit: "center",
+  });
+  const job = await waitOk(jobId);
+  const file = await download(job.result.path, "s5-reels-loudnorm.mp4");
+  const m = await s5Ebur128(file);
+  assert(near(m.I, -14, 1), `integrated ${m.I} LUFS`);
+  assert(m.TP <= -0.8, `true peak ${m.TP} dBTP`);
+  assert(
+    job.result.loudness && near(job.result.loudness.output_i, m.I, 1),
+    JSON.stringify(job.result),
+  );
+  assert(job.result.durationS > 0 && job.result.sizeBytes > 0, JSON.stringify(job.result));
+  return { ...m, loudness: job.result.loudness };
+});
+
+await step("sprint5: ducking automático música bajo voz", async () => {
+  const voice = await s5Tone("s5-voz-baja.wav", 1000, 2, -12);
+  const music = await s5Tone("s5-musica-200.wav", 200, S2.dur, -12);
+  const p = await s5MixProject("S5 ducking", voice, music, 2);
+  const exp = async (autoDuck, name) => {
+    const { jobId } = await ok("POST", `/api/projects/${p.id}/export`, {
+      presetId: "youtube-1080p",
+      normalizeLoudness: false,
+      autoDuck,
+    });
+    const job = await waitOk(jobId);
+    return { job, file: await download(job.result.path, name) };
+  };
+  const on = await exp(true, "s5-duck-on.mp4");
+  const off = await exp(false, "s5-duck-off.mp4");
+  assert(on.job.result.ducked?.musicTracks === 1, JSON.stringify(on.job.result));
+  const band = "lowpass=f=300,lowpass=f=300,lowpass=f=300";
+  const ducked = await s5Rms(on.file, 2.8, 1, band);
+  const plain = await s5Rms(off.file, 2.8, 1, band);
+  assert(plain - ducked >= 8, `music under the voice: ${plain} -> ${ducked} dB`);
+  return { plain, ducked };
+});
+
+await step(
+  "sprint5: export vertical desde horizontal sin elección → 409 ASPECT_CHOICE_REQUIRED; con center → 1080×1920",
+  async () => {
+    const { video } = await sprint2Media();
+    const p = await sprint2Project("S5 encuadre", video);
+    const r = await api("POST", `/api/projects/${p.id}/export`, { presetId: "reels-tiktok" });
+    assert(r.status === 409 && r.json?.error?.code === "ASPECT_CHOICE_REQUIRED", JSON.stringify(r));
+    const d = r.json.error.details;
+    assert(
+      d.options.join(",") === "reframe,center,blur" && d.preset.id === "reels-tiktok",
+      JSON.stringify(d),
+    );
+    const noKf = await api("POST", `/api/projects/${p.id}/export`, {
+      presetId: "reels-tiktok",
+      aspectFit: "reframe",
+    });
+    assert(
+      noKf.status === 409 && noKf.json?.error?.code === "REFRAME_REQUIRED",
+      JSON.stringify(noKf),
+    );
+    const { jobId } = await ok("POST", `/api/projects/${p.id}/export`, {
+      presetId: "reels-tiktok",
+      aspectFit: "center",
+      range: { start: 0, end: 2 },
+    });
+    const job = await waitOk(jobId);
+    assert(job.result.aspectFit === "center", JSON.stringify(job.result));
+    const v = (await ffprobe(await download(job.result.path, "s5-center.mp4"))).streams.find(
+      (x) => x.codec_type === "video",
+    );
+    assert(v.width === 1080 && v.height === 1920, `${v.width}x${v.height}`);
+    return { message: r.json.error.message, reframeReady: d.reframeReady };
+  },
+);
+
+await step("sprint5: plan Reels desde horizontal propone reframe", async () => {
+  const { video } = await sprint2Media();
+  const p = await sprint2Project("S5 plan reels", video);
+  const plan = { version: 1, summary_es: "Reels", ops: [{ op: "export", preset: "reels-tiktok" }] };
+  const rec = await ok("POST", "/api/console/plans", { projectId: p.id, plan, save: false }, [200]);
+  const ops = rec.plan.ops.map((o) => o.op).join(",");
+  if (rec.choices?.length) {
+    assert(ops === "export" && rec.resolved[0] === null, JSON.stringify(rec).slice(0, 400));
+    assert(
+      rec.choices[0].options.map((o) => o.id).join(",") === "reframe,center,blur",
+      JSON.stringify(rec.choices),
+    );
+  } else {
+    assert(ops === "reframe,export" && rec.plan.ops[1].aspect_fit === "reframe", ops);
+    assert(rec.preview_es[0].includes("(agregado por Studio)"), rec.preview_es[0]);
+  }
+  return { ops, choices: rec.choices?.length ?? 0, preview: rec.preview_es };
+});
+// ------------------------------------------------------------------ END sprint5:M3
 
 // ---------------------------------------------------------------- report
 sse.controller.abort();

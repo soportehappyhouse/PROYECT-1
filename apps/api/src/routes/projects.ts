@@ -12,6 +12,9 @@ import {
 } from "@studio/shared";
 import { errorBody } from "../lib/errors.js";
 import { exportBlockersMessage, findExportBlockers } from "../services/ffmpeg/timeline.js";
+// BEGIN sprint5:M3
+import { checkExportAspectRequest } from "../services/export/aspect-check.js";
+// END sprint5:M3
 
 /** Projects CRUD (Project JSON documents), autosave snapshots and export jobs. */
 export const projectRoutes: FastifyPluginAsync = async (app) => {
@@ -91,6 +94,9 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     const problems = findExportBlockers(project, (id) => !!repos.media.get(id), body.range);
     const blocked = exportBlockersMessage(problems);
     if (blocked) return reply.code(409).send(errorBody("EXPORT_BLOCKED", blocked, { problems }));
+    // BEGIN sprint5:M3 (other aspect without a framing: 409 ASPECT_CHOICE_REQUIRED / REFRAME_REQUIRED)
+    await checkExportAspectRequest(app.ctx, project, body);
+    // END sprint5:M3
     const job = queue.enqueue({
       type: "project.export",
       payload: { ...body, projectId: req.params.id },

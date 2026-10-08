@@ -305,7 +305,7 @@ describe.skipIf(!hasFfmpeg)("segment cache export (lavfi media)", { timeout: 300
     const total = first.result.segments!.total;
     expect(total).toBeGreaterThanOrEqual(2);
     expect(first.result.segments).toEqual({ total, cached: 0, rendered: total });
-    expect(messages.some((m) => /^\d+\/\d+ bloques \(\d+ en caché\)/.test(m))).toBe(true);
+    expect(messages.some((m) => /^(Video: )?\d+\/\d+ bloques \(\d+ en caché\)/.test(m))).toBe(true);
     const cacheDir = path.join(storage, SEGMENT_CACHE_SUBDIR);
     expect(
       readdirSync(cacheDir).filter((n) => n.endsWith(".mp4") && !n.includes(".part")),

@@ -219,3 +219,35 @@ Primera corrida: `actualizar.cmd` → Ajustes → Paquetes de IA → descargar `
 3. Paquetes de IA → `tts-chatterbox` (~6 GB) → Voces → motor Chatterbox → «Voz propia» (grabar 10 s) → generar un texto. Anotar tiempo real, si quedó en V3 o V2, y si la voz conserva la tonada (probar cfg 0,3/0,5/0,7).
 4. Voces → RVC con CUDA: tiempo por minuto (meta < 15 s). Test de rendimiento completo y pegar `perf.json`.
 5. Sigue pendiente de sprints anteriores: sha256 de Demucs, Asistente «Evaluar modelos», fps sostenido del recorte.
+
+---
+
+# Sprint 5 — 2026-10-08 — Roces (plan v3: centro de trabajos, fluidez, export profesional y 9:16)
+
+**Plan:** `docs/02-PLAN-BASE-v3.md` (decisiones: orden 5 → 6 → 7, un brand kit, 9:16 principal). **Base:** `docs/trabajo/auditoria-fluidez.md` (26 hallazgos sobre la app real) y `docs/trabajo/referencias-fluidez-autonomia.md`. **Contratos:** `docs/trabajo/sprint5-contratos.md`. **Integración:** `docs/trabajo/integracion-sprint5.md`.
+
+## Entregado
+- **Centro de trabajos y errores**: progreso real por ítem con ETA y etapa (los bloques en caché no engañan la ETA), cancelar de punta a punta hasta el worker (Ollama, transcripción, visión con muerte del subproceso, stems, estilo, descargas), «Evaluar modelos» rápida (20) y completa (80) con avance por comando, errores con la causa real, avisos sin repetir al recargar, un solo banner «IA local apagada» con `start.cmd` y acciones deshabilitadas con motivo, aviso de CPU una vez por sesión.
+- **Fluidez de línea de tiempo**: atajos siempre activos (la regla ya no roba el foco; alcances global/editor), ripple delete que corre y recorta todas las pistas sin bloquear, selección múltiple (Ctrl/Mayús/rectángulo/Ctrl+A), J/K/L, Q/W, I/O con tramo, imán configurable, proyectos (listar, abrir, renombrar, duplicar, borrar), autoguardado al cerrar, Asistente y Exportar fijos a 1366 px, 51 tooltips explicativos, estados vacíos con guía, Espacio operable en diálogos.
+- **Export profesional y 9:16**: mezcla aparte con `loudnorm` 2 pasadas a −14 LUFS / −1 dBTP (medido −14,5), ducking por rol de pista calibrado con la voz real, pregunta «¿Dónde lo vas a publicar?» (Reels/TikTok por defecto), exportar a otro aspecto exige encuadre (seguir la cara / al centro / franjas) y el Asistente inserta `reframe` o pregunta, nunca franjas por defecto; tarjeta de resultado con LUFS y «Abrir carpeta»; revisión para redes con Sonoridad y Formato.
+- Manual (§3–§5, §10, §12, §15, §17, §19; HTML y PDF 77 páginas), ARQUITECTURA, CLAUDE.md, panel de sesión actualizado.
+
+## Criterios (plan v3, Sprint 5)
+- Ningún trabajo sin progreso/ETA/cancelar → 🟢 (🟡 `taskkill` del árbol solo medible en tu PC).
+- Workers apagados = un solo aviso → 🟢.
+- Atajos tras clicar cualquier zona → 🟢 (Edge: `Ctrl+O`, `Ctrl+Alt+N`, `Ctrl+Mayús+Supr` a probar en tu PC).
+- Reels desde horizontal sin franjas por defecto → 🟢.
+
+## Auditoría independiente
+13 hallazgos (1 alto, 7 medios, 5 bajos) → 13 corregidos. Hallazgos de fluidez: 17 cerrados, 2 parciales, 7 al Sprint 6 (H11–H14, H16, H20, H25). Descubierto: columnas de resumen para `GET /api/projects`, cancelación cooperativa en motores sin subproceso.
+
+## Números
+- Agentes: auditoría UX + referencias + contratos + Paso 0 + 3 módulos + integración + auditoría + correcciones; ninguno murió. Pedidos cruzados: 13; costuras: 12.
+- Tests: Node 881 (shared 157, web 296, api 332, remotion 55, motion-engines 22, studio-mcp 19), Python 501; e2e 82/82; ui-smoke 56/56; MCP 18 herramientas.
+
+## Pendiente para la PC real
+1. `actualizar.cmd` → `start.cmd`. Ajustes → Asistente local → «Evaluar modelos» (Rápida): debe mostrar «qwen3:8b · n/20», tiempo restante y Cancelar; anotá la duración (meta ≤ 3 min) y el porcentaje final.
+2. Apagá los workers con la ventana cerrada: un solo cartel; «Reintentar» lo levanta.
+3. Clic en la regla y probá Espacio, S, J/K/L, Supr, Mayús+Supr, Ctrl+O y Ctrl+Alt+N en tu navegador.
+4. Exportá un video horizontal a Reels: tiene que pedir encuadre; con «Seguir la cara» usa el paquete Reencuadre. Anotá los LUFS de la tarjeta y probá «Abrir carpeta».
+5. Cancelá un recorte de fondo a mitad y mirá en el Administrador de tareas que la GPU baje en menos de 3 s.

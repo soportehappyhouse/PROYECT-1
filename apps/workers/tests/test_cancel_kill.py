@@ -135,7 +135,10 @@ def _engine_with_fake_gpl(monkeypatch: pytest.MonkeyPatch, spawned: list[Any]) -
     real_popen = subprocess.Popen
 
     def fake_popen(cmd: list[str], **kw: Any) -> subprocess.Popen[str]:
-        assert cmd[1:3] == ["-m", "vision_gpl.rvm"]
+        # gpl.subprocess is the shared module: other Popen users (e.g. subprocess.run of
+        # ``taskkill /T /F`` in kill_process_tree on Windows) must reach the real one.
+        if cmd[1:3] != ["-m", "vision_gpl.rvm"]:
+            return real_popen(cmd, **kw)  # noqa: S603
         proc = real_popen([sys.executable, "-c", _FAKE_CHILD], **kw)  # noqa: S603
         spawned.append(proc)
         return proc

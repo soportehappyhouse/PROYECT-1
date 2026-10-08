@@ -220,10 +220,11 @@ export function createProjectExportHandler(
           {
             signal: ctx.signal,
             log: ctx.log,
-            onProgress: (r, message) =>
+            onProgress: (r, message, items) =>
               ctx.reportProgress(0.02 + r * 0.97, message ?? "Renderizando", {
                 stage_es: (message ?? "Renderizando").slice(0, 120),
                 cancellable: true,
+                ...(items && { done: items.done, total: items.total, unit: "blocks" as const }),
               }),
           },
         );

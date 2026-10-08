@@ -109,6 +109,7 @@ describe.skipIf(!hasFfmpeg)("segment cache export (lavfi media)", { timeout: 300
   let preset: ExportPreset;
   let project: Project;
   const messages: string[] = [];
+  const details: { done?: number; total?: number; unit?: string }[] = [];
 
   beforeAll(async () => {
     gen([
@@ -164,6 +165,7 @@ describe.skipIf(!hasFfmpeg)("segment cache export (lavfi media)", { timeout: 300
     ({ app, storage } = await makeApp({ FFMPEG_PATH: "ffmpeg", FFPROBE_PATH: "ffprobe" }));
     app.ctx.queue.on("job", (e) => {
       if (e.message) messages.push(e.message);
+      if (e.detail) details.push(e.detail);
     });
     const created = await app.inject({
       method: "POST",
@@ -306,6 +308,8 @@ describe.skipIf(!hasFfmpeg)("segment cache export (lavfi media)", { timeout: 300
     expect(total).toBeGreaterThanOrEqual(2);
     expect(first.result.segments).toEqual({ total, cached: 0, rendered: total });
     expect(messages.some((m) => /^(Video: )?\d+\/\d+ bloques \(\d+ en caché\)/.test(m))).toBe(true);
+    // Integration (M1 ↔ M3): the blocks are the job items (+1 audio/mux step) for the ETA.
+    expect(details.some((d) => d.unit === "blocks" && d.total === total + 1)).toBe(true);
     const cacheDir = path.join(storage, SEGMENT_CACHE_SUBDIR);
     expect(
       readdirSync(cacheDir).filter((n) => n.endsWith(".mp4") && !n.includes(".part")),

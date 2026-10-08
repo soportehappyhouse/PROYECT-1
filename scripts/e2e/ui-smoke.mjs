@@ -177,7 +177,7 @@ const groups = () =>
 
 await step("dashboard loads and core panels render", async () => {
   await page.goto(WEB, { waitUntil: "domcontentloaded" }); // SSE keeps the network busy
-  await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+  await timelineReady();
   await page.getByText("Guardado", { exact: true }).waitFor({ timeout: 15_000 });
   const t = await tabs();
   for (const name of [
@@ -385,13 +385,14 @@ await step("Export panel with presets", async () => {
 });
 
 // Feedback 2026-10-05 (items 8 and 9): tooltips with shortcuts, Space/J/K/L.
-await step("tooltip on the timeline scissors: «Cortar en el cursor (S)»", async () => {
+// Sprint 5 (M2): the tooltip explains the action (TIPS.split) instead of repeating the label.
+await step("tooltip on the timeline scissors: «Cortar el clip en el cursor (S)»", async () => {
   await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).click();
   await page.getByRole("button", { name: "Cortar en el cursor" }).hover();
   const tip = page.getByRole("tooltip");
   await tip.waitFor({ timeout: 3_000 });
   const text = (await tip.textContent())?.trim();
-  if (text !== "Cortar en el cursor (S)") throw new Error(`tooltip: ${text}`);
+  if (text !== "Cortar el clip en el cursor (S)") throw new Error(`tooltip: ${text}`);
   await page.mouse.move(0, 0);
   return { text };
 });
@@ -610,11 +611,23 @@ async function lavfiUpload(name, graph, extra = []) {
   return { ...asset, file };
 }
 /** Open a saved api project in the dashboard (local copy replaced, then reload). */
+/**
+ * Dashboard loaded and the timeline visible. Integration (sprint 5): the default layout puts the
+ * Consola Claude, Trabajos and Subtítulos in the timeline's group, and the layout is saved in the
+ * api, so after a step that opened one of them the timeline tab must be selected again.
+ */
+async function timelineReady(timeout = 60_000) {
+  await page.waitForSelector(".dv-tab", { timeout });
+  const timeline = page.locator("section[aria-label='Línea de tiempo']");
+  if (!(await timeline.count()))
+    await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).first().click();
+  await timeline.waitFor({ timeout: 15_000 });
+}
 async function openProject(id) {
   const proj = await apiJson(`/api/projects/${id}`);
   await page.evaluate((p) => localStorage.setItem("studio.project.v1", JSON.stringify(p)), proj);
   await page.reload({ waitUntil: "domcontentloaded" });
-  await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+  await timelineReady();
   await page.getByText("Guardado", { exact: true }).waitFor({ timeout: 15_000 });
   await page.locator(".dv-tab", { hasText: "Vista previa" }).click();
   await previewCanvas().waitFor({ timeout: 10_000 });
@@ -1219,7 +1232,7 @@ await step(
     if (!shared?.blendRgb) throw new Error("packages/shared/dist missing (pnpm build:packages)");
     if (!page.url().startsWith(WEB)) {
       await page.goto(WEB, { waitUntil: "domcontentloaded" });
-      await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+      await timelineReady();
     }
     const hex = (c) => c.map((v) => v.toString(16).padStart(2, "0")).join("");
     const vp9 = ["-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-crf", "8",
@@ -1305,7 +1318,7 @@ await step(
     if (!shared?.BLEND_MODES) throw new Error("packages/shared/dist missing (pnpm build:packages)");
     if (!page.url().startsWith(WEB)) {
       await page.goto(WEB, { waitUntil: "domcontentloaded" });
-      await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+      await timelineReady();
     }
     const modes = [...shared.BLEND_MODES];
     const n = modes.length + 1; // + ellipse
@@ -1432,7 +1445,7 @@ await step(
     await waitApiJob(jobId, 180_000);
     const status = await apiJson("/api/console/status?refresh=1");
     await page.goto(WEB, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+    await timelineReady();
     await page.locator(".dv-tab", { hasText: "Perfil de estilo" }).click();
     const panel = page.locator("section[aria-label='Perfil de estilo']");
     const select = panel.getByLabel("Video de referencia");
@@ -1636,7 +1649,7 @@ await step(
       throw new Error(`consent -> ${consent.status} ${await consent.text()}`);
 
     if (!page.url().startsWith(WEB)) await page.goto(WEB, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+    await timelineReady();
     await page.locator(".dv-tab", { hasText: "Voz y audio" }).click();
     const panel = page.locator("section[aria-label='Voz y audio']");
     await panel.getByRole("tab", { name: "Texto a voz" }).click();
@@ -1890,7 +1903,7 @@ await step(
   "Sprint 4: Revisión para redes detecta cara y voz IA; etiqueta al marcar redes",
   async () => {
     if (!page.url().startsWith(WEB)) await page.goto(WEB, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+    await timelineReady();
     await sleep(2_000); // autosave of the previous steps
     let { kinds } = await m3UiProject();
     if (kinds.face + kinds.cloned + kinds.synthetic === 0) {
@@ -1991,7 +2004,7 @@ const s5Playhead = async () => Number(await s5Ruler().getAttribute("aria-valueno
 async function s5Project(name, n) {
   if (!page.url().startsWith(WEB)) {
     await page.goto(WEB, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+    await timelineReady();
   }
   s5.video ??= await lavfiUpload("ui-s5.mp4", "testsrc2=s=640x360:r=25:d=6", [
     "-c:v",
@@ -2219,6 +2232,10 @@ await step(
   "Sprint 5: Proyectos: crear 2, renombrar, abrir el otro, borrar con confirmación",
   async () => {
     const dialog = () => page.getByRole("dialog", { name: "Proyectos" });
+    // Integration: unique names, so a reused storage (projects of earlier runs) cannot match twice.
+    const tag = Date.now().toString(36).slice(-6);
+    const UNO = `S5 UI uno ${tag}`;
+    const DOS = `S5 UI dos ${tag}`;
     const rename = async (to) => {
       await page.getByTestId("projects-button").click();
       const row = dialog().locator("[data-testid='project-row']", { hasText: "(abierto)" });
@@ -2233,31 +2250,33 @@ await step(
     await page.keyboard.press("Control+Alt+n");
     await page.getByTestId("project-name").filter({ hasText: "Proyecto sin título" }).waitFor();
     await sleep(1_000);
-    await rename("S5 UI uno");
+    await rename(UNO);
     await page.keyboard.press("Control+Alt+n");
     await page.getByTestId("project-name").filter({ hasText: "Proyecto sin título" }).waitFor();
     await sleep(1_000);
-    await rename("S5 UI dos");
+    await rename(DOS);
     // Ctrl+O opens the list; open the other one
     await page.mouse.click(700, 5);
     await page.keyboard.press("Control+o");
     await dialog().waitFor({ timeout: 5_000 });
-    const uno = dialog().locator("[data-testid='project-row']", { hasText: "S5 UI uno" });
+    const uno = dialog().locator("[data-testid='project-row']", { hasText: UNO });
     await uno.getByRole("button", { name: "Abrir", exact: true }).click();
-    await page.getByTestId("project-name").filter({ hasText: "S5 UI uno" }).waitFor();
+    await page.getByTestId("project-name").filter({ hasText: UNO }).waitFor();
     const s = await shot(page, "s5-proyectos.png");
     // delete «dos» with confirmation
     await page.getByTestId("projects-button").click();
-    const dos = dialog().locator("[data-testid='project-row']", { hasText: "S5 UI dos" });
+    const dos = dialog().locator("[data-testid='project-row']", { hasText: DOS });
     await dos.getByRole("button", { name: /^Borrar/ }).click();
-    await dos.getByRole("alert").filter({ hasText: "¿Borrar «S5 UI dos»?" }).waitFor();
+    await dos
+      .getByRole("alert")
+      .filter({ hasText: `¿Borrar «${DOS}»?` })
+      .waitFor();
     await dos.getByRole("button", { name: "Sí, borrar" }).click();
     await dos.waitFor({ state: "detached", timeout: 5_000 });
     await page.keyboard.press("Escape");
     const list = await apiJson("/api/projects?view=summary");
-    if (list.some((p) => p.name === "S5 UI dos")) throw new Error("«S5 UI dos» still in the api");
-    if (!list.some((p) => p.name === "S5 UI uno"))
-      throw new Error("«S5 UI uno» missing in the api");
+    if (list.some((p) => p.name === DOS)) throw new Error(`«${DOS}» still in the api`);
+    if (!list.some((p) => p.name === UNO)) throw new Error(`«${UNO}» missing in the api`);
     return { projects: list.length, shot: s };
   },
 );
@@ -2360,8 +2379,12 @@ await step(
         .click()
         .catch(() => undefined);
       const tr = page.getByRole("button", { name: /Transcribir/ }).first();
-      const transcribir = (await tr.count()) ? await tr.isDisabled() : null;
-      if (transcribir === false) throw new Error("Transcribir enabled with the workers off");
+      await tr.waitFor({ timeout: 10_000 });
+      const transcribir = await tr.isDisabled();
+      if (!transcribir) throw new Error("Transcribir enabled with the workers off");
+      // Integration: the reason (start.cmd) is the tooltip, not only «elegí un clip».
+      const trTip = (await tr.getAttribute("data-tooltip")) ?? "";
+      if (!trTip.includes("start.cmd")) throw new Error(`Transcribir tooltip: ${trTip}`);
       const s = await shot(page, "s5-workers-apagados.png");
       return { banners: count, transcribirDisabled: transcribir, shot: s };
     } finally {
@@ -2402,13 +2425,22 @@ await step("Sprint 5: Trabajos muestra 3/20, faltan ~X y Cancelar", async () => 
     await sleep(500);
   }
   if (job?.status !== "canceled") throw new Error(`job ${job?.status}`);
-  await page
+  const canceledRow = page
     .locator("[data-testid='jobs-finished'] [data-testid='job-row'][data-status='canceled']")
-    .first()
-    .waitFor({ timeout: 10_000 });
+    .first();
+  // Integration: in the full run the SSE stream can be between reconnects (the previous step
+  // reloads the page); then the row comes with «Recargar trabajos». Report which one it was.
+  let via = "sse";
+  try {
+    await canceledRow.waitFor({ timeout: 10_000 });
+  } catch {
+    via = "reload";
+    await page.getByRole("button", { name: "Recargar trabajos" }).click();
+    await canceledRow.waitFor({ timeout: 10_000 });
+  }
   // Trabajos shares the group of the timeline: give the tab back (the layout is saved in the api).
   await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).first().click();
-  return { count, stage, eta, indicator, shot: s };
+  return { count, stage, eta, indicator, via, shot: s };
 });
 // ------------------------------------------------------------------ END sprint5:M1
 
@@ -2418,7 +2450,7 @@ const s5m3 = {};
 async function s5m3Project() {
   if (!page.url().startsWith(WEB)) {
     await page.goto(WEB, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+    await timelineReady();
   }
   s5m3.video ??= await lavfiUpload("ui-s5-m3.mp4", "testsrc2=s=640x360:r=25:d=3", [
     "-f",

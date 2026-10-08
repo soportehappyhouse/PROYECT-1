@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -56,6 +56,19 @@ describe("POST /api/system/reveal", () => {
     }
     expect((await reveal("exports/no-existe.mp4")).statusCode).toBe(404);
   });
+
+  // Symlinks need extra privileges on Windows; the check is the same there.
+  it.skipIf(process.platform === "win32")(
+    "refuses a link inside exports/ that points outside (integration)",
+    async () => {
+      writeFileSync(path.join(storage, "secreto.txt"), "x");
+      symlinkSync(path.join(storage, "secreto.txt"), path.join(storage, "exports", "link.mp4"));
+      const before = calls.length;
+      const res = await reveal("exports/link.mp4");
+      expect(res.statusCode).toBe(400);
+      expect(calls.length).toBe(before);
+    },
+  );
 
   it("platform commands", () => {
     expect(revealCommand("darwin", "/s/exports/a.mp4")).toEqual([

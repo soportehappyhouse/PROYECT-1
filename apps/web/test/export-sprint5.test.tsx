@@ -7,6 +7,7 @@ import {
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ExportPanel } from "@/components/panels/ExportPanel";
+import { AssistantPanel } from "@/components/panels/AssistantPanel";
 import { PlanChoices } from "@/components/panels/PlanChoices";
 import { api } from "@/lib/api";
 import { useAgentStore } from "@/stores/agent-store";
@@ -195,5 +196,43 @@ describe("PlanChoices", () => {
       optionId: "center",
     });
     expect(useAgentStore.getState().draft?.ops[0]).toMatchObject({ aspect_fit: "center" });
+  });
+
+  it("the Assistant shows the framing question once (buttons, not the unresolved line too)", () => {
+    const question = "El video es horizontal y Reels es vertical. ¿Cómo lo encuadro?";
+    useAgentStore.getState().receivePlan({
+      id: "plan2",
+      projectId: "p1",
+      command: "Exportá para Reels",
+      status: "proposed",
+      created_at: now,
+      model: null,
+      route: "deterministic",
+      latency_ms: 1,
+      attempts: 1,
+      warnings: [],
+      ok: false,
+      plan: { version: 1, summary_es: "Reels", ops: [{ op: "export", preset: "reels-tiktok" }] },
+      resolved: [null],
+      preview_es: ["Exportar"],
+      risks: [],
+      unresolved: [`Operación 1: ${question}`, "Operación 2: otra duda"],
+      errors: [],
+      added: [],
+      choices: [
+        {
+          id: "aspect",
+          question_es: question,
+          options: [
+            { id: "center", label_es: "Recortar al centro" },
+            { id: "blur", label_es: "Dejarlo entero con franjas borrosas" },
+          ],
+        },
+      ],
+    } as unknown as AgentPlanRecord);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("[]", { status: 200 }));
+    render(<AssistantPanel />);
+    expect(screen.getAllByText(/¿Cómo lo encuadro\?/)).toHaveLength(1);
+    expect(screen.getByText("Operación 2: otra duda")).toBeTruthy();
   });
 });

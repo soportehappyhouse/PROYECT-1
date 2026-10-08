@@ -133,12 +133,12 @@ def pack_required_detail(model: str, *, url: str, version: str | None) -> str:
             f"Ollama no está corriendo en {url} (no responde /api/version). {TRAY_HINT_ES}; "
             f"si no está instalado: `winget install Ollama.Ollama` "
             f"(o scripts\\windows\\setup.cmd). "
-            f"Después descargá el modelo una sola vez en Ajustes → Paquetes o en una terminal: "
-            f"{pull}. {DOCTOR_HINT_ES}"
+            f"Después descargá el modelo una sola vez en Ajustes → Paquetes de IA o en una "
+            f"terminal: {pull}. {DOCTOR_HINT_ES}"
         )
     return (
         f"Ollama {version} está corriendo, pero falta el modelo {model}. Descargalo en Ajustes → "
-        f"Paquetes («Asistente local») o en una terminal: {pull}. {DOCTOR_HINT_ES}"
+        f"Paquetes de IA («Asistente local») o en una terminal: {pull}. {DOCTOR_HINT_ES}"
     )
 
 

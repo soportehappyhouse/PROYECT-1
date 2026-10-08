@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "actualizado": "2026-10-08T20:00:00Z",
+  "actualizado": "2026-10-08T23:00:00Z",
   "notas": "Fuente única del panel. Tokens en miles (k). 'medido': true = subagent_tokens de las notificaciones de la sesión; false = estimado por el coordinador. Fases del grupo: 0 coordinador, 1 investigación/contratos, 2 módulos en paralelo, 3 integración, 4 auditoría, 5 correcciones, 6 después del sprint (hotfix, CI, soporte).",
   "sesion": {
     "proyecto": "Studio",
@@ -8,10 +8,10 @@
     "rama": "claude/funny-mccarthy-0bbdt6",
     "inicio": "2026-10-04T14:59:00Z",
     "ultimo_commit": "fb267a0",
-    "commits": 90,
+    "commits": 97,
     "prs_mergeados": 10,
-    "estado": "PLAN-BASE v3 congelado; próximo: Sprint 5 (Roces)",
-    "proximo_sprint": "S5",
+    "estado": "Sprint 5 (Roces) integrado; próximo: Sprint 6 (guion y sistema de diseño)",
+    "proximo_sprint": "S6",
     "coordinador": {
       "modelo": "opus",
       "turnos_estimados": 94,
@@ -42,13 +42,31 @@
   ],
   "sprints": [
     {
-      "id": "S0", "nombre": "Base", "fecha": "2026-10-04", "plan": "00-PLAN-BASE", "estado": "hecho",
-      "horas": 1.5, "commits": 11,
+      "id": "S0",
+      "nombre": "Base",
+      "fecha": "2026-10-04",
+      "plan": "00-PLAN-BASE",
+      "estado": "hecho",
+      "horas": 1.5,
+      "commits": 11,
       "progreso": {"funciones": 87.5, "errores": 100, "diseno": 35, "diseno_medido": false},
       "criterios": {"verdes": 3, "amarillos": 1, "total": 4},
-      "hallazgos": {"encontrados": 6, "corregidos": 6, "abiertos": 0, "detalle": "1 bug en verificación + 5 riesgos de auditoría"},
+      "hallazgos": {
+        "encontrados": 6,
+        "corregidos": 6,
+        "abiertos": 0,
+        "detalle": "1 bug en verificación + 5 riesgos de auditoría"
+      },
       "tests": {"e2e": null, "smoke": null, "node": null, "python": null},
-      "corto": {"relanzados": 0, "costuras": 0, "hotfix_post": 0, "seguimientos": 0, "agentes_extra": 0, "incidentes": 0, "nota": "Sin registros de fallas de agentes."},
+      "corto": {
+        "relanzados": 0,
+        "costuras": 0,
+        "hotfix_post": 0,
+        "seguimientos": 0,
+        "agentes_extra": 0,
+        "incidentes": 0,
+        "nota": "Sin registros de fallas de agentes."
+      },
       "agentes": [
         {"id": "inv-motion", "rol": "Investigación motion", "tipo": "investigacion", "modelo": "sonnet", "fase": 1, "k": 200, "medido": false},
         {"id": "inv-voz", "rol": "Investigación voz/audio", "tipo": "investigacion", "modelo": "sonnet", "fase": 1, "k": 200, "medido": false},
@@ -64,13 +82,31 @@
       ]
     },
     {
-      "id": "R2", "nombre": "Manual, QA y canal de errores", "fecha": "2026-10-04", "plan": "00-PLAN-BASE", "estado": "hecho",
-      "horas": 5.4, "commits": 8,
+      "id": "R2",
+      "nombre": "Manual, QA y canal de errores",
+      "fecha": "2026-10-04",
+      "plan": "00-PLAN-BASE",
+      "estado": "hecho",
+      "horas": 5.4,
+      "commits": 8,
       "progreso": {"funciones": 100, "errores": 56, "diseno": 40, "diseno_medido": false},
       "criterios": {"verdes": 4, "amarillos": 0, "total": 4},
-      "hallazgos": {"encontrados": 18, "corregidos": 10, "abiertos": 8, "detalle": "16 bugs de QA (8 corregidos, resto a MEJORAS.md) + 2 fallos de CI Windows"},
+      "hallazgos": {
+        "encontrados": 18,
+        "corregidos": 10,
+        "abiertos": 8,
+        "detalle": "16 bugs de QA (8 corregidos, resto a MEJORAS.md) + 2 fallos de CI Windows"
+      },
       "tests": {"e2e": 23, "smoke": 12, "node": null, "python": null},
-      "corto": {"relanzados": 0, "costuras": 0, "hotfix_post": 1, "seguimientos": 0, "agentes_extra": 0, "incidentes": 0, "nota": "2 fallos de CI en Windows corregidos en el commit siguiente."},
+      "corto": {
+        "relanzados": 0,
+        "costuras": 0,
+        "hotfix_post": 1,
+        "seguimientos": 0,
+        "agentes_extra": 0,
+        "incidentes": 0,
+        "nota": "2 fallos de CI en Windows corregidos en el commit siguiente."
+      },
       "agentes": [
         {"id": "qa", "rol": "QA de punta a punta", "tipo": "modulo", "modelo": "opus", "fase": 2, "k": 300, "medido": false},
         {"id": "err", "rol": "Canal de errores", "tipo": "modulo", "modelo": "opus", "fase": 2, "k": 300, "medido": false},
@@ -79,13 +115,31 @@
       ]
     },
     {
-      "id": "R2b", "nombre": "Prueba real, instalador y PLAN v2", "fecha": "2026-10-05", "plan": "01-PLAN-BASE-v2", "estado": "hecho",
-      "horas": 1.5, "commits": 6,
+      "id": "R2b",
+      "nombre": "Prueba real, instalador y PLAN v2",
+      "fecha": "2026-10-05",
+      "plan": "01-PLAN-BASE-v2",
+      "estado": "hecho",
+      "horas": 1.5,
+      "commits": 6,
       "progreso": {"funciones": 100, "errores": 100, "diseno": 45, "diseno_medido": false},
       "criterios": {"verdes": 1, "amarillos": 0, "total": 1},
-      "hallazgos": {"encontrados": 12, "corregidos": 12, "abiertos": 0, "detalle": "12 bugs de la primera prueba en la PC (varios resueltos como funciones del Sprint 1)"},
+      "hallazgos": {
+        "encontrados": 12,
+        "corregidos": 12,
+        "abiertos": 0,
+        "detalle": "12 bugs de la primera prueba en la PC (varios resueltos como funciones del Sprint 1)"
+      },
       "tests": {"e2e": null, "smoke": null, "node": null, "python": null},
-      "corto": {"relanzados": 0, "costuras": 0, "hotfix_post": 0, "seguimientos": 0, "agentes_extra": 0, "incidentes": 0, "nota": "Agentes inferidos de los commits."},
+      "corto": {
+        "relanzados": 0,
+        "costuras": 0,
+        "hotfix_post": 0,
+        "seguimientos": 0,
+        "agentes_extra": 0,
+        "incidentes": 0,
+        "nota": "Agentes inferidos de los commits."
+      },
       "agentes": [
         {"id": "inv-ia", "rol": "Investigación IA local", "tipo": "investigacion", "modelo": "sonnet", "fase": 1, "k": 250, "medido": false},
         {"id": "inst", "rol": "Instalador incremental", "tipo": "modulo", "modelo": "opus", "fase": 2, "k": 300, "medido": false},
@@ -93,13 +147,31 @@
       ]
     },
     {
-      "id": "S1", "nombre": "Fase A: IA local determinista", "fecha": "2026-10-05", "plan": "01-PLAN-BASE-v2", "estado": "hecho",
-      "horas": 2.7, "commits": 10,
+      "id": "S1",
+      "nombre": "Fase A: IA local determinista",
+      "fecha": "2026-10-05",
+      "plan": "01-PLAN-BASE-v2",
+      "estado": "hecho",
+      "horas": 2.7,
+      "commits": 10,
       "progreso": {"funciones": 66.7, "errores": 100, "diseno": 45, "diseno_medido": false},
       "criterios": {"verdes": 1, "amarillos": 2, "total": 3},
-      "hallazgos": {"encontrados": 14, "corregidos": 14, "abiertos": 0, "detalle": "6 reconciliaciones de integración + 3 desvíos + 5 riesgos de auditoría"},
+      "hallazgos": {
+        "encontrados": 14,
+        "corregidos": 14,
+        "abiertos": 0,
+        "detalle": "6 reconciliaciones de integración + 3 desvíos + 5 riesgos de auditoría"
+      },
       "tests": {"e2e": 33, "smoke": 17, "node": 332, "python": 81},
-      "corto": {"relanzados": 0, "costuras": 6, "hotfix_post": 1, "seguimientos": 0, "agentes_extra": 1, "incidentes": 0, "nota": "Búsqueda extra (HyperFrames); fix de progreso después de la auditoría."},
+      "corto": {
+        "relanzados": 0,
+        "costuras": 6,
+        "hotfix_post": 1,
+        "seguimientos": 0,
+        "agentes_extra": 1,
+        "incidentes": 0,
+        "nota": "Búsqueda extra (HyperFrames); fix de progreso después de la auditoría."
+      },
       "agentes": [
         {"id": "con", "rol": "Contratos", "tipo": "contratos", "modelo": "opus", "fase": 1, "k": 200, "medido": false},
         {"id": "inv-hf", "rol": "Búsqueda HyperFrames", "tipo": "investigacion", "modelo": "sonnet", "fase": 1, "k": 150, "medido": false},
@@ -112,13 +184,31 @@
       ]
     },
     {
-      "id": "S2", "nombre": "Fase B: visión y keyframes", "fecha": "2026-10-05", "plan": "01-PLAN-BASE-v2", "estado": "hecho",
-      "horas": 2.5, "commits": 8,
+      "id": "S2",
+      "nombre": "Fase B: visión y keyframes",
+      "fecha": "2026-10-05",
+      "plan": "01-PLAN-BASE-v2",
+      "estado": "hecho",
+      "horas": 2.5,
+      "commits": 8,
       "progreso": {"funciones": 87.5, "errores": 100, "diseno": 50, "diseno_medido": false},
       "criterios": {"verdes": 3, "amarillos": 1, "total": 4},
-      "hallazgos": {"encontrados": 15, "corregidos": 15, "abiertos": 0, "detalle": "8 reconciliaciones de integración + 7 de auditoría"},
+      "hallazgos": {
+        "encontrados": 15,
+        "corregidos": 15,
+        "abiertos": 0,
+        "detalle": "8 reconciliaciones de integración + 7 de auditoría"
+      },
       "tests": {"e2e": 41, "smoke": 25, "node": 420, "python": 128},
-      "corto": {"relanzados": 0, "costuras": 8, "hotfix_post": 1, "seguimientos": 0, "agentes_extra": 0, "incidentes": 0, "nota": "Test de pip/uv dependiente del host corregido después."},
+      "corto": {
+        "relanzados": 0,
+        "costuras": 8,
+        "hotfix_post": 1,
+        "seguimientos": 0,
+        "agentes_extra": 0,
+        "incidentes": 0,
+        "nota": "Test de pip/uv dependiente del host corregido después."
+      },
       "agentes": [
         {"id": "con", "rol": "Contratos", "tipo": "contratos", "modelo": "opus", "fase": 1, "k": 200, "medido": false},
         {"id": "m-wrk", "rol": "Módulo workers visión", "tipo": "modulo", "modelo": "opus", "fase": 2, "k": 400, "medido": false},
@@ -130,13 +220,31 @@
       ]
     },
     {
-      "id": "S3", "nombre": "Fase D: agente local", "fecha": "2026-10-05", "plan": "01-PLAN-BASE-v2", "estado": "hecho",
-      "horas": 2.2, "commits": 10,
+      "id": "S3",
+      "nombre": "Fase D: agente local",
+      "fecha": "2026-10-05",
+      "plan": "01-PLAN-BASE-v2",
+      "estado": "hecho",
+      "horas": 2.2,
+      "commits": 10,
       "progreso": {"funciones": 50, "errores": 100, "diseno": 50, "diseno_medido": false},
       "criterios": {"verdes": 0, "amarillos": 1, "total": 1},
-      "hallazgos": {"encontrados": 15, "corregidos": 15, "abiertos": 0, "detalle": "8 reconciliaciones de integración + 5 riesgos y 2 brechas de auditoría"},
+      "hallazgos": {
+        "encontrados": 15,
+        "corregidos": 15,
+        "abiertos": 0,
+        "detalle": "8 reconciliaciones de integración + 5 riesgos y 2 brechas de auditoría"
+      },
       "tests": {"e2e": 48, "smoke": 29, "node": 469, "python": 290},
-      "corto": {"relanzados": 0, "costuras": 8, "hotfix_post": 0, "seguimientos": 0, "agentes_extra": 1, "incidentes": 0, "nota": "Agente extra de rendimiento del recorte (pedido aparte)."},
+      "corto": {
+        "relanzados": 0,
+        "costuras": 8,
+        "hotfix_post": 0,
+        "seguimientos": 0,
+        "agentes_extra": 1,
+        "incidentes": 0,
+        "nota": "Agente extra de rendimiento del recorte (pedido aparte)."
+      },
       "agentes": [
         {"id": "con", "rol": "Contratos", "tipo": "contratos", "modelo": "opus", "fase": 1, "k": 200, "medido": false},
         {"id": "m-ds", "rol": "Prompt y dataset", "tipo": "modulo", "modelo": "opus", "fase": 2, "k": 350, "medido": false},
@@ -150,13 +258,31 @@
       ]
     },
     {
-      "id": "S3b", "nombre": "Estilo, Consola Claude, stems, capas", "fecha": "2026-10-06", "plan": "01-PLAN-BASE-v2", "estado": "hecho",
-      "horas": 15.2, "commits": 10,
+      "id": "S3b",
+      "nombre": "Estilo, Consola Claude, stems, capas",
+      "fecha": "2026-10-06",
+      "plan": "01-PLAN-BASE-v2",
+      "estado": "hecho",
+      "horas": 15.2,
+      "commits": 10,
       "progreso": {"funciones": 75, "errores": 100, "diseno": 50, "diseno_medido": false},
       "criterios": {"verdes": 3, "amarillos": 3, "total": 6},
-      "hallazgos": {"encontrados": 17, "corregidos": 17, "abiertos": 0, "detalle": "2 bugs entre módulos + 14 de auditoría + 1 fallo de CI Windows"},
+      "hallazgos": {
+        "encontrados": 17,
+        "corregidos": 17,
+        "abiertos": 0,
+        "detalle": "2 bugs entre módulos + 14 de auditoría + 1 fallo de CI Windows"
+      },
       "tests": {"e2e": 57, "smoke": 33, "node": 585, "python": 331},
-      "corto": {"relanzados": 5, "costuras": 2, "hotfix_post": 1, "seguimientos": 0, "agentes_extra": 1, "incidentes": 0, "nota": "5 agentes murieron por el límite de sesión de Opus y se relanzaron; agente haiku extra para el test de Windows."},
+      "corto": {
+        "relanzados": 5,
+        "costuras": 2,
+        "hotfix_post": 1,
+        "seguimientos": 0,
+        "agentes_extra": 1,
+        "incidentes": 0,
+        "nota": "5 agentes murieron por el límite de sesión de Opus y se relanzaron; agente haiku extra para el test de Windows."
+      },
       "agentes": [
         {"id": "con", "rol": "Contratos", "tipo": "contratos", "modelo": "opus", "fase": 1, "k": 250, "medido": false},
         {"id": "m-con", "rol": "Módulo consola", "tipo": "modulo", "modelo": "opus", "fase": 2, "k": 400, "medido": false, "murio": "límite de sesión", "relanzado": 1},
@@ -172,13 +298,31 @@
       ]
     },
     {
-      "id": "S4", "nombre": "Fase C: cara y voz", "fecha": "2026-10-06", "plan": "01-PLAN-BASE-v2", "estado": "hecho",
-      "horas": 9, "commits": 25,
+      "id": "S4",
+      "nombre": "Fase C: cara y voz",
+      "fecha": "2026-10-06",
+      "plan": "01-PLAN-BASE-v2",
+      "estado": "hecho",
+      "horas": 9,
+      "commits": 25,
       "progreso": {"funciones": 87.5, "errores": 100, "diseno": 50, "diseno_medido": false},
       "criterios": {"verdes": 3, "amarillos": 1, "total": 4},
-      "hallazgos": {"encontrados": 46, "corregidos": 42, "abiertos": 4, "detalle": "9 bugs entre módulos + 24 hallazgos y 5 puntos abiertos de auditoría + 1 CI + 3 hotfix de la prueba del usuario; 4 en «Descubierto»"},
+      "hallazgos": {
+        "encontrados": 46,
+        "corregidos": 42,
+        "abiertos": 4,
+        "detalle": "9 bugs entre módulos + 24 hallazgos y 5 puntos abiertos de auditoría + 1 CI + 3 hotfix de la prueba del usuario; 4 en «Descubierto»"
+      },
       "tests": {"e2e": 74, "smoke": 38, "node": 713, "python": 459},
-      "corto": {"relanzados": 2, "costuras": 9, "hotfix_post": 3, "seguimientos": 1, "agentes_extra": 6, "incidentes": 1, "nota": "Correcciones murió por 429 y después por reinicio del contenedor; incidente del índice git en M2; 3 hotfix tras la prueba (manifiesto, sello del instalador, URL del modelo); 1 mensaje extra a la auditoría (voices.json)."},
+      "corto": {
+        "relanzados": 2,
+        "costuras": 9,
+        "hotfix_post": 3,
+        "seguimientos": 1,
+        "agentes_extra": 6,
+        "incidentes": 1,
+        "nota": "Correcciones murió por 429 y después por reinicio del contenedor; incidente del índice git en M2; 3 hotfix tras la prueba (manifiesto, sello del instalador, URL del modelo); 1 mensaje extra a la auditoría (voices.json)."
+      },
       "agentes": [
         {"id": "inv", "rol": "Investigación", "tipo": "investigacion", "modelo": "sonnet", "fase": 1, "k": 319, "medido": true},
         {"id": "con", "rol": "Contratos", "tipo": "contratos", "modelo": "opus", "fase": 1, "k": 390, "medido": true},
@@ -202,39 +346,127 @@
       ]
     },
     {
-      "id": "FL", "nombre": "Fluidez y PLAN v3", "fecha": "2026-10-08", "plan": "02-PLAN-BASE-v3", "estado": "hecho",
-      "horas": 3, "commits": 2,
-      "progreso": {"funciones": null, "errores": 0, "diseno": 50.4, "diseno_medido": true, "diseno_nota": "Mapa de calor de la auditoría: promedio 2,52 de 5"},
+      "id": "FL",
+      "nombre": "Fluidez y PLAN v3",
+      "fecha": "2026-10-08",
+      "plan": "02-PLAN-BASE-v3",
+      "estado": "hecho",
+      "horas": 3,
+      "commits": 2,
+      "progreso": {
+        "funciones": null,
+        "errores": 0,
+        "diseno": 50.4,
+        "diseno_medido": true,
+        "diseno_nota": "Mapa de calor de la auditoría: promedio 2,52 de 5"
+      },
       "criterios": {"verdes": 0, "amarillos": 0, "total": 0},
-      "hallazgos": {"encontrados": 26, "corregidos": 0, "abiertos": 26, "detalle": "Auditoría de fluidez: 6 altos, 16 medios, 4 bajos (van a los sprints 5 a 7)"},
+      "hallazgos": {
+        "encontrados": 26,
+        "corregidos": 0,
+        "abiertos": 26,
+        "detalle": "Auditoría de fluidez: 6 altos, 16 medios, 4 bajos (van a los sprints 5 a 7)"
+      },
       "tests": {"e2e": null, "smoke": null, "node": null, "python": null},
-      "corto": {"relanzados": 0, "costuras": 0, "hotfix_post": 0, "seguimientos": 0, "agentes_extra": 0, "incidentes": 0, "nota": ""},
+      "corto": {
+        "relanzados": 0,
+        "costuras": 0,
+        "hotfix_post": 0,
+        "seguimientos": 0,
+        "agentes_extra": 0,
+        "incidentes": 0,
+        "nota": ""
+      },
       "agentes": [
         {"id": "ref", "rol": "Referencias de editores", "tipo": "investigacion", "modelo": "sonnet", "fase": 1, "k": 141, "medido": true},
         {"id": "ux", "rol": "Auditoría UX", "tipo": "auditoria", "modelo": "opus", "fase": 4, "k": 212, "medido": true}
       ]
     },
-    {"id": "S5", "nombre": "Roces", "fecha": null, "plan": "02-PLAN-BASE-v3", "estado": "planeado", "horas": null, "commits": 0,
-      "progreso": {"funciones": 0, "errores": 0, "diseno": 50, "diseno_medido": false}, "criterios": {"verdes": 0, "amarillos": 0, "total": 4},
-      "hallazgos": {"encontrados": 0, "corregidos": 0, "abiertos": 0, "detalle": "Toma los 6 hallazgos altos y la mayoría de los medios"}, "tests": {}, "corto": null, "agentes": []},
-    {"id": "S6", "nombre": "Guion y sistema de diseño", "fecha": null, "plan": "02-PLAN-BASE-v3", "estado": "planeado", "horas": null, "commits": 0,
-      "progreso": {"funciones": 0, "errores": 0, "diseno": 50, "diseno_medido": false}, "criterios": {"verdes": 0, "amarillos": 0, "total": 2},
-      "hallazgos": {"encontrados": 0, "corregidos": 0, "abiertos": 0, "detalle": ""}, "tests": {}, "corto": null, "agentes": []},
-    {"id": "S7", "nombre": "Lazo autónomo", "fecha": null, "plan": "02-PLAN-BASE-v3", "estado": "planeado", "horas": null, "commits": 0,
-      "progreso": {"funciones": 0, "errores": 0, "diseno": 50, "diseno_medido": false}, "criterios": {"verdes": 0, "amarillos": 0, "total": 1},
-      "hallazgos": {"encontrados": 0, "corregidos": 0, "abiertos": 0, "detalle": ""}, "tests": {}, "corto": null, "agentes": []}
+    {
+      "id": "S5",
+      "nombre": "Roces",
+      "fecha": "2026-10-08",
+      "plan": "02-PLAN-BASE-v3",
+      "estado": "hecho",
+      "horas": 8,
+      "commits": 6,
+      "progreso": {"funciones": 100, "errores": 100, "diseno": 50, "diseno_medido": false},
+      "criterios": {"verdes": 4, "amarillos": 0, "total": 4},
+      "hallazgos": {
+        "encontrados": 38,
+        "corregidos": 29,
+        "abiertos": 9,
+        "detalle": "Auditoría de fluidez: 17 de 26 cerrados (2 parciales, 7 a Sprint 6) + 12 costuras de integración arregladas"
+      },
+      "tests": {"e2e": 82, "smoke": 56, "node": 863, "python": 492},
+      "corto": {
+        "relanzados": 0,
+        "costuras": 12,
+        "hotfix_post": 0,
+        "seguimientos": 0,
+        "agentes_extra": 0,
+        "incidentes": 0,
+        "pedidos_cruzados": 13,
+        "nota": "Ningún agente murió. 13 pedidos cruzados (M1 6, M2 3, M3 4) resueltos en la integración; 12 costuras arregladas (botones de IA sin useAiAvailability, motivo invisible en botones de texto, ETA del export, rol de la Biblioteca, autoDuck sin guardar, pregunta repetida, layout nuevo vs ui-smoke, pytest dependiente del orden, …)."
+      },
+      "agentes": [
+        {"id": "con", "rol": "Contratos", "tipo": "contratos", "modelo": "opus", "fase": 1, "k": 215, "medido": true},
+        {"id": "p0", "rol": "Paso 0", "tipo": "contratos", "modelo": "opus", "fase": 1, "k": 184, "medido": true},
+        {"id": "m1", "rol": "M1 trabajos", "tipo": "modulo", "modelo": "opus", "fase": 2, "k": 502, "medido": true},
+        {"id": "m2", "rol": "M2 fluidez", "tipo": "modulo", "modelo": "opus", "fase": 2, "k": 426, "medido": true},
+        {"id": "m3", "rol": "M3 export", "tipo": "modulo", "modelo": "opus", "fase": 2, "k": 440, "medido": true},
+        {"id": "int", "rol": "Integración", "tipo": "integracion", "modelo": "opus", "fase": 3, "k": 500, "medido": false, "nota": "Estimado por el propio agente"}
+      ]
+    },
+    {
+      "id": "S6",
+      "nombre": "Guion y sistema de diseño",
+      "fecha": null,
+      "plan": "02-PLAN-BASE-v3",
+      "estado": "planeado",
+      "horas": null,
+      "commits": 0,
+      "progreso": {"funciones": 0, "errores": 0, "diseno": 50, "diseno_medido": false},
+      "criterios": {"verdes": 0, "amarillos": 0, "total": 2},
+      "hallazgos": {"encontrados": 0, "corregidos": 0, "abiertos": 0, "detalle": ""},
+      "tests": {},
+      "corto": null,
+      "agentes": []
+    },
+    {
+      "id": "S7",
+      "nombre": "Lazo autónomo",
+      "fecha": null,
+      "plan": "02-PLAN-BASE-v3",
+      "estado": "planeado",
+      "horas": null,
+      "commits": 0,
+      "progreso": {"funciones": 0, "errores": 0, "diseno": 50, "diseno_medido": false},
+      "criterios": {"verdes": 0, "amarillos": 0, "total": 1},
+      "hallazgos": {"encontrados": 0, "corregidos": 0, "abiertos": 0, "detalle": ""},
+      "tests": {},
+      "corto": null,
+      "agentes": []
+    }
   ],
   "abiertos": [
-    {"origen": "Auditoría de fluidez", "sev": "alta", "n": 6, "texto": "Evaluar modelos sin progreso, aviso «Error» sin detalle, toasts repetidos, workers caídos sin aviso único, atajos muertos tras clicar la regla, Reels desde horizontal con franjas"},
-    {"origen": "Auditoría de fluidez", "sev": "media", "n": 16, "texto": "Abrir proyectos, ripple, multiselección, edición por guion, motion en inglés, sistema de diseño, export en códecs, tooltips, autoguardado…"},
-    {"origen": "Auditoría de fluidez", "sev": "baja", "n": 4, "texto": "Etiquetas «IA local», 3 avisos por clic en CPU, deshacer corto, primer arranque mudo"},
+    {"origen": "Auditoría de fluidez", "sev": "media", "n": 7, "texto": "Sprint 6: conservar words al corregir, Motion en español, editar motion en Propiedades, sistema de diseño, medios generados/duplicados, selector de voz único, deshacer de ajustes"},
+    {"origen": "Auditoría de fluidez", "sev": "baja", "n": 2, "texto": "Parciales: reabrir el último plan tras recargar (H18); glosario y nombres de voces (H19)"},
+    {"origen": "Sprint 5 · Descubierto", "sev": "baja", "n": 1, "texto": "Fila cancelada sin SSE tras recargar (ui-smoke, intermitente)"},
     {"origen": "Sprint 4 · Descubierto", "sev": "media", "n": 4, "texto": "PIN local, filtro NSFW de fotos de Persona, hashes de Hugging Face, texto real del rechazo NSFW"},
     {"origen": "R2 · MEJORAS.md", "sev": "baja", "n": 8, "texto": "Backlog de QA no reconciliado con los sprints (varios ya resueltos)"}
   ],
   "pendiente_pc": [
-    "Recorte ≥ 15 fps 1080p (S2)", "Evaluar modelos qwen3:8b ≥ 90 % (S3)", "Consola con claude real (S3b)",
-    "Stems 1 min < 60 s en GPU y sha256 de Demucs (S3b)", "Halos HQ en clip real (S3b)",
-    "FaceFusion fps, Chatterbox RTF, RVC < 15 s/min (S4)", "Re-render con NVENC < 20 % (S1)"
+    "Recorte ≥ 15 fps 1080p (S2)",
+    "Evaluar modelos qwen3:8b ≥ 90 % (S3)",
+    "Consola con claude real (S3b)",
+    "Stems 1 min < 60 s en GPU y sha256 de Demucs (S3b)",
+    "Halos HQ en clip real (S3b)",
+    "FaceFusion fps, Chatterbox RTF, RVC < 15 s/min (S4)",
+    "Re-render con NVENC < 20 % (S1)",
+    "Evaluar modelos Rápida ≤ 3 min y Ollama corta al cancelar (S5)",
+    "Ctrl+O en Edge, 125 % en 1366 px (S5)",
+    "loudnorm 2 pasadas en 10 min y «Abrir carpeta» con tildes (S5)"
   ],
   "estimador": [
     {"id": "pregunta", "nombre": "Pregunta o consulta", "k": [5, 40], "agentes": [0, 0], "minutos": [1, 5], "base": "Solo el coordinador; sin agentes."},

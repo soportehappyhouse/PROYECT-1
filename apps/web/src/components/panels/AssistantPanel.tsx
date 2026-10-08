@@ -557,11 +557,14 @@ function PlanView() {
             ))}
           </ul>
         ) : null}
-        {[...(record.unresolved ?? []), ...(record.errors ?? [])].map((u) => (
-          <p key={u} className="rounded-md bg-amber-500/10 px-2 py-1 text-xs">
-            {u}
-          </p>
-        ))}
+        {[...(record.unresolved ?? []), ...(record.errors ?? [])]
+          // Integration (M3): a framing question already shown as PlanChoices buttons.
+          .filter((u) => !(record.choices ?? []).some((c) => u.includes(c.question_es)))
+          .map((u) => (
+            <p key={u} className="rounded-md bg-amber-500/10 px-2 py-1 text-xs">
+              {u}
+            </p>
+          ))}
         <QuestionsForm />
         {/* BEGIN sprint5:M3 */}
         <PlanChoices />

@@ -10,6 +10,7 @@ import {
   type SubtitleSegment,
   type Track,
   type TrackKind,
+  type TrackRole,
 } from "@studio/shared";
 import { create } from "zustand";
 import { clamp, roundTime } from "@/lib/format";
@@ -116,7 +117,14 @@ export interface ProjectState {
   removeTrack: (trackId: string) => void;
 
   // --- clips (record=false skips the undo snapshot, for continuous gestures)
-  addAssetClip: (asset: MediaAsset, opts?: { trackId?: string; start?: number }) => Clip;
+  /**
+   * `role` (Biblioteca, integration M3 ↔ M2): an audio clip goes to a track with that role (or an
+   * empty one, or a new one) and a track without role takes it, in the same undo step.
+   */
+  addAssetClip: (
+    asset: MediaAsset,
+    opts?: { trackId?: string; start?: number; role?: TrackRole },
+  ) => Clip;
   addTextClip: (opts?: { trackId?: string; start?: number; text?: string }) => Clip;
   addClip: (kind: TrackKind, clip: Omit<Clip, "trackId">, trackId?: string) => Clip;
   moveClip: (clipId: string, start: number, trackId?: string, record?: boolean) => void;
@@ -163,6 +171,8 @@ export interface ProjectState {
   setBurnSubtitles: (burn: boolean) => void;
   /** «Revisión para redes» (project.publish); not part of undo. */
   setPublish: (patch: Parameters<typeof nextPublish>[1]) => void;
+  /** Exportar → Sonido «Bajar la música cuando hay voz» (project.audioMix); not part of undo. */
+  setAudioMix: (patch: Partial<NonNullable<Project["audioMix"]>>) => void;
   updateSubtitle: (index: number, patch: Partial<SubtitleSegment>) => void;
   removeSubtitle: (index: number) => void;
   addSubtitle: (segment?: SubtitleSegment) => void;
@@ -544,7 +554,20 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
         });
       } else get().checkpoint();
       const kind = trackKindForAsset(asset);
-      let trackId = ensureTrack(kind, opts.trackId);
+      let wantedTrackId = opts.trackId;
+      if (opts.role && !wantedTrackId && kind === "audio") {
+        const tracks = get().project.tracks;
+        const target =
+          tracks.find((t) => t.kind === "audio" && !t.locked && t.role === opts.role) ??
+          tracks.find((t) => t.kind === "audio" && !t.locked && !t.role && t.clips.length === 0);
+        if (target) wantedTrackId = target.id;
+        else {
+          const created = createTrack("audio", tracks);
+          set({ project: { ...get().project, tracks: [...tracks, created] } });
+          wantedTrackId = created.id;
+        }
+      }
+      let trackId = ensureTrack(kind, wantedTrackId);
       const track = get().project.tracks.find((t) => t.id === trackId)!;
       const base = createClipFromAsset(asset, trackId, opts.start ?? get().playhead);
       const length = clipEnd(base) - base.start;
@@ -561,7 +584,15 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
           trackId,
         },
       );
-      commit((p) => ({ tracks: insertClip(p.tracks, clip) }), false);
+      const role = opts.role;
+      commit(
+        (p) => ({
+          tracks: insertClip(p.tracks, clip).map((t) =>
+            role && t.id === clip.trackId && !t.role ? { ...t, role } : t,
+          ),
+        }),
+        false,
+      );
       set(single(clip.id));
       return clip;
     },
@@ -775,6 +806,15 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
       addBreadcrumb("project", "Cambió la revisión para redes", { ...patch }, "project:publish");
       const next: ProjectWithPublish = { ...project, publish, updatedAt: new Date().toISOString() };
       set({ project: next, saveState: "dirty" });
+    },
+    setAudioMix: (patch) => {
+      const { project } = get();
+      const audioMix = { autoDuck: true, duckDb: -12, ...project.audioMix, ...patch };
+      addBreadcrumb("project", "Cambió la mezcla de audio", { ...patch }, "project:audioMix");
+      set({
+        project: { ...project, audioMix, updatedAt: new Date().toISOString() },
+        saveState: "dirty",
+      });
     },
     updateSubtitle: (index, patch) =>
       commit((p) => ({

@@ -117,13 +117,13 @@ def pack_detail(model: str, *, ollama_up: bool, url: str) -> str:
     if not ollama_up:
         return (
             f"Ollama no está corriendo en {url}: abrilo desde el menú Inicio (queda en la bandeja "
-            f"del sistema) y descargá el modelo de visión «{model}» en Ajustes → Paquetes "
+            f"del sistema) y descargá el modelo de visión «{model}» en Ajustes → Paquetes de IA "
             f"(«Modelo de visión local», ~3,2 GB) o con `ollama pull {model}`; "
             f"{CONSOLE_HINT_ES}."
         )
     return (
         f"Falta el modelo de visión local «{model}» (paquete vision-llm, ~3,2 GB). Descargalo en "
-        f"Ajustes → Paquetes o en una terminal: `ollama pull {model}`; {CONSOLE_HINT_ES}."
+        f"Ajustes → Paquetes de IA o en una terminal: `ollama pull {model}`; {CONSOLE_HINT_ES}."
     )
 
 

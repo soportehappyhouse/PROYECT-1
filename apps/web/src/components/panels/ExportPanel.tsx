@@ -256,7 +256,9 @@ export function ExportPanel() {
   const [busy, setBusy] = useState(false);
   const [aspectFit, setAspectFit] = useState<AspectFit | undefined>(undefined);
   const [normalize, setNormalize] = useState(true);
-  const [autoDuck, setAutoDuck] = useState(project.audioMix?.autoDuck ?? true);
+  // Integration (M3 ↔ M2): saved in project.audioMix so «Bajar la música» persists.
+  const autoDuck = project.audioMix?.autoDuck ?? true;
+  const setAutoDuck = (on: boolean) => useProjectStore.getState().setAudioMix({ autoDuck: on });
   const socialRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {

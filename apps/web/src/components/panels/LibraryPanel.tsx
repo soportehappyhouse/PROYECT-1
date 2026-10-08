@@ -1,6 +1,12 @@
 "use client";
 
-import type { LibraryItem, LibraryItemKind, LibraryProvider, Paginated } from "@studio/shared";
+import {
+  libraryRole,
+  type LibraryItem,
+  type LibraryItemKind,
+  type LibraryProvider,
+  type Paginated,
+} from "@studio/shared";
 import { Pause, Play, Plus, RefreshCw, Search, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -80,7 +86,8 @@ export function LibraryPanel() {
     try {
       const asset = await api.importLibraryItem(item.provider, item.id);
       useMediaStore.getState().upsert(asset);
-      useProjectStore.getState().addAssetClip(asset);
+      // Integration (M3 ↔ M2): music/ambience → «Música» track (auto ducking), the rest «Efectos».
+      useProjectStore.getState().addAssetClip(asset, { role: libraryRole(item.kind) });
       toast.success(`Añadido: ${item.name}`);
     } catch (err) {
       if (isNotImplemented(err)) toast.info("Importar desde la biblioteca: módulo en desarrollo");

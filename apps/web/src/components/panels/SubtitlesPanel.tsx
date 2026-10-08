@@ -298,7 +298,12 @@ export function SubtitlesPanel() {
               </Select>
             </Label>
           </div>
-          <Button size="sm" disabled={busy || !hasAudio(sel)} onClick={() => void transcribe()}>
+          <Button
+            size="sm"
+            disabled={busy || !hasAudio(sel) || !ai.enabled}
+            disabledReason={ai.reason_es}
+            onClick={() => void transcribe()}
+          >
             {busy ? <Spinner /> : null} Transcribir clip
           </Button>
         </Section>

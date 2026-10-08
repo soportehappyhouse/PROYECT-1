@@ -99,6 +99,20 @@ describe("TIPS", () => {
     expect(bg!.dataset.tooltip).toBe(`${TIPS.removeBg}. La IA local está apagada`);
   });
 
+  it("a text button without its own tooltip shows the disabled reason (integration)", () => {
+    const { container } = render(
+      <>
+        <Button disabled disabledReason="La IA local está apagada">
+          Transcribir clip
+        </Button>
+        <Button disabledReason="no se muestra">Habilitado</Button>
+      </>,
+    );
+    const [off, on] = [...container.querySelectorAll("button")];
+    expect(off!.dataset.tooltip).toBe("La IA local está apagada");
+    expect(on!.dataset.tooltip).toBeUndefined();
+  });
+
   it("every icon button of the timeline panel explains itself", () => {
     useProjectStore.getState().loadProject(createEmptyProject("Tips"));
     const { container } = render(

@@ -25,7 +25,7 @@ código de Studio, leé primero `docs/ARQUITECTURA.md` y `docs/01-PLAN-BASE-v2.m
 5. No inventes ids ni tiempos: sacalos de `studio_get_project` / `studio_list_assets`. Si falta un
    dato, preguntá.
 6. Trabajos largos (transcribir, quitar fondo, exportar): lanzalos y esperalos con
-   `studio_wait_job`; contá el progreso en una línea.
+   `studio_wait_job`; contá el progreso en una línea (el job trae `detail.stage_es` y `eta_s`).
 7. **Nunca registres consentimientos ni aceptes licencias**: no hay herramienta y la API lo rechaza
    (`HUMAN_ONLY`); pedile al usuario que lo haga en Ajustes → Personas / Paquetes de IA. Antes de
    `studio_face_swap` (o de confirmar un `face_swap`) preguntá: «¿Cambio la cara de «clip» por la de
@@ -47,7 +47,7 @@ código de Studio, leé primero `docs/ARQUITECTURA.md` y `docs/01-PLAN-BASE-v2.m
 | `studio_apply_plan {planId, confirmedIndexes}`   | Aplica (con instantánea para deshacer) y espera el resultado                |
 | `studio_run_job {type, payload}`                 | Transcribir, escenas, silencios, fondo, reencuadre, voz, stems…             |
 | `studio_get_job` / `studio_wait_job`             | Estado y resultado de un trabajo (`files`: rutas absolutas)                 |
-| `studio_export {preset, confirmed}`              | Exportar (solo con confirmación del usuario)                                |
+| `studio_export {preset, confirmed, aspectFit?}`  | Exportar con confirmación del usuario; `aspectFit` si cambia el aspecto     |
 | `studio_style_analyze {assetId}`                 | Análisis de un video de referencia + hoja de contactos PNG                  |
 | `studio_style_save_preset {preset}`              | Guardar un perfil de estilo (`StylePreset`)                                 |
 | `studio_style_apply {presetId}`                  | Perfil → plan propuesto (aplicalo con `studio_apply_plan`)                  |
@@ -68,14 +68,26 @@ código de Studio, leé primero `docs/ARQUITECTURA.md` y `docs/01-PLAN-BASE-v2.m
 `set_publish {for_social}`, `export {preset}`, `report_bug {title, steps_es}`,
 `face_swap {clip, person: {name}|{id}, t?, face_index?, model?, enhancer?, strength?}` (siempre con
 confirmación, como borrar y exportar).
+`export` acepta `aspect_fit` (`reframe` | `center` | `blur`).
 `clip` = `{id}` (preferido) o `{name}` / `{index, track}`; `t` = segundos, `"start"`, `"end"`,
 `"cursor"`, `{scene: n}` o `{after_clip: {...}}`. Si `studio_validate_plan` devuelve errores, vienen
 en español con la ruta del campo: corregí y volvé a validar.
 
+**Video horizontal → vertical (9:16, 1:1).** Studio nunca pone franjas borrosas sin que el usuario
+lo elija. `studio_validate_plan` puede devolver `added` (ops que agregó Studio, p. ej. `reframe`
+siguiendo la cara antes de un `export` a 9:16 desde 16:9 si está el paquete) y `choices`
+(preguntas con opciones, p. ej. «¿Cómo lo encuadro?»: seguir la cara / recortar al centro /
+franjas borrosas; el `export` queda sin resolver). Mostráselas al usuario y volvé a validar con
+`aspect_fit` en el `export` (la web usa `POST /api/agent/plans/:id/choose`). Con `studio_export`,
+si el aspecto cambia y no pasaste `aspectFit`, el error explica las 3 opciones: preguntá y volvé a
+llamar con `aspectFit` (`reframe` = seguir la cara, requiere reencuadrar antes; `center` = recortar
+al centro; `blur` = franjas borrosas).
+
 ## Flujos típicos
 
 - **«Cortá los silencios y exportá para Reels»**: `studio_get_project` → plan con `cut_silences` +
-  `reframe {target: "9:16"}` (si es horizontal) + `export {preset: "reels-tiktok"}` →
+  `export {preset: "reels-tiktok"}` (si es horizontal, el api agrega el `reframe` siguiendo la cara
+  o devuelve una `choice`; no hace falta escribirlo) →
   `studio_validate_plan` → mostrá la vista previa → preguntá por la exportación →
   `studio_apply_plan {planId, confirmedIndexes: [índice del export]}`.
 - **Revisar cómo se ve**: `studio_preview_frame {t}` en 2-3 momentos clave, abrí los PNG y comentá

@@ -36,6 +36,7 @@ import {
   Spinner,
 } from "@/components/ui/misc";
 import { fileUrl } from "@/lib/api";
+import { useAiAvailability } from "@/hooks/use-ai-availability";
 import { useJobsStore } from "@/stores/jobs-store";
 import { useMediaStore } from "@/stores/media-store";
 import { useStyleStore, type StyleDraftOrigin } from "@/stores/style-store";
@@ -523,6 +524,8 @@ export function StylePanel() {
   const presetsLoad = useStyleStore((s) => s.presetsLoad);
   const analyzeJob = useJobsStore((s) => (analyzeJobId ? s.jobs[analyzeJobId] : undefined));
   const inferJob = useJobsStore((s) => (inferJobId ? s.jobs[inferJobId] : undefined));
+  const analyzeAi = useAiAvailability("workers");
+  const inferAi = useAiAvailability("ollama");
   const videos = useMemo(
     () => order.map((id) => assets[id]).filter((a) => a?.kind === "video"),
     [assets, order],
@@ -558,7 +561,8 @@ export function StylePanel() {
             </Select>
             <Button
               size="sm"
-              disabled={!referenceId || analyzing}
+              disabled={!referenceId || analyzing || !analyzeAi.enabled}
+              disabledReason={analyzeAi.reason_es}
               onClick={() => void store().analyze()}
             >
               {analyzing ? <Spinner /> : <ScanSearch aria-hidden />}
@@ -586,7 +590,8 @@ export function StylePanel() {
               <Button
                 size="sm"
                 variant="secondary"
-                disabled={inferring}
+                disabled={inferring || !inferAi.enabled}
+                disabledReason={inferAi.reason_es}
                 onClick={() => void store().inferLocal()}
                 tooltip={`Ollama + ${STYLE_VISION_DEFAULT_MODEL}, en tu PC (paquete «Modelo de visión local»)`}
               >

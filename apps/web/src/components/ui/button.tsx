@@ -79,7 +79,8 @@ export function Button({
     ? tipWithReason(tip, reason)
     : reason && label
       ? `${tooltipText(label, keys)}. ${reason}`
-      : tooltipText(label, keys);
+      : // A text button without its own tooltip still explains why it is disabled.
+        (reason ?? tooltipText(label, keys));
   const button = (
     <button
       className={cn(buttonVariants({ variant, size }), className)}

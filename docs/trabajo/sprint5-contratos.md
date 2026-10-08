@@ -293,3 +293,58 @@ Del plan v3: **ningún trabajo sin progreso/ETA/cancelar** (todo job > 2 s muest
 
 ## Cambios en integración
 
+(2026-10-08; detalle, resultados y procedimiento en `docs/trabajo/integracion-sprint5.md`)
+
+- **`useAiAvailability` en todos los botones de IA (M1 → M2)**: Voz (texto a voz Piper/Chatterbox,
+  descargas de voces, Limpiar voz, Separar audio, RVC), Subtítulos («Transcribir clip», además de
+  «Transcribir el video»), Perfil de estilo («Analizar» = workers, «Deducir con modelo local» =
+  Ollama), Reencuadrar («Analizar para 9:16») y «Cambiar cara…». ElevenLabs/OpenAI no dependen de
+  los workers. `VoicePanel` ya no dice `start.ps1`: con `WORKERS_UNAVAILABLE` usa el texto de la api
+  (`start.cmd`) o `WORKERS_DOWN_ES`.
+- **`Button` sin tooltip propio** (costura M1 ↔ M2): `disabledReason` solo se mostraba si el botón
+  tenía `tip` o etiqueta; en los botones de texto («Transcribir clip», «Generar y añadir al
+  cursor»…) el motivo se perdía. Ahora el motivo es el tooltip. Test en `tooltips.test.tsx`; el paso
+  de UI smoke «workers apagados» exige Transcribir deshabilitado **con** `start.cmd` en el tooltip.
+- **Tests web y el `service-status-store`**: jsdom no tiene api, el sondeo de `/api/health` fallaba
+  y marcaba la api «caída» a mitad de un test (deshabilitaba botones al azar; rompía
+  `feedback.test.tsx`). `test/setup.ts` responde `/api/health` como «todo arriba»; los tests que
+  necesitan otro estado siguen espiando `fetch`.
+- **«Ajustes → Paquetes de IA» (M1 → M3, integración)**: `services/agent/resolve.ts`,
+  `routes/style.ts`, workers `packs.py` (`PackRequiredError`), `agent/ollama_client.py` y
+  `style/infer.py` usan el nombre de la pestaña (`PACKS_PATH_ES`).
+- **ETA de la exportación (M1 → M3)**: `exportProject` pasa los bloques como ítems
+  (`done/total`, `unit:"blocks"`, total = bloques + 1 paso final de audio y unión) además de
+  `stage_es`; la ETA usa la fórmula por ítems. Aserción nueva en `segment-cache.integration.test.ts`.
+- **Rol de pista de la Biblioteca y «Bajar la música» (M3 → M2)**: `addAssetClip(asset, {role})`
+  manda el sonido a una pista de audio con ese rol (o a una vacía sin rol, o a una nueva) y le pone
+  `role` en el mismo paso de deshacer (antes caía en la primera pista de audio, la de la voz);
+  `LibraryPanel` pasa `libraryRole(item.kind)`. `project-store.setAudioMix` guarda
+  `project.audioMix.autoDuck` y Exportar lo lee/escribe ahí (antes era estado local del panel y
+  se perdía). Tests en `project-store.test.ts`.
+- **Pregunta de encuadre repetida (M3 → M1)**: el Asistente ya no muestra la línea `unresolved`
+  «Operación N: El video es horizontal…» cuando la misma pregunta está como botones de
+  `PlanChoices`. Test en `export-sprint5.test.tsx`.
+- **Planner (pedido de M3 a workers)**: `system_es.md` dice que sin destino claro el export es
+  `reels-tiktok` (decisión 9:16 principal; la regla directa ya lo hacía con «Reels/TikTok»).
+- **`snapping` y `S`/`Supr` (M2)**: revisados M1/M3 y sus pasos de e2e/ui-smoke; nadie usaba el
+  `snapping` viejo del project-store ni dependía de que `Supr` borrara un solo clip.
+- **`ExportPanel.tsx:590` (`SocialReview lastExport`)**: ya tipado en M3 (`lastExport?: Job`);
+  `tsc` limpio.
+- **Seguridad**: `POST /api/system/reveal` además compara con `realpath` (un link dentro de
+  `exports/` que apunte afuera → 400). Test nuevo (no corre en Windows: crear links pide permisos).
+- **Pytest dependiente del orden**: el planner cachea el pool de few-shot (`few_shot_pool`,
+  `lru_cache`); `test_agent_eval.py` lo llenaba con un dataset temporal de 4 ejemplos y
+  `test_agent_api.py::test_plan_with_api_json_summary…` veía 1 ejemplo similar en vez de 2. Un
+  fixture `autouse` de `conftest.py` limpia esos caches antes y después de cada test (sin skip).
+- **UI smoke «Proyectos»**: nombres con un sufijo único por corrida (`S5 UI uno <tag>`), así un
+  storage reusado no tiene dos filas con el mismo nombre.
+- **Docs**: manual §3 (`start.cmd` como forma principal y la franja), §4.1 cabecera, §4.2 paneles
+  (Exportar, Trabajos, Propiedades en lote, Línea de tiempo), distribución y vista previa vacía,
+  línea de tiempo (selección, ripple, Q/W, I/O, imán), §4.4 «Proyectos y guardado», §5 flujo 1
+  (pasos nuevos), flujo 2 y 3 (ducking automático), flujo 6, flujo 7 y **flujo 8 nuevo** «Reels
+  desde un video horizontal», §6.2, §10 (tabla completa), §12 (filas nuevas), §15, §17.7 (filas
+  Sonoridad/Formato), **§17.9 nuevo** «Sonido al exportar», §19.2/§19.4/§19.5; `index.html` a mano y
+  PDF regenerado; `ARQUITECTURA.md` (§2 rutas y Sprint 5, §3 tareas cancelables, §4 progreso,
+  cancelar y avisos, §5 audio aparte, §5.5 web); `CLAUDE.md` (`studio_export aspectFit`, `added`/
+  `choices`, ruta `choose`, flujo Reels sin `reframe` a mano). `.env.example` sin cambios: las únicas
+  variables nuevas son del mock e2e (`STUDIO_MOCK_AGENT_EVAL*`).

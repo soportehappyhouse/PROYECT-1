@@ -27,7 +27,7 @@ import { StylePresetRepo } from "../services/style/presets.js";
 export function visionPackMessage(model = STYLE_VISION_DEFAULT_MODEL): string {
   return (
     `Falta el modelo de visión local «${model}» (paquete «Modelo de visión local», ~3,2 GB): ` +
-    `descargalo en Ajustes → Paquetes o con \`ollama pull ${model}\` (Ollama abierto en la ` +
+    `descargalo en Ajustes → Paquetes de IA o con \`ollama pull ${model}\` (Ollama abierto en la ` +
     `bandeja del sistema), o usá la Consola Claude («Deducir con Consola Claude»): no necesita ` +
     `descargar nada.`
   );

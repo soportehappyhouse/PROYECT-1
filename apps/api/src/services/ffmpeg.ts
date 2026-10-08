@@ -69,8 +69,15 @@ const execFileAsync = promisify(execFile);
 
 export interface ProgressOptions {
   signal?: AbortSignal;
-  /** 0..1, plus a Spanish status line when the step changes (segment render: "N/M bloques"). */
-  onProgress?: (progress: number, message?: string) => void;
+  /**
+   * 0..1, plus a Spanish status line when the step changes (segment render: "N/M bloques") and,
+   * in the block render, the items done/total (blocks + 1 final audio/mux step) for the job ETA.
+   */
+  onProgress?: (
+    progress: number,
+    message?: string,
+    items?: { done: number; total: number },
+  ) => void;
   /** Receives stderr lines / notes for the job log. */
   log?: (line: string) => void;
 }
@@ -413,7 +420,8 @@ export function createFfmpegService(ffmpegPath: string, ffprobePath: string): Ff
         await mkdir(dir, { recursive: true });
         for (const f of files) await writeFile(path.join(dir, f.name), f.content, "utf8");
       };
-      const report = (r: number, msg: string) => opts?.onProgress?.(Math.min(0.999, r), msg);
+      const report = (r: number, msg: string, items?: { done: number; total: number }) =>
+        opts?.onProgress?.(Math.min(0.999, r), msg, items);
 
       // Sprint 5: the audio mix is rendered apart (loudnorm two-pass, role ducking) and muxed
       // with the video (-c:v copy). GIF has no audio and alpha keeps its one-pass render.
@@ -519,7 +527,9 @@ export function createFfmpegService(ffmpegPath: string, ffprobePath: string): Ff
         const warnings = new Set<string>();
         let doneDur = 0;
         let done = 0;
-        report(0, videoMsg(0));
+        // Integration (M1 ↔ M3): blocks as items for the ETA; +1 = mix, loudness and mux.
+        const itemsOf = (n: number) => ({ done: n, total: M + 1 });
+        report(0, videoMsg(0), itemsOf(0));
         for (const [i, it] of items.entries()) {
           const segDur = it.w.end - it.w.start;
           if (exists[i]) {
@@ -549,7 +559,8 @@ export function createFfmpegService(ffmpegPath: string, ffprobePath: string): Ff
               await run(compiled.args, {
                 ...runOpts(opts, segDur),
                 cwd: dir,
-                onProgress: (r: number) => report(((doneDur + r * segDur) / totalDur) * VIDEO, msg),
+                onProgress: (r: number) =>
+                  report(((doneDur + r * segDur) / totalDur) * VIDEO, msg, itemsOf(done)),
               });
               await rename(part, it.file);
             } catch (err) {
@@ -559,7 +570,7 @@ export function createFfmpegService(ffmpegPath: string, ffprobePath: string): Ff
           }
           done++;
           doneDur += segDur;
-          report((doneDur / totalDur) * VIDEO, videoMsg(done));
+          report((doneDur / totalDur) * VIDEO, videoMsg(done), itemsOf(done));
         }
         for (const w of warnings) opts?.log?.(`AVISO: ${w}`);
         opts?.log?.(

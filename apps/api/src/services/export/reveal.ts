@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { stat } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { STORAGE_SUBDIRS } from "@studio/shared";
 
@@ -46,6 +46,12 @@ export async function revealExport(
   if (!abs) return "outside";
   const st = await stat(abs).catch(() => undefined);
   if (!st?.isFile()) return "missing";
+  // Integration (security): a link inside exports/ must not reveal a file elsewhere.
+  const [realRoot, realAbs] = await Promise.all([
+    realpath(path.resolve(storageDir, STORAGE_SUBDIRS.exports)).catch(() => undefined),
+    realpath(abs).catch(() => undefined),
+  ]);
+  if (!realRoot || !realAbs || !realAbs.startsWith(realRoot + path.sep)) return "outside";
   const [cmd, args] = revealCommand(platform, abs);
   run(cmd, args);
   return "ok";

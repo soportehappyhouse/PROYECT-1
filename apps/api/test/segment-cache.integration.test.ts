@@ -109,7 +109,13 @@ describe.skipIf(!hasFfmpeg)("segment cache export (lavfi media)", { timeout: 300
   let preset: ExportPreset;
   let project: Project;
   const messages: string[] = [];
-  const details: { done?: number; total?: number; unit?: string }[] = [];
+  const details: {
+    done?: number;
+    total?: number;
+    unit?: string;
+    cached?: number;
+    eta_s?: number | null;
+  }[] = [];
 
   beforeAll(async () => {
     gen([
@@ -316,8 +322,13 @@ describe.skipIf(!hasFfmpeg)("segment cache export (lavfi media)", { timeout: 300
     ).toHaveLength(total);
 
     // 2nd export, nothing changed: every block comes from the cache.
+    details.length = 0;
     const second = await exportNow();
     expect(second.result.segments).toEqual({ total, cached: total, rendered: 0 });
+    // Audit D3: cached blocks are flagged and give no ETA («calculando…», not «faltan ~1 s»).
+    const allCached = details.filter((d) => d.unit === "blocks" && d.done === total);
+    expect(allCached.length).toBeGreaterThan(0);
+    expect(allCached.every((d) => d.cached === total && d.eta_s === null)).toBe(true);
     expect(messages.some((m) => m.includes(`bloques (${total} en caché)`))).toBe(true);
 
     // Change the text of the last clip: only the blocks under it are rendered again.

@@ -25,13 +25,30 @@ export const projectsApi = {
 /** Max body that `fetch(..., {keepalive: true})` accepts (browsers cap in-flight keepalive at 64 KB). */
 export const KEEPALIVE_MAX_BYTES = 64 * 1024;
 
+const serialized = new WeakMap<Project, { json: string; bytes: number }>();
+
+/**
+ * JSON of a project and its UTF-8 size (`Blob.size`, not `string.length`: «ñ» or emoji count
+ * twice or more). Cached by object identity: the store replaces the project object on every
+ * change, so each version is stringified once for localStorage, the debounce and `pagehide`.
+ */
+export function serializeProject(project: Project): { json: string; bytes: number } {
+  let hit = serialized.get(project);
+  if (!hit) {
+    const json = JSON.stringify(project);
+    hit = { json, bytes: new Blob([json]).size };
+    serialized.set(project, hit);
+  }
+  return hit;
+}
+
 /**
  * H22: save the project while the page goes away (`pagehide`). Returns false when the body is too
  * big for a keepalive request (the caller then relies on the short debounce).
  */
 export function flushProjectOnHide(project: Project, fetchImpl: typeof fetch = fetch): boolean {
-  const body = JSON.stringify(project);
-  if (new Blob([body]).size > KEEPALIVE_MAX_BYTES) return false;
+  const { json: body, bytes } = serializeProject(project);
+  if (bytes > KEEPALIVE_MAX_BYTES) return false;
   try {
     void fetchImpl(apiUrl(API_ROUTES.project, { id: project.id }), {
       method: "PUT",

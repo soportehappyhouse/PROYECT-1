@@ -5,6 +5,7 @@ import { HotkeysProvider, useHotkeys, useHotkeysContext } from "react-hotkeys-ho
 import {
   hotkeyPolicy,
   INITIAL_HOTKEY_SCOPES,
+  modalDialogOpen,
   normalizeKeys,
   SHORTCUT_ACTIONS,
   toHotkeyString,
@@ -75,7 +76,9 @@ function useSpaceDoesNotClickButtons(enabled: boolean): void {
       if (e.code !== "Space" || e.ctrlKey || e.altKey || e.metaKey) return;
       const t = e.target as HTMLElement | null;
       if (!t || !(t.tagName === "BUTTON" || t.getAttribute("role") === "button")) return;
-      if (useSettingsStore.getState().settingsOpen) return;
+      // Audit D4: in any modal dialog (Ajustes, Proyectos, Exportar…) Space must still press the
+      // focused button: Play is paused there anyway.
+      if (useSettingsStore.getState().settingsOpen || modalDialogOpen()) return;
       e.preventDefault();
     };
     document.addEventListener("keyup", onKey, true);

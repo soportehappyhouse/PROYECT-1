@@ -76,7 +76,7 @@ export interface ProgressOptions {
   onProgress?: (
     progress: number,
     message?: string,
-    items?: { done: number; total: number },
+    items?: { done: number; total: number; cached?: number },
   ) => void;
   /** Receives stderr lines / notes for the job log. */
   log?: (line: string) => void;
@@ -420,8 +420,11 @@ export function createFfmpegService(ffmpegPath: string, ffprobePath: string): Ff
         await mkdir(dir, { recursive: true });
         for (const f of files) await writeFile(path.join(dir, f.name), f.content, "utf8");
       };
-      const report = (r: number, msg: string, items?: { done: number; total: number }) =>
-        opts?.onProgress?.(Math.min(0.999, r), msg, items);
+      const report = (
+        r: number,
+        msg: string,
+        items?: { done: number; total: number; cached?: number },
+      ) => opts?.onProgress?.(Math.min(0.999, r), msg, items);
 
       // Sprint 5: the audio mix is rendered apart (loudnorm two-pass, role ducking) and muxed
       // with the video (-c:v copy). GIF has no audio and alpha keeps its one-pass render.
@@ -527,12 +530,15 @@ export function createFfmpegService(ffmpegPath: string, ffprobePath: string): Ff
         const warnings = new Set<string>();
         let doneDur = 0;
         let done = 0;
+        let cachedDone = 0;
         // Integration (M1 ↔ M3): blocks as items for the ETA; +1 = mix, loudness and mux.
-        const itemsOf = (n: number) => ({ done: n, total: M + 1 });
+        // Audit D3: cached blocks are flagged so they do not count for the ETA rate.
+        const itemsOf = (n: number) => ({ done: n, total: M + 1, cached: cachedDone });
         report(0, videoMsg(0), itemsOf(0));
         for (const [i, it] of items.entries()) {
           const segDur = it.w.end - it.w.start;
           if (exists[i]) {
+            cachedDone++;
             const now = new Date();
             await utimes(it.file, now, now).catch(() => undefined); // LRU: mark as used
           } else {

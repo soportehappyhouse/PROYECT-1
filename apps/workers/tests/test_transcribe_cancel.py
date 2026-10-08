@@ -77,3 +77,36 @@ def test_cancel_route_unknown_job(client: TestClient) -> None:
     r = client.post("/transcribe/cancel", json={"job_id": "nope"})
     assert r.status_code == 200 and r.json() == {"stopped": False}
     assert client.get("/transcribe/progress/nope").status_code == 404
+
+
+def test_cancel_on_cuda_keeps_the_gpu_model(dirs, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Audit D2: TaskCanceled on CUDA must not unload the model nor mark the budget failed."""
+    from studio_workers.gpu import GpuBudget, VramInfo
+
+    loaded: list[str] = []
+
+    class CancelingModel:
+        def transcribe(self, path: str, **kwargs):
+            def gen():
+                raise TaskCanceled("j")
+                yield  # pragma: no cover
+
+            return gen(), SimpleNamespace(language="es", duration=5.0)
+
+    def factory(name: str, device: str, ctype: str, root: str) -> CancelingModel:
+        loaded.append(device)
+        return CancelingModel()
+
+    settings = get_settings().model_copy(update={"use_cuda": True})
+    budget = GpuBudget(use_cuda=True, probe=lambda: VramInfo("GPU", 6144, 5000, "t"))
+    engine = WhisperEngine(settings, budget=budget, factory=factory)
+    storage, _ = dirs
+    audio = storage / "tmp" / "a.wav"
+    audio.write_bytes(b"RIFF")
+    progress: list[str] = []
+    with pytest.raises(TaskCanceled):
+        engine.transcribe(audio, on_progress=lambda p, m: progress.append(m))
+    assert loaded == ["cuda"]  # no CPU retry
+    assert engine._models  # the CUDA model stays loaded (no cold reload next time)
+    assert budget.last_fallback is None and budget.resident is not None
+    assert not any("CPU" in m for m in progress)

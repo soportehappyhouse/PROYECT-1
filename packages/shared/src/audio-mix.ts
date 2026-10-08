@@ -11,7 +11,7 @@ import { AUTO_DUCK, type Track, type TrackRole } from "./timeline.js";
  * Sprint 5 (M3): roles of the audio mix (automatic ducking at export) and loudness targets.
  */
 
-type RoleAsset = Pick<MediaAsset, "kind"> & Partial<Pick<MediaAsset, "aiProvenance">>;
+type RoleAsset = Pick<MediaAsset, "kind"> & Partial<Pick<MediaAsset, "aiProvenance" | "name">>;
 
 /** Asset that is a voice: «Voz propia» sample or AI voice (TTS / clone). */
 function isVoiceAsset(a: RoleAsset | undefined): boolean {
@@ -21,13 +21,24 @@ function isVoiceAsset(a: RoleAsset | undefined): boolean {
   return k === "voice-synthetic" || k === "voice-cloned";
 }
 
+/** Names that say «music» (track or file): «Música de fondo», «music.mp3», «fondo_lofi.wav». */
+export function hasMusicName(name: string | undefined): boolean {
+  if (!name) return false;
+  const plain = name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  return /(^|[^a-z])(musica|music|fondo)/.test(plain);
+}
+
 /**
  * Role of a track in the mix. Explicit `role` wins; otherwise a video track is `voice` (people
  * talking), an audio track whose clips are all voices (TTS, cloned voice, «Voz propia») is
- * `voice`, and anything else is `other`: a doubtful track is never ducked.
+ * `voice`, an audio track named like music (track name, or every file: `música`, `music`,
+ * `fondo`) is `music`, and anything else is `other`: a doubtful track is never ducked.
  */
 export function inferTrackRole(
-  track: Pick<Track, "kind" | "clips"> & { role?: TrackRole | undefined },
+  track: Pick<Track, "kind" | "clips"> & { role?: TrackRole | undefined; name?: string },
   assetOf: (id: string) => RoleAsset | undefined,
 ): TrackRole {
   if (track.role) return track.role;
@@ -35,7 +46,24 @@ export function inferTrackRole(
   if (track.kind !== "audio") return "other";
   const ids = track.clips.map((c) => c.assetId).filter((id): id is string => !!id);
   if (ids.length > 0 && ids.every((id) => isVoiceAsset(assetOf(id)))) return "voice";
+  if (hasMusicName(track.name)) return "music";
+  if (ids.length > 0 && ids.every((id) => hasMusicName(assetOf(id)?.name))) return "music";
   return "other";
+}
+
+/**
+ * Audit D7: why «Bajar la música cuando hay voz» will do nothing (null = it will duck): no track
+ * with the Voz role, or none with the Música role (Spanish note for Exportar → Sonido).
+ */
+export function duckingGapEs(roles: readonly TrackRole[]): string | null {
+  const voice = roles.includes("voice");
+  const music = roles.includes("music");
+  if (voice && music) return null;
+  if (!voice && !music)
+    return "No hay pistas de Voz ni de Música: la música no se va a bajar. Elegí el rol de cada pista abajo.";
+  if (!music)
+    return "No se encontró una pista de Música: no hay nada que bajar. Si tenés música, poné su pista en «Música».";
+  return "No se encontró una pista de Voz: la música no se va a bajar. Si alguien habla, poné su pista en «Voz».";
 }
 
 /** Role of a library sound (Biblioteca / op add_audio): music and ambience duck, the rest is sfx. */

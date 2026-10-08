@@ -34,6 +34,16 @@ describe("estimateEtaS", () => {
     expect(estimateEtaS({ progress: 0.25, startedAt: iso(T0), now: T0 + 20_000 })).toBe(60);
   });
 
+  it("leaves cached items out of the rate (audit D3)", () => {
+    // 8 cached blocks done instantly, then 2 real ones in 20 s -> 10 s each -> 100 s for 10 left.
+    const base = { progress: 0.5, startedAt: iso(T0), firstItemAt: iso(T0), total: 20 };
+    expect(estimateEtaS({ ...base, now: T0 + 20_000, done: 10, cached: 8 })).toBe(100);
+    // Only cached blocks so far: no promise («calculando…»), not «faltan ~1 s».
+    expect(estimateEtaS({ ...base, now: T0 + 500, done: 8, cached: 8 })).toBeNull();
+    // A bogus cached > done counts as all cached.
+    expect(estimateEtaS({ ...base, now: T0 + 500, done: 3, cached: 9 })).toBeNull();
+  });
+
   it("is null with a bad start date", () => {
     expect(estimateEtaS({ progress: 0.5, startedAt: "nope", now: T0 })).toBeNull();
   });

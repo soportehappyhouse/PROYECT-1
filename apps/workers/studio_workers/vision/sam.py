@@ -32,6 +32,7 @@ from typing import Any, Protocol
 from ..config import Settings
 from ..gpu import GpuBudget, empty_cuda_cache
 from ..packs import PackRequiredError, module_present
+from ..tasks import current_task, kill_process_tree, new_group_kwargs, on_cancel_kill
 from .frames import (
     VideoInfo,
     ffmpeg_exe,
@@ -339,17 +340,30 @@ class SamManager:
         sid = uuid.uuid4().hex[:12]
         frames_dir = self.settings.storage_root / "tmp" / "sam" / sid / "frames"
         frames_dir.mkdir(parents=True, exist_ok=True)
-        proc = subprocess.run(
+        # Popen (not run): a cancel of the task kills ffmpeg instead of waiting up to an hour.
+        proc = subprocess.Popen(  # noqa: S603 - fixed argv
             [
                 ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-y", "-i", str(src),
                 "-vf", f"select='between(n\\,{a}\\,{b})'", "-fps_mode", "passthrough",
                 "-q:v", "2", "-start_number", "0", str(frames_dir / "%05d.jpg"),
             ],
-            capture_output=True, text=True, timeout=3600,
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+            encoding="utf-8", errors="replace", **new_group_kwargs(),
         )  # fmt: skip
-        if proc.returncode != 0:
+        on_cancel_kill(proc)
+        err = ""
+        try:
+            _, err = proc.communicate(timeout=3600)
+        except subprocess.TimeoutExpired:
+            err = "tiempo de espera agotado"
+        finally:
+            kill_process_tree(proc)
+        task = current_task()
+        if proc.returncode != 0 or (task is not None and task.canceled):
             shutil.rmtree(frames_dir.parent, ignore_errors=True)
-            raise RuntimeError(f"ffmpeg (fotogramas SAM) fallo: {proc.stderr.strip()[-300:]}")
+            if task is not None:
+                task.check_canceled()
+            raise RuntimeError(f"ffmpeg (fotogramas SAM) fallo: {(err or '').strip()[-300:]}")
         count = len(list(frames_dir.glob("*.jpg")))
         times = times_all[a : a + count]
         out_dir = self.settings.storage_root / "renders" / "sam" / sid

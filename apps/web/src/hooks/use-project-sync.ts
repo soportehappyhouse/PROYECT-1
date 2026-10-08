@@ -3,7 +3,7 @@
 import type { Project } from "@studio/shared";
 import { useEffect } from "react";
 import { api, ApiRequestError, isNotImplemented, isOffline } from "@/lib/api";
-import { flushProjectOnHide, KEEPALIVE_MAX_BYTES } from "@/lib/api-projects";
+import { flushProjectOnHide, KEEPALIVE_MAX_BYTES, serializeProject } from "@/lib/api-projects";
 import { loadLocalProject, persistLocalProject, useProjectStore } from "@/stores/project-store";
 
 const SAVE_DEBOUNCE_MS = 1500;
@@ -12,7 +12,7 @@ const SAVE_DEBOUNCE_BIG_MS = 300;
 
 /** Debounce for the next autosave: short when `pagehide` could not flush this project. */
 export function saveDebounceMs(project: Project): number {
-  return JSON.stringify(project).length > KEEPALIVE_MAX_BYTES
+  return serializeProject(project).bytes > KEEPALIVE_MAX_BYTES
     ? SAVE_DEBOUNCE_BIG_MS
     : SAVE_DEBOUNCE_MS;
 }

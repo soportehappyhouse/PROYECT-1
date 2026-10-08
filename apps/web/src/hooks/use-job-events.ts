@@ -27,8 +27,15 @@ import { useProjectStore } from "@/stores/project-store";
 import { openReport } from "@/stores/report-store";
 import { useServiceStatusStore } from "@/stores/service-status-store";
 
-const SSE_RETRY_MS = 20_000;
+/** Audit D8: SSE reconnect after 2 s, doubling up to 10 s (was a fixed 20 s). */
+export const SSE_RETRY_MIN_MS = 2_000;
+export const SSE_RETRY_MAX_MS = 10_000;
 const POLL_MS = 5_000;
+
+/** Delay before the `attempt`-th reconnect (0-based): 2 s, 4 s, 8 s, 10 s, 10 s… */
+export function sseRetryDelayMs(attempt: number): number {
+  return Math.min(SSE_RETRY_MAX_MS, SSE_RETRY_MIN_MS * 2 ** Math.max(0, attempt));
+}
 
 /** Map transcript segments (source time of the clip asset) onto the timeline. */
 export function transcriptToTimeline(
@@ -242,6 +249,7 @@ export function useJobEvents(): void {
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let pollTimer: ReturnType<typeof setInterval> | undefined;
     let disposed = false;
+    let failures = 0;
     const store = useJobsStore;
 
     const onJobChange = (job: Job) => {
@@ -296,6 +304,7 @@ export function useJobEvents(): void {
       store.getState().setConnection("connecting");
       es = new EventSource(api.jobEventsUrl());
       es.onopen = () => {
+        failures = 0;
         store.getState().setConnection("live");
         stopPolling();
       };
@@ -315,7 +324,8 @@ export function useJobEvents(): void {
             startPolling();
           })
           .catch(() => store.getState().setConnection("offline"));
-        retryTimer = setTimeout(connect, SSE_RETRY_MS);
+        if (retryTimer) clearTimeout(retryTimer);
+        retryTimer = setTimeout(connect, sseRetryDelayMs(failures++));
       };
     };
 

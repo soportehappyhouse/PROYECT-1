@@ -2,7 +2,7 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Job } from "@studio/shared";
-import { failureDescription, useJobEvents } from "@/hooks/use-job-events";
+import { failureDescription, sseRetryDelayMs, useJobEvents } from "@/hooks/use-job-events";
 import {
   JOBS_ACTIVE_KEY,
   JOBS_SEEN_KEY,
@@ -142,5 +142,54 @@ describe("failureDescription (H2)", () => {
     );
     expect(failureDescription({}, { error: "x", message: "Error" })).toBe("x");
     expect(failureDescription({}, { message: "Error" })).toBeUndefined();
+  });
+});
+
+describe("SSE reconnect (audit D8)", () => {
+  it("backs off 2 s → 4 s → 8 s → 10 s", () => {
+    expect([0, 1, 2, 3, 4, 9].map(sseRetryDelayMs)).toEqual([
+      2_000, 4_000, 8_000, 10_000, 10_000, 10_000,
+    ]);
+  });
+
+  it("reconnects after 2 s instead of 20 s and resets after opening", async () => {
+    const created: FakeEventSource[] = [];
+    class FakeEventSource {
+      onopen: (() => void) | null = null;
+      onmessage: ((m: MessageEvent) => void) | null = null;
+      onerror: (() => void) | null = null;
+      closed = false;
+      constructor(public url: string) {
+        created.push(this);
+      }
+      addEventListener() {}
+      close() {
+        this.closed = true;
+      }
+    }
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { unmount } = renderHook(() => useJobEvents());
+      expect(created).toHaveLength(1);
+      created[0]!.onerror?.();
+      await vi.advanceTimersByTimeAsync(1_900);
+      expect(created).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(created).toHaveLength(2); // 2 s
+      created[1]!.onerror?.();
+      await vi.advanceTimersByTimeAsync(3_900);
+      expect(created).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(created).toHaveLength(3); // 4 s
+      created[2]!.onopen?.(); // live again: the next failure waits 2 s
+      created[2]!.onerror?.();
+      await vi.advanceTimersByTimeAsync(2_100);
+      expect(created).toHaveLength(4);
+      unmount();
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
   });
 });

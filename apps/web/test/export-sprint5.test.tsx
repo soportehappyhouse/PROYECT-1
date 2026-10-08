@@ -4,7 +4,7 @@ import {
   type ExportJobResult,
   type Job,
 } from "@studio/shared";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ExportPanel } from "@/components/panels/ExportPanel";
 import { AssistantPanel } from "@/components/panels/AssistantPanel";
@@ -135,6 +135,37 @@ describe("Exportar → Reels desde un video horizontal", () => {
     const format = screen.getByTestId("social-check-format");
     expect(format.getAttribute("data-ok")).toBe("false");
     expect(format.textContent).toMatch(/franjas borrosas/);
+  });
+});
+
+describe("Exportar → Sonido: «Bajar la música» sin pistas para bajar (audit D7)", () => {
+  it("says there is no music track; a music-named audio track removes the note", () => {
+    render(<ExportPanel />);
+    expect(screen.getByTestId("export-duck-gap").textContent).toMatch(
+      /No se encontró una pista de Música/,
+    );
+    // Turning the option off hides the note.
+    fireEvent.click(screen.getByLabelText(/Bajar la música cuando hay voz/));
+    expect(screen.queryByTestId("export-duck-gap")).toBeNull();
+    fireEvent.click(screen.getByLabelText(/Bajar la música cuando hay voz/));
+    act(() => {
+      const st = useProjectStore.getState();
+      const audio = st.project.tracks.find((t) => t.kind === "audio")!;
+      const { trackId: _t, ...v1 } = st.project.tracks.find((t) => t.kind === "video")!.clips[0]!;
+      st.addClip("audio", { ...v1, id: "m1" }, audio.id);
+      st.updateTrack(audio.id, { name: "Música de fondo" });
+    });
+    const tracks = useProjectStore.getState().project.tracks;
+    expect(tracks.find((t) => t.clips.some((c) => c.id === "m1"))?.name).toBe("Música de fondo");
+    expect(screen.queryByTestId("export-duck-gap")).toBeNull();
+  });
+
+  it("the result says the music was not lowered when nothing was ducked", () => {
+    useJobsStore.setState({
+      jobs: { "j-export": exportJob({ path: "exports/a.mp4", durationS: 1 }) },
+    });
+    render(<ExportPanel />);
+    expect(screen.getByTestId("export-result-not-ducked").textContent).toMatch(/Música sin bajar/);
   });
 });
 

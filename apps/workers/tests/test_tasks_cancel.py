@@ -104,6 +104,9 @@ def test_eta_mirrors_estimate_eta_s() -> None:
     assert _eta(0.0, 0.0, 60.0, 0, 20, 0.0) is None
     assert _eta(0.5, 0.0, 9.0, None, None, None) is None
     assert _eta(0.25, 0.0, 20.0, None, None, None) == 60
+    # Audit D3: cached items are left out of the rate (same cases as job-progress.test.ts).
+    assert _eta(0.5, 0.0, 20.0, 10, 20, 0.0, cached=8) == 100
+    assert _eta(0.5, 0.0, 0.5, 8, 20, 0.0, cached=8) is None
 
 
 def test_errors_keep_their_code() -> None:

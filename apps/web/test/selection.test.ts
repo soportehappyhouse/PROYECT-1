@@ -96,6 +96,35 @@ describe("batch edits are one undo step", () => {
     expect(st().project.subtitles).toHaveLength(3);
   });
 
+  it("Shift+Supr on the main track moves text and audio too (sync lock, audit D5)", () => {
+    const [, b] = threeClips();
+    const audio = st().project.tracks.find((t) => t.kind === "audio")!;
+    st().addClip("audio", { ...videoClips()[0]!, id: "late", trackId: audio.id, start: 5 });
+    st().addClip("audio", {
+      ...videoClips()[0]!,
+      id: "cross",
+      trackId: audio.id,
+      start: 1,
+      in: 0,
+      out: 2,
+    });
+    st().selectClip(b);
+    const before = st().past.length;
+    expect(st().deleteSelected({ ripple: true })).toBe(1);
+    expect(st().past.length).toBe(before + 1); // one undo step for every track
+    const au = st().project.tracks.find((t) => t.id === audio.id)!.clips;
+    expect(au.map((c) => [c.id, c.start, c.in, c.out])).toEqual([
+      ["cross", 1, 0, 1], // [1,3) crossed the cut [2,4): its tail is trimmed
+      ["late", 3, 0, 2], // after the cut: 2 s left
+    ]);
+    st().undo();
+    expect(
+      st()
+        .project.tracks.find((t) => t.id === audio.id)!
+        .clips.map((c) => c.start),
+    ).toEqual([1, 5]);
+  });
+
   it("moves the selection together; refuses overlaps; one undo step", () => {
     const [a, b, c] = threeClips();
     st().selectClip(b);

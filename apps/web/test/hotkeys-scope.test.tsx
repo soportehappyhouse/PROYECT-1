@@ -113,6 +113,36 @@ describe("hotkeyPolicy", () => {
 });
 
 describe("<Hotkeys /> in the DOM", () => {
+  it("Space presses a focused button inside a modal dialog (audit D4)", () => {
+    const { getByTestId } = render(
+      <>
+        <Hotkeys />
+        <button type="button" data-testid="toolbar">
+          Play
+        </button>
+        <div role="dialog" aria-modal="true">
+          <button type="button" data-testid="in-dialog">
+            Aceptar
+          </button>
+        </div>
+      </>,
+    );
+    const up = (el: Element) => {
+      const ev = new KeyboardEvent("keyup", {
+        key: " ",
+        code: "Space",
+        bubbles: true,
+        cancelable: true,
+      });
+      el.dispatchEvent(ev);
+      return ev.defaultPrevented;
+    };
+    expect(up(getByTestId("in-dialog"))).toBe(false); // the dialog button gets its click
+    expect(up(getByTestId("toolbar"))).toBe(false); // a modal is open: never blocked
+    getByTestId("in-dialog").parentElement!.setAttribute("aria-modal", "false");
+    expect(up(getByTestId("toolbar"))).toBe(true); // no modal: Space is Play, not a click
+  });
+
   it("S splits after a click on the ruler (focus on a role=slider)", () => {
     render(
       <>

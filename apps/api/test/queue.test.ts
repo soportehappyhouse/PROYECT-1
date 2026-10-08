@@ -197,6 +197,22 @@ describe("JobQueue", () => {
     expect(queue.cancel("nope")).toBeUndefined();
   });
 
+  it("emits «Cancelando…» by SSE as soon as a running job is canceled (audit D8)", async () => {
+    const { queue, store, events } = setup({ ffmpeg: 1 });
+    const ff = blockingHandler("project.export");
+    queue.register(ff.handler);
+    queue.start();
+    const a = queue.enqueue({ type: "project.export", payload: {} });
+    await until(() => ff.runs.length === 1);
+    const before = events.length;
+    queue.cancel(a.id);
+    const cancelling = events.slice(before).find((e) => e.jobId === a.id);
+    expect(cancelling?.status).toBe("running");
+    expect(cancelling?.message).toBe("Cancelando…");
+    await until(() => store.get(a.id)!.status === "canceled");
+    expect(events.at(-1)?.message).toBe("Cancelado");
+  });
+
   it("keeps jobs without a handler queued until one is registered", async () => {
     const { queue, store } = setup();
     queue.start();

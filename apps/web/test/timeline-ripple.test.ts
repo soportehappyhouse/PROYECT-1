@@ -84,6 +84,51 @@ describe("rippleDelete", () => {
     expect(Object.keys(removed)).toEqual(["v2"]);
   });
 
+  it("sync lock: time cut from the main track is cut from every unlocked track (audit D5)", () => {
+    const tracks = [
+      track("v", [clip("a", "v", 0, 2), clip("b", "v", 2, 3), clip("c", "v", 5, 2)]),
+      track(
+        "t",
+        [
+          clip("before", "t", 0, 1),
+          clip("inside", "t", 2.5, 1),
+          clip("head", "t", 4, 2), // starts inside 2..5: loses its first second
+          clip("after", "t", 6, 1),
+        ],
+        { kind: "text" },
+      ),
+      track("m", [clip("music", "m", 0, 10, { in: 1, out: 11 })], { kind: "audio" }),
+      track("l", [clip("lock", "l", 6, 1)], { kind: "audio", locked: true }),
+    ];
+    const { tracks: out, removed } = rippleDelete(tracks, ["b"], { syncTrackId: "v" });
+    expect(removed).toEqual({ v: [{ start: 2, end: 5 }] });
+    expect(starts(out[0])).toEqual([
+      ["a", 0],
+      ["c", 2],
+    ]);
+    const t = out[1]!;
+    expect(starts(t)).toEqual([
+      ["before", 0],
+      ["head", 2],
+      ["after", 3],
+    ]);
+    expect(t.clips.find((c) => c.id === "head")).toMatchObject({ in: 1, out: 2 });
+    // A clip spanning the cut keeps its start and loses the cut time at its tail.
+    expect(out[2]!.clips[0]).toMatchObject({ start: 0, in: 1, out: 8 });
+    expect(clipEnd(out[2]!.clips[0]!)).toBe(7);
+    expect(out[3]).toBe(tracks[3]); // locked: untouched
+  });
+
+  it("sync lock composes with clips deleted on another track too", () => {
+    const tracks = [
+      track("v", [clip("a", "v", 0, 2), clip("b", "v", 2, 2), clip("c", "v", 4, 2)]),
+      track("t", [clip("x", "t", 0, 1), clip("y", "t", 5, 1)], { kind: "text" }),
+    ];
+    // Delete b (2..4) on the main track and x (0..1) on the text track.
+    const { tracks: out } = rippleDelete(tracks, ["b", "x"], { syncTrackId: "v" });
+    expect(starts(out[1])).toEqual([["y", 2]]); // 5 − 1 (own) − 2 (main)
+  });
+
   it("rippleTime maps times across several removed ranges", () => {
     const removed = mergeRanges([
       { start: 5, end: 6 },

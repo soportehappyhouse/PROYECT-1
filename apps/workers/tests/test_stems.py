@@ -377,3 +377,33 @@ def test_stems_pack_integrity_fields() -> None:
     else:
         assert item.expected.sha256 == packs.STEMS_WEIGHTS_SHA256
         assert item.expected.size_bytes == packs.STEMS_WEIGHTS_EXACT_SIZE
+
+
+@needs_ffmpeg
+def test_stems_cancel_on_cuda_keeps_gpu_state(dirs, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Audit D2: a cancel during the CUDA pass is not a CUDA failure (no CPU retry, no
+    «usando CPU», the budget keeps its resident)."""
+    from studio_workers.tasks import TaskCanceled
+
+    storage, _ = dirs
+    monkeypatch.setenv("USE_CUDA", "true")
+    from studio_workers import services
+
+    services.reset()
+    src = _tone_noise(storage / "media" / "mix.wav", seconds=3)
+    devices: list[str] = []
+
+    def loader(device: str) -> Separator:
+        devices.append(device)
+
+        def canceled(_c: np.ndarray, _s: float) -> np.ndarray:
+            raise TaskCanceled("t")
+
+        return Separator(sources=HTDEMUCS_SOURCES, run=canceled)
+
+    budget = GpuBudget(use_cuda=True, probe=lambda: VramInfo("RTX 4050", 6141, 5000, "test"))
+    engine = StemsEngine(get_settings(), budget=budget, loader=loader)
+    with pytest.raises(TaskCanceled):
+        engine.separate(src, storage / "renders" / "s", "two")
+    assert devices == ["cuda"]
+    assert budget.last_fallback is None and budget.resident is not None

@@ -50,12 +50,18 @@ def current_task() -> Task | None:
     return getattr(_local, "task", None)
 
 
-def kill_process_tree(proc: subprocess.Popen[Any] | int) -> None:
-    """Kill a subprocess and its children (``taskkill /T /F`` on Windows, killpg on POSIX)."""
+def kill_process_tree(proc: subprocess.Popen[Any] | int, *, wait_s: float = 10.0) -> None:
+    """Kill a subprocess and its children (``taskkill /T /F`` on Windows, killpg on POSIX).
+
+    POSIX: the group is killed only when the child leads its own (``start_new_session``);
+    otherwise just the pid (killpg of our own group would kill the workers). With a Popen it
+    waits for the exit (``wait_s``) so pipes reach EOF and VRAM is really freed."""
     pid = proc if isinstance(proc, int) else proc.pid
+    if not isinstance(proc, int) and proc.poll() is not None:
+        return
     try:
         if sys.platform == "win32":
-            subprocess.run(
+            subprocess.run(  # noqa: S603 - fixed argv
                 ["taskkill", "/T", "/F", "/PID", str(pid)],
                 capture_output=True,
                 check=False,
@@ -63,18 +69,41 @@ def kill_process_tree(proc: subprocess.Popen[Any] | int) -> None:
             )
         else:
             try:
-                os.killpg(os.getpgid(pid), signal.SIGKILL)
+                pgid = os.getpgid(pid)
+                if pgid == pid and pgid != os.getpgrp():
+                    os.killpg(pgid, signal.SIGKILL)
+                else:
+                    os.kill(pid, signal.SIGKILL)
             except (ProcessLookupError, PermissionError, OSError):
                 os.kill(pid, signal.SIGKILL)
     except (ProcessLookupError, OSError, subprocess.SubprocessError):
         pass
+    if not isinstance(proc, int):
+        try:
+            proc.wait(timeout=wait_s)
+        except subprocess.TimeoutExpired:
+            log.warning("process %s did not exit after kill", pid)
+        except Exception:  # noqa: BLE001 - best effort (proc already reaped elsewhere)
+            pass
+
+
+def new_group_kwargs() -> dict[str, Any]:
+    """Popen kwargs: own process group/session so ``kill_process_tree`` reaches the children."""
+    if sys.platform == "win32":
+        return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200)}
+    return {"start_new_session": True}
 
 
 def on_cancel_kill(proc: subprocess.Popen[Any]) -> None:
-    """Register ``kill_process_tree(proc)`` on the current task (no-op outside a task)."""
+    """Register ``kill_process_tree(proc)`` on the current task (no-op outside a task).
+
+    If the cancel already arrived (between the spawn and this call) the process is killed now."""
     task = current_task()
-    if task is not None:
-        task.on_cancel.append(lambda: kill_process_tree(proc))
+    if task is None:
+        return
+    task.on_cancel.append(lambda: kill_process_tree(proc))
+    if task.cancel_event.is_set():
+        kill_process_tree(proc)
 
 
 def _eta(
@@ -84,16 +113,19 @@ def _eta(
     done: int | None,
     total: int | None,
     first_item_at: float | None,
+    cached: int | None = None,
 ) -> float | None:
-    """Mirror of estimateEtaS (packages/shared/src/job-progress.ts)."""
+    """Mirror of estimateEtaS (packages/shared/src/job-progress.ts): ``cached`` items of ``done``
+    took no time and are left out of the rate (no ETA until one real item finished)."""
     if started is None:
         return None
     if done is not None and total:
         if done >= total:
             return 0.0
-        if done > 0:
+        real = done - min(done, max(0, cached or 0))
+        if real > 0:
             elapsed = max(0.0, now - (first_item_at or started))
-            return round(elapsed / done * (total - done), 1) if elapsed > 0 else None
+            return round(elapsed / real * (total - done), 1) if elapsed > 0 else None
         return None
     elapsed = max(0.0, now - started)
     if progress >= 1:

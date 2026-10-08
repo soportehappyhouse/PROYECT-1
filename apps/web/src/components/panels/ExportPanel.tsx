@@ -10,6 +10,7 @@ import {
   formatErrorEs,
   formatLufsEs,
   hasAnimatedCaptions,
+  duckingGapEs,
   inferTrackRole,
   loudnessFor,
   needsAspectChoice,
@@ -294,6 +295,11 @@ export function ExportPanel() {
     (t) => (t.kind === "audio" || t.kind === "video") && t.clips.length > 0,
   );
   const assetOf = (id: string) => assets[id];
+  // Audit D7: say it when «Bajar la música» has no voice or no music track to work with.
+  const duckGap =
+    autoDuck && audioTracks.length > 0
+      ? duckingGapEs(audioTracks.map((t) => inferTrackRole(t, assetOf)))
+      : null;
   const blockedReason =
     duration === 0
       ? "La línea de tiempo está vacía."
@@ -557,6 +563,14 @@ export function ExportPanel() {
             <Checkbox checked={autoDuck} onChange={(e) => setAutoDuck(e.target.checked)} />
             Bajar la música cuando hay voz
           </label>
+          {duckGap ? (
+            <p
+              className="text-[11px] text-amber-700 dark:text-amber-300"
+              data-testid="export-duck-gap"
+            >
+              {duckGap}
+            </p>
+          ) : null}
           {audioTracks.length > 0 ? (
             <ul className="flex flex-col gap-1" aria-label="Rol de cada pista">
               {audioTracks.map((t) => {
@@ -715,6 +729,12 @@ export function ExportPanel() {
   );
 }
 
+/** «Bajar la música» was on for this export (payload `autoDuck`, absent = on). */
+function duckRequested(job: Job): boolean {
+  const payload = job.payload as { autoDuck?: boolean } | null | undefined;
+  return payload?.autoDuck !== false;
+}
+
 /** Result of the last export: thumbnail, path, duration, size, loudness, «Abrir carpeta», «Revisar». */
 function ExportResultCard({ job, onReview }: { job: Job; onReview: () => void }) {
   const result = exportResultOf(job);
@@ -750,6 +770,11 @@ function ExportResultCard({ job, onReview }: { job: Job; onReview: () => void })
               </Badge>
             ) : null}
             {result.ducked ? <Badge tone="muted">Música bajo la voz</Badge> : null}
+            {!result.ducked && duckRequested(job) ? (
+              <Badge tone="muted" data-testid="export-result-not-ducked">
+                Música sin bajar (faltó una pista de Voz o de Música)
+              </Badge>
+            ) : null}
             {result.aspectFit ? (
               <Badge tone={result.aspectFit === "blur" ? "warning" : "muted"}>
                 {ASPECT_FIT_LABELS_ES[result.aspectFit]}

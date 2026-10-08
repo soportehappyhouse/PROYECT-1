@@ -14,6 +14,11 @@ export interface EtaInput {
   /** Items done / total, from the worker (optional). */
   done?: number;
   total?: number;
+  /**
+   * How many of `done` were not really processed (export blocks found in the segment cache):
+   * they took no time, so they are left out of the rate. No ETA until one real item finished.
+   */
+  cached?: number;
   /** When the first item started being counted (ISO); defaults to `startedAt`. */
   firstItemAt?: string;
 }
@@ -26,7 +31,8 @@ const parseMs = (iso: string | undefined): number | undefined => {
 
 /**
  * Seconds left, or null («calculando…»).
- * - With items: elapsed since the first item / done × (total − done).
+ * - With items: elapsed since the first item / (done − cached) × (total − done); null while
+ *   every done item was cached (an export of cached blocks would promise «faltan ~1 s»).
  * - Without: elapsed × (1 − p) / p, only after JOB_ETA_MIN_ELAPSED_S and p ≥ JOB_ETA_MIN_PROGRESS.
  */
 export function estimateEtaS(o: EtaInput): number | null {
@@ -36,11 +42,12 @@ export function estimateEtaS(o: EtaInput): number | null {
   const { done, total } = o;
   if (done !== undefined && total !== undefined && total > 0) {
     if (done >= total) return 0;
-    if (done > 0) {
+    const real = done - Math.min(done, Math.max(0, o.cached ?? 0));
+    if (real > 0) {
       const from = parseMs(o.firstItemAt) ?? started;
       const itemsElapsedS = Math.max(0, (o.now - from) / 1000);
       if (itemsElapsedS <= 0) return null;
-      return Math.round((itemsElapsedS / done) * (total - done));
+      return Math.round((itemsElapsedS / real) * (total - done));
     }
     return null;
   }

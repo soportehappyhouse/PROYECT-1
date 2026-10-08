@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { onPageHide, saveDebounceMs } from "@/hooks/use-project-sync";
-import { flushProjectOnHide, KEEPALIVE_MAX_BYTES } from "@/lib/api-projects";
-import { createEmptyProject, useProjectStore } from "@/stores/project-store";
+import { toast } from "sonner";
+import { flushProjectOnHide, KEEPALIVE_MAX_BYTES, serializeProject } from "@/lib/api-projects";
+import {
+  createEmptyProject,
+  persistLocalProject,
+  resetLocalQuotaWarning,
+  useProjectStore,
+} from "@/stores/project-store";
 
 /** Sprint 5 (M2, H22): unsaved edits leave with the page (`pagehide` + keepalive). */
 describe("pagehide flush", () => {
@@ -42,5 +48,58 @@ describe("pagehide flush", () => {
       expect.objectContaining({ keepalive: true, method: "PUT" }),
     );
     spy.mockRestore();
+  });
+});
+
+describe("serialized size and local copy (audit D6)", () => {
+  it("measures UTF-8 bytes (Blob.size), not string length", () => {
+    const p = createEmptyProject("ñ");
+    // ~37 000 UTF-16 chars (under 64 KB) but ~74 000 bytes once encoded (ñ = 2, 🎬 = 4).
+    p.subtitles = [{ start: 0, end: 1, text: "ñ".repeat(25_000) + "🎬".repeat(6_000) }];
+    const json = JSON.stringify(p);
+    expect(json.length).toBeLessThan(KEEPALIVE_MAX_BYTES);
+    expect(serializeProject(p).bytes).toBeGreaterThan(KEEPALIVE_MAX_BYTES);
+    expect(flushProjectOnHide(p, vi.fn() as unknown as typeof fetch)).toBe(false);
+    expect(saveDebounceMs(p)).toBe(300);
+  });
+
+  it("stringifies each project version once", () => {
+    const p = createEmptyProject("cache");
+    const spy = vi.spyOn(JSON, "stringify");
+    const a = serializeProject(p);
+    saveDebounceMs(p);
+    flushProjectOnHide(
+      p,
+      vi.fn(() => Promise.resolve(new Response(null))) as unknown as typeof fetch,
+    );
+    expect(serializeProject(p)).toBe(a);
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+  });
+
+  it("warns once when the browser storage is full", () => {
+    resetLocalQuotaWarning();
+    const warn = vi.spyOn(toast, "warning").mockImplementation(() => 1);
+    const set = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("full", "QuotaExceededError");
+    });
+    try {
+      expect(persistLocalProject(createEmptyProject("uno"))).toBe(false);
+      expect(persistLocalProject(createEmptyProject("dos"))).toBe(false);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0]![0])).toMatch(/espacio/);
+      // Other failures (storage blocked) stay silent.
+      set.mockImplementation(() => {
+        throw new DOMException("no", "SecurityError");
+      });
+      resetLocalQuotaWarning();
+      expect(persistLocalProject(createEmptyProject("tres"))).toBe(false);
+      expect(warn).toHaveBeenCalledTimes(1);
+      set.mockRestore();
+      expect(persistLocalProject(createEmptyProject("cuatro"))).toBe(true);
+    } finally {
+      set.mockRestore();
+      warn.mockRestore();
+    }
   });
 });

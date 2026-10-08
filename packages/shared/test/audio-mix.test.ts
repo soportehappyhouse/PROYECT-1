@@ -4,6 +4,8 @@ import {
   duckRatioFor,
   duckSidechainGain,
   formatLufsEs,
+  duckingGapEs,
+  hasMusicName,
   inferTrackRole,
   libraryRole,
   loudnessFor,
@@ -14,6 +16,44 @@ import {
 } from "../src/index.js";
 
 const clip = (assetId: string) => ({ id: `c-${assetId}`, assetId }) as unknown as Clip;
+
+describe("music-like names and the ducking note (audit D7)", () => {
+  const of = (id: string) =>
+    ({
+      lofi: { kind: "audio", name: "Música de fondo lofi.mp3" },
+      bed: { kind: "audio", name: "background_MUSIC.wav" },
+      talk: { kind: "audio", name: "entrevista.wav" },
+    })[id] as Pick<MediaAsset, "kind" | "name"> | undefined;
+
+  it("an imported audio track named like music is music", () => {
+    expect(hasMusicName("Música")).toBe(true);
+    expect(hasMusicName("musica_fondo")).toBe(true);
+    expect(hasMusicName("Fondo")).toBe(true);
+    expect(hasMusicName("Audio 1")).toBe(false);
+    expect(hasMusicName("transfondos")).toBe(false);
+    expect(inferTrackRole({ kind: "audio", name: "Audio 1", clips: [clip("lofi")] }, of)).toBe(
+      "music",
+    );
+    expect(inferTrackRole({ kind: "audio", name: "Audio 1", clips: [clip("bed")] }, of)).toBe(
+      "music",
+    );
+    expect(inferTrackRole({ kind: "audio", name: "Música", clips: [clip("talk")] }, of)).toBe(
+      "music",
+    );
+    expect(
+      inferTrackRole({ kind: "audio", name: "Audio 1", clips: [clip("lofi"), clip("talk")] }, of),
+    ).toBe("other");
+    // Video tracks stay voice whatever their name.
+    expect(inferTrackRole({ kind: "video", name: "Fondo", clips: [] }, of)).toBe("voice");
+  });
+
+  it("explains when «Bajar la música» has nothing to do", () => {
+    expect(duckingGapEs(["voice", "music"])).toBeNull();
+    expect(duckingGapEs(["voice", "other"])).toMatch(/Música/);
+    expect(duckingGapEs(["music"])).toMatch(/Voz/);
+    expect(duckingGapEs(["other"])).toMatch(/ni de Música/);
+  });
+});
 
 describe("inferTrackRole", () => {
   const assets: Record<string, Pick<MediaAsset, "kind" | "aiProvenance">> = {

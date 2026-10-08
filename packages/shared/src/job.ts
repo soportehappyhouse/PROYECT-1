@@ -62,6 +62,8 @@ export const JobProgressDetailSchema = z.object({
   done: z.number().int().nonnegative().optional(),
   total: z.number().int().positive().optional(),
   unit: JobProgressUnitSchema.optional(),
+  /** How many of `done` were skipped from a cache (export blocks): left out of the ETA rate. */
+  cached: z.number().int().nonnegative().optional(),
   /** null = «calculando…». */
   eta_s: z.number().nonnegative().nullable().optional(),
   /** «qwen3:8b · 17/80», «Bloque 3 de 12», «Midiendo sonoridad». */

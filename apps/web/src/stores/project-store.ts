@@ -12,10 +12,12 @@ import {
   type TrackKind,
   type TrackRole,
 } from "@studio/shared";
+import { toast } from "sonner";
 import { create } from "zustand";
 import { clamp, roundTime } from "@/lib/format";
 import { createId } from "@/lib/ids";
-import { readJson, STORAGE_KEYS, writeJson } from "@/lib/storage";
+import { serializeProject } from "@/lib/api-projects";
+import { readJson, STORAGE_KEYS, writeRaw } from "@/lib/storage";
 import {
   clipEnd,
   clipRange,
@@ -307,8 +309,28 @@ export function loadLocalProject(): Project {
     : parsed;
 }
 
-export function persistLocalProject(project: Project): void {
-  writeJson(STORAGE_KEYS.project, project);
+let localQuotaWarned = false;
+
+/** Tests: forget that the «storage full» warning was shown. */
+export function resetLocalQuotaWarning(): void {
+  localQuotaWarned = false;
+}
+
+/**
+ * Keep the browser copy of the project (reused JSON, see `serializeProject`). Audit D6: when the
+ * browser storage is full the copy is lost silently — warn once per session (the api copy is the
+ * durable one). Returns whether it was written.
+ */
+export function persistLocalProject(project: Project): boolean {
+  const res = writeRaw(STORAGE_KEYS.project, serializeProject(project).json);
+  if (res === "quota" && !localQuotaWarned) {
+    localQuotaWarned = true;
+    toast.warning("El navegador no tiene espacio para la copia local del proyecto", {
+      description:
+        "Los cambios se guardan igual en Studio. Si Studio no está corriendo, no cierres ni recargues esta pestaña hasta abrirlo (scripts\\windows\\start.cmd).",
+    });
+  }
+  return res === "ok";
 }
 
 function snapshot(p: Project, meta = false): Snapshot {
@@ -888,13 +910,17 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
     },
     rippleDelete: (ids) => {
       const { project } = get();
-      const { tracks, removed } = rippleDeleteClips(project.tracks, ids);
+      const main = mainVideoTrackId(project);
+      // Audit D5: sync lock — time cut from the main video track is cut from every unlocked
+      // track (text, motion, audio) too, in the same undo step.
+      const { tracks, removed } = rippleDeleteClips(project.tracks, ids, {
+        ...(main && { syncTrackId: main }),
+      });
       const n = project.tracks.reduce(
         (k, t) => k + (removed[t.id] ? t.clips.filter((c) => ids.includes(c.id)).length : 0),
         0,
       );
       if (n === 0) return 0;
-      const main = mainVideoTrackId(project);
       const mainRemoved = main ? (removed[main] ?? []) : [];
       addBreadcrumb("clip", `Borró ${n} clip(s) y cerró el hueco`, { clipIds: [...ids] });
       commit((p) => ({

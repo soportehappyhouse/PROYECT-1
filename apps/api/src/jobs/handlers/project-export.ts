@@ -224,7 +224,12 @@ export function createProjectExportHandler(
               ctx.reportProgress(0.02 + r * 0.97, message ?? "Renderizando", {
                 stage_es: (message ?? "Renderizando").slice(0, 120),
                 cancellable: true,
-                ...(items && { done: items.done, total: items.total, unit: "blocks" as const }),
+                ...(items && {
+                  done: items.done,
+                  total: items.total,
+                  unit: "blocks" as const,
+                  ...(items.cached !== undefined && { cached: items.cached }),
+                }),
               }),
           },
         );

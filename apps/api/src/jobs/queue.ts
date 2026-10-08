@@ -167,7 +167,11 @@ export class JobQueue extends EventEmitter<{ job: [JobEvent] }> {
       const running = this.#running.get(id);
       if (running) {
         running.controller.abort();
-        return this.options.store.update(id, { message: "Cancelando…" });
+        // Audit D8: publish «Cancelando…» right away (the Jobs center shows it before the handler
+        // settles; the final «Cancelado» comes with the terminal transition).
+        const updated = this.options.store.update(id, { message: "Cancelando…" });
+        this.#emit(updated);
+        return updated;
       }
       // Running in the DB but not in this process (should not happen after recovery).
       return this.#transition(job, "canceled", { message: "Cancelado" });
@@ -265,6 +269,7 @@ export class JobQueue extends EventEmitter<{ job: [JobEvent] }> {
         now,
         ...(d.done !== undefined && { done: d.done }),
         ...(d.total !== undefined && { total: d.total }),
+        ...(d.cached !== undefined && { cached: d.cached }),
         ...(firstItemAt && { firstItemAt }),
       });
       return { ...d, eta_s: eta, stalled: isStalled(d.progressAt, now) };
@@ -319,6 +324,7 @@ export class JobQueue extends EventEmitter<{ job: [JobEvent] }> {
           ) as Partial<JobProgressDetail>;
           if (clean.stage_es !== undefined) clean.stage_es = clean.stage_es.slice(0, 120);
           if (clean.done !== undefined) clean.done = Math.max(0, Math.round(clean.done));
+          if (clean.cached !== undefined) clean.cached = Math.max(0, Math.round(clean.cached));
           if (clean.total !== undefined) {
             clean.total = Math.round(clean.total);
             if (clean.total <= 0) delete clean.total;

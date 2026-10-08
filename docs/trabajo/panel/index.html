@@ -1,0 +1,565 @@
+<title>Mesa de control Studio</title>
+<meta name="description" content="Panel de la sesión de Claude Code que construye Studio: nivel por sprint, tokens, agentes, estimador y relanzamientos.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Schibsted+Grotesk:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: una mesa de montaje. Cabecera tipo timecode, secciones apiladas en una columna ancha,
+   el grupo de agentes dibujado como una línea de tiempo con pistas por fase. */
+:root{
+  --bg:#f3f4f7; --panel:#fbfbfd; --ink:#141824; --ink-2:#4a5063; --muted:#7c8193;
+  --line:#dfe2ea; --axis:#c3c7d2; --accent:#3346c8; --accent-ink:#ffffff; --chip:#e8eaf3;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
+  --good:#0ca30c; --good-ink:#006300; --warn:#fab219; --serious:#ec835a; --crit:#d03b3b;
+  --f-display:"Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-body:"Schibsted Grotesk", "Segoe UI", system-ui, sans-serif;
+  --f-mono:"IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#11131a; --panel:#191c25; --ink:#f2f3f7; --ink-2:#c0c4d2; --muted:#8a8fa1;
+    --line:#2a2e3a; --axis:#3a3f4d; --accent:#8d9bff; --accent-ink:#11131a; --chip:#242838;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+    --good-ink:#0ca30c; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#11131a; --panel:#191c25; --ink:#f2f3f7; --ink-2:#c0c4d2; --muted:#8a8fa1;
+  --line:#2a2e3a; --axis:#3a3f4d; --accent:#8d9bff; --accent-ink:#11131a; --chip:#242838;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+  --good-ink:#0ca30c; color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:15px/1.55 var(--f-body);margin:0}
+.wrap{max-width:1180px;margin:0 auto;padding-inline:clamp(16px,3vw,32px);padding-block:20px 64px;display:grid;gap:28px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;line-height:1.15}
+h1{font-size:clamp(26px,4vw,38px);font-weight:800;letter-spacing:-.01em}
+h2{font-size:22px;font-weight:600}
+h3{font-size:15px;font-weight:600;font-family:var(--f-body)}
+p{margin:0}
+.mono,.tc{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.eyebrow{font:500 11px/1 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.lede{color:var(--ink-2);max-width:68ch}
+header.top{display:grid;gap:14px;padding-top:6px}
+.tcbar{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;font:500 12px var(--f-mono);color:var(--ink-2)}
+.tcbar b{color:var(--ink);font-weight:500}
+.rec{display:inline-flex;align-items:center;gap:6px}
+.rec::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--crit)}
+nav.jump{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);border-bottom:1px solid var(--line);
+  display:flex;gap:4px;overflow-x:auto;padding-block:8px;margin-inline:calc(-1*clamp(16px,3vw,32px));padding-inline:clamp(16px,3vw,32px)}
+nav.jump a{font:500 13px var(--f-body);color:var(--ink-2);text-decoration:none;padding:6px 10px;border-radius:6px;white-space:nowrap}
+nav.jump a:hover,nav.jump a:focus-visible{background:var(--chip);color:var(--ink)}
+section{display:grid;gap:14px;scroll-margin-top:56px}
+.sec-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:end;gap:8px 16px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;min-width:0}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:16px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));gap:12px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:grid;gap:4px;align-content:start}
+.tile .v{font:600 26px/1.1 var(--f-display)}
+.tile .s{font-size:12.5px;color:var(--ink-2)}
+.tag{display:inline-flex;align-items:center;gap:4px;font:500 10.5px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;
+  padding:3px 6px;border-radius:4px;background:var(--chip);color:var(--ink-2);white-space:nowrap}
+.tag.med{color:var(--good-ink)} .tag.est{color:var(--ink-2)}
+.tag.med::before{content:"●"} .tag.est::before{content:"◌"}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;color:var(--ink-2)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+.legend i.h{background-image:repeating-linear-gradient(45deg,transparent 0 2px,var(--panel) 2px 4px)}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+svg text{fill:var(--ink-2);font:11px var(--f-body)}
+svg .ax{stroke:var(--axis)} svg .gr{stroke:var(--line)}
+svg .lbl{fill:var(--ink);font:500 12px var(--f-body)}
+svg .num{font:11px var(--f-mono);fill:var(--ink-2)}
+.seg{display:inline-flex;background:var(--chip);border-radius:8px;padding:3px;gap:2px;flex-wrap:wrap}
+.seg button{font:500 13px var(--f-body);border:0;background:transparent;color:var(--ink-2);padding:6px 10px;border-radius:6px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--panel);color:var(--ink);box-shadow:0 0 0 1px var(--line)}
+button:focus-visible,select:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn{font:600 13px var(--f-body);border:0;background:var(--accent);color:var(--accent-ink);padding:8px 14px;border-radius:7px;cursor:pointer}
+.btn.ghost{background:var(--chip);color:var(--ink)}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:500 11px var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+td.n{font-family:var(--f-mono);font-variant-numeric:tabular-nums;text-align:right}
+.pill{display:inline-flex;align-items:center;gap:5px;font:600 12px var(--f-body);padding:3px 8px;border-radius:999px;border:1px solid var(--line)}
+.pill::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.pill.ok{color:var(--good-ink)} .pill.bad{color:var(--crit)} .pill.mid{color:var(--serious)}
+.sev{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start;padding:10px 0;border-bottom:1px solid var(--line)}
+.sev:last-child{border-bottom:0}
+.sev .k{font:600 20px/1 var(--f-display);min-width:2.2ch;text-align:right}
+.sev .k.alta{color:var(--crit)} .sev .k.media{color:var(--serious)} .sev .k.baja{color:var(--ink-2)}
+.sev small{display:block;color:var(--muted);font:500 11px var(--f-mono);letter-spacing:.04em;text-transform:uppercase}
+.rlog{display:grid;gap:8px}
+.rlog div{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px}
+.rlog .tc{color:var(--crit);font-weight:500}
+.meter{height:10px;border-radius:5px;background:var(--chip);overflow:hidden;position:relative}
+.meter > span{position:absolute;inset:0 auto 0 0;border-radius:5px;background:var(--accent)}
+.meter > span.lo{background:var(--accent);opacity:.45}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:12px}
+label.f{display:grid;gap:5px;font-size:12.5px;color:var(--ink-2)}
+select,input[type=number]{font:500 14px var(--f-body);color:var(--ink);background:var(--panel);border:1px solid var(--axis);border-radius:7px;padding:8px 10px;width:100%}
+.out{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,160px),1fr));gap:12px}
+.verdict{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.note{font-size:12.5px;color:var(--muted);max-width:80ch}
+.tip{position:fixed;z-index:20;pointer-events:none;background:var(--ink);color:var(--bg);font:12.5px/1.4 var(--f-body);padding:7px 9px;border-radius:6px;max-width:260px;box-shadow:0 4px 14px rgb(0 0 0 / .18)}
+.tip b{font-weight:600}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.anim-wrap svg .node{transition:opacity .35s ease, transform .35s ease}
+.anim-wrap svg .node.dim{opacity:.18}
+.anim-wrap svg .bar{transition:width .5s ease}
+@media (prefers-reduced-motion: reduce){ .anim-wrap svg .node,.anim-wrap svg .bar{transition:none} }
+.reco{border-left:3px solid var(--accent);padding:10px 14px;background:var(--panel);border-radius:0 8px 8px 0;display:grid;gap:4px}
+.small{font-size:12.5px;color:var(--ink-2)}
+.donutbox{display:grid;grid-template-columns:minmax(0,220px) minmax(0,1fr);gap:16px;align-items:center}
+@media (max-width:520px){ .donutbox{grid-template-columns:1fr} }
+footer{font-size:12px;color:var(--muted)}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="tcbar" id="tcbar"></div>
+    <h1>Mesa de control Studio</h1>
+    <p class="lede" id="lede">Cómo viene el editor por sprint, cuánto se gastó en tokens, cómo trabajó cada grupo de agentes y cuántas veces el reparto quedó corto.</p>
+    <div class="tiles" id="kpis"></div>
+  </header>
+
+  <nav class="jump" aria-label="Secciones">
+    <a href="#nivel">Nivel</a><a href="#consumo">Consumo</a><a href="#agentes">Agentes</a><a href="#corto">Quedó corto</a><a href="#estimador">Estimador</a>
+  </nav>
+
+  <section id="nivel">
+    <div class="sec-head"><div><p class="eyebrow">1 · Nivel del proyecto</p><h2>Diseño, funciones y errores por sprint</h2></div>
+      <div class="legend" id="lgProg"></div></div>
+    <div class="grid2">
+      <div class="panel"><div class="scroll" id="chProg"></div>
+        <p class="note">Funciones: criterios del plan (🟢 = 1, 🟡 solo medible en la PC = 0,5). Errores: hallazgos corregidos sobre encontrados. Diseño: solo la auditoría de fluidez lo midió (2,52 de 5); el resto es estimado y va rayado.</p></div>
+      <div class="panel"><h3>Hallazgos abiertos</h3><div id="openList"></div>
+        <p class="note" id="pcNote"></p></div>
+    </div>
+  </section>
+
+  <section id="consumo">
+    <div class="sec-head"><div><p class="eyebrow">2 · Consumo y estado</p><h2>Tokens por tipo de agente</h2></div>
+      <div class="seg" role="group" aria-label="Qué contar"><button type="button" data-mode="all" aria-pressed="true">Medido + estimado</button><button type="button" data-mode="med" aria-pressed="false">Solo medido</button></div></div>
+    <div class="legend" id="lgTypes"></div>
+    <div class="grid2">
+      <div class="panel"><div class="scroll" id="chStack"></div><p class="note">Miles de tokens por sprint (subagent_tokens). Rayado = estimado. El coordinador va aparte porque su contexto no es visible.</p></div>
+      <div class="panel"><h3>Reparto del trabajo en la sesión</h3><div class="donutbox"><div id="chDonut"></div><div id="donutTable"></div></div></div>
+    </div>
+    <div class="grid2">
+      <div class="panel"><h3>Estado de la sesión</h3><div id="state" class="small"></div></div>
+      <div class="panel"><h3>Cortes por límite de uso</h3><div class="rlog" id="rlog"></div><p class="note" id="limNote"></p></div>
+    </div>
+  </section>
+
+  <section id="agentes">
+    <div class="sec-head"><div><p class="eyebrow">3 · Grupo de agentes</p><h2>Coordinador → contratos → módulos → integración → auditoría → correcciones</h2></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><div class="seg" id="sprPick" role="group" aria-label="Sprint"></div><button class="btn" id="play" type="button">Reproducir</button></div></div>
+    <div class="panel anim-wrap"><div class="scroll" id="chAnim"></div>
+      <div class="legend" style="margin-top:8px"><span><i style="background:var(--accent)"></i>Barra = tokens del agente</span><span><i class="h" style="background:var(--muted)"></i>Estimado</span><span style="color:var(--crit)">✕ murió · ↻ relanzado · ! incidente · ✉ mensaje extra</span></div>
+      <p class="note" id="animNote"></p></div>
+  </section>
+
+  <section id="corto">
+    <div class="sec-head"><div><p class="eyebrow">4 · ¿Quedó corto el reparto?</p><h2>Relanzamientos, costuras y agentes extra</h2></div></div>
+    <div class="tiles" id="cortoKpi"></div>
+    <div class="panel scroll"><table id="cortoTable"></table></div>
+    <div class="reco" id="cortoReco"></div>
+    <p class="note" id="ruleNote"></p>
+  </section>
+
+  <section id="estimador">
+    <div class="sec-head"><div><p class="eyebrow">5 · Estimador de consultas</p><h2>¿Cuánto cuesta un pedido y entra?</h2></div></div>
+    <div class="panel" style="display:grid;gap:16px">
+      <div class="form">
+        <label class="f" for="eType">Tipo de pedido<select id="eType"></select></label>
+        <label class="f" for="eQty">Cantidad<input id="eQty" type="number" min="1" max="10" value="1"></label>
+        <label class="f" for="eWeek">Presupuesto semanal (miles de tokens)<input id="eWeek" type="number" min="0" step="500" placeholder="ej. 30000"></label>
+        <label class="f" for="eWin">Ventana de sesión (miles de tokens)<input id="eWin" type="number" min="0" step="250"></label>
+      </div>
+      <div class="out" id="eOut"></div>
+      <div class="verdict" id="eVerdict"></div>
+      <div style="display:grid;gap:6px"><div class="small" id="eWeekTxt"></div><div class="meter" id="eWeekBar"><span class="lo"></span><span></span></div></div>
+      <p class="note" id="eNote"></p>
+    </div>
+  </section>
+
+  <footer id="foot"></footer>
+</div>
+<div class="tip" id="tip" hidden></div>
+
+<script type="application/json" id="data">{"version":1,"actualizado":"2026-10-08T20:00:00Z","notas":"Fuente única del panel. Tokens en miles (k). 'medido': true = subagent_tokens de las notificaciones de la sesión; false = estimado por el coordinador. Fases del grupo: 0 coordinador, 1 investigación/contratos, 2 módulos en paralelo, 3 integración, 4 auditoría, 5 correcciones, 6 después del sprint (hotfix, CI, soporte).","sesion":{"proyecto":"Studio","repo":"PROYECT-1","rama":"claude/funny-mccarthy-0bbdt6","inicio":"2026-10-04T14:59:00Z","ultimo_commit":"fb267a0","commits":90,"prs_mergeados":10,"estado":"PLAN-BASE v3 congelado; próximo: Sprint 5 (Roces)","proximo_sprint":"S5","coordinador":{"modelo":"opus","turnos_estimados":94,"k_por_turno_estimado":35,"medido":false,"nota":"El contexto exacto del coordinador no es visible. Estimado: turnos de orquestación por sprint × ~35k tokens procesados por turno (con caché)."},"limites_plan":{"cuota_semanal_visible":false,"nota":"La cuota semanal de la suscripción no es visible desde la sesión. El panel trabaja en tokens (unidades relativas) contra un presupuesto que cargás vos.","ventana_sesion_inferida_k":4500,"ventana_nota":"Inferida de los 2 cortes conocidos (no es un dato oficial)."}},"cortes_limite":[{"cuando":"2026-10-06","sprint":"S3b","tipo":"límite de sesión (Opus)","reset_utc":"01:40","efecto":"5 agentes de módulo murieron y se relanzaron","fecha_inferida":true},{"cuando":"2026-10-06","sprint":"S4","tipo":"límite de sesión (429)","reset_utc":"23:20","efecto":"murió el agente de correcciones (intento 1); después un reinicio del contenedor tiró el intento 2","fecha_inferida":true}],"tipos_agente":[{"id":"investigacion","nombre":"Investigación"},{"id":"contratos","nombre":"Contratos y Paso 0"},{"id":"modulo","nombre":"Módulos"},{"id":"integracion","nombre":"Integración"},{"id":"auditoria","nombre":"Auditoría"},{"id":"correcciones","nombre":"Correcciones"},{"id":"hotfix","nombre":"Hotfix y CI"},{"id":"soporte","nombre":"Soporte (historial, logs)"}],"sprints":[{"id":"S0","nombre":"Base","fecha":"2026-10-04","plan":"00-PLAN-BASE","estado":"hecho","horas":1.5,"commits":11,"progreso":{"funciones":87.5,"errores":100,"diseno":35,"diseno_medido":false},"criterios":{"verdes":3,"amarillos":1,"total":4},"hallazgos":{"encontrados":6,"corregidos":6,"abiertos":0,"detalle":"1 bug en verificación + 5 riesgos de auditoría"},"tests":{"e2e":null,"smoke":null,"node":null,"python":null},"corto":{"relanzados":0,"costuras":0,"hotfix_post":0,"seguimientos":0,"agentes_extra":0,"incidentes":0,"nota":"Sin registros de fallas de agentes."},"agentes":[{"id":"inv-motion","rol":"Investigación motion","tipo":"investigacion","modelo":"sonnet","fase":1,"k":200,"medido":false},{"id":"inv-voz","rol":"Investigación voz/audio","tipo":"investigacion","modelo":"sonnet","fase":1,"k":200,"medido":false},{"id":"inv-editor","rol":"Investigación editor/FFmpeg","tipo":"investigacion","modelo":"sonnet","fase":1,"k":200,"medido":false},{"id":"arq","rol":"Arquitecto (esqueleto)","tipo":"contratos","modelo":"opus","fase":1,"k":250,"medido":false},{"id":"m-a","rol":"Módulo A web","tipo":"modulo","modelo":"opus","fase":2,"k":350,"medido":false},{"id":"m-b","rol":"Módulo B api","tipo":"modulo","modelo":"opus","fase":2,"k":350,"medido":false},{"id":"m-c","rol":"Módulo C motion","tipo":"modulo","modelo":"opus","fase":2,"k":350,"medido":false},{"id":"m-d","rol":"Módulo D workers","tipo":"modulo","modelo":"opus","fase":2,"k":350,"medido":false},{"id":"int","rol":"Integración","tipo":"integracion","modelo":"opus","fase":3,"k":300,"medido":false},{"id":"aud","rol":"Auditoría","tipo":"auditoria","modelo":"sonnet","fase":4,"k":250,"medido":false},{"id":"fix","rol":"Correcciones","tipo":"correcciones","modelo":"opus","fase":5,"k":250,"medido":false}]},{"id":"R2","nombre":"Manual, QA y canal de errores","fecha":"2026-10-04","plan":"00-PLAN-BASE","estado":"hecho","horas":5.4,"commits":8,"progreso":{"funciones":100,"errores":56,"diseno":40,"diseno_medido":false},"criterios":{"verdes":4,"amarillos":0,"total":4},"hallazgos":{"encontrados":18,"corregidos":10,"abiertos":8,"detalle":"16 bugs de QA (8 corregidos, resto a MEJORAS.md) + 2 fallos de CI Windows"},"tests":{"e2e":23,"smoke":12,"node":null,"python":null},"corto":{"relanzados":0,"costuras":0,"hotfix_post":1,"seguimientos":0,"agentes_extra":0,"incidentes":0,"nota":"2 fallos de CI en Windows corregidos en el commit siguiente."},"agentes":[{"id":"qa","rol":"QA de punta a punta","tipo":"modulo","modelo":"opus","fase":2,"k":300,"medido":false},{"id":"err","rol":"Canal de errores","tipo":"modulo","modelo":"opus","fase":2,"k":300,"medido":false},{"id":"man","rol":"Manual de usuario","tipo":"modulo","modelo":"opus","fase":2,"k":300,"medido":false},{"id":"fix","rol":"Correcciones","tipo":"correcciones","modelo":"opus","fase":5,"k":250,"medido":false}]},{"id":"R2b","nombre":"Prueba real, instalador y PLAN v2","fecha":"2026-10-05","plan":"01-PLAN-BASE-v2","estado":"hecho","horas":1.5,"commits":6,"progreso":{"funciones":100,"errores":100,"diseno":45,"diseno_medido":false},"criterios":{"verdes":1,"amarillos":0,"total":1},"hallazgos":{"encontrados":12,"corregidos":12,"abiertos":0,"detalle":"12 bugs de la primera prueba en la PC (varios resueltos como funciones del Sprint 1)"},"tests":{"e2e":null,"smoke":null,"node":null,"python":null},"corto":{"relanzados":0,"costuras":0,"hotfix_post":0,"seguimientos":0,"agentes_extra":0,"incidentes":0,"nota":"Agentes inferidos de los commits."},"agentes":[{"id":"inv-ia","rol":"Investigación IA local","tipo":"investigacion","modelo":"sonnet","fase":1,"k":250,"medido":false},{"id":"inst","rol":"Instalador incremental","tipo":"modulo","modelo":"opus","fase":2,"k":300,"medido":false},{"id":"fix","rol":"Arreglos de la prueba real","tipo":"correcciones","modelo":"opus","fase":5,"k":300,"medido":false}]},{"id":"S1","nombre":"Fase A: IA local determinista","fecha":"2026-10-05","plan":"01-PLAN-BASE-v2","estado":"hecho","horas":2.7,"commits":10,"progreso":{"funciones":66.7,"errores":100,"diseno":45,"diseno_medido":false},"criterios":{"verdes":1,"amarillos":2,"total":3},"hallazgos":{"encontrados":14,"corregidos":14,"abiertos":0,"detalle":"6 reconciliaciones de integración + 3 desvíos + 5 riesgos de auditoría"},"tests":{"e2e":33,"smoke":17,"node":332,"python":81},"corto":{"relanzados":0,"costuras":6,"hotfix_post":1,"seguimientos":0,"agentes_extra":1,"incidentes":0,"nota":"Búsqueda extra (HyperFrames); fix de progreso después de la auditoría."},"agentes":[{"id":"con","rol":"Contratos","tipo":"contratos","modelo":"opus","fase":1,"k":200,"medido":false},{"id":"inv-hf","rol":"Búsqueda HyperFrames","tipo":"investigacion","modelo":"sonnet","fase":1,"k":150,"medido":false},{"id":"m-web","rol":"Módulo web","tipo":"modulo","modelo":"opus","fase":2,"k":350,"medido":false},{"id":"m-api","rol":"Módulo api","tipo":"modulo","modelo":"opus","fase":2,"k":350,"medido":false},{"id":"m-wrk","rol":"Módulo workers","tipo":"modulo","modelo":"opus","fase":2,"k":350,"medido":false},{"id":"int","rol":"Integración","tipo":"integracion","modelo":"opus","fase":3,"k":300,"medido":false},{"id":"aud","rol":"Auditoría","tipo":"auditoria","modelo":"sonnet","fase":4,"k":250,"medido":false},{"id":"fix","rol":"Correcciones","tipo":"correcciones","modelo":"opus","fase":5,"k":250,"medido":false}]},{"id":"S2","nombre":"Fase B: visión y keyframes","fecha":"2026-10-05","plan":"01-PLAN-BASE-v2","estado":"hecho","horas":2.5,"commits":8,"progreso":{"funciones":87.5,"errores":100,"diseno":50,"diseno_medido":false},"criterios":{"verdes":3,"amarillos":1,"total":4},"hallazgos":{"encontrados":15,"corregidos":15,"abiertos":0,"detalle":"8 reconciliaciones de integración + 7 de auditoría"},"tests":{"e2e":41,"smoke":25,"node":420,"python":128},"corto":{"relanzados":0,"costuras":8,"hotfix_post":1,"seguimientos":0,"agentes_extra":0,"incidentes":0,"nota":"Test de pip/uv dependiente del host corregido después."},"agentes":[{"id":"con","rol":"Contratos","tipo":"contratos","modelo":"opus","fase":1,"k":200,"medido":false},{"id":"m-wrk","rol":"Módulo workers visión","tipo":"modulo","modelo":"opus","fase":2,"k":400,"medido":false},{"id":"m-web","rol":"Módulo web multicapa","tipo":"modulo","modelo":"opus","fase":2,"k":400,"medido":false},{"id":"m-api","rol":"Módulo api keyframes","tipo":"modulo","modelo":"opus","fase":2,"k":400,"medido":false},{"id":"int","rol":"Integración","tipo":"integracion","modelo":"opus","fase":3,"k":300,"medido":false},{"id":"aud","rol":"Auditoría","tipo":"auditoria","modelo":"sonnet","fase":4,"k":250,"medido":false},{"id":"fix","rol":"Correcciones","tipo":"correcciones","modelo":"opus","fase":5,"k":250,"medido":false}]},{"id":"S3","nombre":"Fase D: agente local","fecha":"2026-10-05","plan":"01-PLAN-BASE-v2","estado":"hecho","horas":2.2,"commits":10,"progreso":{"funciones":50,"errores":100,"diseno":50,"diseno_medido":false},"criterios":{"verdes":0,"amarillos":1,"total":1},"hallazgos":{"encontrados":15,"corregidos":15,"abiertos":0,"detalle":"8 reconciliaciones de integración + 5 riesgos y 2 brechas de auditoría"},"tests":{"e2e":48,"smoke":29,"node":469,"python":290},"corto":{"relanzados":0,"costuras":8,"hotfix_post":0,"seguimientos":0,"agentes_extra":1,"incidentes":0,"nota":"Agente extra de rendimiento del recorte (pedido aparte)."},"agentes":[{"id":"con","rol":"Contratos","tipo":"contratos","modelo":"opus","fase":1,"k":200,"medido":false},{"id":"m-ds","rol":"Prompt y dataset","tipo":"modulo","modelo":"opus","fase":2,"k":350,"medido":false},{"id":"m-wrk","rol":"Módulo workers agente","tipo":"modulo","modelo":"opus","fase":2,"k":350,"medido":false},{"id":"m-web","rol":"Módulo web Asistente","tipo":"modulo","modelo":"opus","fase":2,"k":350,"medido":false},{"id":"m-api","rol":"Módulo api EditPlan","tipo":"modulo","modelo":"opus","fase":2,"k":350,"medido":false},{"id":"perf","rol":"Rendimiento RVM","tipo":"modulo","modelo":"opus","fase":2,"k":250,"medido":false},{"id":"int","rol":"Integración","tipo":"integracion","modelo":"opus","fase":3,"k":300,"medido":false},{"id":"aud","rol":"Auditoría","tipo":"auditoria","modelo":"sonnet","fase":4,"k":250,"medido":false},{"id":"fix","rol":"Correcciones","tipo":"correcciones","modelo":"opus","fase":5,"k":250,"medido":false}]},{"id":"S3b","nombre":"Estilo, Consola Claude, stems, capas","fecha":"2026-10-06","plan":"01-PLAN-BASE-v2","estado":"hecho","horas":15.2,"commits":10,"progreso":{"funciones":75,"errores":100,"diseno":50,"diseno_medido":false},"criterios":{"verdes":3,"amarillos":3,"total":6},"hallazgos":{"encontrados":17,"corregidos":17,"abiertos":0,"detalle":"2 bugs entre módulos + 14 de auditoría + 1 fallo de CI Windows"},"tests":{"e2e":57,"smoke":33,"node":585,"python":331},"corto":{"relanzados":5,"costuras":2,"hotfix_post":1,"seguimientos":0,"agentes_extra":1,"incidentes":0,"nota":"5 agentes murieron por el límite de sesión de Opus y se relanzaron; agente haiku extra para el test de Windows."},"agentes":[{"id":"con","rol":"Contratos","tipo":"contratos","modelo":"opus","fase":1,"k":250,"medido":false},{"id":"m-con","rol":"Módulo consola","tipo":"modulo","modelo":"opus","fase":2,"k":400,"medido":false,"murio":"límite de sesión","relanzado":1},{"id":"m-est","rol":"Módulo estilo","tipo":"modulo","modelo":"opus","fase":2,"k":400,"medido":false,"murio":"límite de sesión","relanzado":1},{"id":"m-ste","rol":"Módulo stems","tipo":"modulo","modelo":"opus","fase":2,"k":350,"medido":false,"murio":"límite de sesión","relanzado":1},{"id":"m-rec","rol":"Módulo recorte HQ","tipo":"modulo","modelo":"opus","fase":2,"k":350,"medido":false,"murio":"límite de sesión","relanzado":1},{"id":"m-cap","rol":"Módulo capas","tipo":"modulo","modelo":"opus","fase":2,"k":350,"medido":false,"murio":"límite de sesión","relanzado":1},{"id":"perdido","rol":"Trabajo perdido en los 5 cortes","tipo":"modulo","modelo":"opus","fase":2,"k":600,"medido":false,"desperdicio":true},{"id":"int","rol":"Integración","tipo":"integracion","modelo":"opus","fase":3,"k":278,"medido":true},{"id":"aud","rol":"Auditoría","tipo":"auditoria","modelo":"sonnet","fase":4,"k":269,"medido":true},{"id":"fix","rol":"Correcciones","tipo":"correcciones","modelo":"opus","fase":5,"k":307,"medido":true},{"id":"win","rol":"Arreglo test Windows","tipo":"hotfix","modelo":"haiku","fase":6,"k":54,"medido":true}]},{"id":"S4","nombre":"Fase C: cara y voz","fecha":"2026-10-06","plan":"01-PLAN-BASE-v2","estado":"hecho","horas":9,"commits":25,"progreso":{"funciones":87.5,"errores":100,"diseno":50,"diseno_medido":false},"criterios":{"verdes":3,"amarillos":1,"total":4},"hallazgos":{"encontrados":46,"corregidos":42,"abiertos":4,"detalle":"9 bugs entre módulos + 24 hallazgos y 5 puntos abiertos de auditoría + 1 CI + 3 hotfix de la prueba del usuario; 4 en «Descubierto»"},"tests":{"e2e":74,"smoke":38,"node":713,"python":459},"corto":{"relanzados":2,"costuras":9,"hotfix_post":3,"seguimientos":1,"agentes_extra":6,"incidentes":1,"nota":"Correcciones murió por 429 y después por reinicio del contenedor; incidente del índice git en M2; 3 hotfix tras la prueba (manifiesto, sello del instalador, URL del modelo); 1 mensaje extra a la auditoría (voices.json)."},"agentes":[{"id":"inv","rol":"Investigación","tipo":"investigacion","modelo":"sonnet","fase":1,"k":319,"medido":true},{"id":"con","rol":"Contratos","tipo":"contratos","modelo":"opus","fase":1,"k":390,"medido":true},{"id":"p0","rol":"Paso 0","tipo":"contratos","modelo":"opus","fase":1,"k":270,"medido":true},{"id":"m1","rol":"M1 caras","tipo":"modulo","modelo":"opus","fase":2,"k":700,"medido":false,"nota":"Informó 104k, probablemente truncado"},{"id":"m2","rol":"M2 voz","tipo":"modulo","modelo":"opus","fase":2,"k":615,"medido":true,"incidente":"índice git"},{"id":"m3","rol":"M3 herramientas","tipo":"modulo","modelo":"opus","fase":2,"k":774,"medido":true},{"id":"int","rol":"Integración","tipo":"integracion","modelo":"opus","fase":3,"k":703,"medido":true},{"id":"aud","rol":"Auditoría","tipo":"auditoria","modelo":"sonnet","fase":4,"k":440,"medido":true,"seguimiento":1},{"id":"fix1","rol":"Correcciones intento 1","tipo":"correcciones","modelo":"opus","fase":5,"k":0,"medido":false,"murio":"429","desperdicio":true},{"id":"fix2","rol":"Correcciones intento 2 (ALTO+MEDIO)","tipo":"correcciones","modelo":"opus","fase":5,"k":400,"medido":false,"murio":"reinicio del contenedor"},{"id":"fix3","rol":"Correcciones (reanudación)","tipo":"correcciones","modelo":"opus","fase":5,"k":167,"medido":true,"relanzado":2},{"id":"ci","rol":"Arreglo CI Windows","tipo":"hotfix","modelo":"opus","fase":6,"k":201,"medido":true},{"id":"hf-up1","rol":"Hotfix actualización (models_cli) 1","tipo":"hotfix","modelo":"opus","fase":6,"k":188,"medido":true},{"id":"hf-up2","rol":"Hotfix actualización (models_cli) 2","tipo":"hotfix","modelo":"opus","fase":6,"k":191,"medido":true},{"id":"hf-stamp","rol":"Hotfix sello del instalador","tipo":"hotfix","modelo":"opus","fase":6,"k":84,"medido":true},{"id":"hf-fs","rol":"Hotfix faceswap-extra","tipo":"hotfix","modelo":"opus","fase":6,"k":98,"medido":true},{"id":"hist","rol":"Escaneo de historial","tipo":"soporte","modelo":"sonnet","fase":6,"k":92,"medido":true},{"id":"logs1","rol":"Extracción de logs 1","tipo":"soporte","modelo":"haiku","fase":6,"k":53,"medido":true},{"id":"logs2","rol":"Extracción de logs 2","tipo":"soporte","modelo":"haiku","fase":6,"k":53,"medido":true}]},{"id":"FL","nombre":"Fluidez y PLAN v3","fecha":"2026-10-08","plan":"02-PLAN-BASE-v3","estado":"hecho","horas":3,"commits":2,"progreso":{"funciones":null,"errores":0,"diseno":50.4,"diseno_medido":true,"diseno_nota":"Mapa de calor de la auditoría: promedio 2,52 de 5"},"criterios":{"verdes":0,"amarillos":0,"total":0},"hallazgos":{"encontrados":26,"corregidos":0,"abiertos":26,"detalle":"Auditoría de fluidez: 6 altos, 16 medios, 4 bajos (van a los sprints 5 a 7)"},"tests":{"e2e":null,"smoke":null,"node":null,"python":null},"corto":{"relanzados":0,"costuras":0,"hotfix_post":0,"seguimientos":0,"agentes_extra":0,"incidentes":0,"nota":""},"agentes":[{"id":"ref","rol":"Referencias de editores","tipo":"investigacion","modelo":"sonnet","fase":1,"k":141,"medido":true},{"id":"ux","rol":"Auditoría UX","tipo":"auditoria","modelo":"opus","fase":4,"k":212,"medido":true}]},{"id":"S5","nombre":"Roces","fecha":null,"plan":"02-PLAN-BASE-v3","estado":"planeado","horas":null,"commits":0,"progreso":{"funciones":0,"errores":0,"diseno":50,"diseno_medido":false},"criterios":{"verdes":0,"amarillos":0,"total":4},"hallazgos":{"encontrados":0,"corregidos":0,"abiertos":0,"detalle":"Toma los 6 hallazgos altos y la mayoría de los medios"},"tests":{},"corto":null,"agentes":[]},{"id":"S6","nombre":"Guion y sistema de diseño","fecha":null,"plan":"02-PLAN-BASE-v3","estado":"planeado","horas":null,"commits":0,"progreso":{"funciones":0,"errores":0,"diseno":50,"diseno_medido":false},"criterios":{"verdes":0,"amarillos":0,"total":2},"hallazgos":{"encontrados":0,"corregidos":0,"abiertos":0,"detalle":""},"tests":{},"corto":null,"agentes":[]},{"id":"S7","nombre":"Lazo autónomo","fecha":null,"plan":"02-PLAN-BASE-v3","estado":"planeado","horas":null,"commits":0,"progreso":{"funciones":0,"errores":0,"diseno":50,"diseno_medido":false},"criterios":{"verdes":0,"amarillos":0,"total":1},"hallazgos":{"encontrados":0,"corregidos":0,"abiertos":0,"detalle":""},"tests":{},"corto":null,"agentes":[]}],"abiertos":[{"origen":"Auditoría de fluidez","sev":"alta","n":6,"texto":"Evaluar modelos sin progreso, aviso «Error» sin detalle, toasts repetidos, workers caídos sin aviso único, atajos muertos tras clicar la regla, Reels desde horizontal con franjas"},{"origen":"Auditoría de fluidez","sev":"media","n":16,"texto":"Abrir proyectos, ripple, multiselección, edición por guion, motion en inglés, sistema de diseño, export en códecs, tooltips, autoguardado…"},{"origen":"Auditoría de fluidez","sev":"baja","n":4,"texto":"Etiquetas «IA local», 3 avisos por clic en CPU, deshacer corto, primer arranque mudo"},{"origen":"Sprint 4 · Descubierto","sev":"media","n":4,"texto":"PIN local, filtro NSFW de fotos de Persona, hashes de Hugging Face, texto real del rechazo NSFW"},{"origen":"R2 · MEJORAS.md","sev":"baja","n":8,"texto":"Backlog de QA no reconciliado con los sprints (varios ya resueltos)"}],"pendiente_pc":["Recorte ≥ 15 fps 1080p (S2)","Evaluar modelos qwen3:8b ≥ 90 % (S3)","Consola con claude real (S3b)","Stems 1 min < 60 s en GPU y sha256 de Demucs (S3b)","Halos HQ en clip real (S3b)","FaceFusion fps, Chatterbox RTF, RVC < 15 s/min (S4)","Re-render con NVENC < 20 % (S1)"],"estimador":[{"id":"pregunta","nombre":"Pregunta o consulta","k":[5,40],"agentes":[0,0],"minutos":[1,5],"base":"Solo el coordinador; sin agentes."},{"id":"hotfix","nombre":"Hotfix","k":[80,380],"agentes":[1,2],"minutos":[20,60],"base":"Medidos: 84k, 98k, 167k, 201k, 188k+191k"},{"id":"investigacion","nombre":"Investigación","k":[90,320],"agentes":[1,2],"minutos":[20,60],"base":"Medidos: 92k, 141k, 319k"},{"id":"auditoria","nombre":"Auditoría","k":[210,440],"agentes":[1,1],"minutos":[30,90],"base":"Medidos: 212k, 269k, 440k"},{"id":"modulo","nombre":"Módulo mediano","k":[600,1100],"agentes":[1,2],"minutos":[60,150],"base":"Módulos S4: 615k, 774k (+700k est.) más su parte de integración (≈ 230k)"},{"id":"sprint","nombre":"Sprint completo","k":[3500,6200],"agentes":[9,19],"minutos":[480,960],"base":"S4 ≈ 5,7M con hotfix (19 agentes); S3b ≈ 3,6M con 5 relanzamientos"}],"margen_relanzamiento":0.12,"regla_recomendacion":{"relanzados_max":1,"costuras_max":5,"hotfix_max":1}}</script>
+<script>
+(function(){
+"use strict";
+let D = JSON.parse(document.getElementById("data").textContent);
+const $ = s => document.querySelector(s);
+const NS = "http://www.w3.org/2000/svg";
+const TYPES = () => D.tipos_agente.map(t => t.id);
+const TCOL = {investigacion:"--s1",contratos:"--s2",modulo:"--s3",integracion:"--s4",auditoria:"--s5",correcciones:"--s6",hotfix:"--s7",soporte:"--s8"};
+const fmtK = k => k >= 1000 ? (k/1000).toLocaleString("es-AR",{maximumFractionDigits:1}) + "M" : Math.round(k) + "k";
+const pct = v => Math.round(v) + " %";
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const done = () => D.sprints.filter(s => s.estado === "hecho");
+const store = {
+  get(k){ try { return localStorage.getItem(k); } catch(e){ return null; } },
+  set(k,v){ try { localStorage.setItem(k,v); } catch(e){} }
+};
+function el(tag, attrs, parent){
+  const n = document.createElementNS(NS, tag);
+  for (const k in attrs){
+    const v = attrs[k];
+    if ((k === "fill" || k === "stroke") && String(v).startsWith("var(")) n.style[k] = v;
+    else n.setAttribute(k, v);
+  }
+  if (parent) parent.appendChild(n);
+  return n;
+}
+function svgRoot(w,h,label){ return el("svg",{viewBox:`0 0 ${w} ${h}`,width:w,height:h,role:"img","aria-label":label,style:"max-width:none;display:block"}); }
+function hatchDefs(svg){
+  const defs = el("defs",{},svg);
+  const add = (id,color) => {
+    const p = el("pattern",{id,patternUnits:"userSpaceOnUse",width:6,height:6,patternTransform:"rotate(45)"},defs);
+    el("rect",{width:6,height:6,fill:`var(${color})`,opacity:.35},p);
+    el("rect",{width:3,height:6,fill:`var(${color})`},p);
+  };
+  Object.entries(TCOL).forEach(([t,c]) => add("h-"+t,c));
+  ["--s1","--s2","--s3","--accent","--muted"].forEach(c => add("h"+c.replace(/-/g,""),c));
+}
+// tooltip
+const tip = $("#tip");
+function bindTip(node, html){
+  node.addEventListener("pointerenter", e => { tip.innerHTML = html; tip.hidden = false; moveTip(e); });
+  node.addEventListener("pointermove", moveTip);
+  node.addEventListener("pointerleave", () => tip.hidden = true);
+  node.setAttribute("tabindex","0");
+  node.addEventListener("focus", () => { tip.innerHTML = html; tip.hidden = false; const r = node.getBoundingClientRect(); place(r.left + r.width/2, r.top); });
+  node.addEventListener("blur", () => tip.hidden = true);
+}
+function moveTip(e){ place(e.clientX, e.clientY); }
+function place(x,y){
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = Math.max(8, Math.min(innerWidth - w - 8, x + 12)) + "px";
+  tip.style.top = Math.max(8, y - h - 10) + "px";
+}
+
+// ---------- totals ----------
+function totals(){
+  let med = 0, est = 0, agents = 0, waste = 0;
+  D.sprints.forEach(s => s.agentes.forEach(a => {
+    agents++; if (a.medido) med += a.k; else est += a.k;
+    if (a.desperdicio || a.murio) waste += a.k;
+  }));
+  const c = D.sesion.coordinador;
+  return {med, est, agents, waste, coord: c.turnos_estimados * c.k_por_turno_estimado};
+}
+
+function header(){
+  const s = D.sesion, t = totals();
+  const start = new Date(s.inicio), now = new Date(D.actualizado);
+  const day = Math.floor((now - start) / 864e5) + 1;
+  $("#tcbar").innerHTML = `<span class="rec">EN CURSO</span><span>Día <b>${day}</b></span><span>Commits <b>${s.commits}</b></span><span>PR <b>#${s.prs_mergeados}</b></span><span>Último <b>${esc(s.ultimo_commit)}</b></span><span>Actualizado <b>${esc(D.actualizado.slice(0,16).replace("T"," "))} UTC</b></span>`;
+  const f = funcionesAcum();
+  const abiertos = D.abiertos.reduce((a,b) => a + b.n, 0);
+  const altos = D.abiertos.filter(a => a.sev === "alta").reduce((a,b) => a + b.n, 0);
+  const fl = D.sprints.find(x => x.progreso && x.progreso.diseno_medido);
+  $("#kpis").innerHTML = [
+    ["Funciones", pct(f*100), `criterios del plan cumplidos en ${done().filter(x=>x.criterios.total).length} sprints`, "med"],
+    ["Errores abiertos", abiertos, `${altos} de severidad alta · próximo: ${esc(s.proximo_sprint)}`, "med"],
+    ["Diseño", fl ? (fl.progreso.diseno/20).toLocaleString("es-AR",{maximumFractionDigits:2}) + " / 5" : "—", fl ? "auditoría de fluidez (mapa de calor)" : "sin medir", "med"],
+    ["Tokens medidos", fmtK(t.med), `+ ${fmtK(t.est)} estimados en agentes`, "med"],
+    ["Coordinador", "≈ " + fmtK(t.coord), `${s.coordinador.turnos_estimados} turnos estimados`, "est"],
+    ["Cortes por límite", D.cortes_limite.length, "resets conocidos: " + D.cortes_limite.map(c => c.reset_utc).join(" y ") + " UTC", "med"]
+  ].map(([k,v,sub,m]) => `<div class="tile"><span class="eyebrow">${k}</span><span class="v">${v}</span><span class="s">${sub}</span><span><span class="tag ${m}">${m==="med"?"medido":"estimado"}</span></span></div>`).join("");
+}
+function funcionesAcum(){
+  let v=0,a=0,t=0; done().forEach(s => { v+=s.criterios.verdes; a+=s.criterios.amarillos; t+=s.criterios.total; });
+  return t ? (v + a/2) / t : 0;
+}
+
+// ---------- 1. progress grouped bars ----------
+function chartProg(){
+  const S = D.sprints, series = [["funciones","Funciones","--s1"],["errores","Errores corregidos","--s2"],["diseno","Diseño","--s3"]];
+  $("#lgProg").innerHTML = series.map(([,n,c]) => `<span><i style="background:var(${c})"></i>${n}</span>`).join("") + `<span><i class="h" style="background:var(--muted)"></i>Estimado</span>`;
+  const gw = 62, pad = {l:36,r:10,t:12,b:40}, H = 240, W = pad.l + pad.r + S.length*gw;
+  const svg = svgRoot(W,H,"Progreso por sprint"); hatchDefs(svg);
+  const y = v => pad.t + (H-pad.t-pad.b) * (1 - v/100);
+  [0,25,50,75,100].forEach(v => { el("line",{x1:pad.l,x2:W-pad.r,y1:y(v),y2:y(v),class:v?"gr":"ax"},svg); const t=el("text",{x:pad.l-6,y:y(v)+4,"text-anchor":"end",class:"num"},svg); t.textContent=v; });
+  S.forEach((s,i) => {
+    const x0 = pad.l + i*gw + 8, bw = 14;
+    series.forEach(([key,name,c],j) => {
+      const v = s.progreso[key]; if (v == null) return;
+      const planned = s.estado !== "hecho";
+      const estimated = key === "diseno" && !s.progreso.diseno_medido;
+      const h = Math.max(planned ? 0 : 2, y(0) - y(v));
+      const r = el("rect",{x:x0+j*(bw+2),y:y(0)-h,width:bw,height:h,rx:3,fill: estimated ? `url(#h${c.replace(/-/g,"")})` : `var(${c})`, opacity: planned ? .35 : 1},svg);
+      bindTip(r, `<b>${esc(s.id)} · ${esc(s.nombre)}</b><br>${name}: ${planned ? "planeado" : pct(v)}${estimated ? " (estimado)" : ""}${key==="errores" ? `<br>${s.hallazgos.corregidos} de ${s.hallazgos.encontrados} corregidos` : ""}${key==="funciones" && s.criterios.total ? `<br>${s.criterios.verdes} 🟢 · ${s.criterios.amarillos} 🟡 de ${s.criterios.total}` : ""}`);
+    });
+    const t = el("text",{x:x0+23,y:H-pad.b+16,"text-anchor":"middle",class:"lbl"},svg); t.textContent = s.id;
+    const t2 = el("text",{x:x0+23,y:H-pad.b+30,"text-anchor":"middle"},svg); t2.textContent = s.estado==="hecho" ? (s.fecha||"").slice(5).split("-").reverse().join("/") : "plan";
+  });
+  $("#chProg").replaceChildren(svg);
+  const sevName = {alta:"alta",media:"media",baja:"baja"};
+  $("#openList").innerHTML = D.abiertos.map(a => `<div class="sev"><span class="k ${a.sev}">${a.n}</span><div><small>${esc(a.origen)} · ${sevName[a.sev]}</small>${esc(a.texto)}</div></div>`).join("");
+  $("#pcNote").textContent = `Además, ${D.pendiente_pc.length} mediciones esperan la PC del usuario: ${D.pendiente_pc.join("; ")}.`;
+}
+
+// ---------- 2. stacked tokens ----------
+let mode = store.get("panel.mode") || "all";
+function chartStack(){
+  const S = D.sprints.filter(s => s.agentes.length), T = TYPES();
+  $("#lgTypes").innerHTML = D.tipos_agente.map(t => `<span><i style="background:var(${TCOL[t.id]})"></i>${esc(t.nombre)}</span>`).join("");
+  const rows = S.map(s => {
+    const r = {s, parts:[]}; let sum = 0;
+    T.forEach(t => ["med","est"].forEach(m => {
+      if (mode === "med" && m === "est") return;
+      const k = s.agentes.filter(a => a.tipo===t && (m==="med") === !!a.medido).reduce((x,a)=>x+a.k,0);
+      if (k > 0){ r.parts.push({t,m,k}); sum += k; }
+    }));
+    r.sum = sum; return r;
+  });
+  const max = Math.max(1000, ...rows.map(r => r.sum));
+  const step = max > 4000 ? 1000 : 500, top = Math.ceil(max/step)*step;
+  const gw = 54, pad = {l:40,r:8,t:16,b:36}, H = 260, W = pad.l+pad.r+rows.length*gw;
+  const svg = svgRoot(W,H,"Tokens por tipo de agente y sprint"); hatchDefs(svg);
+  const y = v => pad.t + (H-pad.t-pad.b)*(1 - v/top);
+  for (let v=0; v<=top; v+=step){ el("line",{x1:pad.l,x2:W-pad.r,y1:y(v),y2:y(v),class:v?"gr":"ax"},svg); const t=el("text",{x:pad.l-6,y:y(v)+4,"text-anchor":"end",class:"num"},svg); t.textContent = v ? fmtK(v) : "0"; }
+  const nameOf = id => D.tipos_agente.find(t=>t.id===id).nombre;
+  rows.forEach((r,i) => {
+    const x = pad.l + i*gw + 10, bw = 34; let acc = 0;
+    r.parts.forEach((p,j) => {
+      const y1 = y(acc + p.k), h = y(acc) - y1 - (j < r.parts.length-1 ? 1.5 : 0);
+      const rect = el("rect",{x,y:y1,width:bw,height:Math.max(.5,h),fill: p.m==="est" ? `url(#h-${p.t})` : `var(${TCOL[p.t]})`, rx: j===r.parts.length-1 ? 3 : 0},svg);
+      const ag = r.s.agentes.filter(a => a.tipo===p.t && (p.m==="med")===!!a.medido);
+      bindTip(rect, `<b>${esc(r.s.id)} · ${esc(nameOf(p.t))}</b> (${p.m==="med"?"medido":"estimado"})<br>${fmtK(p.k)} · ${ag.length} agente${ag.length>1?"s":""}<br>${ag.map(a=>esc(a.rol)+" "+fmtK(a.k)).join("<br>")}`);
+      acc += p.k;
+    });
+    const tv = el("text",{x:x+bw/2,y:y(r.sum)-5,"text-anchor":"middle",class:"num"},svg); tv.textContent = fmtK(r.sum);
+    const t = el("text",{x:x+bw/2,y:H-pad.b+16,"text-anchor":"middle",class:"lbl"},svg); t.textContent = r.s.id;
+  });
+  $("#chStack").replaceChildren(svg);
+  document.querySelectorAll("#consumo .seg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode===mode)));
+  donut(rows);
+}
+function donut(rows){
+  const T = TYPES(), by = {}; T.forEach(t => by[t]=0);
+  rows.forEach(r => r.parts.forEach(p => by[p.t]+=p.k));
+  const total = T.reduce((a,t)=>a+by[t],0), R = 90, r0 = 58, C = 105;
+  const svg = svgRoot(210,210,"Reparto por tipo de agente");
+  svg.setAttribute("width","100%"); svg.style.maxWidth = "220px";
+  let a0 = -Math.PI/2;
+  T.forEach(t => {
+    if (!by[t]) return;
+    const a1 = a0 + by[t]/total*Math.PI*2, gap = 0.012;
+    const s = a0+gap, e = a1-gap, large = (e-s) > Math.PI ? 1 : 0;
+    const P = (a,rr) => [C+rr*Math.cos(a), C+rr*Math.sin(a)];
+    const [x1,y1]=P(s,R),[x2,y2]=P(e,R),[x3,y3]=P(e,r0),[x4,y4]=P(s,r0);
+    const path = el("path",{d:`M${x1},${y1}A${R},${R} 0 ${large} 1 ${x2},${y2}L${x3},${y3}A${r0},${r0} 0 ${large} 0 ${x4},${y4}Z`,fill:`var(${TCOL[t]})`},svg);
+    bindTip(path, `<b>${esc(D.tipos_agente.find(x=>x.id===t).nombre)}</b><br>${fmtK(by[t])} · ${pct(by[t]/total*100)}`);
+    a0 = a1;
+  });
+  const t1 = el("text",{x:C,y:C-2,"text-anchor":"middle",class:"lbl",style:"font:600 20px var(--f-display);fill:var(--ink)"},svg); t1.textContent = fmtK(total);
+  const t2 = el("text",{x:C,y:C+16,"text-anchor":"middle"},svg); t2.textContent = mode==="med" ? "solo medido" : "medido + estimado";
+  $("#chDonut").replaceChildren(svg);
+  $("#donutTable").innerHTML = `<table><thead><tr><th>Tipo</th><th style="text-align:right">Tokens</th><th style="text-align:right">%</th></tr></thead><tbody>${
+    T.filter(t=>by[t]).sort((a,b)=>by[b]-by[a]).map(t => `<tr><td><span class="legend"><span><i style="background:var(${TCOL[t]})"></i>${esc(D.tipos_agente.find(x=>x.id===t).nombre)}</span></span></td><td class="n">${fmtK(by[t])}</td><td class="n">${Math.round(by[t]/total*100)}</td></tr>`).join("")}</tbody></table>`;
+}
+function stateBox(){
+  const s = D.sesion, t = totals();
+  $("#state").innerHTML = `<p><span class="pill ok">${esc(s.estado)}</span></p>
+  <table style="margin-top:8px"><tbody>
+  <tr><td>Rama</td><td class="mono">${esc(s.rama)}</td></tr>
+  <tr><td>Agentes lanzados</td><td class="mono">${t.agents} (incluye relanzamientos y trabajo perdido)</td></tr>
+  <tr><td>Tokens perdidos en cortes</td><td class="mono">≈ ${fmtK(t.waste)} <span class="tag est">estimado</span></td></tr>
+  <tr><td>Coordinador</td><td>${esc(s.coordinador.nota)}</td></tr>
+  </tbody></table>`;
+  $("#rlog").innerHTML = D.cortes_limite.map(c => `<div><span class="tc">reset ${esc(c.reset_utc)} UTC</span><span><b>${esc(c.sprint)}</b> · ${esc(c.tipo)} · ${esc(c.efecto)}${c.fecha_inferida ? ` <span class="tag est">fecha inferida</span>` : ""}</span></div>`).join("");
+  $("#limNote").textContent = D.sesion.limites_plan.nota;
+}
+
+// ---------- 3. animation ----------
+const PHASES = ["Coordinador","Contratos e invest.","Módulos (paralelo)","Integración","Auditoría","Correcciones","Después"];
+let animSprint = store.get("panel.sprint");
+let timer = null;
+function chartAnim(){
+  const S = D.sprints.filter(s => s.agentes.length);
+  if (!S.find(s => s.id===animSprint)) animSprint = (S.find(s => s.id==="S4") || S[S.length-1]).id;
+  $("#sprPick").innerHTML = S.map(s => `<button type="button" data-s="${esc(s.id)}" aria-pressed="${s.id===animSprint}">${esc(s.id)}</button>`).join("");
+  drawAnim(true);
+}
+function drawAnim(rest){
+  const s = D.sprints.find(x => x.id===animSprint);
+  const cols = PHASES.map((_,i) => i===0 ? [{rol:"Coordinador",tipo:"coord",k:0,medido:false,coord:true}] : s.agentes.filter(a => a.fase===i));
+  const colW = 150, rowH = 36, head = 40, padL = 8;
+  const maxRows = Math.max(...cols.map(c => c.length), 1);
+  const W = padL + cols.length*colW + 8, H = head + maxRows*rowH + 16;
+  const svg = svgRoot(W,H,`Grupo de agentes del sprint ${s.id}`); hatchDefs(svg);
+  const maxK = 800;
+  // phase headers and arrows
+  cols.forEach((c,i) => {
+    const x = padL + i*colW;
+    el("rect",{x:x+2,y:4,width:colW-10,height:head-12,rx:6,fill:"var(--chip)"},svg);
+    const t = el("text",{x:x+10,y:21,class:"lbl",style:"font:600 11.5px var(--f-body);fill:var(--ink)"},svg); t.textContent = PHASES[i];
+    const n = el("text",{x:x+colW-14,y:21,"text-anchor":"end",class:"num"},svg); n.textContent = i ? c.length : "";
+    if (i < cols.length-1) el("path",{d:`M${x+colW-8},${head-6} l6,-6 l-6,-6`,fill:"none",stroke:"var(--axis)","stroke-width":1.5,transform:`translate(0,-8)`},svg);
+  });
+  const nodes = [];
+  cols.forEach((c,i) => c.forEach((a,j) => {
+    const x = padL + i*colW + 4, y = head + j*rowH + 4;
+    const g = el("g",{class:"node","data-phase":i},svg);
+    if (a.coord){
+      el("rect",{x,y,width:colW-14,height:30,rx:5,fill:"var(--accent)"},g);
+      const t = el("text",{x:x+8,y:y+19,style:"font:600 11.5px var(--f-body);fill:var(--accent-ink)"},g); t.textContent = "Coordinador (opus)";
+      bindTip(g, `<b>Coordinador</b><br>Orquesta, reparte y revisa. Contexto no visible: estimado.`);
+    } else {
+      const bwFull = colW-14, bw = Math.max(6, Math.min(1, a.k/maxK) * bwFull);
+      el("rect",{x,y,width:bwFull,height:30,rx:5,fill:"var(--panel)",stroke:"var(--line)"},g);
+      el("rect",{x:x+4,y:y+21,width:bwFull-8,height:5,rx:2.5,fill:"var(--chip)"},g);
+      el("rect",{class:"bar",x:x+4,y:y+21,width: rest ? Math.max(4,bw-8) : 0,"data-w":Math.max(4,bw-8),height:5,rx:2.5,fill: a.medido ? `var(${TCOL[a.tipo]})` : `url(#h-${a.tipo})`, opacity: a.desperdicio ? .45 : 1},g);
+      const lbl = el("text",{x:x+6,y:y+14,style:"font:500 11px var(--f-body);fill:var(--ink)"},g);
+      const short = a.rol.length > 17 ? a.rol.slice(0,16)+"…" : a.rol; lbl.textContent = short;
+      let marks = "";
+      if (a.murio) marks += "✕"; if (a.relanzado) marks += "↻" + (a.relanzado>1?a.relanzado:""); if (a.incidente) marks += "!"; if (a.seguimiento) marks += "✉";
+      if (marks){
+        el("rect",{x:x+bwFull-8-marks.length*8,y:y+3,width:marks.length*8+4,height:14,rx:3,fill:"var(--panel)"},g);
+        const m = el("text",{x:x+bwFull-5,y:y+14,"text-anchor":"end",style:"font:700 11px var(--f-mono);fill:var(--crit)"},g); m.textContent = marks;
+      }
+      bindTip(g, `<b>${esc(a.rol)}</b> · ${esc(a.modelo)}<br>${fmtK(a.k)} ${a.medido?"medido":"estimado"}${a.nota?"<br>"+esc(a.nota):""}${a.murio?"<br>Murió: "+esc(a.murio):""}${a.relanzado?"<br>Relanzado ×"+a.relanzado:""}${a.incidente?"<br>Incidente: "+esc(a.incidente):""}${a.seguimiento?"<br>Necesitó "+a.seguimiento+" mensaje extra":""}${a.desperdicio?"<br>Trabajo perdido":""}`);
+      // edge from coordinator lane top
+    }
+    nodes.push(g);
+  }));
+  $("#chAnim").replaceChildren(svg);
+  const c = s.corto || {};
+  $("#animNote").textContent = `${s.id} · ${s.nombre}: ${s.agentes.length} agentes, ${fmtK(s.agentes.reduce((a,b)=>a+b.k,0))}${s.horas?`, ≈ ${String(s.horas).replace(".",",")} h de reloj`:""}. ${c.nota||""}`;
+  return {svg, nodes};
+}
+function play(){
+  if (timer){ clearInterval(timer); timer = null; }
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const {svg} = drawAnim(false);
+  const groups = [...svg.querySelectorAll(".node")];
+  groups.forEach(g => g.classList.add("dim"));
+  let ph = 0; $("#play").textContent = "Reproduciendo…";
+  const stepFn = () => {
+    groups.filter(g => +g.dataset.phase === ph).forEach(g => { g.classList.remove("dim"); g.querySelectorAll(".bar").forEach(b => b.setAttribute("width", b.dataset.w)); });
+    ph++;
+    if (ph >= PHASES.length){ clearInterval(timer); timer = null; $("#play").textContent = "Reproducir"; }
+  };
+  if (reduce){ while (ph < PHASES.length) stepFn(); return; }
+  stepFn(); timer = setInterval(stepFn, 700);
+}
+
+// ---------- 4. quedó corto ----------
+function corto(){
+  const rule = D.regla_recomendacion;
+  const S = done().filter(s => s.corto && s.agentes.length);
+  const isShort = c => c.relanzados>0 || c.costuras>rule.costuras_max || c.hotfix_post>rule.hotfix_max || c.seguimientos>0 || c.agentes_extra>0 || c.incidentes>0;
+  const reco = (c) => {
+    const r = [];
+    if (c.relanzados > rule.relanzados_max) r.push("escalonar los módulos (máx. 3 Opus a la vez) o partirlos más chicos");
+    if (c.costuras > rule.costuras_max) r.push("+1 agente de integración/revisión de costuras, o contratos más finos");
+    if (c.hotfix_post > rule.hotfix_max) r.push("+1 agente de prueba de actualización en Windows antes del merge");
+    if (c.seguimientos > 0) r.push("pedidos de auditoría más cerrados (lista de archivos a revisar)");
+    if (!r.length) return isShort(c) ? "Ajuste menor: mantener el reparto" : "Sobró margen: se puede probar con 1 agente menos";
+    return r.join("; ");
+  };
+  const shortN = S.filter(s => isShort(s.corto)).length;
+  const tot = k => S.reduce((a,s)=>a+s.corto[k],0);
+  $("#cortoKpi").innerHTML = [
+    ["Sprints con reparto corto", `${shortN} de ${S.length}`, pct(shortN/S.length*100)],
+    ["Relanzamientos", tot("relanzados"), "agentes caídos que se volvieron a lanzar"],
+    ["Bugs de costura", tot("costuras"), "entre módulos, hallados en integración"],
+    ["Hotfix después", tot("hotfix_post"), "tras merge o prueba del usuario"],
+    ["Agentes y mensajes extra", tot("agentes_extra") + tot("seguimientos"), "no previstos en el plan del sprint"]
+  ].map(([k,v,s]) => `<div class="tile"><span class="eyebrow">${k}</span><span class="v">${v}</span><span class="s">${s}</span></div>`).join("");
+  const cell = (v,lim) => `<td class="n" style="${v>lim?"color:var(--crit);font-weight:600":""}">${v}</td>`;
+  $("#cortoTable").innerHTML = `<thead><tr><th>Sprint</th><th style="text-align:right">Relanz.</th><th style="text-align:right">Costuras</th><th style="text-align:right">Hotfix</th><th style="text-align:right">Extra</th><th style="text-align:right">Msj.</th><th style="text-align:right">Incid.</th><th>Estado</th><th>Recomendación</th></tr></thead><tbody>${
+    S.map(s => { const c = s.corto, sh = isShort(c), hard = c.relanzados>rule.relanzados_max || c.costuras>rule.costuras_max;
+      return `<tr><td><b>${esc(s.id)}</b><br><span class="small">${esc(s.nombre)}</span></td>${cell(c.relanzados,rule.relanzados_max)}${cell(c.costuras,rule.costuras_max)}${cell(c.hotfix_post,rule.hotfix_max)}${cell(c.agentes_extra,0)}${cell(c.seguimientos,0)}${cell(c.incidentes,0)}<td><span class="pill ${hard?"bad":sh?"mid":"ok"}">${hard?"quedó corto":sh?"justo":"alcanzó"}</span></td><td class="small" style="min-width:220px">${esc(reco(c))}${c.nota?`<br><span style="color:var(--muted)">${esc(c.nota)}</span>`:""}</td></tr>`; }).join("")}</tbody>`;
+  const last = S[S.length-1], recent = S.slice(-3);
+  const recRel = recent.reduce((a,s)=>a+s.corto.relanzados,0), recSeam = recent.reduce((a,s)=>a+s.corto.costuras,0)/recent.length;
+  let advice = [];
+  if (recRel > rule.relanzados_max) advice.push(`Hubo ${recRel} relanzamientos en los últimos ${recent.length} sprints, todos por límite de uso o reinicio: no hace falta sumar agentes, hace falta escalonarlos y guardar avance con commits chicos.`);
+  if (recSeam > rule.costuras_max) advice.push(`Promedio de ${recSeam.toFixed(1).replace(".",",")} bugs de costura por sprint: conviene 1 agente más de integración o revisión cruzada entre módulos, o módulos más chicos.`);
+  if (last.corto.hotfix_post > rule.hotfix_max) advice.push(`${last.id} necesitó ${last.corto.hotfix_post} hotfix después del merge: sumá un paso de «actualizar desde la versión anterior» en Windows antes de cerrar.`);
+  if (!advice.length) advice.push("El reparto alcanzó en los últimos sprints. Probá con un agente menos en el próximo.");
+  $("#cortoReco").innerHTML = `<span class="eyebrow">Para el próximo sprint (${esc(D.sesion.proximo_sprint)})</span>${advice.map(a=>`<p>${esc(a)}</p>`).join("")}`;
+  $("#ruleNote").textContent = `Regla: quedó corto si hay más de ${rule.relanzados_max} relanzamiento o más de ${rule.costuras_max} bugs de costura; justo si hubo cualquier relanzamiento, hotfix (más de ${rule.hotfix_max}), agente o mensaje extra, o incidente. Los umbrales se cambian en sesion.json (regla_recomendacion).`;
+}
+
+// ---------- 5. estimator ----------
+function estimator(){
+  const sel = $("#eType");
+  if (!sel.options.length) sel.innerHTML = D.estimador.map(e => `<option value="${esc(e.id)}">${esc(e.nombre)}</option>`).join("");
+  const sv = store.get("panel.est.type"); if (sv && D.estimador.find(e=>e.id===sv) && !sel.dataset.init) sel.value = sv;
+  const wk = store.get("panel.week"); if (wk !== null && !sel.dataset.init) $("#eWeek").value = wk;
+  const wn = store.get("panel.win"); if (!sel.dataset.init) $("#eWin").value = wn !== null && wn !== "" ? wn : D.sesion.limites_plan.ventana_sesion_inferida_k;
+  sel.dataset.init = "1";
+  calc();
+}
+function calc(){
+  const e = D.estimador.find(x => x.id===$("#eType").value) || D.estimador[0];
+  const q = Math.max(1, Math.min(10, +$("#eQty").value || 1));
+  const m = 1 + (D.margen_relanzamiento || 0);
+  const lo = e.k[0]*q, hi = Math.round(e.k[1]*q*m);
+  const week = +$("#eWeek").value || 0, win = +$("#eWin").value || 0;
+  const hm = mins => mins < 60 ? `${mins} min` : `${(mins/60).toLocaleString("es-AR",{maximumFractionDigits:1})} h`;
+  const ag = e.agentes[1] ? `${e.agentes[0]*q}–${e.agentes[1]*q}` : "0";
+  const t = totals();
+  const ref = new Date(D.actualizado), weekAgo = new Date(ref - 7*864e5);
+  let used = 0; D.sprints.forEach(s => { if (s.fecha && new Date(s.fecha) >= weekAgo) s.agentes.forEach(a => used += a.k); });
+  used += t.coord;
+  $("#eOut").innerHTML = [
+    ["Tokens", `${fmtK(lo)}–${fmtK(hi)}`, `incluye +${Math.round((m-1)*100)} % por relanzamientos`],
+    ["Agentes", ag, e.id==="sprint" ? "más el coordinador" : "lanzados por el coordinador"],
+    ["Tiempo de reloj", `${hm(e.minutos[0]*q)}–${hm(e.minutos[1]*q)}`, "sin contar esperas por límite"],
+    ["Base", "", esc(e.base)]
+  ].map(([k,v,s]) => `<div class="tile"><span class="eyebrow">${k}</span>${v?`<span class="v">${v}</span>`:""}<span class="s">${s}</span></div>`).join("");
+  const chips = [];
+  if (win){
+    if (hi <= win*0.6) chips.push(`<span class="pill ok">Entra en una ventana de sesión</span>`);
+    else if (lo <= win) chips.push(`<span class="pill mid">Puede cortarse por la ventana: escalonar agentes</span>`);
+    else chips.push(`<span class="pill bad">No entra en una ventana: partir en ${Math.ceil(hi/win)} tandas</span>`);
+  }
+  if (week){
+    const left = week - used;
+    if (left <= 0) chips.push(`<span class="pill bad">Presupuesto semanal agotado según tu cifra</span>`);
+    else if (hi <= left) chips.push(`<span class="pill ok">Entra en lo que queda de la semana (${pct(hi/left*100)} de lo que queda)</span>`);
+    else if (lo <= left) chips.push(`<span class="pill mid">Justo para la semana: queda ${fmtK(left)}</span>`);
+    else chips.push(`<span class="pill bad">No entra en la semana: queda ${fmtK(left)}</span>`);
+  } else chips.push(`<span class="pill mid">Cargá tu presupuesto semanal para comparar</span>`);
+  $("#eVerdict").innerHTML = chips.join("");
+  const bar = $("#eWeekBar").children;
+  if (week){
+    bar[0].style.width = Math.min(100, (used+hi)/week*100) + "%";
+    bar[1].style.width = Math.min(100, used/week*100) + "%";
+    $("#eWeekTxt").innerHTML = `Usado en los últimos 7 días: <b class="mono">${fmtK(used)}</b> de <b class="mono">${fmtK(week)}</b> (${pct(used/week*100)}); con este pedido, hasta <b class="mono">${fmtK(used+hi)}</b>.`;
+  } else {
+    bar[0].style.width = "0"; bar[1].style.width = "0";
+    $("#eWeekTxt").innerHTML = `Usado en los últimos 7 días (agentes + coordinador estimado): <b class="mono">${fmtK(used)}</b>.`;
+  }
+  $("#eNote").textContent = `La cuota real del plan no es visible desde la sesión. Todo está en tokens (unidades relativas): poné el presupuesto que veas en tu cuenta. La ventana de sesión por defecto (${fmtK(D.sesion.limites_plan.ventana_sesion_inferida_k)}) sale de los 2 cortes conocidos y no es oficial. Ambos campos quedan guardados en este navegador.`;
+}
+
+function footer(){
+  $("#foot").innerHTML = `Fuente: <span class="mono">docs/trabajo/panel/sesion.json</span> (DEVOLUCION, integracion-sprint*, sprint*-contratos, PLAN-BASE v3, git log y subagent_tokens de la sesión). Medido = notificaciones de la sesión; estimado = cálculo del coordinador.`;
+}
+
+function renderAll(){ header(); chartProg(); chartStack(); stateBox(); chartAnim(); corto(); estimator(); footer(); }
+
+// events
+document.querySelectorAll("#consumo .seg button").forEach(b => b.addEventListener("click", () => { mode = b.dataset.mode; store.set("panel.mode", mode); chartStack(); }));
+$("#sprPick").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; animSprint = b.dataset.s; store.set("panel.sprint", animSprint); if (timer){clearInterval(timer);timer=null;$("#play").textContent="Reproducir";} chartAnim(); });
+$("#play").addEventListener("click", play);
+$("#eType").addEventListener("change", e => { store.set("panel.est.type", e.target.value); calc(); });
+$("#eQty").addEventListener("input", calc);
+$("#eWeek").addEventListener("input", e => { store.set("panel.week", e.target.value); calc(); });
+$("#eWin").addEventListener("input", e => { store.set("panel.win", e.target.value); calc(); });
+
+renderAll();
+// Datos frescos cuando el panel se sirve junto a sesion.json
+fetch("sesion.json", {cache:"no-store"}).then(r => r.ok ? r.json() : null).then(j => {
+  if (j && j.sprints && j.actualizado && j.actualizado !== D.actualizado){ D = j; renderAll(); }
+  else if (j && j.sprints){ D = j; }
+}).catch(() => {});
+})();
+</script>

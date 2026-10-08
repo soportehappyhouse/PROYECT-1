@@ -31,6 +31,7 @@ import { saveProjectNow } from "@/hooks/use-project-sync";
 import { api, ApiRequestError, errorMessage, fileUrl, isNotImplemented } from "@/lib/api";
 import { formatBytes, formatTime } from "@/lib/format";
 import { suggestCanvasFit } from "@/lib/canvas-fit";
+import { announceFirstVideoAdjust } from "@/components/timeline/auto-adjust";
 import { createId } from "@/lib/ids";
 import { isMotionRenderAsset } from "@/lib/timeline";
 import { cn } from "@/lib/utils";
@@ -47,8 +48,10 @@ export interface AssetDragData {
   asset: MediaAsset;
 }
 
-export async function uploadFiles(files: FileList | File[]): Promise<void> {
+/** Upload files to the media library; returns the imported assets (Sprint 5: the preview adds them). */
+export async function uploadFiles(files: FileList | File[]): Promise<MediaAsset[]> {
   const media = useMediaStore.getState();
+  const imported: MediaAsset[] = [];
   for (const file of Array.from(files)) {
     const id = createId("up");
     media.setUpload({ id, name: file.name, progress: 0 });
@@ -58,6 +61,7 @@ export async function uploadFiles(files: FileList | File[]): Promise<void> {
       );
       useMediaStore.getState().upsert(asset);
       useMediaStore.getState().clearUpload(id);
+      imported.push(asset);
       toast.success(`Importado: ${asset.name}`);
     } catch (err) {
       useMediaStore.getState().clearUpload(id);
@@ -65,6 +69,29 @@ export async function uploadFiles(files: FileList | File[]): Promise<void> {
       else toast.error(`No se pudo importar ${file.name}`, { description: errorMessage(err) });
     }
   }
+  return imported;
+}
+
+/** Sprint 5 (H26): open the file picker from anywhere (preview empty state). */
+export function pickMediaFiles(onPicked: (files: File[]) => void): void {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.multiple = true;
+  input.accept = ACCEPT;
+  input.onchange = () => {
+    if (input.files?.length) onPicked(Array.from(input.files));
+  };
+  input.click();
+}
+
+/** Import files and put the first playable one on the timeline (preview empty state). */
+export async function importAndPlace(files: FileList | File[]): Promise<void> {
+  const assets = await uploadFiles(files);
+  const first = assets.find((a) => a.kind === "video" || a.kind === "image" || a.kind === "audio");
+  if (!first) return;
+  useProjectStore.getState().addAssetClip(first);
+  announceFirstVideoAdjust();
+  suggestCanvasFit(first);
 }
 
 function KindIcon({ kind }: { kind: MediaAsset["kind"] }) {
@@ -198,10 +225,12 @@ function MediaItem({ asset, selected }: { asset: MediaAsset; selected: boolean }
             variant="ghost"
             size="icon-sm"
             aria-label={`Añadir ${asset.name} a la línea de tiempo`}
+            tip="mediaAdd"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
               useProjectStore.getState().addAssetClip(asset);
+              announceFirstVideoAdjust();
               suggestCanvasFit(asset);
             }}
           >
@@ -213,6 +242,7 @@ function MediaItem({ asset, selected }: { asset: MediaAsset; selected: boolean }
             variant="ghost"
             size="icon-sm"
             aria-label="Generar proxy"
+            tip="mediaProxy"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
@@ -226,6 +256,7 @@ function MediaItem({ asset, selected }: { asset: MediaAsset; selected: boolean }
           variant="ghost"
           size="icon-sm"
           aria-label={`Eliminar ${asset.name}`}
+          tip="mediaDelete"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
@@ -287,6 +318,7 @@ export function MediaPanel() {
         variant="ghost"
         size="icon-sm"
         aria-label="Recargar medios"
+        tip="mediaReload"
         onClick={() => void refresh()}
       >
         <RefreshCw />
@@ -350,7 +382,15 @@ export function MediaPanel() {
           />
         ) : null}
         {status === "ready" && list.length === 0 ? (
-          <EmptyState>Arrastra archivos aquí o usa «Importar».</EmptyState>
+          <EmptyState>
+            <span data-testid="media-empty" className="flex flex-col items-center gap-1">
+              <span>Arrastrá archivos acá o tocá «Importar».</span>
+              <span className="text-[11px]">
+                Acepta video (MP4, MOV, WebM, MKV), audio (WAV, MP3, M4A, OGG), imágenes (PNG, JPG,
+                WebP), subtítulos (SRT, VTT) y animaciones Lottie (JSON).
+              </span>
+            </span>
+          </EmptyState>
         ) : null}
         <ul className="flex flex-col gap-1">
           {list.map((a) => (
@@ -358,7 +398,7 @@ export function MediaPanel() {
           ))}
         </ul>
         <p className="mt-auto pt-2 text-center text-[11px] text-muted-foreground">
-          Suelta archivos para importarlos · arrastra un medio a una pista
+          Soltá archivos para importarlos · arrastrá un medio a una pista
         </p>
       </div>
     </Panel>

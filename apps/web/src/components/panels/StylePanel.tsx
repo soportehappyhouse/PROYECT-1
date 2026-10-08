@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  PACKS_PATH_ES,
   AGENT_KNOWN_PRESET_IDS,
   CAPTION_STYLE_IDS,
   STYLE_CANVASES,
@@ -159,7 +160,7 @@ function AnalysisView({ record }: { record: StyleAnalysisRecord }) {
       ) : (
         <p className="text-[11px] text-muted-foreground">
           {a.warnings.includes("ocr_pack_missing")
-            ? "Textos en pantalla: instalá el paquete «Texto en pantalla (RapidOCR)» en Ajustes → Paquetes."
+            ? `Textos en pantalla: instalá el paquete «Texto en pantalla (RapidOCR)» en ${PACKS_PATH_ES}.`
             : "Sin textos en pantalla detectados."}
         </p>
       )}
@@ -497,6 +498,7 @@ function PresetItem({ preset }: { preset: StylePreset }) {
           size="xs"
           variant="ghost"
           aria-label={`Borrar el perfil ${preset.name}`}
+          tip="styleDel"
           onClick={() => void useStyleStore.getState().deletePreset(preset.id)}
         >
           <Trash2 aria-hidden />
@@ -623,6 +625,7 @@ export function StylePanel() {
                 size="xs"
                 variant="ghost"
                 aria-label="Actualizar perfiles"
+                tip="styleReload"
                 onClick={() => void store().loadPresets()}
               >
                 <RefreshCw aria-hidden />

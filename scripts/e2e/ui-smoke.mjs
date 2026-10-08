@@ -1973,6 +1973,310 @@ await step("Sprint 4: Paquetes de IA: faceswap pide aceptar la licencia", async 
 });
 // ------------------------------------------------------------------ END sprint4:M3
 
+// ---------------------------------------------------------------- BEGIN sprint5:M2
+// Fluidez de la línea de tiempo: hotkeys after clicking the ruler, ripple, multi-selection, Q/W,
+// I/O, header at 1366 px / 125 %, tooltips that explain, projects list and the empty preview.
+const s5 = {};
+const s5Ruler = () => page.getByLabel("Regla de tiempo");
+const s5Clips = () =>
+  page.evaluate(() => {
+    const p = JSON.parse(localStorage.getItem("studio.project.v1"));
+    const v = p.tracks.find((t) => t.kind === "video");
+    return v.clips
+      .map((c) => ({ id: c.id, start: c.start, in: c.in, out: c.out }))
+      .sort((a, b) => a.start - b.start);
+  });
+const s5Playhead = async () => Number(await s5Ruler().getAttribute("aria-valuenow"));
+/** Api project with `n` back-to-back 2 s clips of one test video, opened in the dashboard. */
+async function s5Project(name, n) {
+  if (!page.url().startsWith(WEB)) {
+    await page.goto(WEB, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+  }
+  s5.video ??= await lavfiUpload("ui-s5.mp4", "testsrc2=s=640x360:r=25:d=6", [
+    "-c:v",
+    "libx264",
+    "-pix_fmt",
+    "yuv420p",
+  ]);
+  const p = await apiSend("POST", "/api/projects", { name });
+  const V = p.tracks.find((t) => t.kind === "video");
+  V.clips = Array.from({ length: n }, (_, i) => ({
+    id: `s5c${i}`,
+    trackId: V.id,
+    assetId: s5.video.id,
+    start: i * 2,
+    in: i * 2,
+    out: i * 2 + 2,
+  }));
+  await apiSend("PUT", `/api/projects/${p.id}`, p);
+  await openProject(p.id);
+  await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).click();
+  await page.locator("[data-clip-id]").first().waitFor({ timeout: 10_000 });
+  return p;
+}
+/** Click the ruler at `sec` and check that it did not take the keyboard focus. */
+async function s5RulerClick(sec) {
+  await seek(page, sec);
+  const role = await page.evaluate(() => document.activeElement?.getAttribute("role"));
+  if (role === "slider") throw new Error("the ruler took the keyboard focus");
+  return role;
+}
+
+await step("Sprint 5: clic en la regla → S corta (1 → 2 clips)", async () => {
+  await s5Project("S5 regla S", 1);
+  const focus = await s5RulerClick(1);
+  await page.keyboard.press("s");
+  await sleep(300);
+  const n = await page.locator("[data-clip-id]").count();
+  if (n !== 2) throw new Error(`clips after S: ${n}`);
+  return { clips: n, focus };
+});
+
+await step("Sprint 5: clic en la regla → Espacio, J/K/L y Supr funcionan", async () => {
+  await s5Project("S5 regla transporte", 3);
+  const preview = page.locator("section[aria-label='Vista previa']");
+  await s5RulerClick(1);
+  await page.keyboard.press("Space");
+  await preview.getByRole("button", { name: "Pausar" }).waitFor({ timeout: 3_000 });
+  await page.keyboard.press("k");
+  await preview.getByRole("button", { name: "Reproducir" }).waitFor({ timeout: 3_000 });
+  const t0 = await s5Playhead();
+  await page.keyboard.press("l");
+  await sleep(800);
+  await page.keyboard.press("k");
+  const t1 = await s5Playhead();
+  if (!(t1 > t0)) throw new Error(`L did not advance: ${t0} -> ${t1}`);
+  await page.keyboard.press("j");
+  await sleep(500);
+  await page.keyboard.press("k");
+  const t2 = await s5Playhead();
+  if (!(t2 < t1)) throw new Error(`J did not go back: ${t1} -> ${t2}`);
+  // Select the middle clip, click the ruler, then Supr (no click on the clip after the ruler).
+  await page.locator("[data-clip-id='s5c1']").click();
+  await s5RulerClick(5);
+  await page.keyboard.press("Delete");
+  await sleep(300);
+  const ids = (await s5Clips()).map((c) => c.id);
+  if (ids.length !== 2 || ids.includes("s5c1")) throw new Error(`after Supr: ${ids}`);
+  return { t0, t1, t2, left: ids };
+});
+
+await step("Sprint 5: Shift+Supr cierra el hueco (0 px)", async () => {
+  await s5Project("S5 ripple", 3);
+  await page.locator("[data-clip-id='s5c1']").click();
+  await page.keyboard.press("Shift+Delete");
+  await sleep(300);
+  const a = await page.locator("[data-clip-id='s5c0']").boundingBox();
+  const c = await page.locator("[data-clip-id='s5c2']").boundingBox();
+  const gap = Math.round(c.x - (a.x + a.width));
+  if (Math.abs(gap) > 1) throw new Error(`gap after Shift+Supr: ${gap} px`);
+  const clips = await s5Clips();
+  if (clips.length !== 2 || clips[1].start !== 2) throw new Error(JSON.stringify(clips));
+  return { gapPx: gap };
+});
+
+await step("Sprint 5: Mayús+clic elige 2 y Supr borra 2", async () => {
+  await s5Project("S5 multi", 3);
+  await page.locator("[data-clip-id='s5c0']").click();
+  await page.locator("[data-clip-id='s5c1']").click({ modifiers: ["Shift"] });
+  await page.getByTestId("selection-count").filter({ hasText: "2 clips" }).waitFor();
+  await page.keyboard.press("Delete");
+  await sleep(300);
+  const ids = (await s5Clips()).map((c) => c.id);
+  if (ids.join() !== "s5c2") throw new Error(`after Supr: ${ids}`);
+  return { left: ids };
+});
+
+await step("Sprint 5: rectángulo elige 3", async () => {
+  await s5Project("S5 rectángulo", 3);
+  const lane = page.locator("[data-track-kind='audio']").first();
+  const box = await lane.boundingBox();
+  const last = await page.locator("[data-clip-id='s5c2']").boundingBox();
+  // from the empty audio lane (left) up to the video lane past the last clip
+  await page.mouse.move(box.x + 4, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(last.x + last.width / 2, last.y + 10, { steps: 8 });
+  await page.getByTestId("timeline-marquee").waitFor({ timeout: 2_000 });
+  await page.mouse.up();
+  const text = await page.getByTestId("selection-count").innerText();
+  if (!/3 clips/.test(text)) throw new Error(`selection: ${text}`);
+  return { selection: text };
+});
+
+await step("Sprint 5: Q/W recortan al cursor", async () => {
+  await s5Project("S5 QW", 3);
+  // The ruler click lands within a few ms of the target: compare against the real playhead.
+  const near = (a, b) => Math.abs(a - b) < 0.02;
+  await s5RulerClick(3);
+  const q = await s5Playhead();
+  await page.keyboard.press("q");
+  await sleep(300);
+  let clips = await s5Clips();
+  // b loses [2, q): starts at 2 with in = q, c follows its new end
+  if (!(clips[1].start === 2 && near(clips[1].in, q) && near(clips[2].start, 4 - (q - 2))))
+    throw new Error(`Q at ${q}: ${JSON.stringify(clips)}`);
+  await s5RulerClick(1);
+  const w = await s5Playhead();
+  await page.keyboard.press("w");
+  await sleep(300);
+  const before = clips;
+  clips = await s5Clips();
+  // a loses [w, 2): b and c move left by 2 − w
+  if (!(
+    near(clips[0].out, w) &&
+    near(clips[1].start, w) &&
+    near(clips[2].start, before[2].start - (2 - w))
+  ))
+    throw new Error(`W at ${w}: ${JSON.stringify(clips)}`);
+  return { starts: clips.map((c) => c.start) };
+});
+
+await step("Sprint 5: I/O marcan rango visible", async () => {
+  await s5Project("S5 IO", 3);
+  await s5RulerClick(1);
+  await page.keyboard.press("i");
+  await s5RulerClick(3);
+  await page.keyboard.press("o");
+  const range = await page.getByTestId("inout-range").boundingBox();
+  const ruler = await page.getByTestId("inout-ruler").boundingBox();
+  const label = await page.getByTestId("inout-label").innerText();
+  if (!range || range.width < 20) throw new Error(`I/O range ${JSON.stringify(range)}`);
+  await page.keyboard.press("Alt+x");
+  await sleep(200);
+  if (await page.getByTestId("inout-range").count()) throw new Error("Alt+X did not clear I/O");
+  return { widthPx: Math.round(range.width), ruler: Math.round(ruler.width), label };
+});
+
+await step("Sprint 5: 1366×768 y 1093×700: Asistente y Exportar visibles sin menú", async () => {
+  const out = {};
+  for (const [w, h] of [
+    [1366, 768],
+    [1093, 700],
+  ]) {
+    await page.setViewportSize({ width: w, height: h });
+    await sleep(500);
+    for (const id of ["header-assistant", "header-export"]) {
+      const b = await page.getByTestId(id).boundingBox();
+      if (!b || b.x < 0 || b.x + b.width > w || b.y + b.height > h)
+        throw new Error(`${id} not visible at ${w}×${h}: ${JSON.stringify(b)}`);
+    }
+    await page.getByTestId("header-export").click();
+    await page.locator("section[aria-label='Exportar']").waitFor({ timeout: 5_000 });
+    await page.getByTestId("header-assistant").click();
+    await page.locator("section[aria-label='Asistente']").waitFor({ timeout: 5_000 });
+    out[`${w}x${h}`] = await shot(page, `s5-cabecera-${w}.png`);
+  }
+  await page.setViewportSize({ width: 1366, height: 820 });
+  return out;
+});
+
+await step("Sprint 5: hover en Paneles muestra la explicación", async () => {
+  await page.mouse.move(5, 300);
+  await page.getByRole("button", { name: "Paneles" }).hover();
+  const tip = page.getByRole("tooltip");
+  await tip.waitFor({ timeout: 3_000 });
+  const text = await tip.innerText();
+  if (!/Mostrar u ocultar paneles/.test(text)) throw new Error(`tooltip: ${text}`);
+  return { text };
+});
+
+await step(
+  "Sprint 5: cada botón de ícono tiene una explicación (TIPS ≥ 20 caracteres)",
+  async () => {
+    const { readFile } = await import("node:fs/promises");
+    const src = await readFile(
+      new URL("../../apps/web/src/lib/tooltips.ts", import.meta.url),
+      "utf8",
+    );
+    const tipKeys = new Set([...src.matchAll(/^\s{2}(\w+): "/gm)].map((m) => m[1]));
+    if (tipKeys.size !== 51) throw new Error(`TIPS keys parsed: ${tipKeys.size}`);
+    await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).click();
+    await page.locator(".dv-tab", { hasText: "Vista previa" }).click();
+    await page.locator(".dv-tab", { hasText: "Media" }).first().click();
+    const rows = await page.$$eval(
+      "header button[aria-label], section[aria-label='Media'] button[aria-label], section[aria-label='Vista previa'] button[aria-label], section[aria-label='Línea de tiempo'] button[aria-label]",
+      (els) =>
+        els
+          .filter((b) => !b.textContent?.trim() && b.getClientRects().length > 0)
+          .map((b) => ({
+            label: b.getAttribute("aria-label"),
+            tip: b.dataset.tooltip ?? "",
+            key: b.dataset.tip ?? null,
+          })),
+    );
+    // M1 owns the GPU indicator tooltip (TIPS.gpu).
+    const mine = rows.filter((r) => !/^Estado de la IA local/.test(r.label));
+    const bad = mine.filter((r) => r.tip.length < 20 || r.tip === r.label);
+    if (bad.length) throw new Error(`without explanation: ${JSON.stringify(bad.slice(0, 5))}`);
+    const unknown = mine.filter((r) => r.key && !tipKeys.has(r.key));
+    if (unknown.length) throw new Error(`data-tip not in TIPS: ${JSON.stringify(unknown)}`);
+    return { buttons: mine.length, withTipsKey: mine.filter((r) => r.key).length };
+  },
+);
+
+await step(
+  "Sprint 5: Proyectos: crear 2, renombrar, abrir el otro, borrar con confirmación",
+  async () => {
+    const dialog = () => page.getByRole("dialog", { name: "Proyectos" });
+    const rename = async (to) => {
+      await page.getByTestId("projects-button").click();
+      const row = dialog().locator("[data-testid='project-row']", { hasText: "(abierto)" });
+      await row.getByRole("button", { name: /^Renombrar/ }).click();
+      const input = dialog().getByRole("textbox", { name: "Nuevo nombre del proyecto" });
+      await input.fill(to);
+      await input.press("Enter");
+      await page.getByTestId("project-name").filter({ hasText: to }).waitFor({ timeout: 5_000 });
+      await page.keyboard.press("Escape");
+    };
+    await page.mouse.click(700, 5);
+    await page.keyboard.press("Control+Alt+n");
+    await page.getByTestId("project-name").filter({ hasText: "Proyecto sin título" }).waitFor();
+    await sleep(1_000);
+    await rename("S5 UI uno");
+    await page.keyboard.press("Control+Alt+n");
+    await page.getByTestId("project-name").filter({ hasText: "Proyecto sin título" }).waitFor();
+    await sleep(1_000);
+    await rename("S5 UI dos");
+    // Ctrl+O opens the list; open the other one
+    await page.mouse.click(700, 5);
+    await page.keyboard.press("Control+o");
+    await dialog().waitFor({ timeout: 5_000 });
+    const uno = dialog().locator("[data-testid='project-row']", { hasText: "S5 UI uno" });
+    await uno.getByRole("button", { name: "Abrir", exact: true }).click();
+    await page.getByTestId("project-name").filter({ hasText: "S5 UI uno" }).waitFor();
+    const s = await shot(page, "s5-proyectos.png");
+    // delete «dos» with confirmation
+    await page.getByTestId("projects-button").click();
+    const dos = dialog().locator("[data-testid='project-row']", { hasText: "S5 UI dos" });
+    await dos.getByRole("button", { name: /^Borrar/ }).click();
+    await dos.getByRole("alert").filter({ hasText: "¿Borrar «S5 UI dos»?" }).waitFor();
+    await dos.getByRole("button", { name: "Sí, borrar" }).click();
+    await dos.waitFor({ state: "detached", timeout: 5_000 });
+    await page.keyboard.press("Escape");
+    const list = await apiJson("/api/projects?view=summary");
+    if (list.some((p) => p.name === "S5 UI dos")) throw new Error("«S5 UI dos» still in the api");
+    if (!list.some((p) => p.name === "S5 UI uno"))
+      throw new Error("«S5 UI uno» missing in the api");
+    return { projects: list.length, shot: s };
+  },
+);
+
+await step("Sprint 5: estado vacío de la vista previa", async () => {
+  await page.mouse.click(700, 5);
+  await page.keyboard.press("Control+Alt+n");
+  await page.getByTestId("project-name").filter({ hasText: "Proyecto sin título" }).waitFor();
+  await page.locator(".dv-tab", { hasText: "Vista previa" }).click();
+  const empty = page.getByTestId("preview-empty");
+  await empty.waitFor({ timeout: 5_000 });
+  const text = await empty.innerText();
+  if (!/Arrastrá un video acá o tocá Importar/.test(text)) throw new Error(text);
+  await empty.getByRole("button", { name: "Importar" }).waitFor();
+  const timelineEmpty = await page.getByTestId("timeline-empty").innerText();
+  return { shot: await shot(page, "s5-vista-previa-vacia.png"), timelineEmpty };
+});
+// ------------------------------------------------------------------ END sprint5:M2
+
 await browser.close();
 console.log(
   `\nconsole errors (${consoleErrors.length}):`,

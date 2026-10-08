@@ -1,5 +1,8 @@
 import {
+  autoProjectName,
+  PROJECT_NAME_MAX,
   ProjectSchema,
+  UNTITLED_PROJECT_NAME,
   type Clip,
   type MediaAsset,
   type Project,
@@ -14,6 +17,12 @@ import { createId } from "@/lib/ids";
 import { readJson, STORAGE_KEYS, writeJson } from "@/lib/storage";
 import {
   clipEnd,
+  clipRange,
+  closeGaps as closeTrackGaps,
+  rippleDelete as rippleDeleteClips,
+  rippleTime,
+  trimToCursor as trimClipToCursor,
+  type TimeRange,
   createClipFromAsset,
   createTextClip,
   createTrack,
@@ -47,6 +56,9 @@ interface Snapshot {
   tracks: Track[];
   subtitles: SubtitleSegment[];
   reframe: ReframeSettings | undefined;
+  /** Sprint 5: only in the step that renamed/fitted the canvas on the first video (undoable). */
+  name?: string;
+  settings?: Project["settings"];
 }
 
 const HISTORY_LIMIT = 100;
@@ -55,9 +67,25 @@ export const MAX_ZOOM = 800;
 
 export type SaveState = "idle" | "dirty" | "saving" | "saved" | "local" | "error";
 
+/** Sprint 5: how a click changes the clip selection (Ctrl+click toggles, Shift+click = range). */
+export type SelectMode = "replace" | "toggle" | "range";
+
+/** Sprint 5: I/O range marks (not saved in the project; Export reads them). */
+export interface InOutRange {
+  in: number;
+  out: number;
+}
+
 export interface ProjectState {
   project: Project;
+  /** Primary selected clip (last of `selectedClipIds`), kept for the panels that edit one clip. */
   selectedClipId: string | undefined;
+  /** Sprint 5: every selected clip (the last one is the primary). */
+  selectedClipIds: string[];
+  /** Sprint 5: I/O marks (I sets `in`, O sets `out`); undefined = none. */
+  inOut: InOutRange | undefined;
+  /** Sprint 5: what the last first-video import changed (name/canvas), for the «Deshacer» toast. */
+  firstVideoAdjust: { name?: string; canvas?: { width: number; height: number } } | undefined;
   selectedAssetId: string | undefined;
   playhead: number;
   playing: boolean;
@@ -65,7 +93,6 @@ export interface ProjectState {
   playbackRate: number;
   /** Timeline zoom in pixels per second. */
   zoom: number;
-  snapping: boolean;
   past: Snapshot[];
   future: Snapshot[];
   saveState: SaveState;
@@ -140,8 +167,34 @@ export interface ProjectState {
   removeSubtitle: (index: number) => void;
   addSubtitle: (segment?: SubtitleSegment) => void;
 
+  // --- Sprint 5: multi-selection, ripple, Q/W, I/O
+  /** Select several clips at once (rectangle); `additive` keeps the current selection. */
+  selectClips: (ids: readonly string[], additive?: boolean) => void;
+  /** Ctrl+A: every clip of the unlocked tracks. */
+  selectAll: () => void;
+  /** Delete the selected clips (one undo step); `ripple` closes the holes on their tracks. */
+  deleteSelected: (opts?: { ripple?: boolean }) => number;
+  /** Shift+Supr for explicit ids (context menu). */
+  rippleDelete: (ids: readonly string[]) => number;
+  /** Move the selected clips by `delta` seconds (from `origins` while dragging). */
+  moveSelected: (
+    delta: number,
+    record?: boolean,
+    origins?: Readonly<Record<string, number>>,
+  ) => boolean;
+  /** «Cerrar huecos de la pista» (default: the track of the primary selected clip). */
+  closeGaps: (trackId?: string) => number;
+  /** Q / W: trim the start/end of the clip under the cursor to the cursor, with ripple. */
+  trimToCursor: (edge: "start" | "end") => boolean;
+  /** Same patch on several clips (speed/volume in batch), one undo step. */
+  updateClips: (ids: readonly string[], patch: Partial<Omit<Clip, "id" | "trackId">>) => void;
+  markIn: (time?: number) => void;
+  markOut: (time?: number) => void;
+  clearInOut: () => void;
+
   // --- selection / transport
-  selectClip: (clipId: string | undefined) => void;
+  /** Select a clip (`mode`: replace, Ctrl+click toggle, Shift+click range on its track). */
+  selectClip: (clipId: string | undefined, mode?: SelectMode) => void;
   selectAsset: (assetId: string | undefined) => void;
   setPlayhead: (time: number) => void;
   setPlaying: (playing: boolean) => void;
@@ -154,10 +207,65 @@ export interface ProjectState {
   shuttleStop: () => void;
   setZoom: (zoom: number) => void;
   zoomBy: (factor: number) => void;
-  toggleSnapping: () => void;
 }
 
-export function createEmptyProject(name = "Proyecto sin título"): Project {
+/** Selection state for one primary clip (or none). */
+function single(id: string | undefined): Pick<ProjectState, "selectedClipId" | "selectedClipIds"> {
+  return { selectedClipId: id, selectedClipIds: id ? [id] : [] };
+}
+
+/** Selection state for several clips (the last one is the primary). */
+function many(ids: readonly string[]): Pick<ProjectState, "selectedClipId" | "selectedClipIds"> {
+  // Dedupe keeping the last occurrence (the clicked clip becomes the primary).
+  const unique = [...new Set([...ids].reverse())].reverse();
+  return { selectedClipId: unique[unique.length - 1], selectedClipIds: unique };
+}
+
+/** Subtitles after cutting `removed` (merged) ranges out of the main video track. */
+export function rippleSubtitles(
+  subtitles: readonly SubtitleSegment[],
+  removed: readonly TimeRange[],
+): SubtitleSegment[] {
+  if (removed.length === 0) return [...subtitles];
+  const out: SubtitleSegment[] = [];
+  for (const s of subtitles) {
+    const start = rippleTime(s.start, removed);
+    const end = rippleTime(s.end, removed);
+    if (end - start < 0.05) continue;
+    const words = s.words?.map((w) => ({
+      ...w,
+      start: rippleTime(w.start, removed),
+      end: rippleTime(w.end, removed),
+    }));
+    out.push({ ...s, start, end, ...(words && { words }) });
+  }
+  return out;
+}
+
+/** The main video track (first video track): its ripple also moves the subtitles. */
+function mainVideoTrackId(p: Pick<Project, "tracks">): string | undefined {
+  return p.tracks.find((t) => t.kind === "video")?.id;
+}
+
+/** Canvas of a new project. */
+export const DEFAULT_CANVAS = { width: 1920, height: 1080 } as const;
+
+const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
+
+/**
+ * Canvas for a video (same rule as lib/canvas-fit `canvasForVideo`, kept here to avoid an import
+ * cycle): its aspect, short side at least 1080 px, never above 4K.
+ */
+export function canvasSizeForVideo(size: { width: number; height: number }): {
+  width: number;
+  height: number;
+} {
+  const short = Math.min(size.width, size.height);
+  const k = Math.min(Math.max(1, 1080 / short), 3840 / Math.max(size.width, size.height));
+  return { width: even(size.width * k), height: even(size.height * k) };
+}
+
+export function createEmptyProject(name = UNTITLED_PROJECT_NAME): Project {
   const now = new Date().toISOString();
   const kinds: TrackKind[] = ["video", "audio", "text", "motion"];
   const tracks: Track[] = [];
@@ -165,7 +273,7 @@ export function createEmptyProject(name = "Proyecto sin título"): Project {
   return {
     id: createId("prj"),
     name,
-    settings: { width: 1920, height: 1080, fps: 30, sampleRate: 48_000 },
+    settings: { ...DEFAULT_CANVAS, fps: 30, sampleRate: 48_000 },
     tracks,
     subtitles: [],
     createdAt: now,
@@ -193,9 +301,17 @@ export function persistLocalProject(project: Project): void {
   writeJson(STORAGE_KEYS.project, project);
 }
 
-function snapshot(p: Project): Snapshot {
-  return { tracks: p.tracks, subtitles: p.subtitles, reframe: projectReframe(p) };
+function snapshot(p: Project, meta = false): Snapshot {
+  return {
+    tracks: p.tracks,
+    subtitles: p.subtitles,
+    reframe: projectReframe(p),
+    ...(meta ? { name: p.name, settings: p.settings } : {}),
+  };
 }
+
+/** Whether a snapshot also carries name/settings (its counterpart must carry them too). */
+const hasMeta = (s: Snapshot | undefined) => !!s && (s.name !== undefined || !!s.settings);
 
 export const useProjectStore = create<ProjectState>()((set, get) => {
   /** Apply a change to the project, optionally recording an undo snapshot. */
@@ -215,6 +331,14 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
       saveState: "dirty",
       ...(record ? { past: [...past, snapshot(project)].slice(-HISTORY_LIMIT), future: [] } : {}),
     });
+  };
+
+  /** Drop selected ids whose clip no longer exists. */
+  const pruneSelection = () => {
+    const { selectedClipIds, project } = get();
+    const alive = selectedClipIds.filter((id) => findClip(project, id));
+    if (alive.length !== selectedClipIds.length || get().selectedClipId !== alive[alive.length - 1])
+      set(many(alive));
   };
 
   const ensureTrack = (kind: TrackKind, trackId?: string): string => {
@@ -295,12 +419,14 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
   return {
     project: createEmptyProject(),
     selectedClipId: undefined,
+    selectedClipIds: [],
+    inOut: undefined,
+    firstVideoAdjust: undefined,
     selectedAssetId: undefined,
     playhead: 0,
     playing: false,
     playbackRate: 1,
     zoom: 60,
-    snapping: true,
     past: [],
     future: [],
     saveState: "idle",
@@ -311,14 +437,27 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
         project,
         past: [],
         future: [],
-        selectedClipId: undefined,
+        ...single(undefined),
+        inOut: undefined,
         playhead: 0,
         playing: false,
         saveState: "saved",
       });
     },
     newProject: (name) => get().loadProject(createEmptyProject(name)),
-    renameProject: (name) => commit(() => ({ name: name.trim() || "Proyecto sin título" }), false),
+    renameProject: (name) => {
+      const { project, past } = get();
+      const next = name.trim().slice(0, PROJECT_NAME_MAX) || UNTITLED_PROJECT_NAME;
+      if (next === project.name) return;
+      addBreadcrumb("project", `Renombró el proyecto a «${next}»`, {}, "project:rename");
+      // Sprint 5: renaming is one undo step (the snapshot carries the old name).
+      set({
+        project: { ...project, name: next, updatedAt: new Date().toISOString() },
+        past: [...past, snapshot(project, true)].slice(-HISTORY_LIMIT),
+        future: [],
+        saveState: "dirty",
+      });
+    },
     updateProjectSettings: (patch) => {
       addBreadcrumb("project", "Cambió los ajustes del proyecto", { ...patch }, "project:settings");
       commit((p) => ({ settings: { ...p.settings, ...patch } }), false);
@@ -337,7 +476,7 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
       set({
         project: { ...project, ...prev, updatedAt: new Date().toISOString() },
         past: past.slice(0, -1),
-        future: [snapshot(project), ...future].slice(0, HISTORY_LIMIT),
+        future: [snapshot(project, hasMeta(prev)), ...future].slice(0, HISTORY_LIMIT),
         saveState: "dirty",
       });
     },
@@ -348,7 +487,7 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
       addBreadcrumb("project", "Rehacer");
       set({
         project: { ...project, ...next, updatedAt: new Date().toISOString() },
-        past: [...past, snapshot(project)].slice(-HISTORY_LIMIT),
+        past: [...past, snapshot(project, hasMeta(next))].slice(-HISTORY_LIMIT),
         future: future.slice(1),
         saveState: "dirty",
       });
@@ -370,7 +509,40 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
     },
 
     addAssetClip: (asset, opts = {}) => {
-      get().checkpoint();
+      // Sprint 5 (H7/H26): the first video names the project and sizes a default canvas, in the
+      // same undo step as the clip.
+      const before = get().project;
+      const firstVideo =
+        asset.kind === "video" &&
+        !before.tracks.some((t) => t.kind === "video" && t.clips.some((c) => c.assetId));
+      const autoName = firstVideo ? autoProjectName(before.name, asset) : undefined;
+      const canvas =
+        firstVideo &&
+        asset.width &&
+        asset.height &&
+        before.settings.width === DEFAULT_CANVAS.width &&
+        before.settings.height === DEFAULT_CANVAS.height
+          ? canvasSizeForVideo({ width: asset.width, height: asset.height })
+          : undefined;
+      const fitCanvas =
+        canvas &&
+        (canvas.width !== before.settings.width || canvas.height !== before.settings.height)
+          ? canvas
+          : undefined;
+      if (autoName || fitCanvas) {
+        set({ past: [...get().past, snapshot(before, true)].slice(-HISTORY_LIMIT), future: [] });
+        set({
+          project: {
+            ...get().project,
+            ...(autoName ? { name: autoName } : {}),
+            ...(fitCanvas ? { settings: { ...before.settings, ...fitCanvas } } : {}),
+          },
+          firstVideoAdjust: {
+            ...(autoName && { name: autoName }),
+            ...(fitCanvas && { canvas: fitCanvas }),
+          },
+        });
+      } else get().checkpoint();
       const kind = trackKindForAsset(asset);
       let trackId = ensureTrack(kind, opts.trackId);
       const track = get().project.tracks.find((t) => t.id === trackId)!;
@@ -390,7 +562,7 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
         },
       );
       commit((p) => ({ tracks: insertClip(p.tracks, clip) }), false);
-      set({ selectedClipId: clip.id });
+      set(single(clip.id));
       return clip;
     },
     addTextClip: (opts = {}) => {
@@ -402,7 +574,7 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
         trackId,
       });
       commit((p) => ({ tracks: insertClip(p.tracks, clip) }), false);
-      set({ selectedClipId: clip.id });
+      set(single(clip.id));
       return clip;
     },
     addClip: (kind, partial, trackId) => {
@@ -415,7 +587,7 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
         trackId: id,
       });
       commit((p) => ({ tracks: insertClip(p.tracks, clip) }), false);
-      set({ selectedClipId: clip.id });
+      set(single(clip.id));
       return clip;
     },
     moveClip: (clipId, start, trackId, record = true) => {
@@ -456,15 +628,22 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
       commit((p) => ({ tracks: replaceClip(p.tracks, next) }), record);
     },
     splitAt: (time, clipId) => {
-      const { project, playhead, selectedClipId } = get();
+      const { project, playhead, selectedClipIds } = get();
       const at = time ?? playhead;
-      const targetId = clipId ?? selectedClipId;
-      // Split the selected clip, or every unlocked clip under the playhead when none is selected.
+      const under = (c: Clip) => at > c.start && at < clipEnd(c);
+      // Sprint 5: the selected clips under the playhead; when none of them is there (e.g. a click
+      // on the ruler far from the selection), every unlocked clip under the playhead.
+      const wanted = clipId
+        ? [clipId]
+        : selectedClipIds.filter((id) => {
+            const f = findClip(project, id);
+            return f && under(f.clip);
+          });
       const targets: Clip[] = [];
       for (const t of project.tracks) {
         if (t.locked) continue;
         for (const c of t.clips) {
-          if (targetId ? c.id === targetId : at > c.start && at < clipEnd(c)) targets.push(c);
+          if (wanted.length ? wanted.includes(c.id) : under(c)) targets.push(c);
         }
       }
       let changed = false;
@@ -491,7 +670,8 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
       if (!found || found.track.locked) return;
       addBreadcrumb("clip", "Eliminó un clip", { clipId: id });
       commit((p) => ({ tracks: removeClip(p.tracks, id) }));
-      if (get().selectedClipId === id) set({ selectedClipId: undefined });
+      if (get().selectedClipIds.includes(id))
+        set(many(get().selectedClipIds.filter((x) => x !== id)));
     },
     removeSilences: (clipId, minGapSec) => {
       const found = findClip(get().project, clipId);
@@ -535,14 +715,12 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
         future: [],
         saveState: "saved",
       });
-      const sel = get().selectedClipId;
-      if (sel && !findClip(get().project, sel)) set({ selectedClipId: undefined });
+      pruneSelection();
     },
     applyServerEdit: (remote, label) => {
       addBreadcrumb("clip", label);
       commit(() => ({ tracks: remote.tracks, subtitles: remote.subtitles }));
-      const sel = get().selectedClipId;
-      if (sel && !findClip(get().project, sel)) set({ selectedClipId: undefined });
+      pruneSelection();
     },
     splitAtTimes: (clipId, times) => {
       const found = findClip(get().project, clipId);
@@ -569,8 +747,7 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
       commit((p) => ({
         tracks: p.tracks.map((t) => ({ ...t, clips: t.clips.filter((c) => !uses(c)) })),
       }));
-      const sel = get().selectedClipId;
-      if (sel && !findClip(get().project, sel)) set({ selectedClipId: undefined });
+      pruneSelection();
       return n;
     },
     updateClip: (clipId, patch, record = true) => {
@@ -615,7 +792,204 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
       commit((p) => ({ subtitles: [...p.subtitles, seg].sort((a, b) => a.start - b.start) }));
     },
 
-    selectClip: (selectedClipId) => set({ selectedClipId }),
+    selectClip: (clipId, mode = "replace") => {
+      if (!clipId) return set(single(undefined));
+      const { selectedClipIds, selectedClipId, project } = get();
+      if (mode === "toggle") {
+        return set(
+          many(
+            selectedClipIds.includes(clipId)
+              ? selectedClipIds.filter((x) => x !== clipId)
+              : [...selectedClipIds, clipId],
+          ),
+        );
+      }
+      if (mode === "range" && selectedClipId) {
+        const a = findClip(project, selectedClipId);
+        const b = findClip(project, clipId);
+        if (a && b && a.track.id === b.track.id) {
+          const range = clipRange(b.track, selectedClipId, clipId).filter((x) => x !== clipId);
+          return set(many([...selectedClipIds, ...range, clipId]));
+        }
+        return set(many([...selectedClipIds, clipId]));
+      }
+      set(single(clipId));
+    },
+    selectClips: (ids, additive = false) =>
+      set(many(additive ? [...get().selectedClipIds, ...ids] : ids)),
+    selectAll: () => {
+      const ids = get()
+        .project.tracks.filter((t) => !t.locked)
+        .flatMap((t) => t.clips.map((c) => c.id));
+      set(many(ids));
+    },
+    deleteSelected: (opts = {}) => {
+      const ids = get().selectedClipIds.length
+        ? get().selectedClipIds
+        : get().selectedClipId
+          ? [get().selectedClipId!]
+          : [];
+      if (ids.length === 0) return 0;
+      if (opts.ripple) return get().rippleDelete(ids);
+      const project = get().project;
+      const deletable = new Set(
+        project.tracks.filter((t) => !t.locked).flatMap((t) => t.clips.map((c) => c.id)),
+      );
+      const gone = ids.filter((id) => deletable.has(id));
+      if (gone.length === 0) return 0;
+      addBreadcrumb("clip", `Eliminó ${gone.length} clip(s)`, { clipIds: gone });
+      commit((p) => ({
+        tracks: p.tracks.map((t) =>
+          t.locked ? t : { ...t, clips: t.clips.filter((c) => !gone.includes(c.id)) },
+        ),
+      }));
+      pruneSelection();
+      return gone.length;
+    },
+    rippleDelete: (ids) => {
+      const { project } = get();
+      const { tracks, removed } = rippleDeleteClips(project.tracks, ids);
+      const n = project.tracks.reduce(
+        (k, t) => k + (removed[t.id] ? t.clips.filter((c) => ids.includes(c.id)).length : 0),
+        0,
+      );
+      if (n === 0) return 0;
+      const main = mainVideoTrackId(project);
+      const mainRemoved = main ? (removed[main] ?? []) : [];
+      addBreadcrumb("clip", `Borró ${n} clip(s) y cerró el hueco`, { clipIds: [...ids] });
+      commit((p) => ({
+        tracks,
+        ...(mainRemoved.length ? { subtitles: rippleSubtitles(p.subtitles, mainRemoved) } : {}),
+      }));
+      pruneSelection();
+      return n;
+    },
+    moveSelected: (delta, record = true, origins) => {
+      const { project, selectedClipIds } = get();
+      const ids = selectedClipIds.filter((id) => {
+        const f = findClip(project, id);
+        return f && !f.track.locked;
+      });
+      if (ids.length === 0) return false;
+      const startOf = (c: Clip) => origins?.[c.id] ?? c.start;
+      // Never before 0: clamp the delta by the earliest clip.
+      let d = delta;
+      for (const id of ids) {
+        const c = findClip(project, id)!.clip;
+        d = Math.max(d, -startOf(c));
+      }
+      const moving = new Set(ids);
+      const tracks = project.tracks.map((t) =>
+        t.clips.some((c) => moving.has(c.id))
+          ? {
+              ...t,
+              clips: sortClips(
+                t.clips.map((c) =>
+                  moving.has(c.id) ? { ...c, start: roundTime(startOf(c) + d) } : c,
+                ),
+              ),
+            }
+          : t,
+      );
+      // Feedback 5: a batch move that would overlap a clip on a video/audio/motion track is refused.
+      for (const t of tracks) {
+        if (!NO_OVERLAP_KINDS.includes(t.kind)) continue;
+        for (const c of t.clips)
+          if (moving.has(c.id) && overlapsOnTrack(t, c.start, clipEnd(c) - c.start, c.id))
+            return false;
+      }
+      addBreadcrumb(
+        "clip",
+        `Movió ${ids.length} clip(s) ${d.toFixed(2)} s`,
+        { clipIds: ids, delta: d },
+        "move:selection",
+      );
+      commit(() => ({ tracks }), record);
+      return true;
+    },
+    closeGaps: (trackId) => {
+      const { project, selectedClipId } = get();
+      const id =
+        trackId ?? (selectedClipId ? findClip(project, selectedClipId)?.track.id : undefined);
+      const track = id ? project.tracks.find((t) => t.id === id) : undefined;
+      if (!track || track.locked) return 0;
+      const { track: packed, removed } = closeTrackGaps(track);
+      if (removed.length === 0) return 0;
+      const total = removed.reduce((k, r) => k + r.end - r.start, 0);
+      addBreadcrumb("track", `Cerró ${removed.length} hueco(s) de «${track.name}»`, {
+        trackId: track.id,
+      });
+      const isMain = mainVideoTrackId(project) === track.id;
+      commit((p) => ({
+        tracks: p.tracks.map((t) => (t.id === track.id ? packed : t)),
+        ...(isMain ? { subtitles: rippleSubtitles(p.subtitles, removed) } : {}),
+      }));
+      return roundTime(total);
+    },
+    trimToCursor: (edge) => {
+      const { project, playhead, selectedClipIds } = get();
+      const inside = (c: Clip) => playhead > c.start && playhead < clipEnd(c);
+      // The selected clip under the cursor, else the first unlocked video/audio clip there.
+      let target = [...selectedClipIds]
+        .reverse()
+        .map((id) => findClip(project, id))
+        .find((f) => f && !f.track.locked && inside(f.clip))?.clip;
+      if (!target) {
+        for (const kind of ["video", "audio", "motion", "text"] as const) {
+          const t = project.tracks.find(
+            (x) => x.kind === kind && !x.locked && x.clips.some(inside),
+          );
+          target = t?.clips.find(inside);
+          if (target) break;
+        }
+      }
+      if (!target) return false;
+      const res = trimClipToCursor(project.tracks, target.id, playhead, edge);
+      if (!res) return false;
+      const isMain = mainVideoTrackId(project) === res.trackId;
+      addBreadcrumb(
+        "clip",
+        `Recortó el ${edge === "start" ? "comienzo" : "final"} de un clip hasta el cursor (Q/W)`,
+        { clipId: target.id, edge, at: playhead },
+      );
+      commit((p) => ({
+        tracks: res.tracks,
+        ...(isMain ? { subtitles: rippleSubtitles(p.subtitles, [res.removed]) } : {}),
+      }));
+      // Q: the cursor goes back to the cut (now at the clip start), like other editors.
+      if (edge === "start") set({ playhead: res.removed.start });
+      return true;
+    },
+    updateClips: (ids, patch) => {
+      const { project } = get();
+      const targets = ids.map((id) => findClip(project, id)).filter((f) => f !== undefined);
+      if (targets.length === 0) return;
+      const fields = Object.keys(patch);
+      addBreadcrumb(
+        "clip",
+        `Editó ${targets.length} clip(s) (${fields.join(", ")})`,
+        { clipIds: [...ids], fields },
+        `update:batch:${fields.join(",")}`,
+      );
+      commit((p) => {
+        let tracks = p.tracks;
+        for (const f of targets) tracks = replaceClip(tracks, { ...f.clip, ...patch });
+        return { tracks };
+      });
+    },
+    markIn: (time) => {
+      const t = roundTime(time ?? get().playhead);
+      const cur = get().inOut;
+      const end = Math.max(projectDuration(get().project), t);
+      set({ inOut: { in: t, out: cur && cur.out > t ? cur.out : end } });
+    },
+    markOut: (time) => {
+      const t = roundTime(time ?? get().playhead);
+      const cur = get().inOut;
+      set({ inOut: { in: cur && cur.in < t ? cur.in : 0, out: t } });
+    },
+    clearInOut: () => set({ inOut: undefined }),
+
     selectAsset: (selectedAssetId) => set({ selectedAssetId }),
     setPlayhead: (time) => {
       const max = Math.max(projectDuration(get().project), 0) + 60;
@@ -636,7 +1010,6 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
     shuttleStop: () => set({ playing: false, playbackRate: 1 }),
     setZoom: (zoom) => set({ zoom: clamp(zoom, MIN_ZOOM, MAX_ZOOM) }),
     zoomBy: (factor) => set({ zoom: clamp(get().zoom * factor, MIN_ZOOM, MAX_ZOOM) }),
-    toggleSnapping: () => set({ snapping: !get().snapping }),
   };
 });
 

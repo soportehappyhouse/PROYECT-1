@@ -8,9 +8,15 @@ import {
   type WhisperModel,
 } from "@studio/shared";
 import { Download, Plus, Scissors, Sparkles, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { hasAudio, SelectedClipHint, useSelectedClip } from "@/components/common/SelectedClipInfo";
+import {
+  hasAudio,
+  SelectedClipHint,
+  useSelectedClip,
+  type SelectedClip,
+} from "@/components/common/SelectedClipInfo";
+import { useAiAvailability } from "@/hooks/use-ai-availability";
 import { Button } from "@/components/ui/button";
 import { Checkbox, Input, Label, Select } from "@/components/ui/input";
 import { EmptyState, Section, Spinner } from "@/components/ui/misc";
@@ -151,7 +157,22 @@ export function SubtitlesPanel() {
     else toast.message(`No hay pausas de más de ${gapMs} ms en el clip seleccionado`);
   };
 
-  const transcribe = async () => {
+  // Sprint 5 (H26): the empty state transcribes the first video/audio clip when none is selected.
+  const project = useProjectStore((s) => s.project);
+  const assets = useMediaStore((s) => s.assets);
+  const firstWithVoice = useMemo((): SelectedClip | undefined => {
+    for (const track of project.tracks) {
+      if (track.kind !== "video" && track.kind !== "audio") continue;
+      const clip = [...track.clips].sort((a, b) => a.start - b.start).find((c) => c.assetId);
+      if (clip) return { clip, track, asset: assets[clip.assetId!] };
+    }
+    return undefined;
+  }, [project, assets]);
+  const ai = useAiAvailability("transcribe");
+  const transcribeTarget = hasAudio(sel) ? sel : firstWithVoice;
+
+  const transcribe = async (target: SelectedClip | undefined = sel) => {
+    const sel = target;
     if (!hasAudio(sel)) return;
     setBusy(true);
     try {
@@ -330,6 +351,7 @@ export function SubtitlesPanel() {
                 size="icon-sm"
                 variant="ghost"
                 aria-label="Añadir segmento en el cursor"
+                tip="subAdd"
                 onClick={() => store().addSubtitle()}
               >
                 <Plus />
@@ -338,7 +360,9 @@ export function SubtitlesPanel() {
                 size="icon-sm"
                 variant="ghost"
                 aria-label="Descargar SRT"
+                tip="subSrt"
                 disabled={subtitles.length === 0}
+                disabledReason="Todavía no hay subtítulos"
                 onClick={downloadSrt}
               >
                 <Download />
@@ -346,7 +370,31 @@ export function SubtitlesPanel() {
             </div>
           }
         >
-          {subtitles.length === 0 ? <EmptyState>Sin subtítulos todavía.</EmptyState> : null}
+          {subtitles.length === 0 ? (
+            <EmptyState>
+              <span data-testid="subtitles-empty" className="flex flex-col items-center gap-2">
+                <span>
+                  Todavía no hay subtítulos. Transcribí el video para generarlos (o agregá uno con
+                  +).
+                </span>
+                <Button
+                  size="sm"
+                  disabled={busy || !ai.enabled || !hasAudio(transcribeTarget)}
+                  disabledReason={
+                    !ai.enabled
+                      ? ai.reason_es
+                      : !hasAudio(transcribeTarget)
+                        ? "Primero agregá un video o un audio con voz a la línea de tiempo"
+                        : undefined
+                  }
+                  tooltip="Transcribe con Whisper el clip elegido (o el primero con voz)"
+                  onClick={() => void transcribe(transcribeTarget)}
+                >
+                  Transcribir el video
+                </Button>
+              </span>
+            </EmptyState>
+          ) : null}
           <ol className="flex flex-col gap-1">
             {subtitles.map((s, i) => (
               <li key={i} className="rounded-md border p-1.5">
@@ -386,6 +434,7 @@ export function SubtitlesPanel() {
                     variant="ghost"
                     className="ml-auto"
                     aria-label="Eliminar segmento"
+                    tip="subDel"
                     onClick={() => store().removeSubtitle(i)}
                   >
                     <Trash2 />

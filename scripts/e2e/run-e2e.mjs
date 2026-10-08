@@ -4210,6 +4210,45 @@ await step(
 );
 // ------------------------------------------------------------------ END sprint4:auditoría
 
+// ---------------------------------------------------------------- BEGIN sprint5:M2
+await step("sprint5: projects summary + rename + duplicate", async () => {
+  const a = await ok("POST", "/api/projects", { name: "S5 lista A" }, [201]);
+  const b = await ok("POST", "/api/projects", { name: "S5 lista B" }, [201]);
+  const list = await ok("GET", "/api/projects?view=summary", undefined, [200]);
+  assert(
+    Array.isArray(list) && list.length >= 2,
+    `summary list ${JSON.stringify(list)?.slice(0, 200)}`,
+  );
+  for (const s of list.slice(0, 2))
+    for (const k of ["id", "name", "updatedAt", "durationS", "width", "height", "clips"])
+      assert(k in s, `summary item lacks ${k}: ${JSON.stringify(s)}`);
+  assert(!("tracks" in list[0]), "summary must not carry the tracks");
+  const order = list.map((s) => s.id);
+  assert(order.indexOf(b.id) < order.indexOf(a.id), "summary is not newest first");
+  const renamed = await ok("PATCH", `/api/projects/${a.id}`, { name: "S5 renombrado ñ" }, [200]);
+  assert(renamed.name === "S5 renombrado ñ" && renamed.id === a.id, JSON.stringify(renamed));
+  const bad = await api("PATCH", `/api/projects/${a.id}`, { name: "" });
+  assert(bad.status === 400, `PATCH empty name -> ${bad.status}`);
+  const missing = await api("PATCH", "/api/projects/no-existe", { name: "X" });
+  assert(
+    missing.status === 404 && missing.json?.error?.code === "PROJECT_NOT_FOUND",
+    `PATCH unknown -> ${missing.status} ${JSON.stringify(missing.json)}`,
+  );
+  const dup = await ok("POST", `/api/projects/${a.id}/duplicate`, {}, [201]);
+  assert(dup.name === "S5 renombrado ñ (copia)" && dup.id !== a.id, JSON.stringify(dup.name));
+  const srcTracks = (await ok("GET", `/api/projects/${a.id}`)).tracks.map((t) => t.id);
+  assert(
+    dup.tracks.every((t) => !srcTracks.includes(t.id)),
+    "duplicate kept old track ids",
+  );
+  for (const id of [a.id, b.id, dup.id])
+    await ok("DELETE", `/api/projects/${id}`, undefined, [204]);
+  const after = await ok("GET", "/api/projects?view=summary");
+  assert(!after.some((s) => [a.id, b.id, dup.id].includes(s.id)), "deleted projects still listed");
+  return { listed: list.length, duplicate: dup.name };
+});
+// ------------------------------------------------------------------ END sprint5:M2
+
 // ---------------------------------------------------------------- report
 sse.controller.abort();
 const required = results.filter((r) => r.kind === "required");

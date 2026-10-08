@@ -326,6 +326,7 @@ function SelfVoiceSection() {
                   size="icon-sm"
                   variant="ghost"
                   aria-label={`Borrar ${a.name}`}
+                  tooltip="Borrar esta muestra de tu voz (el audio ya generado no cambia)"
                   onClick={() => void store().deleteSelfRef(a.id)}
                 >
                   <Trash2 />
@@ -867,6 +868,7 @@ function EffectsForm() {
               size="icon-sm"
               variant="ghost"
               aria-label="Añadir efecto"
+              tooltip="Sumar el efecto elegido al final de la cadena"
               onClick={() => setChain((c) => [...c, defaultEffect(addType)])}
             >
               <Plus />
@@ -885,6 +887,7 @@ function EffectsForm() {
                 size="icon-sm"
                 variant="ghost"
                 aria-label="Quitar efecto"
+                tooltip="Quitar este efecto de la cadena"
                 onClick={() => setChain((c) => c.filter((_, j) => j !== i))}
               >
                 <Trash2 />

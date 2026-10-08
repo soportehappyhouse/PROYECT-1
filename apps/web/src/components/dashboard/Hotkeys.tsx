@@ -1,23 +1,18 @@
 "use client";
 
-import { useEffect } from "react";
-import { useHotkeys } from "react-hotkeys-hook";
+import { useEffect, useMemo } from "react";
+import { HotkeysProvider, useHotkeys, useHotkeysContext } from "react-hotkeys-hook";
 import {
+  hotkeyPolicy,
+  INITIAL_HOTKEY_SCOPES,
   normalizeKeys,
   SHORTCUT_ACTIONS,
   toHotkeyString,
   type ShortcutActionId,
+  type ShortcutActionInfo,
 } from "@/lib/shortcuts";
 import { useSettingsStore } from "@/stores/settings-store";
 import { runAction } from "./actions";
-
-/** Actions that still fire while typing in a form field. */
-const GLOBAL_IN_FORMS = new Set<ShortcutActionId>([
-  "palette.open",
-  "project.save",
-  "project.export",
-  "assistant.open",
-]);
 
 /** Transport actions that must not auto-repeat while the key is held down. */
 const NO_REPEAT = new Set<ShortcutActionId>([
@@ -27,10 +22,14 @@ const NO_REPEAT = new Set<ShortcutActionId>([
   "playback.shuttleForward",
 ]);
 
-function Binding({ action, keys }: { action: ShortcutActionId; keys: string }) {
+function Binding({ info, keys }: { info: ShortcutActionInfo; keys: string }) {
+  const action = info.id;
+  // The settings dialog records new keys: nothing fires while it is open. The command palette
+  // only lets its own shortcut through (to close it again).
   const blocked = useSettingsStore(
     (s) => s.settingsOpen || (s.commandPaletteOpen && action !== "palette.open"),
   );
+  const policy = useMemo(() => hotkeyPolicy(info), [info]);
   useHotkeys(
     toHotkeyString(keys),
     (e) => {
@@ -40,11 +39,27 @@ function Binding({ action, keys }: { action: ShortcutActionId; keys: string }) {
     },
     {
       enabled: Boolean(keys) && !blocked,
-      enableOnFormTags: GLOBAL_IN_FORMS.has(action),
+      scopes: policy.scopes,
+      enableOnFormTags: policy.enableOnFormTags,
+      ignoreEventWhen: policy.ignoreEventWhen,
       preventDefault: true,
     },
-    [action, keys],
+    [action, keys, blocked, policy],
   );
+  return null;
+}
+
+/**
+ * Sprint 5 (H5): `editor` shortcuts turn off while the command palette, the settings dialog or the
+ * projects list is open; `global` ones (palette, save, export, assistant, open/new project) stay.
+ */
+function EditorScopeGate() {
+  const { enableScope, disableScope } = useHotkeysContext();
+  const blocked = useSettingsStore((s) => s.settingsOpen || s.commandPaletteOpen || s.projectsOpen);
+  useEffect(() => {
+    if (blocked) disableScope("editor");
+    else enableScope("editor");
+  }, [blocked, enableScope, disableScope]);
   return null;
 }
 
@@ -72,17 +87,18 @@ function useSpaceDoesNotClickButtons(enabled: boolean): void {
   }, [enabled]);
 }
 
-/** Registers every configurable shortcut from the settings store. */
+/** Registers every configurable shortcut (shared HOTKEYS registry + the user's keys). */
 export function Hotkeys() {
   const shortcuts = useSettingsStore((s) => s.shortcuts);
   useSpaceDoesNotClickButtons(
     Object.values(shortcuts).some((k) => k && normalizeKeys(k) === "Space"),
   );
   return (
-    <>
+    <HotkeysProvider initiallyActiveScopes={[...INITIAL_HOTKEY_SCOPES]}>
+      <EditorScopeGate />
       {SHORTCUT_ACTIONS.map((a) => (
-        <Binding key={a.id} action={a.id} keys={shortcuts[a.id] ?? ""} />
+        <Binding key={a.id} info={a} keys={shortcuts[a.id] ?? ""} />
       ))}
-    </>
+    </HotkeysProvider>
   );
 }

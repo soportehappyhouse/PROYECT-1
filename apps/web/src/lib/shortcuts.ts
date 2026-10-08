@@ -1,5 +1,6 @@
-import { DEFAULT_DASHBOARD_SETTINGS, type Shortcut } from "@studio/shared";
+import { HOTKEYS, type HotkeyDef, type HotkeyGroup, type Shortcut } from "@studio/shared";
 
+/** Every bindable action: the ids of the shared HOTKEYS registry (Sprint 5, decision 7). */
 export type ShortcutActionId =
   | "playback.toggle"
   | "playback.toStart"
@@ -11,6 +12,15 @@ export type ShortcutActionId =
   | "playback.shuttleForward"
   | "timeline.split"
   | "timeline.delete"
+  | "timeline.rippleDelete"
+  | "timeline.closeGaps"
+  | "timeline.selectAll"
+  | "timeline.deselect"
+  | "timeline.trimStartToCursor"
+  | "timeline.trimEndToCursor"
+  | "timeline.markIn"
+  | "timeline.markOut"
+  | "timeline.clearInOut"
   | "timeline.zoomIn"
   | "timeline.zoomOut"
   | "timeline.toggleSnap"
@@ -18,6 +28,8 @@ export type ShortcutActionId =
   | "edit.redo"
   | "project.export"
   | "project.save"
+  | "project.open"
+  | "project.new"
   | "palette.open"
   | "layout.reset"
   | "assistant.open"
@@ -26,108 +38,30 @@ export type ShortcutActionId =
 export interface ShortcutActionInfo {
   id: ShortcutActionId;
   label: string;
-  group: "Reproducción" | "Línea de tiempo" | "Edición" | "Proyecto" | "Interfaz";
+  group: HotkeyGroup;
   defaultKeys: string;
+  /** Sprint 5: what it does (Ajustes → Atajos, tooltips). */
+  help: string;
+  scope: HotkeyDef["scope"];
+  onSlider: boolean;
+  inTextFields: boolean;
 }
 
-const contractDefaults = Object.fromEntries(
-  DEFAULT_DASHBOARD_SETTINGS.shortcuts.map((s) => [s.action, s.keys]),
-) as Record<string, string>;
+/** Derived from the shared HOTKEYS registry (single source for defaults, scopes and help). */
+export const SHORTCUT_ACTIONS: readonly ShortcutActionInfo[] = HOTKEYS.map((h) => ({
+  id: h.id as ShortcutActionId,
+  label: h.label_es,
+  group: h.group,
+  defaultKeys: h.keys,
+  help: h.help_es,
+  scope: h.scope,
+  onSlider: h.onSlider,
+  inTextFields: h.inTextFields,
+}));
 
-/** Every bindable action. Defaults come from the shared contract when it defines them. */
-export const SHORTCUT_ACTIONS: readonly ShortcutActionInfo[] = [
-  {
-    id: "playback.toggle",
-    label: "Reproducir / pausar",
-    group: "Reproducción",
-    defaultKeys: contractDefaults["playback.toggle"] ?? "Space",
-  },
-  { id: "playback.toStart", label: "Ir al inicio", group: "Reproducción", defaultKeys: "Home" },
-  { id: "playback.toEnd", label: "Ir al final", group: "Reproducción", defaultKeys: "End" },
-  {
-    id: "playback.shuttleBack",
-    label: "Reproducir hacia atrás (otra vez: más rápido)",
-    group: "Reproducción",
-    defaultKeys: "J",
-  },
-  {
-    id: "playback.pause",
-    label: "Pausa (detenido, con un clip elegido: agregar keyframe)",
-    group: "Reproducción",
-    defaultKeys: "K",
-  },
-  {
-    id: "playback.shuttleForward",
-    label: "Reproducir (otra vez: más rápido)",
-    group: "Reproducción",
-    defaultKeys: "L",
-  },
-  {
-    id: "playback.frameBack",
-    label: "Fotograma anterior",
-    group: "Reproducción",
-    defaultKeys: "ArrowLeft",
-  },
-  {
-    id: "playback.frameForward",
-    label: "Fotograma siguiente",
-    group: "Reproducción",
-    defaultKeys: "ArrowRight",
-  },
-  {
-    id: "timeline.split",
-    label: "Dividir clip en el cursor",
-    group: "Línea de tiempo",
-    defaultKeys: contractDefaults["timeline.split"] ?? "S",
-  },
-  {
-    id: "timeline.delete",
-    label: "Eliminar clip seleccionado",
-    group: "Línea de tiempo",
-    defaultKeys: contractDefaults["timeline.delete"] ?? "Delete",
-  },
-  { id: "timeline.zoomIn", label: "Acercar", group: "Línea de tiempo", defaultKeys: "Equal" },
-  { id: "timeline.zoomOut", label: "Alejar", group: "Línea de tiempo", defaultKeys: "Minus" },
-  {
-    id: "timeline.toggleSnap",
-    label: "Activar / desactivar imán",
-    group: "Línea de tiempo",
-    defaultKeys: "N",
-  },
-  {
-    id: "edit.undo",
-    label: "Deshacer",
-    group: "Edición",
-    defaultKeys: contractDefaults["edit.undo"] ?? "Ctrl+Z",
-  },
-  {
-    id: "edit.redo",
-    label: "Rehacer",
-    group: "Edición",
-    defaultKeys: contractDefaults["edit.redo"] ?? "Ctrl+Shift+Z",
-  },
-  {
-    id: "project.export",
-    label: "Exportar",
-    group: "Proyecto",
-    defaultKeys: contractDefaults["project.export"] ?? "Ctrl+E",
-  },
-  { id: "project.save", label: "Guardar proyecto", group: "Proyecto", defaultKeys: "Ctrl+S" },
-  { id: "palette.open", label: "Paleta de comandos", group: "Interfaz", defaultKeys: "Ctrl+K" },
-  { id: "layout.reset", label: "Restaurar layout", group: "Interfaz", defaultKeys: "Ctrl+Shift+R" },
-  {
-    id: "assistant.open",
-    label: "Asistente: escribir un comando",
-    group: "Interfaz",
-    defaultKeys: "Ctrl+Shift+A",
-  },
-  {
-    id: "console.open",
-    label: "Consola Claude: abrir la terminal de Claude Code",
-    group: "Interfaz",
-    defaultKeys: "Ctrl+Shift+C",
-  },
-];
+export function shortcutAction(id: ShortcutActionId): ShortcutActionInfo | undefined {
+  return SHORTCUT_ACTIONS.find((a) => a.id === id);
+}
 
 export type ShortcutMap = Record<ShortcutActionId, string>;
 
@@ -232,4 +166,61 @@ export function displayKeys(keys: string): string {
     .split("+")
     .map((p) => names[p] ?? p)
     .join(" + ");
+}
+
+// ---- Sprint 5 (M2): hotkey scopes and focus policy (contract decision 7, H5) ---------------------
+
+/** Scopes active when nothing blocks the editor (dialogs and the palette turn `editor` off). */
+export const INITIAL_HOTKEY_SCOPES = ["global", "editor"] as const;
+
+const TEXT_INPUT_TYPES = new Set([
+  "text",
+  "search",
+  "email",
+  "url",
+  "tel",
+  "password",
+  "number",
+  "date",
+  "time",
+  "datetime-local",
+  "month",
+  "week",
+]);
+
+/** True where typing produces text: text inputs, textareas, contenteditable, textbox roles. */
+export function isTextEditable(target: EventTarget | null | undefined): boolean {
+  const el = target as HTMLElement | null | undefined;
+  if (!el || typeof el.tagName !== "string") return false;
+  const tag = el.tagName.toLowerCase();
+  if (tag === "textarea") return true;
+  if (tag === "input")
+    return TEXT_INPUT_TYPES.has(((el as HTMLInputElement).type || "text").toLowerCase());
+  if (el.isContentEditable || el.getAttribute?.("contenteditable") === "true") return true;
+  const role = el.getAttribute?.("role");
+  return role === "textbox" || role === "searchbox" || role === "combobox";
+}
+
+/** True while a modal dialog is open (its own keys win; editor shortcuts wait). */
+export function modalDialogOpen(doc: Document | undefined = globalThis.document): boolean {
+  return !!doc?.querySelector('[role="dialog"][aria-modal="true"]');
+}
+
+/** react-hotkeys-hook options for one action (scope, form tags, when to ignore). */
+export function hotkeyPolicy(
+  info: Pick<ShortcutActionInfo, "scope" | "onSlider" | "inTextFields">,
+): {
+  scopes: "global" | "editor";
+  enableOnFormTags: boolean | ["slider"];
+  ignoreEventWhen: (e: Pick<KeyboardEvent, "target">) => boolean;
+} {
+  return {
+    scopes: info.scope,
+    enableOnFormTags: info.inTextFields ? true : info.onSlider ? ["slider"] : false,
+    ignoreEventWhen: (e) => {
+      if (info.inTextFields) return false;
+      if (isTextEditable(e.target)) return true;
+      return info.scope === "editor" && modalDialogOpen();
+    },
+  };
 }

@@ -178,7 +178,7 @@ export function LibraryPanel() {
         variant="ghost"
         size="icon-sm"
         aria-label="Subir sonidos a la biblioteca"
-        title="Subir sonidos a la biblioteca"
+        tip="libUpload"
         onClick={() => fileRef.current?.click()}
       >
         <Upload />
@@ -218,7 +218,9 @@ export function LibraryPanel() {
               variant="ghost"
               size="icon-sm"
               aria-label={playingId === item.id ? "Detener vista previa" : `Escuchar ${item.name}`}
+              tip="libPlay"
               disabled={!previewSrc(item)}
+              disabledReason="Este sonido no tiene muestra para escuchar"
               onClick={() => togglePreview(item)}
             >
               {playingId === item.id ? <Pause /> : <Play />}
@@ -237,6 +239,7 @@ export function LibraryPanel() {
               variant="ghost"
               size="icon-sm"
               aria-label={`Añadir ${item.name} a la línea de tiempo`}
+              tip="libAdd"
               disabled={busyId === item.id}
               onClick={() => void addToTimeline(item)}
             >

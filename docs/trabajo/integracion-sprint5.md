@@ -87,6 +87,15 @@ acordados; `PlanChoices` (M3) en `AssistantPanel` (M1); `resolvePlanForRecord` e
 Auditoría independiente posterior a la integración (13 hallazgos). Dos commits: ALTA + MEDIA
 (D1–D8) y BAJA + documentación (D9–D13).
 
+Verificación desde cero tras las correcciones: `lint`, `format:check`, `-r typecheck`, `-r build`
+OK; `-r test`: shared 157, studio-mcp 19, motion-engines 22, remotion 55 + 1 skip, web 296, api
+332 + 1 skip; `studio-mcp smoke` 18 herramientas; workers ruff OK, pytest **501 passed, 9 skipped**
+al azar, en orden de archivos y en orden inverso; `run-e2e.mjs` (sin `--skip-motion`, storage
+nuevo) **82/82 obligatorios**; `ui-smoke.mjs --vp9-preview` (storage nuevo,
+`STUDIO_MOCK_DENOISE=0`) **56/56**, con la fila «cancelado» de Trabajos llegada por SSE
+(`via: "sse"`). PDF del manual regenerado (77 páginas, 6 capturas). CI Ubuntu verde en los dos
+commits.
+
 | # | Prioridad | Hallazgo | Cambio | Prueba |
 | - | --------- | -------- | ------ | ------ |
 | D1 | ALTA | Cancelar `vision.matte` (RVM) dejaba vivo el subproceso GPL con la VRAM tomada (`TaskCanceled` dentro de `on_event`, sin `finally`; `on_cancel_kill` sin usar) | `gpl.run_rvm`: grupo propio (`new_group_kwargs`), `on_cancel_kill(proc)` al arrancar y `try/finally: kill_process_tree` + cerrar tuberías + `join` del lector; SAM (ffmpeg de fotogramas) pasa de `subprocess.run(timeout=3600)` a `Popen` con el mismo gancho; `frames.py` (lector y `AlphaWriter`) registra el gancho. `kill_process_tree` ya no hace `killpg` de un grupo compartido (habría matado a los workers) y espera la salida | `test_cancel_kill.py`: árbol hijo + nieto, sin grupo propio, gancho con hijo largo falso, `_rvm` cancelado por gancho y por progreso (el subproceso falso termina) |

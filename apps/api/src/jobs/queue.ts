@@ -353,8 +353,10 @@ export class JobQueue extends EventEmitter<{ job: [JobEvent] }> {
       // Trailing edge of the throttle: a job that finishes inside the window must still publish
       // its last progress step (e.g. "3/3 bloques (3 en caché)") before "Completado".
       flush();
+      // Audit D11: the handler finished (its output is complete) even if a cancel arrived while
+      // it was finishing: keep it `succeeded` instead of «cancelado» with a file left behind.
       if (controller.signal.aborted)
-        throw Object.assign(new Error("Cancelado"), { name: "AbortError" });
+        this.#log(job.id, "El trabajo terminó antes de que se aplicara el cancelar");
       this.#transition(this.options.store.get(job.id)!, "succeeded", {
         progress: 1,
         message: "Completado",

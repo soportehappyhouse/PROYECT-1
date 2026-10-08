@@ -225,14 +225,20 @@ Cómo se trabaja en la **línea de tiempo**:
   lo que toca (con `Mayús`/`Ctrl` suma a lo elegido); `Ctrl+A` elige todo lo de pistas sin
   bloquear; `Esc` quita la selección. Con varios elegidos, arrastrar uno mueve todos.
 - **Borrar**: `Supr` borra lo elegido y deja el hueco; `Mayús+Supr` borra y **cierra el hueco**
-  (lo que sigue en esa pista se corre a la izquierda; si es la pista de video principal, los
-  subtítulos también). Clic derecho en un clip: **Borrar**, **Borrar y cerrar hueco**, **Cerrar
-  huecos de la pista** (`Ctrl+Mayús+Supr`). Las pistas bloqueadas nunca se tocan.
+  (lo que sigue en esa pista se corre a la izquierda). Si borrás en la **pista de video
+  principal** (la primera de video), todo lo demás queda sincronizado: subtítulos, textos, motion
+  y audio de las otras pistas se corren lo mismo, y lo que caía justo en el tramo borrado se
+  recorta (un texto o una música que lo cruzaba queda más corta; uno que estaba entero adentro se
+  borra). Todo es **un solo paso** de deshacer. Para que una pista no se mueva, **bloqueala**
+  antes. Clic derecho en un clip: **Borrar**, **Borrar y cerrar hueco**, **Cerrar huecos de la
+  pista** (`Ctrl+Mayús+Supr`). Las pistas bloqueadas nunca se tocan.
 - **Recortar al cursor**: `Q` corta desde el comienzo del clip hasta el cursor y `W` desde el
   cursor hasta el final; lo que sigue se corre para no dejar hueco.
 - **Entrada y salida**: `I` marca la entrada y `O` la salida (franja de color en la regla y en las
   pistas, etiqueta «I–O»); `Alt+X` o un clic en la etiqueta las quita. Exportar puede usar solo
-  ese tramo.
+  ese tramo. La salida tiene que quedar después de la entrada: si apretás `O` antes de la `I`,
+  avisa y deja el tramo como estaba. Al borrar con `Mayús+Supr` o recortar con `Q`/`W` en la
+  pista de video principal, el tramo se corre con el video; al abrir otro proyecto se quita.
 - **Zoom**: `Ctrl` + rueda del mouse, el control deslizante o las teclas `=` y `-`.
 - **Imán** (`N`): pega los clips al 0, al cursor, a los bordes de otros clips, a las marcas
   I/O y a los **marcadores de escena** (si están visibles); la flechita al lado del imán elige a
@@ -299,7 +305,9 @@ copia más nueva), así sobreviven a borrar el historial del navegador.
    mueven fotograma a fotograma). Para cortar desde el comienzo del clip hasta ahí, `Q`; desde ahí
    hasta el final, `W`.
 4. Elegí la parte que no querés y apretá `Mayús+Supr`: se borra y lo que sigue se corre, sin hueco
-   (`Supr` solo deja el hueco). Para recortes exactos usá _Entrada (s)_ y _Salida (s)_ en
+   (`Supr` solo deja el hueco). En la pista de video principal también se corren los textos, los
+   gráficos, la música y los subtítulos de ese tramo en adelante (lo que lo cruzaba se recorta);
+   bloqueá una pista si no querés que se mueva. Para recortes exactos usá _Entrada (s)_ y _Salida (s)_ en
    **Propiedades → Tiempo**.
 5. Para varias partes a la vez: `Ctrl+clic` en cada una (o un rectángulo) y `Mayús+Supr`.
 6. Tocá **Exportar** (cabecera o `Ctrl+E`), en **¿Dónde lo vas a publicar?** elegí **YouTube
@@ -383,8 +391,11 @@ Pasos:
   mientras suena una pista de **Voz** y vuelve sola en las pausas. Studio decide el rol de cada
   pista: el video y las voces de texto a voz o clonadas cuentan como **Voz**; lo que agregás desde
   la **Biblioteca** como _Música_ (o _Ambiente_) va a una pista **Música**; una música importada
-  desde Media queda como **Otro**: cambiale el rol a **Música** en la misma sección (ver
-  [§17.9](#179-sonido-al-exportar)).
+  desde Media cuenta como **Música** si la pista o el archivo se llaman con «música», «music» o
+  «fondo» (por ejemplo `musica-fondo.mp3`); si no, queda como **Otro**: cambiale el rol a
+  **Música** en la misma sección (ver [§17.9](#179-sonido-al-exportar)). Si falta una pista de
+  Voz o de Música, Exportar lo avisa debajo de la opción y la tarjeta del resultado dice
+  «Música sin bajar».
 - **A mano**: seleccioná el clip de música y en **Propiedades → Audio** bajá el _Volumen_ (por
   ejemplo al 20–30 %). Si querés que suba en las pausas, dividí la música (`S`) y poné volúmenes
   distintos a cada parte.
@@ -849,6 +860,10 @@ clip en el cursor (S)_.
 | Elegir varios clips                                  | `Ctrl+clic`, `Mayús+clic`, rectángulo | (fijo)          |
 
 `Ctrl+N`, `Ctrl+W` y `Ctrl+T` los reserva el navegador (Chrome/Edge) y no se pueden usar.
+`Ctrl+Mayús+Supr` en Chrome/Edge también abre «Borrar datos de navegación»: si en tu navegador
+abre esa ventana en lugar de cerrar los huecos, cerrala sin borrar nada y usá el clic derecho en
+un clip → **Cerrar huecos de la pista**, o cambiá el atajo en **Ajustes → Atajos** (por ejemplo
+`Alt+Supr`).
 
 ## 11. Variables de `.env` que podés tocar
 
@@ -1361,13 +1376,15 @@ video. Cada casilla muestra qué puede pasar en YouTube, TikTok o Instagram:
 
 En **Exportar → Sonido**:
 
-| Opción                         | Qué hace                                                                                     |
-| ------------------------------ | -------------------------------------------------------------------------------------------- |
-| Normalizar a −14,0 LUFS        | Mide la mezcla y la lleva a −14 LUFS / −1 dBTP (2 pasadas, lineal: no cambia la dinámica).   |
-| Bajar la música cuando hay voz | La música baja ≈ 12 dB mientras suena una pista de Voz (baja en 150 ms, vuelve en 600 ms).   |
-| Rol de cada pista              | Automático (video = Voz, texto a voz/clon = Voz, resto = Otro), Voz, Música, Efectos u Otro. |
+| Opción                         | Qué hace                                                                                                                                   |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Normalizar a −14,0 LUFS        | Mide la mezcla y la lleva a −14 LUFS / −1 dBTP (2 pasadas, lineal: no cambia la dinámica).                                                 |
+| Bajar la música cuando hay voz | La música baja ≈ 12 dB mientras suena una pista de Voz (baja en 150 ms, vuelve en 600 ms).                                                 |
+| Rol de cada pista              | Automático (video = Voz, texto a voz/clon = Voz, nombre con «música»/«music»/«fondo» = Música, resto = Otro), Voz, Música, Efectos u Otro. |
 
 - «Bajar la música» se guarda en el proyecto; los roles también (en cada pista).
+- Si con la opción tildada no hay ninguna pista de **Voz** o ninguna de **Música**, aparece un
+  aviso en ámbar (no hay nada que bajar); el resultado lo repite con **Música sin bajar**.
 - La tarjeta **Último resultado** dice la sonoridad final («−14,0 LUFS») y **Revisión para
   redes** la controla ([§17.7](#177-revisión-para-redes)).
 - La voz se calibra sola: una voz bajita de celular baja la música igual que una de estudio.

@@ -15,8 +15,6 @@ router = APIRouter(tags=["transcribe"])
 
 # Sprint 5: job_id -> cancel event of a running /transcribe (checked between segments).
 _cancels: dict[str, threading.Event] = {}
-# job_id -> (done_s, total_s) of a running /transcribe (GET /transcribe/progress/{job_id}).
-_progress: dict[str, tuple[float, float | None]] = {}
 _lock = threading.Lock()
 
 
@@ -29,11 +27,8 @@ _lock = threading.Lock()
 def transcribe(req: TranscribeRequest) -> Transcript:
     """Sync call (runs in the threadpool). Progress: GET /jobs/{jobId} when jobId is sent.
     Sprint 5: POST /transcribe/cancel {job_id} stops it between segments (TaskCanceled)."""
-    settings = get_settings()
-    src = settings.storage_path(req.input_path)
-    if not src.is_file():
-        raise NotFoundError(f"No existe el audio de entrada: {req.input_path}")
-    require_module("faster_whisper", "faster-whisper==1.2.1")
+    # Audit D10: the cancel event exists before any check, so a cancel sent while the input is
+    # being validated (or the module looked up) is not lost.
     cancel = threading.Event()
     if req.job_id:
         with _lock:
@@ -43,11 +38,15 @@ def transcribe(req: TranscribeRequest) -> Transcript:
         if cancel.is_set():
             raise TaskCanceled(req.job_id or "transcribe")
         registry.update(req.job_id, p, message)
-        if req.job_id:
-            with _lock:
-                _progress[req.job_id] = (float(p), None)
 
     try:
+        settings = get_settings()
+        src = settings.storage_path(req.input_path)
+        if not src.is_file():
+            raise NotFoundError(f"No existe el audio de entrada: {req.input_path}")
+        require_module("faster_whisper", "faster-whisper==1.2.1")
+        if cancel.is_set():
+            raise TaskCanceled(req.job_id or "transcribe")
         with registry.track(req.job_id, "Cargando modelo Whisper"):
             transcript = whisper_engine().transcribe(
                 src,
@@ -72,8 +71,8 @@ def transcribe(req: TranscribeRequest) -> Transcript:
     finally:
         if req.job_id:
             with _lock:
-                _cancels.pop(req.job_id, None)
-                _progress.pop(req.job_id, None)
+                if _cancels.get(req.job_id) is cancel:
+                    del _cancels[req.job_id]
     return transcript
 
 
@@ -86,15 +85,3 @@ def transcribe_cancel(req: TranscribeCancelRequest) -> dict[str, bool]:
         return {"stopped": False}
     event.set()
     return {"stopped": True}
-
-
-@router.get("/transcribe/progress/{job_id}")
-def transcribe_progress(job_id: str) -> dict[str, float | None]:
-    """{progress, done_s, total_s} of a running /transcribe (total_s from the transcript info
-    when known; the api uses the asset duration otherwise)."""
-    with _lock:
-        item = _progress.get(job_id)
-    if item is None:
-        raise NotFoundError(f"No hay una transcripción en curso para {job_id}")
-    p, total = item
-    return {"progress": p, "done_s": p * total if total else None, "total_s": total}

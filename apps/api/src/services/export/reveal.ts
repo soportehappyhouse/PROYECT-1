@@ -29,9 +29,16 @@ export function exportsFile(storageDir: string, rel: string): string | undefined
   return abs.startsWith(root + path.sep) ? abs : undefined;
 }
 
-/** argv of the file manager for `abs` on `platform`. */
+/**
+ * argv of the file manager for `abs` on `platform`. Windows Explorer parses its command line
+ * itself and splits `/select,<path>` at commas even inside one argv element (an Explorer
+ * limitation, not a quoting bug): a path with a comma opens its folder without `/select`.
+ */
 export function revealCommand(platform: NodeJS.Platform, abs: string): [string, string[]] {
-  if (platform === "win32") return ["explorer.exe", [`/select,${abs}`]];
+  if (platform === "win32")
+    return abs.includes(",")
+      ? ["explorer.exe", [path.win32.dirname(abs)]]
+      : ["explorer.exe", [`/select,${abs}`]];
   if (platform === "darwin") return ["open", ["-R", abs]];
   return ["xdg-open", [path.dirname(abs)]];
 }
@@ -52,7 +59,8 @@ export async function revealExport(
     realpath(abs).catch(() => undefined),
   ]);
   if (!realRoot || !realAbs || !realAbs.startsWith(realRoot + path.sep)) return "outside";
-  const [cmd, args] = revealCommand(platform, abs);
+  // Audit D12: reveal the real path that was checked (not the link / short name).
+  const [cmd, args] = revealCommand(platform, realAbs);
   run(cmd, args);
   return "ok";
 }

@@ -1150,8 +1150,13 @@
           <li>
             <strong>Borrar</strong>: <code>Supr</code> borra lo elegido y deja el hueco;
             <code>Mayús+Supr</code> borra y <strong>cierra el hueco</strong> (lo que sigue en esa
-            pista se corre a la izquierda; si es la pista de video principal, los subtítulos
-            también). Clic derecho en un clip: <strong>Borrar</strong>,
+            pista se corre a la izquierda). Si borrás en la
+            <strong>pista de video principal</strong> (la primera de video), todo lo demás queda
+            sincronizado: subtítulos, textos, motion y audio de las otras pistas se corren lo mismo,
+            y lo que caía justo en el tramo borrado se recorta (un texto o una música que lo cruzaba
+            queda más corta; uno que estaba entero adentro se borra). Todo es
+            <strong>un solo paso</strong> de deshacer. Para que una pista no se mueva,
+            <strong>bloqueala</strong> antes. Clic derecho en un clip: <strong>Borrar</strong>,
             <strong>Borrar y cerrar hueco</strong>,
             <strong>Cerrar huecos de la pista</strong> (<code>Ctrl+Mayús+Supr</code>). Las pistas
             bloqueadas nunca se tocan.
@@ -1165,7 +1170,10 @@
             <strong>Entrada y salida</strong>: <code>I</code> marca la entrada y <code>O</code> la
             salida (franja de color en la regla y en las pistas, etiqueta «I–O»);
             <code>Alt+X</code> o un clic en la etiqueta las quita. Exportar puede usar solo ese
-            tramo.
+            tramo. La salida tiene que quedar después de la entrada: si apretás <code>O</code> antes
+            de la <code>I</code>, avisa y deja el tramo como estaba. Al borrar con
+            <code>Mayús+Supr</code> o recortar con <code>Q</code>/<code>W</code> en la pista de
+            video principal, el tramo se corre con el video; al abrir otro proyecto se quita.
           </li>
           <li>
             <strong>Zoom</strong>: <code>Ctrl</code> + rueda del mouse, el control deslizante o las
@@ -1292,8 +1300,11 @@
           </li>
           <li>
             Elegí la parte que no querés y apretá <code>Mayús+Supr</code>: se borra y lo que sigue
-            se corre, sin hueco (<code>Supr</code> solo deja el hueco). Para recortes exactos usá
-            <em>Entrada (s)</em> y <em>Salida (s)</em> en <strong>Propiedades → Tiempo</strong>.
+            se corre, sin hueco (<code>Supr</code> solo deja el hueco). En la pista de video
+            principal también se corren los textos, los gráficos, la música y los subtítulos de ese
+            tramo en adelante (lo que lo cruzaba se recorta); bloqueá una pista si no querés que se
+            mueva. Para recortes exactos usá <em>Entrada (s)</em> y <em>Salida (s)</em> en
+            <strong>Propiedades → Tiempo</strong>.
           </li>
           <li>
             Para varias partes a la vez: <code>Ctrl+clic</code> en cada una (o un rectángulo) y
@@ -1428,9 +1439,13 @@
             vuelve sola en las pausas. Studio decide el rol de cada pista: el video y las voces de
             texto a voz o clonadas cuentan como <strong>Voz</strong>; lo que agregás desde la
             <strong>Biblioteca</strong> como <em>Música</em> (o <em>Ambiente</em>) va a una pista
-            <strong>Música</strong>; una música importada desde Media queda como
+            <strong>Música</strong>; una música importada desde Media cuenta como
+            <strong>Música</strong> si la pista o el archivo se llaman con «música», «music» o
+            «fondo» (por ejemplo <code>musica-fondo.mp3</code>); si no, queda como
             <strong>Otro</strong>: cambiale el rol a <strong>Música</strong> en la misma sección
-            (ver <a href="#179-sonido-al-exportar">§17.9</a>).
+            (ver <a href="#179-sonido-al-exportar">§17.9</a>). Si falta una pista de Voz o de
+            Música, Exportar lo avisa debajo de la opción y la tarjeta del resultado dice «Música
+            sin bajar».
           </li>
           <li>
             <strong>A mano</strong>: seleccioná el clip de música y en
@@ -2763,7 +2778,11 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
         </div>
         <p>
           <code>Ctrl+N</code>, <code>Ctrl+W</code> y <code>Ctrl+T</code> los reserva el navegador
-          (Chrome/Edge) y no se pueden usar.
+          (Chrome/Edge) y no se pueden usar. <code>Ctrl+Mayús+Supr</code> en Chrome/Edge también
+          abre «Borrar datos de navegación»: si en tu navegador abre esa ventana en lugar de cerrar
+          los huecos, cerrala sin borrar nada y usá el clic derecho en un clip →
+          <strong>Cerrar huecos de la pista</strong>, o cambiá el atajo en
+          <strong>Ajustes → Atajos</strong> (por ejemplo <code>Alt+Supr</code>).
         </p>
 
         <h2 id="11-variables-de-env-que-podés-tocar">
@@ -4297,8 +4316,8 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
               <tr>
                 <td>Rol de cada pista</td>
                 <td>
-                  Automático (video = Voz, texto a voz/clon = Voz, resto = Otro), Voz, Música,
-                  Efectos u Otro.
+                  Automático (video = Voz, texto a voz/clon = Voz, nombre con
+                  «música»/«music»/«fondo» = Música, resto = Otro), Voz, Música, Efectos u Otro.
                 </td>
               </tr>
             </tbody>
@@ -4306,6 +4325,11 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
         </div>
         <ul>
           <li>«Bajar la música» se guarda en el proyecto; los roles también (en cada pista).</li>
+          <li>
+            Si con la opción tildada no hay ninguna pista de <strong>Voz</strong> o ninguna de
+            <strong>Música</strong>, aparece un aviso en ámbar (no hay nada que bajar); el resultado
+            lo repite con <strong>Música sin bajar</strong>.
+          </li>
           <li>
             La tarjeta <strong>Último resultado</strong> dice la sonoridad final («−14,0 LUFS») y
             <strong>Revisión para redes</strong> la controla (<a href="#177-revisión-para-redes"

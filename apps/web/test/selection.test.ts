@@ -1,5 +1,6 @@
 import type { Clip, MediaAsset } from "@studio/shared";
-import { beforeEach, describe, expect, it } from "vitest";
+import { toast } from "sonner";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { clipsInRect } from "@/lib/timeline";
 import { createEmptyProject, useProjectStore } from "@/stores/project-store";
 
@@ -177,9 +178,35 @@ describe("batch edits are one undo step", () => {
     expect(st().inOut).toEqual({ in: 1, out: 6 });
     st().markOut(4);
     expect(st().inOut).toEqual({ in: 1, out: 4 });
+    // Audit D9: O before (or at) I warns and keeps the previous range; never zero length.
+    const warn = vi.spyOn(toast, "warning").mockImplementation(() => 1);
     st().markOut(0.5);
-    expect(st().inOut).toEqual({ in: 0, out: 0.5 });
+    expect(st().inOut).toEqual({ in: 1, out: 4 });
+    st().markOut(1);
+    expect(st().inOut).toEqual({ in: 1, out: 4 });
+    st().markIn(6); // at the end of the timeline: nothing after it
+    expect(st().inOut).toEqual({ in: 1, out: 4 });
+    expect(warn).toHaveBeenCalledTimes(3);
+    st().markIn(5); // after O: O moves to the end
+    expect(st().inOut).toEqual({ in: 5, out: 6 });
     st().clearInOut();
+    expect(st().inOut).toBeUndefined();
+    st().markOut(0);
+    expect(st().inOut).toBeUndefined();
+    warn.mockRestore();
+  });
+
+  it("I/O follows ripple on the main track and is cleared on project load (audit D9)", () => {
+    const [, b] = threeClips();
+    st().markIn(4.5);
+    st().markOut(5.5);
+    st().selectClip(b);
+    st().deleteSelected({ ripple: true }); // [2,4) removed
+    expect(st().inOut).toEqual({ in: 2.5, out: 3.5 });
+    st().setPlayhead(3);
+    st().trimToCursor("start"); // Q on c [2,4): removes [2,3)
+    expect(st().inOut).toEqual({ in: 2, out: 2.5 });
+    st().loadProject(createEmptyProject("Otro"));
     expect(st().inOut).toBeUndefined();
   });
 });

@@ -213,6 +213,34 @@ describe("JobQueue", () => {
     expect(events.at(-1)?.message).toBe("Cancelado");
   });
 
+  it("keeps `succeeded` when project.export finishes while being canceled (audit D11)", async () => {
+    const { queue, store } = setup({ ffmpeg: 1 });
+    const runs: { gate: ReturnType<typeof deferred>; ctx: JobContext }[] = [];
+    // An export that is already muxing: it ignores the abort and finishes its output file.
+    queue.register({
+      type: "project.export",
+      parse: (p) => p,
+      async run(_p, ctx) {
+        const gate = deferred();
+        runs.push({ gate, ctx });
+        await gate.promise;
+        return { path: "exports/final.mp4" };
+      },
+    } satisfies JobHandler<unknown, { path: string }>);
+    queue.start();
+    const a = queue.enqueue({ type: "project.export", payload: {} });
+    await until(() => runs.length === 1);
+    expect(queue.cancel(a.id)!.message).toBe("Cancelando…");
+    expect(runs[0]!.ctx.signal.aborted).toBe(true);
+    runs[0]!.gate.resolve();
+    await until(() => store.get(a.id)!.status !== "running");
+    const done = store.get(a.id)!;
+    expect(done.status).toBe("succeeded");
+    expect(done.result).toEqual({ path: "exports/final.mp4" });
+    expect(done.message).toBe("Completado");
+    expect(store.logTail(a.id).join("\n")).toContain("terminó antes de que se aplicara");
+  });
+
   it("keeps jobs without a handler queued until one is registered", async () => {
     const { queue, store } = setup();
     queue.start();

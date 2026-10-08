@@ -320,9 +320,10 @@ vigente) y `tools` (estado de los entornos aislados).
 Sprint 5 (tareas cancelables): `GET /<agent|vision|audio|style|perf|packs>/tasks/{id}` → `TaskPublic`
 (`status queued|running|done|error|canceled`, `progress`, `done/total/stage_es/eta_s/cancellable`,
 `code`); `POST /<área>/tasks/{id}/cancel` → `TaskCancelResponse {task_id, canceled, was}` (404
-`TASK_NOT_FOUND`); `POST /transcribe/cancel {job_id}` → `{stopped}` y `GET
-/transcribe/progress/{job_id}` → `{progress, done_s, total_s}` (`/transcribe` sigue síncrona y
-revisa la cancelación entre segmentos). `POST /agent/eval {dataset, models, mode}` (`select_quick`:
+`TASK_NOT_FOUND`); `POST /transcribe/cancel {job_id}` → `{stopped}` (`/transcribe` sigue síncrona,
+registra el evento de cancelar antes de validar la entrada y lo revisa entre segmentos; cortada
+contesta **499** `{detail: "Cancelado", code: "TASK_CANCELED"}`, sin traceback; el avance va por
+`GET /jobs/{jobId}`). `POST /agent/eval {dataset, models, mode}` (`select_quick`:
 20 ejemplos deterministas, ronda por la primera op ordenada por id) corre cada plan como
 `asyncio.Task` con un vigía de 100 ms: al cancelar se corta el pedido HTTP y Ollama deja de generar;
 sin modelos disponibles la tarea falla con `code PACK_REQUIRED`. `POST /agent/plan` cancela el
@@ -399,18 +400,26 @@ a `packages/shared/schemas/` y `apps/workers/studio_workers/agent/editplan.schem
 - **Progreso (Sprint 5).** `ctx.reportProgress(p, msg?, detail?)`; `detail` parcial
   `{done,total,unit,stage_es,cancellable}`. La cola completa `progressAt` (cambia con `p` o `done`),
   `eta_s = estimateEtaS()` (`packages/shared/src/job-progress.ts`; con ítems: transcurrido desde el
-  primer ítem / hechos × restantes; sin ítems: transcurrido × (1 − p) / p tras 10 s y p ≥ 0,02) y
+  primer ítem / (hechos − `cached`) × restantes, sin ETA mientras todos los hechos vinieron de la
+  caché; sin ítems: transcurrido × (1 − p) / p tras 10 s y p ≥ 0,02) y
   `stalled` (≥ 120 s sin cambio; un reloj de 15 s por job reemite si cambia). Se guarda en
   `jobs.detail` (JSON) y viaja en cada `JobEvent` con `error` y `errorCode` (código de
   `HttpError`/`WorkersError`/`PackRequiredError`/`WorkerTaskError`). `project.export` reporta los
-  bloques como ítems (`unit:"blocks"`, total = bloques + 1 paso final de audio y unión) y
+  bloques como ítems (`unit:"blocks"`, total = bloques + 1 paso final de audio y unión, `cached` =
+  bloques salteados por estar en la caché) y
   `stage_es` («Video: 3/12 bloques», «Midiendo sonoridad», «Normalizando audio», «Uniendo»).
 - **Cancelar (Sprint 5).** `POST /api/jobs/:id/cancel` → `AbortSignal`; los handlers que esperan
   una tarea del worker usan `pollWorkerTask` / `cancelWorkerTaskOnAbort` (`jobs/handlers/util.ts`)
   → `POST /<área>/tasks/{id}/cancel` (3 s, error ignorado). En el worker, `TaskQueue.cancel`: queued
   → `canceled` sin correr; running → `cancel_event` + ganchos `on_cancel` (matar el árbol del
   subproceso con `taskkill /T /F` en Windows); la tarea termina con `TaskCanceled` (en
-  `check_canceled()` o en la próxima actualización de progreso desde su hilo) → `canceled`.
+  `check_canceled()` o en la próxima actualización de progreso desde su hilo) → `canceled`. Los
+  subprocesos de GPU (RVM en `.venv-gpl`, ffmpeg de SAM y de `frames.py`) se registran con
+  `on_cancel_kill(proc)` y además se matan en un `finally` (`kill_process_tree`: `taskkill /T /F`
+  o `killpg` de su propio grupo; nunca el grupo de los workers). `TaskCanceled` no cuenta como
+  falla de CUDA (Whisper y htdemucs no reintentan en CPU ni sueltan la GPU). La cola emite
+  «Cancelando…» por SSE al pedir el cancelar; si el handler igual termina, el job queda
+  `succeeded` (su archivo está completo). La web reconecta el SSE a los 2 s (hasta 10 s).
   `/transcribe` (síncrona) se corta con `POST /transcribe/cancel {job_id}` entre segmentos. Un
   motion recién creado para un render cancelado se quita de la línea de tiempo (un paso de
   deshacer).

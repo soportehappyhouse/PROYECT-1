@@ -58,8 +58,6 @@ def test_cancel_stops_between_segments(dirs, slow_engine: SlowModel) -> None:
     deadline = time.monotonic() + 5
     while slow_engine.yielded < 5 and time.monotonic() < deadline:
         time.sleep(0.01)
-    progress = transcribe_router.transcribe_progress("j1")
-    assert 0 < float(progress["progress"] or 0) < 1
     stopped = transcribe_router.transcribe_cancel(
         transcribe_router.TranscribeCancelRequest(job_id="j1")
     )
@@ -76,7 +74,30 @@ def test_cancel_stops_between_segments(dirs, slow_engine: SlowModel) -> None:
 def test_cancel_route_unknown_job(client: TestClient) -> None:
     r = client.post("/transcribe/cancel", json={"job_id": "nope"})
     assert r.status_code == 200 and r.json() == {"stopped": False}
+    # Audit D10: the unused progress route is gone.
     assert client.get("/transcribe/progress/nope").status_code == 404
+
+
+def test_cancel_during_module_check_is_not_lost(
+    client: TestClient, dirs, slow_engine: SlowModel, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Audit D10: the cancel event is registered before require_module; the canceled call
+    answers 499 JSON (TaskCanceled handler), not a 500 with a traceback."""
+    storage, _ = dirs
+    (storage / "tmp" / "a.wav").write_bytes(b"RIFF")
+
+    def slow_check(*_a: object) -> None:  # e.g. a cold import of faster_whisper
+        assert transcribe_router.transcribe_cancel(
+            transcribe_router.TranscribeCancelRequest(job_id="j2")
+        ) == {"stopped": True}
+
+    monkeypatch.setattr(transcribe_router, "require_module", slow_check)
+    r = client.post(
+        "/transcribe", json={"inputPath": "tmp/a.wav", "jobId": "j2", "wordTimestamps": False}
+    )
+    assert r.status_code == 499
+    assert r.json() == {"detail": "Cancelado", "code": "TASK_CANCELED"}
+    assert slow_engine.yielded == 0
 
 
 def test_cancel_on_cuda_keeps_the_gpu_model(dirs, monkeypatch: pytest.MonkeyPatch) -> None:

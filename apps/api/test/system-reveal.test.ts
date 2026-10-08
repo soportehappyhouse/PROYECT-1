@@ -1,4 +1,5 @@
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { realpath } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -38,7 +39,18 @@ describe("POST /api/system/reveal", () => {
     expect(res.statusCode, res.body).toBe(200);
     expect(calls.at(-1)).toEqual([
       "explorer.exe",
-      [`/select,${path.join(storage, "exports", "mi video ñandú.mp4")}`],
+      [`/select,${await realpath(path.join(storage, "exports", "mi video ñandú.mp4"))}`],
+    ]);
+  });
+
+  it("a path with a comma opens the folder (Explorer limitation, audit D12)", () => {
+    expect(revealCommand("win32", "C:\\Studio\\exports\\hola, che.mp4")).toEqual([
+      "explorer.exe",
+      ["C:\\Studio\\exports"],
+    ]);
+    expect(revealCommand("win32", "C:\\Studio\\exports\\a.mp4")).toEqual([
+      "explorer.exe",
+      ["/select,C:\\Studio\\exports\\a.mp4"],
     ]);
   });
 

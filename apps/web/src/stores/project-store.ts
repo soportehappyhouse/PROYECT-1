@@ -254,6 +254,23 @@ export function rippleSubtitles(
   return out;
 }
 
+/**
+ * Audit D9: the I/O range after cutting `removed` (merged) ranges out of the main video track
+ * (Shift+Supr, Q/W, cerrar huecos). Undefined when the range was cut away entirely.
+ */
+export function rippleInOut(
+  inOut: InOutRange | undefined,
+  removed: readonly TimeRange[],
+): InOutRange | undefined {
+  if (!inOut || removed.length === 0) return inOut;
+  const a = rippleTime(inOut.in, removed);
+  const b = rippleTime(inOut.out, removed);
+  return b - a >= MIN_IN_OUT_S ? { in: a, out: b } : undefined;
+}
+
+/** Shortest I/O range (one frame at 30 fps, rounded). */
+export const MIN_IN_OUT_S = 0.033;
+
 /** The main video track (first video track): its ripple also moves the subtitles. */
 function mainVideoTrackId(p: Pick<Project, "tracks">): string | undefined {
   return p.tracks.find((t) => t.kind === "video")?.id;
@@ -927,6 +944,7 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
         tracks,
         ...(mainRemoved.length ? { subtitles: rippleSubtitles(p.subtitles, mainRemoved) } : {}),
       }));
+      if (mainRemoved.length) set({ inOut: rippleInOut(get().inOut, mainRemoved) });
       pruneSelection();
       return n;
     },
@@ -990,6 +1008,7 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
         tracks: p.tracks.map((t) => (t.id === track.id ? packed : t)),
         ...(isMain ? { subtitles: rippleSubtitles(p.subtitles, removed) } : {}),
       }));
+      if (isMain) set({ inOut: rippleInOut(get().inOut, removed) });
       return roundTime(total);
     },
     trimToCursor: (edge) => {
@@ -1022,6 +1041,7 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
         tracks: res.tracks,
         ...(isMain ? { subtitles: rippleSubtitles(p.subtitles, [res.removed]) } : {}),
       }));
+      if (isMain) set({ inOut: rippleInOut(get().inOut, [res.removed]) });
       // Q: the cursor goes back to the cut (now at the clip start), like other editors.
       if (edge === "start") set({ playhead: res.removed.start });
       return true;
@@ -1046,13 +1066,28 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
     markIn: (time) => {
       const t = roundTime(time ?? get().playhead);
       const cur = get().inOut;
-      const end = Math.max(projectDuration(get().project), t);
-      set({ inOut: { in: t, out: cur && cur.out > t ? cur.out : end } });
+      // Audit D9: never a zero-length range (I at/after the end of the timeline).
+      const out = cur && cur.out - t >= MIN_IN_OUT_S ? cur.out : projectDuration(get().project);
+      if (out - t < MIN_IN_OUT_S) {
+        toast.warning("La entrada (I) tiene que quedar antes del final del video.");
+        return;
+      }
+      set({ inOut: { in: t, out } });
     },
     markOut: (time) => {
       const t = roundTime(time ?? get().playhead);
       const cur = get().inOut;
-      set({ inOut: { in: cur && cur.in < t ? cur.in : 0, out: t } });
+      // Audit D9: O at or before the entry keeps the previous range (it used to reset I to 0).
+      const start = cur ? cur.in : 0;
+      if (t - start < MIN_IN_OUT_S) {
+        toast.warning(
+          cur
+            ? "La salida (O) tiene que quedar después de la entrada (I): se mantiene la anterior."
+            : "La salida (O) tiene que quedar después del comienzo del video.",
+        );
+        return;
+      }
+      set({ inOut: { in: start, out: t } });
     },
     clearInOut: () => set({ inOut: undefined }),
 

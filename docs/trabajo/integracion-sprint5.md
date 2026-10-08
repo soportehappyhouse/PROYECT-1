@@ -82,6 +82,27 @@ acordados; `PlanChoices` (M3) en `AssistantPanel` (M1); `resolvePlanForRecord` e
 (Asistente, plan editado, Consola, Perfil de estilo); `ExportPanel` lee `inOut` de M2;
 `tip="presetDup"`/`"presetDel"` (M3) y `tip="jobCancel"` (M1) existen en `TIPS`.
 
+## Correcciones de auditoría
+
+Auditoría independiente posterior a la integración (13 hallazgos). Dos commits: ALTA + MEDIA
+(D1–D8) y BAJA + documentación (D9–D13).
+
+| # | Prioridad | Hallazgo | Cambio | Prueba |
+| - | --------- | -------- | ------ | ------ |
+| D1 | ALTA | Cancelar `vision.matte` (RVM) dejaba vivo el subproceso GPL con la VRAM tomada (`TaskCanceled` dentro de `on_event`, sin `finally`; `on_cancel_kill` sin usar) | `gpl.run_rvm`: grupo propio (`new_group_kwargs`), `on_cancel_kill(proc)` al arrancar y `try/finally: kill_process_tree` + cerrar tuberías + `join` del lector; SAM (ffmpeg de fotogramas) pasa de `subprocess.run(timeout=3600)` a `Popen` con el mismo gancho; `frames.py` (lector y `AlphaWriter`) registra el gancho. `kill_process_tree` ya no hace `killpg` de un grupo compartido (habría matado a los workers) y espera la salida | `test_cancel_kill.py`: árbol hijo + nieto, sin grupo propio, gancho con hijo largo falso, `_rvm` cancelado por gancho y por progreso (el subproceso falso termina) |
+| D2 | MEDIA | `TaskCanceled` caía en `except Exception` de Whisper y htdemucs → descarga del modelo CUDA, `budget.failed()` y «usando CPU» falso | `except TaskCanceled: raise` antes del genérico (`stt/engine.py`, `audio/stems.py`) | `test_transcribe_cancel.py`, `test_stems.py` (sin reintento en CPU, modelo y residente intactos) |
+| D3 | MEDIA | ETA optimista en exportaciones con bloques en caché (contaban como renderizados en 0 s) | `JobProgressDetail.cached`; `exportProject` informa los bloques salteados; `estimateEtaS` divide por los reales y no da ETA hasta el primer bloque real; espejo `_eta(..., cached)` en Python | `job-progress.test.ts`, `test_tasks_cancel.py`, `segment-cache.integration.test.ts` (2.ª exportación: `cached = total`, `eta_s` null) |
+| D4 | MEDIA | `Espacio` no «apretaba» botones en diálogos modales (solo se excluía Ajustes) | `useSpaceDoesNotClickButtons` sale si `modalDialogOpen()` | `hotkeys-scope.test.tsx` |
+| D5 | MEDIA | `Mayús+Supr` en la pista principal solo corría esa pista y los subtítulos | Ripple con sincronía: `rippleDelete(..., {syncTrackId})` corta el tramo de todas las pistas sin bloquear (corre lo posterior, recorta lo que cruza, quita lo que queda entero adentro), un paso de deshacer; manual §4/§5 | `timeline-ripple.test.ts` (2 casos), `selection.test.ts` |
+| D6 | MEDIA | `pagehide` medía `string.length` y se volvía a serializar el proyecto en cada cambio; cuota de `localStorage` llena sin aviso | `serializeProject` (caché por identidad, `Blob.size`) para `localStorage`, el debounce y `pagehide`; `writeRaw` distingue cuota; un aviso por sesión | `project-sync.test.ts` (bytes UTF-8, una sola serialización, aviso una vez, `SecurityError` callado) |
+| D7 | MEDIA | «Bajar la música» sin pistas de Voz/Música no decía nada; música importada quedaba «Otro» | `inferTrackRole`: pista de audio llamada (pista o todos sus archivos) «música/music/fondo» → `music`; `duckingGapEs` en Exportar → Sonido; la tarjeta del resultado dice «Música sin bajar» si no hubo ducking | `audio-mix.test.ts`, `export-sprint5.test.tsx` |
+| D8 | MEDIA | «Cancelando…» no salía por SSE; reconexión del SSE a los 20 s (el «Descubierto» de la fila cancelada) | `queue.cancel` emite el evento; `use-job-events` reintenta a 2 s con espera doble hasta 10 s y vuelve a 2 s al abrir | `queue.test.ts`, `use-job-events.test.ts` (EventSource falso, relojes falsos) |
+| D9 | BAJA | `I`/`O` podían dejar un tramo de largo cero; `O` antes de `I` ponía la entrada en 0; el tramo no seguía al ripple | `markIn`/`markOut` avisan y conservan el tramo anterior; `rippleInOut` en `Mayús+Supr`, `Q`/`W` y cerrar huecos de la pista principal; se limpia al cargar proyecto (ya ocurría, ahora con prueba) | `selection.test.ts` |
+| D10 | BAJA | `/transcribe` registraba el evento de cancelar después de `require_module`; un `TaskCanceled` daba 500 con traceback; `GET /transcribe/progress/{job_id}` sin uso (ni api ni web) | Evento antes de cualquier chequeo; manejador `TaskCanceled` en `main.py` → **499** `{detail:"Cancelado", code:"TASK_CANCELED"}`; ruta de progreso borrada (`ARQUITECTURA.md`) | `test_transcribe_cancel.py` |
+| D11 | BAJA | Un job que terminaba mientras se cancelaba quedaba «cancelado» con su archivo escrito | Si el handler terminó, el job queda `succeeded` (y el registro lo anota) | `queue.test.ts` (`project.export` que ignora el abort) |
+| D12 | BAJA | «Abrir carpeta» mostraba la ruta sin resolver | `revealCommand(platform, realAbs)`; argv sigue siendo un elemento; con coma en la ruta, Explorer abre la carpeta sin `/select` (limitación de Explorer, comentado en el código) | `system-reveal.test.ts` |
+| D13 | BAJA | Documentación | Manual §4/§5 (ripple con sincronía, I/O), §10 (choque de `Ctrl+Mayús+Supr` con «Borrar datos de navegación» y alternativa; tabla de atajos revisada contra `HOTKEYS`: 32/32), §17.9 y Flujo de música (rol por nombre, aviso); `index.html` y PDF regenerados; `ARQUITECTURA.md` | — |
+
 ## Hallazgos de la auditoría de fluidez (`auditoria-fluidez.md`)
 
 | Estado | Hallazgos |
@@ -131,4 +152,10 @@ acordados; `PlanChoices` (M3) en `AssistantPanel` (M1); `resolvePlanForRecord` e
 - **Fila cancelada sin SSE**: en la corrida completa de ui-smoke, una vez la fila «cancelado» no
   llegó en 10 s tras recargar en el paso anterior (la api ya decía `canceled`). Sola pasa siempre;
   revisar la reconexión del `EventSource` de `use-job-events` tras un `page.goto` con `route()`.
+  **Corregido en D8** (reintento a 2 s en lugar de 20 s, «Cancelando…» por SSE).
+- **`GET /api/projects` (rendimiento)**: `?view=summary` arma la lista leyendo y validando cada
+  proyecto completo (`list()` + `get(id)` con todas las pistas y subtítulos) y busca los medios uno
+  por uno para la miniatura; con decenas de proyectos largos el diálogo Proyectos tarda. Sprint 6:
+  columnas de resumen en la tabla `projects` (duración, cantidad de clips, primer `assetId`,
+  `updatedAt`) actualizadas al guardar, y una sola consulta.
 - El `next start` del sandbox: matar solo el padre deja el servidor viejo (ver Procedimiento).

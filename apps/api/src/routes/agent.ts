@@ -199,6 +199,8 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
         risks: [],
         unresolved: [],
         errors: validation.errors,
+        added: [],
+        choices: [],
       };
     } else {
       const r = resolvePlan(validation.plan, {
@@ -209,6 +211,8 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
         ...base,
         ok: r.unresolved.length === 0 && validation.plan.ops.length > 0,
         plan: validation.plan,
+        added: [],
+        choices: [],
         ...r,
         errors: [],
       };

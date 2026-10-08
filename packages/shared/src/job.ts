@@ -43,6 +43,44 @@ export const JobTypeSchema = z.enum([
 ]);
 export type JobType = z.infer<typeof JobTypeSchema>;
 
+/** Sprint 5: unit of `JobProgressDetail.done/total`. */
+export const JobProgressUnitSchema = z.enum([
+  "items",
+  "blocks",
+  "frames",
+  "seconds",
+  "bytes",
+  "commands",
+]);
+export type JobProgressUnit = z.infer<typeof JobProgressUnitSchema>;
+
+/**
+ * Sprint 5: one progress contract for every job (in `Job.detail` and in every SSE event).
+ * `progress` (0..1) stays the bar; this adds counts, ETA, stage text and cancellability.
+ */
+export const JobProgressDetailSchema = z.object({
+  done: z.number().int().nonnegative().optional(),
+  total: z.number().int().positive().optional(),
+  unit: JobProgressUnitSchema.optional(),
+  /** null = «calculando…». */
+  eta_s: z.number().nonnegative().nullable().optional(),
+  /** «qwen3:8b · 17/80», «Bloque 3 de 12», «Midiendo sonoridad». */
+  stage_es: z.string().max(120).optional(),
+  cancellable: z.boolean().default(true),
+  /** No progress change for >= JOB_STALL_S. */
+  stalled: z.boolean().optional(),
+  /** Last progress change. */
+  progressAt: TimestampSchema.optional(),
+});
+export type JobProgressDetail = z.infer<typeof JobProgressDetailSchema>;
+
+/** ETA by progress fraction only after this many seconds... */
+export const JOB_ETA_MIN_ELAPSED_S = 10;
+/** ...and with at least this progress. */
+export const JOB_ETA_MIN_PROGRESS = 0.02;
+/** Seconds without progress change before `stalled = true`. */
+export const JOB_STALL_S = 120;
+
 export const JobSchema = z.object({
   id: IdSchema,
   type: JobTypeSchema,
@@ -56,6 +94,10 @@ export const JobSchema = z.object({
   /** Result on success, e.g. { assetId, path }. */
   result: z.unknown().optional(),
   error: z.string().optional(),
+  /** Sprint 5: machine code of the failure (ApiError/WorkersError code), e.g. PACK_REQUIRED. */
+  errorCode: z.string().optional(),
+  /** Sprint 5: progress detail (counts, ETA, stage, cancellable). */
+  detail: JobProgressDetailSchema.optional(),
   createdAt: TimestampSchema,
   startedAt: TimestampSchema.optional(),
   finishedAt: TimestampSchema.optional(),
@@ -76,6 +118,10 @@ export const JobEventSchema = z.object({
   status: JobStatusSchema,
   progress: z.number().min(0).max(1),
   message: z.string().optional(),
+  /** Sprint 5: full error text and code when status is failed. */
+  error: z.string().optional(),
+  errorCode: z.string().optional(),
+  detail: JobProgressDetailSchema.optional(),
 });
 export type JobEvent = z.infer<typeof JobEventSchema>;
 

@@ -71,8 +71,8 @@ export const agentApi = {
       params: { id },
       json: { ...(undoSnapshotId && { undoSnapshotId }), ...(force && { force: true }) },
     }),
-  /** Job agent.eval -> storage/run/agent-eval.json. */
-  evaluate: (body: AgentEvalRequest) =>
+  /** Job agent.eval -> storage/run/agent-eval.json (`mode` absent = quick, api default). */
+  evaluate: (body: Omit<AgentEvalRequest, "mode"> & { mode?: AgentEvalRequest["mode"] }) =>
     apiFetch<Accepted<unknown>>(AGENT_ROUTES.eval, { method: "POST", json: body }),
   /** Last eval results (404 when it never ran). */
   lastEval: () => apiFetch<unknown>(AGENT_ROUTES.eval),

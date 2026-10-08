@@ -15,6 +15,7 @@ export const healthRoutes: FastifyPluginAsync = async (app) => {
         ...(ffmpegVersion && { version: ffmpegVersion }),
       },
       workers: { reachable: Boolean(workerHealth), url: config.workersUrl },
+      checkedAt: new Date().toISOString(),
     };
   });
 

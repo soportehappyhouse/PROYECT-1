@@ -98,6 +98,60 @@ export type PackTask = z.infer<typeof PackTaskSchema>;
 export const WorkerTaskAcceptedSchema = z.object({ task_id: z.string().min(1) });
 export type WorkerTaskAccepted = z.infer<typeof WorkerTaskAcceptedSchema>;
 
+/**
+ * Sprint 5: generic worker task (GET /<area>/tasks/{id}) with item counts, ETA and cancellation.
+ * PackTaskSchema stays for compatibility; new clients parse WorkerTaskSchema.
+ * Mirror: apps/workers/studio_workers/task_schema.py (TaskPublic).
+ */
+export const WorkerTaskStatusSchema = z.enum(["queued", "running", "done", "error", "canceled"]);
+export type WorkerTaskStatus = z.infer<typeof WorkerTaskStatusSchema>;
+
+export const WorkerTaskSchema = z.object({
+  task_id: z.string(),
+  kind: z.string(),
+  target: z.string(),
+  status: WorkerTaskStatusSchema,
+  progress: z.number().min(0).max(1),
+  bytes_done: z.number().default(0),
+  bytes_total: z.number().default(0),
+  current_file: z.string().nullish(),
+  done: z.number().int().nullish(),
+  total: z.number().int().nullish(),
+  stage_es: z.string().nullish(),
+  eta_s: z.number().nullish(),
+  cancellable: z.boolean().default(true),
+  error: z.string().nullish(),
+  code: z.string().nullish(),
+  message: z.string().nullish(),
+  result: z.unknown().optional(),
+});
+export type WorkerTask = z.infer<typeof WorkerTaskSchema>;
+
+/** Response of POST /<area>/tasks/{id}/cancel (mirror: TaskCancelResponse). */
+export const WorkerTaskCancelSchema = z.object({
+  task_id: z.string(),
+  canceled: z.boolean(),
+  was: z.enum(["queued", "running", "finished"]),
+});
+export type WorkerTaskCancel = z.infer<typeof WorkerTaskCancelSchema>;
+
+/** GET routes of each worker area's task; append `/cancel` (POST) to cancel. */
+export const WORKER_TASK_ROUTES = {
+  agent: "/agent/tasks/:id",
+  vision: "/vision/tasks/:id",
+  audio: "/audio/tasks/:id",
+  style: "/style/tasks/:id",
+  perf: "/perf/tasks/:id",
+  packs: "/packs/tasks/:id",
+  face: "/face/tasks/:id",
+} as const;
+export type WorkerTaskArea = keyof typeof WORKER_TASK_ROUTES;
+export const workerTaskCancelRoute = (area: WorkerTaskArea) =>
+  `${WORKER_TASK_ROUTES[area]}/cancel` as const;
+
+/** POST {job_id} -> {stopped: boolean}: stops a running synchronous /transcribe between segments. */
+export const WORKER_TRANSCRIBE_CANCEL = "/transcribe/cancel";
+
 /** Detected scene, in SOURCE seconds of the asset. */
 export const SceneSchema = z.object({
   start: SecondsSchema,

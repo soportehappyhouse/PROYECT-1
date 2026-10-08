@@ -268,6 +268,20 @@ export const ClipSchema = z.object({
 export type Clip = z.infer<typeof ClipSchema>;
 export type ClipInput = z.input<typeof ClipSchema>;
 
+/** Sprint 5: audio role of a track for automatic ducking at export (absent = inferTrackRole()). */
+export const TrackRoleSchema = z.enum(["voice", "music", "sfx", "other"]);
+export type TrackRole = z.infer<typeof TrackRoleSchema>;
+
+/** Sprint 5: automatic ducking of `music` tracks under `voice` tracks (sidechaincompress). */
+export const AUTO_DUCK = { threshold: 0.05, ratio: 8, attackMs: 150, releaseMs: 600 } as const;
+
+/** Sprint 5: project-level mix settings used by project.export. */
+export const ProjectAudioMixSchema = z.object({
+  autoDuck: z.boolean().default(true),
+  duckDb: z.number().min(-30).max(0).default(-12),
+});
+export type ProjectAudioMix = z.infer<typeof ProjectAudioMixSchema>;
+
 export const TrackSchema = z.object({
   id: IdSchema,
   kind: TrackKindSchema,
@@ -280,6 +294,8 @@ export const TrackSchema = z.object({
    * the array order. Use tracksInZOrder() to iterate tracks bottom to top.
    */
   order: z.number().int().min(0).optional(),
+  /** Sprint 5: audio role for automatic ducking (absent = inferred). */
+  role: TrackRoleSchema.optional(),
   clips: z.array(ClipSchema).default([]),
 });
 export type Track = z.infer<typeof TrackSchema>;
@@ -356,6 +372,8 @@ export const ProjectSchema = z.object({
   publish: PublishSettingsSchema.optional(),
   /** Sprint 2: crop keyframes for vertical/square exports (replaces the blurred background). */
   reframe: ProjectReframeSchema.optional(),
+  /** Sprint 5: automatic ducking settings (absent = autoDuck on, −12 dB). */
+  audioMix: ProjectAudioMixSchema.optional(),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
 });

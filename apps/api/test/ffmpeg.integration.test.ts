@@ -425,8 +425,13 @@ describe.skipIf(!hasFfmpeg)(
 
       const outputs: Record<string, string> = {};
       for (const presetId of [...presetIds, "gif-480"]) {
+        // Sprint 5: the 9:16 preset on a 16:9 canvas needs an explicit aspectFit (blur = old path).
         const body =
-          presetId === "gif-480" ? { presetId, range: { start: 1, end: 2 } } : { presetId };
+          presetId === "gif-480"
+            ? { presetId, range: { start: 1, end: 2 } }
+            : presetId === "small-v"
+              ? { presetId, aspectFit: "blur" }
+              : { presetId };
         const res = await app.inject({
           method: "POST",
           url: buildRoute(API_ROUTES.projectExport, { id: p.id }),

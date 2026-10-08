@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { IdSchema, TimestampSchema } from "./common.js";
+import { START_CMD_ES } from "./texts-es.js";
 import type { TtsProvider } from "./voice.js";
 
 /** Default local ports (overridable via .env). */
@@ -96,6 +98,11 @@ export const API_ROUTES = {
   facePreview: "/api/face/preview", // POST FacePreviewRequest -> 202 JobAccepted (face.preview)
   faceSwap: "/api/face/swap", // POST FaceSwapRequest -> 202 JobAccepted (face.swap)
   faceUndo: "/api/face/undo", // POST FaceUndoRequest -> Project
+  // Sprint 5 (api.ts ProjectSummary/ProjectPatch/ProjectDuplicate, export.ts).
+  // GET projects?view=summary -> ProjectSummary[] (without view: Project[]); PATCH project
+  // ProjectPatch -> ProjectSummary.
+  projectDuplicate: "/api/projects/:id/duplicate", // POST ProjectDuplicate -> 201 Project
+  systemReveal: "/api/system/reveal", // POST {path} -> {ok} (only under exports/)
   voiceSelfRefs: "/api/voice/self-refs", // GET MediaAsset[] (voice-ref) | POST multipart `audio` + attestSelf=true -> 201 MediaAsset
   files: "/files/*", // GET static files from STORAGE_DIR (renders/exports/proxies)
 } as const;
@@ -236,16 +243,85 @@ export const SPRINT4_ERRORS = {
 } as const satisfies Record<string, { status: number; message_es: string }>;
 export type Sprint4ErrorCode = keyof typeof SPRINT4_ERRORS;
 
+/**
+ * Sprint 5 error codes (docs/trabajo/sprint5-contratos.md «Códigos de error nuevos»). Same shape
+ * as SPRINT4_ERRORS; formatErrorEs fills the placeholders. PACK_REQUIRED and PROJECT_NOT_FOUND
+ * already exist and keep their bodies.
+ */
+export const SPRINT5_ERRORS = {
+  /** Existing code, new text. Placeholder: host («127.0.0.1:8001»); `details.url`. Raw cause only to logs. */
+  WORKERS_UNAVAILABLE: {
+    status: 503,
+    message_es: `La IA local está apagada (no responde en {host}). Cerrá Studio y abrilo con ${START_CMD_ES}.`,
+  },
+  JOB_NOT_CANCELLABLE: {
+    status: 409,
+    message_es: "Este trabajo termina en segundos y no se puede cancelar.",
+  },
+  /** Workers. Placeholder: id. */
+  TASK_NOT_FOUND: {
+    status: 404,
+    message_es: "La tarea {id} ya no existe en la IA local (¿se reinició?).",
+  },
+  /**
+   * Placeholders: orientacion («horizontal» | «vertical»), preset (name), aspecto («9:16»…).
+   * `details`: AspectChoiceRequiredDetails.
+   */
+  ASPECT_CHOICE_REQUIRED: {
+    status: 409,
+    message_es:
+      "El video es {orientacion} y «{preset}» es {aspecto}: elegí cómo encuadrarlo (seguir la " +
+      "cara, al centro o con franjas borrosas).",
+  },
+  REFRAME_REQUIRED: {
+    status: 409,
+    message_es: "Primero reencuadrá el video (Vista previa → Reencuadrar) o pedíselo al Asistente.",
+  },
+  REVEAL_OUTSIDE_EXPORTS: {
+    status: 400,
+    message_es: "Solo se pueden mostrar archivos de la carpeta de exportaciones.",
+  },
+} as const satisfies Record<string, { status: number; message_es: string }>;
+export type Sprint5ErrorCode = keyof typeof SPRINT5_ERRORS;
+
+/** `details` of 409 ASPECT_CHOICE_REQUIRED. */
+export const AspectChoiceRequiredDetailsSchema = z.object({
+  canvas: z.object({ w: z.number().int(), h: z.number().int() }),
+  preset: z.object({ id: z.string(), w: z.number().int(), h: z.number().int() }),
+  options: z.array(z.enum(["reframe", "center", "blur"])),
+  reframeReady: z.boolean(),
+});
+export type AspectChoiceRequiredDetails = z.infer<typeof AspectChoiceRequiredDetailsSchema>;
+
+/** Sprint 5 job warnings (ExportJobResult.warnings): the job still succeeds. */
+export const SPRINT5_WARNINGS = {
+  /** Placeholder: causa. */
+  LOUDNESS_MEASURE_FAILED: {
+    message_es: "No se pudo medir la sonoridad de la mezcla ({causa}); se exportó sin normalizar.",
+  },
+} as const satisfies Record<string, { message_es: string }>;
+export type Sprint5WarningCode = keyof typeof SPRINT5_WARNINGS;
+
+const ERROR_MESSAGES_ES: Record<string, { message_es: string }> = {
+  ...SPRINT5_WARNINGS,
+  ...SPRINT5_ERRORS,
+};
+
 /** TOOL_MISSING message when the state is "python" (FaceFusion needs Python 3.12). */
 export const TOOL_MISSING_PYTHON_ES =
   "Falta Python 3.12: corré scripts\\windows\\setup.ps1 -Update.";
 
-/** Spanish message of a Sprint 4 error code with its `{placeholders}` replaced (unknown ones stay). */
+/**
+ * Spanish message of a Sprint 4/5 error (or Sprint 5 warning) code with its `{placeholders}`
+ * replaced (unknown ones stay).
+ */
 export function formatErrorEs(
-  code: Sprint4ErrorCode,
+  code: Sprint4ErrorCode | Sprint5ErrorCode | Sprint5WarningCode,
   vars: Readonly<Record<string, string | number>> = {},
 ): string {
-  return SPRINT4_ERRORS[code].message_es.replace(/\{([a-z_]+)\}/g, (m, key: string) =>
+  const entry =
+    (SPRINT4_ERRORS as Record<string, { message_es: string }>)[code] ?? ERROR_MESSAGES_ES[code]!;
+  return entry.message_es.replace(/\{([a-z_]+)\}/g, (m, key: string) =>
     key in vars ? String(vars[key]) : m,
   );
 }
@@ -254,9 +330,49 @@ export const HealthResponseSchema = z.object({
   status: z.enum(["ok", "degraded"]),
   version: z.string(),
   ffmpeg: z.object({ available: z.boolean(), version: z.string().optional() }),
-  workers: z.object({ reachable: z.boolean(), url: z.string() }),
+  workers: z.object({
+    reachable: z.boolean(),
+    url: z.string(),
+    /** Sprint 5: from the workers /health (timeout 1.5 s). */
+    version: z.string().optional(),
+    cuda: z.boolean().optional(),
+  }),
+  /** Sprint 5: when the api checked (web service-status-store). */
+  checkedAt: TimestampSchema,
 });
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;
+
+/** Sprint 5: state of the web service-status-store (M1). */
+export const ServiceStateSchema = z.object({
+  api: z.enum(["up", "down"]),
+  workers: z.enum(["up", "down", "unknown"]),
+  since: TimestampSchema,
+});
+export type ServiceState = z.infer<typeof ServiceStateSchema>;
+
+/** Sprint 5: GET /api/projects?view=summary item (thumbnail of the first video clip's asset). */
+export const ProjectSummarySchema = z.object({
+  id: IdSchema,
+  name: z.string(),
+  createdAt: TimestampSchema,
+  updatedAt: TimestampSchema,
+  durationS: z.number().nonnegative(),
+  width: z.number().int(),
+  height: z.number().int(),
+  clips: z.number().int().nonnegative(),
+  thumbnailPath: z.string().optional(),
+});
+export type ProjectSummary = z.infer<typeof ProjectSummarySchema>;
+
+/** Sprint 5: PATCH /api/projects/:id (rename). */
+export const ProjectPatchSchema = z.object({ name: z.string().trim().min(1).max(120) }).strict();
+export type ProjectPatch = z.infer<typeof ProjectPatchSchema>;
+
+/** Sprint 5: POST /api/projects/:id/duplicate (absent name = «{nombre} (copia)»). */
+export const ProjectDuplicateSchema = z
+  .object({ name: z.string().trim().min(1).max(120).optional() })
+  .strict();
+export type ProjectDuplicate = z.infer<typeof ProjectDuplicateSchema>;
 
 export const WorkerHealthSchema = z.object({
   status: z.literal("ok"),

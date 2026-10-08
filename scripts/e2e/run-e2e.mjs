@@ -661,9 +661,12 @@ if (SKIP_MOTION) {
   });
 }
 
-async function exportWith(presetId, expect) {
+async function exportWith(presetId, expect, extra = {}) {
   const t = Date.now();
-  const { jobId } = await ok("POST", `/api/projects/${ctx.project.id}/export`, { presetId });
+  const { jobId } = await ok("POST", `/api/projects/${ctx.project.id}/export`, {
+    presetId,
+    ...extra,
+  });
   const job = await waitOk(jobId);
   const elapsed = Date.now() - t;
   const local = await download(job.result.path, `${presetId}.${job.result.path.split(".").pop()}`);
@@ -725,7 +728,8 @@ await step("export YouTube 1080p preset (youtube-1080p)", () =>
   exportWith("youtube-1080p", { w: 1920, h: 1080, sec: 6, fps: 30 }),
 );
 await step("export Reels 9:16 preset (reels-tiktok, blurred reframe)", () =>
-  exportWith("reels-tiktok", { w: 1080, h: 1920, sec: 6, fps: 30 }),
+  // Sprint 5: horizontal -> vertical needs an explicit aspectFit (blur = the old behavior).
+  exportWith("reels-tiktok", { w: 1080, h: 1920, sec: 6, fps: 30 }, { aspectFit: "blur" }),
 );
 
 // Sprint 1 «render por bloques»: exporting the same project twice must take every block from
@@ -1115,7 +1119,11 @@ await step(
       ["youtube-1080p", 1920, 1080],
       ["reels-tiktok", 1080, 1920],
     ]) {
-      const r = await ok("POST", `/api/projects/${p.id}/export`, { presetId });
+      // Sprint 5: horizontal -> vertical needs an explicit aspectFit (blur = the old behavior).
+      const r = await ok("POST", `/api/projects/${p.id}/export`, {
+        presetId,
+        ...(h > w && { aspectFit: "blur" }),
+      });
       const job = await waitOk(r.jobId);
       const log = (await ok("GET", `/api/jobs/${r.jobId}/log`)).lines ?? [];
       assert(

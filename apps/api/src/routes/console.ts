@@ -222,6 +222,8 @@ export const consoleRoutes: FastifyPluginAsync<ConsoleRoutesOptions> = async (ap
       warnings: [],
       ok: r.unresolved.length === 0 && validation.plan.ops.length > 0,
       plan: validation.plan,
+      added: [],
+      choices: [],
       ...r,
       errors: [],
     };

@@ -2277,6 +2277,141 @@ await step("Sprint 5: estado vacío de la vista previa", async () => {
 });
 // ------------------------------------------------------------------ END sprint5:M2
 
+// ---------------------------------------------------------------- BEGIN sprint5:M1
+// Centro de trabajos y errores: no repeated toasts after a reload, ONE banner when the workers are
+// off (AI actions disabled with the reason), and the jobs center with counts, ETA and Cancelar
+// (agent.eval with the mocked planner of workers-with-mocks.py, STUDIO_MOCK_AGENT_EVAL).
+const m1s5Toasts = () => page.locator("[data-sonner-toast]").count();
+/** Dashboard loaded; the timeline tab active again (the layout is saved in the api). */
+async function m1s5Ready() {
+  await page.waitForSelector(".dv-tab", { timeout: 60_000 });
+  const timeline = page.locator("section[aria-label='Línea de tiempo']");
+  if (!(await timeline.count()))
+    await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).first().click();
+  await timeline.waitFor({ timeout: 15_000 });
+}
+
+await step("Sprint 5: recargar no repite toasts", async () => {
+  await page.goto(WEB, { waitUntil: "domcontentloaded" });
+  await m1s5Ready();
+  // A finished job of this session (quick eval, ~4 s with the mock) plus whatever ran before.
+  const { jobId } = await apiSend("POST", "/api/agent/eval", {});
+  await waitApiJob(jobId, 120_000);
+  await sleep(1500);
+  for (let i = 0; i < 2; i++) {
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await m1s5Ready();
+    await sleep(3000);
+    const n = await m1s5Toasts();
+    if (n > 0) {
+      const texts = await page.locator("[data-sonner-toast]").allInnerTexts();
+      throw new Error(`reload ${i + 1}: ${n} toasts: ${texts.join(" | ").slice(0, 200)}`);
+    }
+  }
+  const seen = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("studio.jobs.seen.v1") ?? "[]"),
+  );
+  if (!seen.includes(jobId)) throw new Error("the finished job is not in studio.jobs.seen.v1");
+  return { seen: seen.length };
+});
+
+await step(
+  "Sprint 5: workers apagados → un banner y Transcribir deshabilitado con motivo",
+  async () => {
+    const off = (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: { "access-control-allow-origin": "*" },
+        body: JSON.stringify({
+          status: "degraded",
+          version: "0.1.0",
+          ffmpeg: { available: true },
+          workers: { reachable: false, url: "http://127.0.0.1:8001" },
+          checkedAt: new Date().toISOString(),
+        }),
+      });
+    await page.route("**/api/health", off);
+    try {
+      await page.goto(WEB, { waitUntil: "domcontentloaded" });
+      await m1s5Ready();
+      const banner = page.getByTestId("service-banner");
+      await banner.first().waitFor({ timeout: 15_000 });
+      const count = await banner.count();
+      if (count !== 1) throw new Error(`${count} banners`);
+      const text = await banner.innerText();
+      if (
+        !text.includes("scripts\\windows\\start.cmd") ||
+        /TypeError|ECONNREFUSED|start\.ps1/.test(text)
+      )
+        throw new Error(text);
+      await banner.getByRole("button", { name: /Cómo iniciarla/ }).click();
+      await page.getByTestId("service-help").waitFor();
+      // Assistant «Proponer» (M1) is disabled with the reason as tooltip.
+      const panel = await openAssistant();
+      await panel.getByRole("textbox", { name: "Comando para el asistente" }).fill("hola");
+      const proponer = panel.getByRole("button", { name: /Proponer/ });
+      if (!(await proponer.isDisabled())) throw new Error("Proponer enabled with the workers off");
+      const tip = (await proponer.getAttribute("data-tooltip")) ?? "";
+      if (!tip.includes("start.cmd")) throw new Error(`Proponer tooltip: ${tip}`);
+      // Transcribir (Subtítulos, M2 consumes useAiAvailability).
+      await page
+        .locator(".dv-tab", { hasText: "Subtítulos" })
+        .click()
+        .catch(() => undefined);
+      const tr = page.getByRole("button", { name: /Transcribir/ }).first();
+      const transcribir = (await tr.count()) ? await tr.isDisabled() : null;
+      if (transcribir === false) throw new Error("Transcribir enabled with the workers off");
+      const s = await shot(page, "s5-workers-apagados.png");
+      return { banners: count, transcribirDisabled: transcribir, shot: s };
+    } finally {
+      await page.unroute("**/api/health", off);
+      await page.goto(WEB, { waitUntil: "domcontentloaded" });
+      await m1s5Ready();
+    }
+  },
+);
+
+await step("Sprint 5: Trabajos muestra 3/20, faltan ~X y Cancelar", async () => {
+  if (!page.url().startsWith(WEB)) {
+    await page.goto(WEB, { waitUntil: "domcontentloaded" });
+    await m1s5Ready();
+  }
+  await page.getByTestId("jobs-indicator").click();
+  const { jobId } = await apiSend("POST", "/api/agent/eval", { mode: "full" });
+  const row = page.locator("[data-testid='jobs-running'] [data-testid='job-row']").first();
+  await row.waitFor({ timeout: 15_000 });
+  await row
+    .getByTestId("job-count")
+    .filter({ hasText: /^([3-9]|[1-7]\d)\/80 comandos$/ })
+    .waitFor({
+      timeout: 20_000,
+    });
+  const count = await row.getByTestId("job-count").innerText();
+  const stage = await row.getByTestId("job-stage").innerText();
+  const eta = await row.getByTestId("job-eta").innerText();
+  if (!/^faltan ~\d+ (s|min)/.test(eta)) throw new Error(`eta «${eta}»`);
+  if (!/· \d+\/\d+$/.test(stage)) throw new Error(`stage «${stage}»`);
+  const indicator = await page.getByTestId("jobs-indicator").getAttribute("data-active");
+  const s = await shot(page, "s5-trabajos-eta.png");
+  await row.getByTestId("job-cancel").click();
+  let job;
+  for (let i = 0; i < 60; i++) {
+    job = await apiJson(`/api/jobs/${jobId}`);
+    if (["succeeded", "failed", "canceled"].includes(job.status)) break;
+    await sleep(500);
+  }
+  if (job?.status !== "canceled") throw new Error(`job ${job?.status}`);
+  await page
+    .locator("[data-testid='jobs-finished'] [data-testid='job-row'][data-status='canceled']")
+    .first()
+    .waitFor({ timeout: 10_000 });
+  // Trabajos shares the group of the timeline: give the tab back (the layout is saved in the api).
+  await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).first().click();
+  return { count, stage, eta, indicator, shot: s };
+});
+// ------------------------------------------------------------------ END sprint5:M1
+
 await browser.close();
 console.log(
   `\nconsole errors (${consoleErrors.length}):`,

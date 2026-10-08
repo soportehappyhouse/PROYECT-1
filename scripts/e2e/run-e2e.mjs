@@ -4249,6 +4249,171 @@ await step("sprint5: projects summary + rename + duplicate", async () => {
 });
 // ------------------------------------------------------------------ END sprint5:M2
 
+// ---------------------------------------------------------------- BEGIN sprint5:M1
+// Centro de trabajos y errores: agent.eval with real progress (mocked planner, 0.2 s per command,
+// scripts/e2e/workers-with-mocks.py STUDIO_MOCK_AGENT_EVAL), cancel down to the worker task, and
+// the Spanish WORKERS_UNAVAILABLE of an api whose workers are off.
+const S5_WORKERS = opt("workers", "http://127.0.0.1:8001").replace(/\/+$/, "");
+
+async function s5WorkerTask(area, taskId) {
+  const res = await fetch(`${S5_WORKERS}/${area}/tasks/${taskId}`);
+  return res.ok ? res.json() : { status: `HTTP ${res.status}` };
+}
+
+async function s5TaskIdFromLog(jobId, re) {
+  const lines = (await ok("GET", `/api/jobs/${jobId}/log`)).lines ?? [];
+  for (const l of lines) {
+    const m = re.exec(l);
+    if (m) return m[1];
+  }
+  return undefined;
+}
+
+await step("sprint5: agent.eval rápida (mock) 20 ítems con stage y ETA → completado", async () => {
+  const { jobId } = await ok("POST", "/api/agent/eval", {}, [202]);
+  const seen = [];
+  const job = await waitJob(jobId, {
+    timeoutMs: 120_000,
+    onProgress: (j) => {
+      if (j.status === "running" && j.detail) seen.push(j.detail);
+    },
+  });
+  assert(job.status === "succeeded", `agent.eval ${job.status}: ${job.error ?? job.message}`);
+  const staged = seen.filter((d) => /· \d+\/20$/.test(d.stage_es ?? ""));
+  assert(staged.length > 0, `no stage «modelo · n/20»: ${JSON.stringify(seen.slice(-3))}`);
+  assert(
+    staged.some((d) => d.total === 20 && d.done > 0 && d.done < 20 && d.unit === "commands"),
+    `no intermediate done/total: ${JSON.stringify(staged.slice(-3))}`,
+  );
+  assert(
+    seen.some((d) => typeof d.eta_s === "number"),
+    `no ETA while running: ${JSON.stringify(seen.slice(-2))}`,
+  );
+  assert(
+    job.result?.mode === "quick" && job.result?.n === 20,
+    JSON.stringify(job.result)?.slice(0, 200),
+  );
+  return { polls: seen.length, last: staged.at(-1)?.stage_es };
+});
+
+await step("sprint5: agent.eval cancelada → job canceled + tarea canceled", async () => {
+  const { jobId } = await ok("POST", "/api/agent/eval", { mode: "full" }, [202]);
+  const end = Date.now() + 60_000;
+  for (;;) {
+    const j = (await api("GET", `/api/jobs/${jobId}`)).json;
+    if ((j.detail?.done ?? 0) >= 2) break;
+    assert(!["succeeded", "failed", "canceled"].includes(j.status), `ended early: ${j.status}`);
+    assert(Date.now() < end, "eval did not advance");
+    await sleep(200);
+  }
+  const t = Date.now();
+  await ok("POST", `/api/jobs/${jobId}/cancel`, {}, [200]);
+  const job = await waitJob(jobId, { timeoutMs: 30_000 });
+  assert(job.status === "canceled", `job ${job.status}`);
+  const taskId = await s5TaskIdFromLog(jobId, /Tarea de evaluación (\w+)/);
+  assert(taskId, "task id not in the job log");
+  let task;
+  for (let i = 0; i < 20; i++) {
+    task = await s5WorkerTask("agent", taskId);
+    if (task.status === "canceled") break;
+    await sleep(150);
+  }
+  assert(task?.status === "canceled", `worker task ${JSON.stringify(task)?.slice(0, 200)}`);
+  assert(task.done < task.total, `the worker went on: ${task.done}/${task.total}`);
+  return { taskId, stoppedAt: `${task.done}/${task.total}`, ms: Date.now() - t };
+});
+
+await step(
+  "sprint5: cancelar vision.reframe llega al worker",
+  async () => {
+    assert(ctx.s2track, "needs the sprint2 tracking step");
+    const { video } = await sprint2TexturedMedia();
+    const p = await sprint2Project("E2E S5 cancelar reencuadre", video);
+    const res = await ok("POST", "/api/ai/vision/reframe", {
+      projectId: p.id,
+      target: "9:16",
+      subject: "track",
+      trackAssetId: ctx.s2track.trackAssetId,
+    });
+    let j;
+    for (let i = 0; i < 200; i++) {
+      j = (await api("GET", `/api/jobs/${res.jobId}`)).json;
+      if (j.status !== "queued") break;
+      await sleep(25);
+    }
+    const cancel = await api("POST", `/api/jobs/${res.jobId}/cancel`, {});
+    assert(cancel.status === 200, `cancel -> ${cancel.status}`);
+    const job = await waitJob(res.jobId, { timeoutMs: 60_000 });
+    if (job.status === "succeeded") return "terminó antes de poder cancelarlo (video corto)";
+    assert(job.status === "canceled", `job ${job.status}: ${job.error}`);
+    const taskId = await s5TaskIdFromLog(res.jobId, /(?:tarea|Tarea)\s+(\w{8,})/);
+    if (!taskId) return { job: "canceled", worker: "sin id de tarea en el log" };
+    // Cooperative cancel: the worker stops at its next progress update.
+    let task;
+    for (let i = 0; i < 50; i++) {
+      task = await s5WorkerTask("vision", taskId);
+      if (["canceled", "done", "error"].includes(task.status)) break;
+      await sleep(200);
+    }
+    assert(task.status === "canceled", `worker task ${task.status}`);
+    return { job: job.status, worker: task.status };
+  },
+  "optional",
+);
+
+await step("sprint5: workers apagados → 503 WORKERS_UNAVAILABLE con start.cmd", async () => {
+  const dist = path.join(REPO, "apps", "api", "dist", "index.js");
+  assert(existsSync(dist), "apps/api/dist/index.js missing (pnpm -r build)");
+  const port = 3000 + 90 + Math.floor(Math.random() * 9);
+  const storage = path.join(WORK, "s5-workers-off");
+  await mkdir(storage, { recursive: true });
+  const child = spawn(process.execPath, [dist], {
+    cwd: path.join(REPO, "apps", "api"),
+    windowsHide: true,
+    env: {
+      ...process.env,
+      API_PORT: String(port),
+      API_HOST: "127.0.0.1",
+      STORAGE_DIR: storage,
+      WORKERS_URL: "http://127.0.0.1:1",
+    },
+    stdio: "ignore",
+  });
+  const base = `http://127.0.0.1:${port}`;
+  try {
+    let health;
+    for (let i = 0; i < 100 && !health; i++) {
+      health = await fetch(`${base}/api/health`)
+        .then((r) => (r.ok ? r.json() : undefined))
+        .catch(() => undefined);
+      if (!health) await sleep(150);
+    }
+    assert(health, "second api did not start");
+    assert(health.workers?.reachable === false && health.checkedAt, JSON.stringify(health));
+    const project = await (
+      await fetch(`${base}/api/projects`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "S5 sin workers" }),
+      })
+    ).json();
+    const res = await fetch(`${base}/api/agent/plan`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId: project.id, command: "poné un título que diga hola" }),
+    });
+    const body = await res.json();
+    assert(res.status === 503, `plan -> ${res.status} ${JSON.stringify(body)}`);
+    assert(body.error?.code === "WORKERS_UNAVAILABLE", JSON.stringify(body));
+    assert(body.error.message.includes("scripts\\windows\\start.cmd"), body.error.message);
+    assert(!/TypeError|ECONNREFUSED|start\.ps1/.test(body.error.message), body.error.message);
+    return body.error.message;
+  } finally {
+    child.kill();
+  }
+});
+// ------------------------------------------------------------------ END sprint5:M1
+
 // ---------------------------------------------------------------- report
 sse.controller.abort();
 const required = results.filter((r) => r.kind === "required");

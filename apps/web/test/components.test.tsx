@@ -1,5 +1,5 @@
 import { DEFAULT_EXPORT_PRESETS, EXTRA_EXPORT_PRESETS, type Job } from "@studio/shared";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ExportPanel } from "@/components/panels/ExportPanel";
 import { InspectorPanel } from "@/components/panels/InspectorPanel";
@@ -50,8 +50,9 @@ describe("JobsPanel", () => {
     expect(screen.getByRole("button", { name: "Abrir resultado" })).toBeTruthy();
     expect(screen.getByText("En vivo")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("tab", { name: "Activos" }));
-    expect(screen.getAllByTestId("job-row")).toHaveLength(1);
+    // Sprint 5: «En curso» / «Terminados» groups instead of the Todos/Activos tabs.
+    expect(within(screen.getByTestId("jobs-running")).getAllByTestId("job-row")).toHaveLength(1);
+    expect(within(screen.getByTestId("jobs-finished")).getAllByTestId("job-row")).toHaveLength(2);
   });
 
   it("shows 'módulo en desarrollo' when the jobs stream is 501", () => {

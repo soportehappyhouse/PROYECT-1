@@ -50,6 +50,10 @@ import { Hotkeys } from "./Hotkeys";
 import { ProjectsButton, ProjectsDialog } from "./ProjectsMenu";
 import { SilencesDialog } from "@/components/edit/SilencesDialog";
 import { GpuIndicator } from "./GpuIndicator";
+// BEGIN sprint5:M1
+import { JobsIndicator } from "./JobsIndicator";
+import { ServiceBanner } from "./ServiceBanner";
+// END sprint5:M1
 import { VisionDialogs } from "@/components/vision/VisionDialogs";
 import { PackRequiredDialog } from "./PackRequiredDialog";
 import { SettingsDialog } from "./SettingsDialog";
@@ -99,6 +103,9 @@ function Header() {
         </Badge>
       ) : null}
       <div className="ml-auto flex items-center gap-1">
+        {/* BEGIN sprint5:M1 */}
+        <JobsIndicator />
+        {/* END sprint5:M1 */}
         <GpuIndicator />
         {/* Sprint 5 (H8): Asistente and Exportar always visible, also at 1366 px / 125 %. */}
         <Button
@@ -304,6 +311,9 @@ export function Dashboard() {
     >
       <div className="flex h-dvh flex-col bg-background text-foreground">
         <Header />
+        {/* BEGIN sprint5:M1 */}
+        <ServiceBanner />
+        {/* END sprint5:M1 */}
         <main className="min-h-0 flex-1">
           <DockLayout resolvedTheme={resolvedTheme} />
         </main>

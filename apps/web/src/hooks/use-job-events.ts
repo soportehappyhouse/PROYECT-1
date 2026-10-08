@@ -6,12 +6,13 @@ import {
   type Job,
   type JobEvent,
   type SubtitleSegment,
+  WORKERS_DOWN_ES,
 } from "@studio/shared";
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { hasGpuFallback } from "@/lib/ai";
 import { api, fileUrl, packInfoFromBody } from "@/lib/api";
-import { suggestedPackLabel, suggestedPackOf } from "@/lib/gpu-preflight";
+import { firstCpuWarning, suggestedPackLabel, suggestedPackOf } from "@/lib/gpu-preflight";
 import { clipEnd, findClip } from "@/lib/timeline";
 import {
   isTerminal,
@@ -24,6 +25,7 @@ import { useMediaStore } from "@/stores/media-store";
 import { usePacksStore } from "@/stores/packs-store";
 import { useProjectStore } from "@/stores/project-store";
 import { openReport } from "@/stores/report-store";
+import { useServiceStatusStore } from "@/stores/service-status-store";
 
 const SSE_RETRY_MS = 20_000;
 const POLL_MS = 5_000;
@@ -53,22 +55,58 @@ export function shouldToastSuccess(type: Job["type"], hasIntent: boolean): boole
   return hasIntent || (type !== "media.probe" && type !== "media.proxy");
 }
 
+/** Toast description of a failed job: the real cause (H2), never the bare «Error». */
+export function failureDescription(full: Partial<Job>, job: Partial<Job>): string | undefined {
+  return (
+    full.error ?? job.error ?? (job.message && job.message !== "Error" ? job.message : undefined)
+  );
+}
+
+/**
+ * H15: a canceled render of a motion clip created for it leaves an empty clip that would block
+ * the export: remove it (one undo step). Clips that already had a render keep it.
+ */
+export function removeUnrenderedMotionClip(clipId: string): boolean {
+  const project = useProjectStore.getState();
+  const found = findClip(project.project, clipId);
+  if (!found || found.clip.renderedAssetId || !found.clip.motion) return false;
+  project.deleteClip(clipId);
+  return true;
+}
+
 export async function handleFinished(job: Job): Promise<void> {
   const jobs = useJobsStore.getState();
   if (jobs.handled[job.id]) return;
   jobs.markHandled(job.id);
   const label = jobLabel(job);
 
+  if (job.status === "canceled") {
+    const intent = jobs.intents[job.id];
+    if (intent?.kind === "setMotionRender" && removeUnrenderedMotionClip(intent.clipId))
+      toast.message(`${label}: cancelado`, {
+        description: "Se quitó el gráfico que esperaba ese render (Deshacer lo vuelve a poner).",
+      });
+    return;
+  }
+
   if (job.status === "failed") {
     // A missing model pack is not an error to report: offer the download instead.
     const full = await api.getJob(job.id).catch(() => job);
+    jobs.upsertJob({ ...job, ...full });
     const pack = packInfoFromBody(full.result);
     if (pack) {
       usePacksStore.getState().openRequest(pack);
       return;
     }
+    const code = full.errorCode ?? job.errorCode;
+    if (code === "WORKERS_UNAVAILABLE") {
+      // One banner says it (with «Cómo iniciarla»); the toast only names the job.
+      useServiceStatusStore.getState().reportWorkersDown();
+      toast.error(`${label}: falló`, { description: WORKERS_DOWN_ES });
+      return;
+    }
     toast.error(`${label}: falló`, {
-      description: job.error ?? job.message,
+      description: failureDescription(full, job),
       action: {
         label: "Reportar",
         onClick: () => openReport({ title: `Falló: ${label}`, jobIds: [job.id], source: "aviso" }),
@@ -87,7 +125,8 @@ export async function handleFinished(job: Job): Promise<void> {
     // keep partial job
   }
 
-  if (hasGpuFallback(full.result))
+  // H24: once per session and job type; afterwards only the «CPU» badge in Trabajos.
+  if (hasGpuFallback(full.result) && firstCpuWarning(`fallback:${job.type}`))
     toast.warning(`${label}: se usó la CPU`, {
       description: "La GPU no tenía memoria libre suficiente; la tarea fue más lenta.",
     });

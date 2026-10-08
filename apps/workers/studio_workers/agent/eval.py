@@ -20,9 +20,12 @@ evaluated command is excluded from the few-shot examples. Also usable offline fo
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import re
 import statistics
+import threading
 import unicodedata
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
@@ -30,7 +33,14 @@ from pathlib import Path
 from typing import Any
 
 from .ollama_client import OllamaError
-from .planner import Example, PlannerUnavailableError, PlanOutcome, fallback_plan, load_examples
+from .planner import (
+    DATASET_DIR,
+    Example,
+    PlannerUnavailableError,
+    PlanOutcome,
+    fallback_plan,
+    load_examples,
+)
 
 EVAL_FILE = "agent-eval.json"
 MAX_FAILURES = 50
@@ -67,6 +77,87 @@ IGNORED = ("confirm", "note_es")
 
 PlanFn = Callable[[Example], Awaitable[Any]]  # -> planner.PlanOutcome
 StepFn = Callable[[float, str], None]
+# (done, total, stage_es): commands finished over all models and «qwen3:8b · 17/20».
+ItemsFn = Callable[[int, int, str], None]
+
+# Sprint 5: examples of the quick «Evaluar modelos» (AGENT_EVAL_QUICK_N in packages/shared).
+QUICK_N = 20
+# How often the cancel watcher checks the event while a plan is being generated.
+CANCEL_POLL_S = 0.1
+
+
+class EvalCanceled(Exception):  # noqa: N818
+    """The evaluation was canceled (``cancel`` event set): Ollama's request was closed."""
+
+
+def dataset_ids(kind: str = "golden", directory: Path | None = None) -> dict[str, str]:
+    """command -> row ``id`` of the dataset files (examples without id keep the file order)."""
+    names = ["golden", "train"] if kind == "all" else [kind]
+    out: dict[str, str] = {}
+    for name in names:
+        path = (directory or DATASET_DIR) / f"{name}.jsonl"
+        if not path.is_file():
+            continue
+        for n, line in enumerate(path.read_text("utf-8").splitlines()):
+            try:
+                row = json.loads(line) if line.strip() else None
+            except ValueError:
+                continue
+            if isinstance(row, dict) and "command" in row:
+                out.setdefault(str(row["command"]), str(row.get("id") or f"{name}-{n:05d}"))
+    return out
+
+
+def select_quick(
+    examples: list[Example], n: int = QUICK_N, ids: dict[str, str] | None = None
+) -> list[Example]:
+    """Deterministic quick subset: sort by id, then round-robin over the first op of each
+    expected plan (questions-only plans count as their own group) until ``n`` examples."""
+    ids = ids or {}
+    ordered = sorted(enumerate(examples), key=lambda p: (ids.get(p[1].command, ""), f"{p[0]:05d}"))
+    groups: dict[str, list[Example]] = {}
+    for _, ex in ordered:
+        first = ops_of(ex.plan)
+        key = str(first[0].get("op")) if first else "(pregunta)"
+        groups.setdefault(key, []).append(ex)
+    picked: list[Example] = []
+    depth = 0
+    while len(picked) < min(n, len(examples)):
+        added = False
+        for items in groups.values():
+            if depth < len(items) and len(picked) < n:
+                picked.append(items[depth])
+                added = True
+        if not added:
+            break
+        depth += 1
+    return picked
+
+
+async def _plan_cancellable(plan_fn: PlanFn, ex: Example, cancel: threading.Event | None) -> Any:
+    """Run ``plan_fn(ex)`` as an asyncio task; when ``cancel`` is set, cancel it (httpx closes
+    the connection and Ollama stops generating) and raise EvalCanceled."""
+    if cancel is None:
+        return await plan_fn(ex)
+    if cancel.is_set():
+        raise EvalCanceled
+    plan = asyncio.ensure_future(plan_fn(ex))
+
+    async def watch() -> None:
+        while not cancel.is_set():
+            await asyncio.sleep(CANCEL_POLL_S)
+
+    watcher = asyncio.ensure_future(watch())
+    try:
+        await asyncio.wait({plan, watcher}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        watcher.cancel()
+    if not plan.done():
+        plan.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await plan
+        raise EvalCanceled
+    return plan.result()
 
 
 def eval_path(storage_root: Path) -> Path:
@@ -197,7 +288,13 @@ def _rate(n: int, total: int) -> float:
 
 
 async def evaluate_model(
-    model: str, examples: list[Example], plan_fn: PlanFn, step: StepFn | None = None
+    model: str,
+    examples: list[Example],
+    plan_fn: PlanFn,
+    step: StepFn | None = None,
+    *,
+    cancel: threading.Event | None = None,
+    on_item: Callable[[int, int], None] | None = None,
 ) -> dict[str, Any]:
     n = len(examples)
     valid_json = schema_ok = exact = semantic = 0
@@ -207,10 +304,14 @@ async def evaluate_model(
     routes = {"deterministic": 0, "llm": 0}
     failures: list[dict[str, Any]] = []
     for i, ex in enumerate(examples):
+        if cancel is not None and cancel.is_set():
+            raise EvalCanceled
         if step:
             step(i / max(n, 1), f"{model}: {i + 1}/{n}")
+        if on_item:
+            on_item(i, n)
         try:
-            out = await plan_fn(ex)
+            out = await _plan_cancellable(plan_fn, ex, cancel)
         except PlannerUnavailableError as exc:
             return {"model": model, "n": n, "error": str(exc), "available": False}
         except OllamaError as exc:  # one bad answer of Ollama is a failed example, not the run
@@ -276,18 +377,35 @@ async def evaluate(
     *,
     dataset: str = "golden",
     step: StepFn | None = None,
+    cancel: threading.Event | None = None,
+    items: ItemsFn | None = None,
+    mode: str = "full",
 ) -> dict[str, Any]:
+    """Every model over ``examples``. ``items(done, total, model)`` reports the global count
+    before each command; ``cancel`` stops between commands and during a generation."""
     results: dict[str, Any] = {}
+    total = len(models) * len(examples)
     for idx, model in enumerate(models):
 
         def sub(p: float, msg: str, idx: int = idx) -> None:
             if step:
                 step((idx + p) / max(len(models), 1), msg)
 
-        results[model] = await evaluate_model(model, examples, plan_fn_for(model), sub)
+        def item(i: int, n: int, idx: int = idx, model: str = model) -> None:
+            if items:
+                items(idx * n + i, total, f"{model} · {i}/{n}")
+
+        results[model] = await evaluate_model(
+            model, examples, plan_fn_for(model), sub, cancel=cancel, on_item=item
+        )
+        if items:
+            n = len(examples)
+            items((idx + 1) * n, total, f"{model} · {n}/{n}")
     return {
         "generated": datetime.now(UTC).isoformat(timespec="seconds"),
         "dataset": dataset,
+        "mode": mode,
+        "canceled": False,
         "n": len(examples),
         "criterion_semantic_rate": 0.9,
         "models": results,

@@ -23,7 +23,7 @@ import {
   type EditOp,
 } from "@/lib/agent-types";
 import { api, ApiRequestError, errorMessage, isNotImplemented, packInfoFromBody } from "@/lib/api";
-import { JobFailedError, runJob, waitForJob } from "@/lib/job-runner";
+import { JobFailedError, waitForJob } from "@/lib/job-runner";
 import { readJson, STORAGE_KEYS, writeJson } from "@/lib/storage";
 import { addBreadcrumb } from "./breadcrumbs-store";
 import type { LoadStatus } from "./media-store";
@@ -112,6 +112,10 @@ interface AgentState {
   setCommand: (command: string) => void;
   requestFocus: () => void;
   propose: (command?: string) => Promise<void>;
+  /** Sprint 5 (H18): when the current proposal started (ms, «Pensando… 12 s»). */
+  proposeStartedAt: number | undefined;
+  /** Sprint 5 (H18): stop waiting for the model (the api cancels the workers planner). */
+  cancelPropose: () => void;
   receivePlan: (record: AgentPlanRecord) => void;
   toggleOp: (index: number, on?: boolean) => void;
   /** «Confirmar borrado/exportación»: confirms the checked destructive ops. */
@@ -126,7 +130,10 @@ interface AgentState {
   reject: () => Promise<void>;
   openPlan: (id: string) => void;
   loadHistory: () => Promise<void>;
-  runEval: (models: string[]) => Promise<void>;
+  /** Sprint 5: quick (20 commands, default) or full (80). */
+  runEval: (models: string[], mode?: "quick" | "full") => Promise<void>;
+  /** Sprint 5: job id of the running evaluation (progress/ETA/cancel in Ajustes). */
+  evalJobId: string | undefined;
   loadLastEval: () => Promise<void>;
 }
 
@@ -187,6 +194,9 @@ function applyResultOf(raw: unknown): AgentApplyResult | undefined {
 
 const persisted = typeof window === "undefined" ? {} : loadPersisted();
 
+/** Abort of the proposal in flight (one at a time). */
+let proposeAbort: AbortController | undefined;
+
 export const useAgentStore = create<AgentState>()((set, get) => ({
   status: undefined,
   statusLoad: "idle",
@@ -200,6 +210,10 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   command: "",
   focusTick: 0,
   proposing: false,
+  proposeStartedAt: undefined,
+  cancelPropose: () => {
+    proposeAbort?.abort();
+  },
   proposeError: undefined,
   draft: undefined,
   run: undefined,
@@ -212,6 +226,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   evalResults: [],
   evalRunning: false,
   evalError: undefined,
+  evalJobId: undefined,
 
   loadStatus: async () => {
     set({ statusLoad: get().status ? "ready" : "loading" });
@@ -241,8 +256,11 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     const command = (commandArg ?? get().command).trim();
     if (!command || get().proposing) return;
     addBreadcrumb("ui", "Asistente: proponer", { length: command.length });
+    const abort = new AbortController();
+    proposeAbort = abort;
     set({
       proposing: true,
+      proposeStartedAt: Date.now(),
       proposeError: undefined,
       command,
       commandHistory: pushHistory(get().commandHistory, command),
@@ -253,18 +271,25 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       const { model, temperature } = get().settings;
       await runWithPack(async () => {
         const p = useProjectStore.getState();
-        const record = await agentApi.plan({
-          command,
-          projectId: p.project.id,
-          cursor: p.playhead,
-          settings: { ...(model && { model }), temperature },
-        });
+        const record = await agentApi.plan(
+          {
+            command,
+            projectId: p.project.id,
+            cursor: p.playhead,
+            settings: { ...(model && { model }), temperature },
+          },
+          abort.signal,
+        );
         get().receivePlan(record);
       });
     } catch (err) {
-      set({ proposeError: errorMessage(err) });
+      if (abort.signal.aborted) {
+        addBreadcrumb("ui", "Asistente: pedido cancelado");
+        toast.message("Pedido cancelado", { description: "El asistente dejó de pensar el plan." });
+      } else set({ proposeError: errorMessage(err) });
     } finally {
-      set({ proposing: false });
+      if (proposeAbort === abort) proposeAbort = undefined;
+      set({ proposing: false, proposeStartedAt: undefined });
     }
   },
   receivePlan: (record) => {
@@ -485,9 +510,9 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     }
   },
 
-  runEval: async (models) => {
+  runEval: async (models, mode = "quick") => {
     set({ evalRunning: true, evalError: undefined });
-    addBreadcrumb("ui", "Asistente: evaluar modelos", { models: models.join(",") });
+    addBreadcrumb("ui", "Asistente: evaluar modelos", { models: models.join(","), mode });
     const fail = (err: unknown) =>
       set({
         evalError: isNotImplemented(err)
@@ -496,10 +521,25 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       });
     // The whole action goes through runWithPack, so a pack download re-runs the eval and its UI.
     const evaluate = async () => {
-      const raw = await runJob(
-        () => agentApi.evaluate({ ...(models.length && { models }), dataset: "golden" }),
-        AGENT_EVAL_JOB,
-      );
+      const accepted = await agentApi.evaluate({
+        ...(models.length && { models }),
+        dataset: "golden",
+        mode,
+      });
+      let raw: unknown = accepted;
+      if (accepted && typeof (accepted as { jobId?: unknown }).jobId === "string") {
+        const jobId = (accepted as { jobId: string }).jobId;
+        set({ evalJobId: jobId });
+        try {
+          raw = (await waitForJob(jobId, AGENT_EVAL_JOB)).result;
+        } catch (err) {
+          if (err instanceof JobFailedError && err.job.status === "canceled") {
+            set({ evalError: undefined });
+            return;
+          }
+          throw err;
+        }
+      }
       let results = normalizeEvalResults(raw);
       if (results.length === 0) results = normalizeEvalResults(await agentApi.lastEval());
       set({
@@ -512,7 +552,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     } catch (err) {
       fail(err);
     } finally {
-      set({ evalRunning: false });
+      set({ evalRunning: false, evalJobId: undefined });
     }
   },
   loadLastEval: async () => {

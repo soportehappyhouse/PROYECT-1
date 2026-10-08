@@ -3,6 +3,7 @@ import { API_ROUTES, JobStatusSchema, JobTypeSchema, type JobEvent } from "@stud
 import { z } from "zod";
 import { rawCorsHeaders } from "../lib/cors.js";
 import { errorBody } from "../lib/errors.js";
+import { jobEventOf } from "../jobs/queue.js";
 
 const ListQuery = z.object({
   status: JobStatusSchema.optional(),
@@ -58,24 +59,13 @@ export const jobRoutes: FastifyPluginAsync = async (app) => {
     };
     for (const status of ["running", "queued"] as const) {
       for (const job of app.ctx.jobs.list({ status, limit: 200 })) {
-        send({
-          jobId: job.id,
-          status: job.status,
-          progress: job.progress,
-          ...(job.message !== undefined && { message: job.message }),
-        });
+        send(jobEventOf(job));
       }
     }
     if (only) {
       for (const id of only) {
         const job = app.ctx.jobs.get(id);
-        if (job && job.status !== "queued" && job.status !== "running")
-          send({
-            jobId: job.id,
-            status: job.status,
-            progress: job.progress,
-            ...(job.message !== undefined && { message: job.message }),
-          });
+        if (job && job.status !== "queued" && job.status !== "running") send(jobEventOf(job));
       }
     }
     const heartbeat = setInterval(() => res.write(`: ping ${Date.now()}\n\n`), HEARTBEAT_MS);

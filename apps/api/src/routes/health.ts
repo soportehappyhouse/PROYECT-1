@@ -14,7 +14,15 @@ export const healthRoutes: FastifyPluginAsync = async (app) => {
         available: Boolean(ffmpegVersion),
         ...(ffmpegVersion && { version: ffmpegVersion }),
       },
-      workers: { reachable: Boolean(workerHealth), url: config.workersUrl },
+      workers: {
+        reachable: Boolean(workerHealth),
+        url: config.workersUrl,
+        ...(workerHealth && { cuda: workerHealth.cuda }),
+        ...(workerHealth &&
+          typeof (workerHealth as { version?: unknown }).version === "string" && {
+            version: (workerHealth as { version?: string }).version,
+          }),
+      },
       checkedAt: new Date().toISOString(),
     };
   });

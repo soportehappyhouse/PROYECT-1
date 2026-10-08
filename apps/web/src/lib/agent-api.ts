@@ -49,8 +49,15 @@ export function normalizePlanRecord(raw: unknown): AgentPlanRecord {
 /** Sprint 3 routes (docs/trabajo/sprint3-contratos.md, «API»). */
 export const agentApi = {
   status: () => apiFetch<AgentStatus>(AGENT_ROUTES.status),
-  plan: async (body: AgentPlanRequest) =>
-    normalizePlanRecord(await apiFetch<unknown>(AGENT_ROUTES.plan, { method: "POST", json: body })),
+  /** Sprint 5 (H18): `signal` = «Cancelar» while the model thinks (the api stops the workers). */
+  plan: async (body: AgentPlanRequest, signal?: AbortSignal) =>
+    normalizePlanRecord(
+      await apiFetch<unknown>(AGENT_ROUTES.plan, {
+        method: "POST",
+        json: body,
+        ...(signal && { signal }),
+      }),
+    ),
   /** Job agent.apply (lane edit); result {applied, failed?, undoSnapshotId}. */
   apply: (body: AgentApplyRequest) =>
     apiFetch<AgentApplyAccepted>(AGENT_ROUTES.apply, { method: "POST", json: body }),

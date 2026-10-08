@@ -7,7 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Menu, MenuItem, MenuLabel, MenuSeparator } from "@/components/ui/menu";
 import { gpuBadgeText, gpuTooltip, formatVram } from "@/lib/ai";
 import type { GpuStatus } from "@/lib/ai-types";
+import { API_DOWN_ES, WORKERS_DOWN_ES } from "@studio/shared";
 import { aiApi, errorMessage, isNotImplemented, isOffline } from "@/lib/api";
+import { isWorkersUnavailable } from "@/lib/api-jobs";
+import { TIPS } from "@/lib/tooltips";
 import { cn } from "@/lib/utils";
 import { useSettingsStore } from "@/stores/settings-store";
 
@@ -30,10 +33,12 @@ export function GpuIndicator() {
       setState({
         kind: "unavailable",
         reason: isOffline(err)
-          ? "No hay conexión con la API local"
+          ? API_DOWN_ES
           : isNotImplemented(err) || (err as { status?: number }).status === 404
             ? "El gestor de GPU todavía no está disponible en la API"
-            : `Workers de IA no disponibles: ${errorMessage(err)}`,
+            : isWorkersUnavailable(err)
+              ? WORKERS_DOWN_ES
+              : errorMessage(err),
       });
     }
   }, []);
@@ -61,11 +66,14 @@ export function GpuIndicator() {
 
   const status = state.kind === "ready" ? state.status : undefined;
   const label = status ? gpuBadgeText(status) : state.kind === "loading" ? "IA …" : "IA —";
-  const tooltip = status
-    ? gpuTooltip(status)
-    : state.kind === "unavailable"
-      ? `Estado de la IA local desconocido.\n${state.reason}`
-      : "Consultando la GPU…";
+  // Sprint 5: TIPS.gpu first (what it is), then the live state.
+  const tooltip = `${TIPS.gpu}.\n${
+    status
+      ? gpuTooltip(status)
+      : state.kind === "unavailable"
+        ? state.reason
+        : "Consultando la GPU…"
+  }`;
   const tone = !status
     ? "text-muted-foreground"
     : status.mode === "gpu" && !status.sysmem_fallback

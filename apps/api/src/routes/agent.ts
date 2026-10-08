@@ -10,6 +10,7 @@ import {
   ALWAYS_CONFIRM_OPS,
   API_ROUTES,
   PACK_REQUIRED,
+  WORKERS_DOWN_ES,
   validateEditPlan,
   type AgentBugreportResponse,
   type AgentPlanRecord,
@@ -32,7 +33,7 @@ export function ollamaHint(model = AGENT_DEFAULT_MODEL): string {
   return (
     `Falta el asistente local: instalá Ollama (winget install Ollama.Ollama, o https://ollama.com) y ` +
     `abrilo desde el menú Inicio (queda en la bandeja del sistema, junto al reloj). Descargá el ` +
-    `modelo «${model}» una sola vez en Ajustes → Paquetes («Asistente local») o en una terminal: ` +
+    `modelo «${model}» una sola vez en Ajustes → Asistente local («Descargar modelo») o en una terminal: ` +
     `\`ollama pull ${model}\`. Para revisar la instalación: scripts\\windows\\doctor.cmd. ` +
     `Todo corre en tu PC, sin API key.`
   );
@@ -150,18 +151,30 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
       assets,
     });
     const packsP = workers.packs().catch(() => undefined);
+    // Sprint 5 (H18): the web «Cancelar» closes the request → stop waiting for the model (the
+    // workers see the disconnect and cancel the planner, so Ollama stops generating).
+    const planAbort = new AbortController();
+    const onClientGone = () => {
+      if (!reply.raw.writableFinished) planAbort.abort();
+    };
+    reply.raw.once("close", onClientGone);
     let res;
     try {
-      res = await workers.agentPlan({
-        command: body.command,
-        project_summary: summary,
-        settings: {
-          model: config.agent.model,
-          temperature: config.agent.temperature,
-          ...body.settings,
+      res = await workers.agentPlan(
+        {
+          command: body.command,
+          project_summary: summary,
+          settings: {
+            model: config.agent.model,
+            temperature: config.agent.temperature,
+            ...body.settings,
+          },
         },
-      });
+        planAbort.signal,
+      );
     } catch (err) {
+      if (planAbort.signal.aborted)
+        throw new HttpError(499, "CLIENT_CLOSED", "Pedido cancelado por el usuario");
       if (err instanceof WorkersError) {
         if (err.code === OLLAMA_REMOTE_REFUSED) throw new HttpError(403, err.code, err.message);
         if (err.code === PACK_REQUIRED || err.packRequired || isOllamaError(err))
@@ -399,7 +412,7 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
     const reachable = st !== undefined || packs !== undefined;
     const model = st?.model ?? null;
     const hint_es = !reachable
-      ? "Los workers de IA no responden (¿está corriendo start.ps1?)."
+      ? WORKERS_DOWN_ES
       : !st
         ? "Los workers no tienen el asistente (actualizá con setup.ps1 -Update)."
         : !st.ollama || !st.ready

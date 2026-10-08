@@ -45,6 +45,7 @@ import {
   type OpRunState,
   type ParamSpec,
 } from "@/lib/agent";
+import { useAiAvailability } from "@/hooks/use-ai-availability";
 import { AGENT_PACK_ID, DEFAULT_AGENT_MODEL, type EditOp } from "@/lib/agent-types";
 import { cn } from "@/lib/utils";
 import { useAgentStore, type ApplyRun } from "@/stores/agent-store";
@@ -94,7 +95,8 @@ function ModelStatus() {
   else if (load === "not-implemented") state = { label: "En desarrollo", tone: "warning" };
   else if (load === "error") state = { label: "Sin conexión", tone: "danger" };
   else if (!status) state = { label: "—", tone: "muted" };
-  else if (status.workers === false) state = { label: "Workers apagados", tone: "danger" };
+  // Sprint 5 (H4): the ServiceBanner explains it; here only a short state.
+  else if (status.workers === false) state = { label: "IA local apagada", tone: "danger" };
   else if (!status.ollama) state = { label: "Falta Ollama", tone: "danger" };
   else if (!status.ready) state = { label: "Falta el modelo", tone: "warning" };
   else if (proposing && status.loaded === false)
@@ -163,6 +165,8 @@ function CommandBox() {
   const history = useAgentStore((s) => s.commandHistory);
   const focusTick = useAgentStore((s) => s.focusTick);
   const { setCommand, propose } = useAgentStore.getState();
+  // Sprint 5: the planner runs in the local AI (workers): disabled with the reason when it is off.
+  const ai = useAiAvailability("workers");
   const inputRef = useRef<HTMLInputElement>(null);
   // Index into history while browsing with ↑/↓ (history.length = the line being typed).
   const [cursor, setCursor] = useState<number | undefined>(undefined);
@@ -212,7 +216,13 @@ function CommandBox() {
           }}
           onKeyDown={onKeyDown}
         />
-        <Button type="submit" size="sm" disabled={proposing || !command.trim()}>
+        <Button
+          type="submit"
+          size="sm"
+          tooltip="Pedirle al asistente un plan para este comando"
+          disabled={proposing || !command.trim() || !ai.enabled}
+          disabledReason={ai.reason_es}
+        >
           {proposing ? <Spinner /> : <Sparkles />} Proponer
         </Button>
       </form>
@@ -674,6 +684,42 @@ function PlanHistory() {
 }
 
 /** Panel «Asistente»: command → EditPlan proposal → confirm/edit → apply (agent.apply). */
+/** Sprint 5 (M1, H18): seconds waiting for the model and «Cancelar». */
+function Thinking({ loading }: { loading: boolean }) {
+  const startedAt = useAgentStore((s) => s.proposeStartedAt);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const secs = startedAt ? Math.max(0, Math.round((now - startedAt) / 1000)) : 0;
+  return (
+    <div
+      className="flex items-center gap-2 text-xs text-muted-foreground"
+      aria-live="polite"
+      data-testid="assistant-thinking"
+    >
+      <Spinner />
+      <span>
+        {loading
+          ? "Cargando modelo… (la primera vez puede tardar hasta un minuto)"
+          : "Pensando un plan (en tu PC)…"}{" "}
+        <span className="tabular-nums">{secs} s</span>
+      </span>
+      <Button
+        size="xs"
+        variant="outline"
+        className="ml-auto"
+        data-testid="assistant-cancel"
+        tooltip="Dejar de esperar: el modelo deja de generar el plan"
+        onClick={() => useAgentStore.getState().cancelPropose()}
+      >
+        <X /> Cancelar
+      </Button>
+    </div>
+  );
+}
+
 export function AssistantPanel() {
   const error = useAgentStore((s) => s.proposeError);
   const draft = useAgentStore((s) => s.draft);
@@ -697,14 +743,9 @@ export function AssistantPanel() {
         <ModelStatus />
         <CommandBox />
         {error ? <ErrorNotice message={`No se pudo proponer un plan: ${error}`} /> : null}
-        {proposing && !draft ? (
-          <p className="flex items-center gap-2 text-xs text-muted-foreground" aria-live="polite">
-            <Spinner />{" "}
-            {loading
-              ? "Cargando modelo… (la primera vez puede tardar hasta un minuto)"
-              : "Pensando un plan (en tu PC)…"}
-          </p>
-        ) : null}
+        {/* BEGIN sprint5:M1 — «Pensando… 12 s» + Cancelar (H18) */}
+        {proposing && !draft ? <Thinking loading={loading} /> : null}
+        {/* END sprint5:M1 */}
         {draft ? (
           <PlanView />
         ) : !proposing ? (

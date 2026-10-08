@@ -1,6 +1,15 @@
 import { EventEmitter } from "node:events";
 import PQueue from "p-queue";
-import type { Job, JobEvent, JobStatus, JobType } from "@studio/shared";
+import {
+  estimateEtaS,
+  isStalled,
+  type Job,
+  type JobEvent,
+  type JobProgressDetail,
+  type JobStatus,
+  type JobType,
+} from "@studio/shared";
+import { HttpError } from "../lib/errors.js";
 import { JobDiagnosticsRecorder, runWithDiagnostics } from "./diagnostics.js";
 import { assertTransition, DEFAULT_JOB_LANES, isAbortError, isTerminal } from "./state.js";
 import type { CreateJobInput, JobContext, JobHandler, JobLane, JobStore } from "./types.js";
@@ -18,6 +27,36 @@ export interface JobQueueOptions {
   progressThrottleMs?: number;
   /** Max log lines kept per job (default 40). */
   logTailLines?: number;
+  /** Sprint 5: ms between ETA/stall re-checks of a running job (default 15 000). */
+  stallCheckMs?: number;
+}
+
+/** Sprint 5: job types that finish in seconds and cannot be canceled (409 JOB_NOT_CANCELLABLE). */
+export const NON_CANCELLABLE_JOB_TYPES: ReadonlySet<JobType> = new Set<JobType>([
+  "timeline.apply-cuts",
+  "media.probe",
+]);
+
+export const JOB_NOT_CANCELLABLE_ES = "Este trabajo termina en segundos y no se puede cancelar.";
+
+/** Machine code of an error (HttpError/WorkersError/PackRequiredError `code`), if any. */
+export function errorCodeOf(err: unknown): string | undefined {
+  if (!err || typeof err !== "object") return undefined;
+  const code = (err as { code?: unknown }).code;
+  return typeof code === "string" && /^[A-Z][A-Z0-9_]{2,63}$/.test(code) ? code : undefined;
+}
+
+/** Fields of a JobEvent built from a Job (SSE replay and live events). */
+export function jobEventOf(job: Job): JobEvent {
+  return {
+    jobId: job.id,
+    status: job.status,
+    progress: job.progress,
+    ...(job.message !== undefined && { message: job.message }),
+    ...(job.error !== undefined && { error: job.error }),
+    ...(job.errorCode !== undefined && { errorCode: job.errorCode }),
+    ...(job.detail !== undefined && { detail: job.detail }),
+  };
 }
 
 interface RunningJob {
@@ -118,6 +157,11 @@ export class JobQueue extends EventEmitter<{ job: [JobEvent] }> {
   cancel(id: string): Job | undefined {
     const job = this.options.store.get(id);
     if (!job) return undefined;
+    if (
+      job.status === "running" &&
+      (job.detail?.cancellable === false || NON_CANCELLABLE_JOB_TYPES.has(job.type))
+    )
+      throw new HttpError(409, "JOB_NOT_CANCELLABLE", JOB_NOT_CANCELLABLE_ES);
     if (job.status === "queued") return this.#transition(job, "canceled", { message: "Cancelado" });
     if (job.status === "running") {
       const running = this.#running.get(id);
@@ -162,12 +206,7 @@ export class JobQueue extends EventEmitter<{ job: [JobEvent] }> {
   }
 
   #emit(job: Job): void {
-    this.emit("job", {
-      jobId: job.id,
-      status: job.status,
-      progress: job.progress,
-      ...(job.message !== undefined && { message: job.message }),
-    });
+    this.emit("job", jobEventOf(job));
   }
 
   #transition(job: Job, to: JobStatus, patch: Parameters<JobStore["update"]>[1] = {}): Job {
@@ -206,9 +245,45 @@ export class JobQueue extends EventEmitter<{ job: [JobEvent] }> {
     let pending: { progress: number; message?: string } | undefined;
     let timer: NodeJS.Timeout | undefined;
     let current = job;
+    const startedAt = job.startedAt ?? new Date().toISOString();
+    // Sprint 5 progress detail: counts/stage from the handler + progressAt/eta_s/stalled.
+    let detail: JobProgressDetail = {
+      cancellable: !NON_CANCELLABLE_JOB_TYPES.has(job.type),
+      eta_s: null,
+      progressAt: startedAt,
+    };
+    let lastProgress = job.progress;
+    let firstItemAt: string | undefined;
+    const withEta = (
+      d: JobProgressDetail,
+      progress: number,
+      now = Date.now(),
+    ): JobProgressDetail => {
+      const eta = estimateEtaS({
+        progress,
+        startedAt,
+        now,
+        ...(d.done !== undefined && { done: d.done }),
+        ...(d.total !== undefined && { total: d.total }),
+        ...(firstItemAt && { firstItemAt }),
+      });
+      return { ...d, eta_s: eta, stalled: isStalled(d.progressAt, now) };
+    };
+    const stallTimer = setInterval(() => {
+      if (controller.signal.aborted) return;
+      const next = withEta(detail, lastProgress);
+      if (next.stalled === detail.stalled && next.eta_s === detail.eta_s) return;
+      detail = next;
+      current = this.options.store.update(job.id, { detail });
+      this.#emit(current);
+    }, this.options.stallCheckMs ?? 15_000);
+    stallTimer.unref?.();
+    current = this.options.store.update(job.id, { detail });
+    if (!detail.cancellable) this.#emit(current);
     const diagnostics = new JobDiagnosticsRecorder();
     const endPatch = () => ({
       ...this.#logPatch(job.id),
+      detail: { ...detail, stalled: false },
       diagnostics: diagnostics.snapshot({
         createdAt: job.createdAt,
         ...(job.startedAt && { startedAt: job.startedAt }),
@@ -222,9 +297,11 @@ export class JobQueue extends EventEmitter<{ job: [JobEvent] }> {
       const p = pending;
       pending = undefined;
       lastFlush = Date.now();
+      detail = withEta(detail, p.progress);
       current = this.options.store.update(job.id, {
         progress: p.progress,
         ...(p.message !== undefined && { message: p.message }),
+        detail,
       });
       this.#emit(current);
     };
@@ -233,8 +310,28 @@ export class JobQueue extends EventEmitter<{ job: [JobEvent] }> {
       jobId: job.id,
       signal: controller.signal,
       storageDir: this.options.storageDir,
-      reportProgress: (progress, message) => {
+      reportProgress: (progress, message, extra) => {
         const clamped = Math.min(1, Math.max(0, Number.isFinite(progress) ? progress : 0));
+        const nowIso = new Date().toISOString();
+        if (extra) {
+          const clean = Object.fromEntries(
+            Object.entries(extra).filter(([, v]) => v !== undefined),
+          ) as Partial<JobProgressDetail>;
+          if (clean.stage_es !== undefined) clean.stage_es = clean.stage_es.slice(0, 120);
+          if (clean.done !== undefined) clean.done = Math.max(0, Math.round(clean.done));
+          if (clean.total !== undefined) {
+            clean.total = Math.round(clean.total);
+            if (clean.total <= 0) delete clean.total;
+          }
+          if (clean.total !== undefined && firstItemAt === undefined)
+            firstItemAt = (clean.done ?? 0) > 0 ? startedAt : nowIso;
+          const changedItems = clean.done !== undefined && clean.done !== detail.done;
+          detail = { ...detail, ...clean, ...(changedItems && { progressAt: nowIso }) };
+        }
+        if (clamped !== lastProgress) {
+          lastProgress = clamped;
+          detail = { ...detail, progressAt: nowIso };
+        }
         pending = { progress: clamped, ...(message !== undefined && { message }) };
         const wait = throttle - (Date.now() - lastFlush);
         if (wait <= 0) flush();
@@ -284,8 +381,10 @@ export class JobQueue extends EventEmitter<{ job: [JobEvent] }> {
             err && typeof err === "object" && "jobResult" in err
               ? (err as { jobResult: unknown }).jobResult
               : undefined;
+          const errorCode = errorCodeOf(err);
           this.#transition(latest, "failed", {
             error: message,
+            ...(errorCode && { errorCode }),
             message: "Error",
             ...(jobResult !== undefined && { result: jobResult }),
             ...endPatch(),
@@ -293,6 +392,7 @@ export class JobQueue extends EventEmitter<{ job: [JobEvent] }> {
         }
       }
     } finally {
+      clearInterval(stallTimer);
       this.#running.delete(job.id);
       this.#logs.delete(job.id);
       this.#active[lane]--;

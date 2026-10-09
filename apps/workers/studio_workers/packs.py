@@ -77,7 +77,11 @@ class PackRequiredError(RuntimeError):
         self.name_es = pack.display_name if pack else pack_id
         self.size_bytes = pack.approx_size if pack else 0
         super().__init__(
-            detail or f"Hace falta el paquete '{self.name_es}' ({pack_id}). Descargalo en Ajustes."
+            detail
+            or (
+                f"Hace falta el paquete «{self.name_es}» ({pack_id}). "
+                "Descargalo en Ajustes → Paquetes de IA."
+            )
         )
 
     def payload(self) -> dict[str, Any]:

@@ -5,10 +5,11 @@ import { useCallback, useRef, useState } from "react";
 import { sceneSnapTimes } from "@/hooks/use-scene-markers";
 import { BLEND_MODE_LABELS, layerSummary } from "@/lib/layers";
 import { fileUrl } from "@/lib/api";
-import { clipDuration, clipEnd, snapClipStart, snapPoints, snapTime } from "@/lib/timeline";
+import { clipDuration, clipEnd, snapClipStart, snapTime } from "@/lib/timeline";
 import { cn } from "@/lib/utils";
 import { useProjectStore } from "@/stores/project-store";
 import { useKeyframeStore } from "@/stores/keyframe-store";
+import { useSettingsStore, type SnapSettings } from "@/stores/settings-store";
 import { ClipContextMenu, clipMenuHasItems } from "./ClipContextMenu";
 import { KeyframeDiamonds } from "./KeyframeDiamonds";
 import { Waveform } from "./Waveform";
@@ -29,7 +30,38 @@ type Gesture = {
   originStart: number;
   originEnd: number;
   started: boolean;
+  /** Sprint 5: starts of every selected clip when the drag moves a multi-selection. */
+  group?: Record<string, number>;
+  /** A plain click on a clip of a multi-selection selects only it on release (no drag). */
+  collapseOnClick?: boolean;
 };
+
+/**
+ * Sprint 5: snap points allowed by the magnet menu (cursor, clip edges, I/O marks) + 0. Clips in
+ * `exclude` (the ones being dragged) do not attract.
+ */
+export function magnetPoints(
+  tracks: readonly Track[],
+  exclude: ReadonlySet<string>,
+  playhead: number,
+  snap: SnapSettings,
+  inOut?: { in: number; out: number },
+): number[] {
+  const points = new Set<number>([0]);
+  if (snap.playhead) points.add(playhead);
+  if (snap.inOut && inOut) {
+    points.add(inOut.in);
+    points.add(inOut.out);
+  }
+  if (snap.clipEdges)
+    for (const t of tracks)
+      for (const c of t.clips) {
+        if (exclude.has(c.id)) continue;
+        points.add(c.start);
+        points.add(clipEnd(c));
+      }
+  return [...points];
+}
 
 export function clipLabel(clip: Clip, asset: MediaAsset | undefined): string {
   if (clip.text !== undefined) return clip.text || "Texto";
@@ -63,7 +95,26 @@ export function ClipView({
     if (e.button !== 0) return;
     e.stopPropagation();
     const store = useProjectStore.getState();
-    store.selectClip(clip.id);
+    // Sprint 5 (H10): Ctrl+click toggles, Shift+click adds the range on the track; a plain click
+    // on a clip that is already part of a multi-selection keeps it (to drag them together).
+    const toggle = e.ctrlKey || e.metaKey;
+    const inGroup = store.selectedClipIds.length > 1 && store.selectedClipIds.includes(clip.id);
+    if (toggle) store.selectClip(clip.id, "toggle");
+    else if (e.shiftKey) store.selectClip(clip.id, "range");
+    else if (!inGroup) store.selectClip(clip.id);
+    const after = useProjectStore.getState();
+    const group =
+      mode === "move" && after.selectedClipIds.length > 1 && after.selectedClipIds.includes(clip.id)
+        ? Object.fromEntries(
+            after.selectedClipIds.map((id) => {
+              for (const t of after.project.tracks) {
+                const c = t.clips.find((x) => x.id === id);
+                if (c) return [id, c.start];
+              }
+              return [id, 0];
+            }),
+          )
+        : undefined;
     // A click on the clip body drops the keyframe selection (Supr deletes the clip again).
     if (useKeyframeStore.getState().selected) useKeyframeStore.getState().select(undefined);
     if (track.locked) return;
@@ -74,6 +125,8 @@ export function ClipView({
       originStart: clip.start,
       originEnd: clipEnd(clip),
       started: false,
+      ...(group ? { group } : {}),
+      collapseOnClick: inGroup && !toggle && !e.shiftKey,
     };
   };
 
@@ -87,15 +140,24 @@ export function ClipView({
       useProjectStore.getState().checkpoint();
     }
     const store = useProjectStore.getState();
+    const snap = useSettingsStore.getState().snap;
     const dt = dx / store.zoom;
     const threshold = SNAP_PX / store.zoom;
     // Scene markers (when shown) are snap points too.
-    const points = store.snapping
-      ? [...snapPoints(store.project.tracks, clip.id, store.playhead), ...sceneSnapTimes()]
+    const exclude = new Set(g.group ? Object.keys(g.group) : [clip.id]);
+    const points = snap.enabled
+      ? [
+          ...magnetPoints(store.project.tracks, exclude, store.playhead, snap, store.inOut),
+          ...sceneSnapTimes(),
+        ]
       : [];
-    if (g.mode === "move") {
+    if (g.mode === "move" && g.group) {
       let start = Math.max(0, g.originStart + dt);
-      if (store.snapping) start = Math.max(0, snapClipStart(start, duration, points, threshold));
+      if (snap.enabled) start = Math.max(0, snapClipStart(start, duration, points, threshold));
+      store.moveSelected(start - g.originStart, false, g.group);
+    } else if (g.mode === "move") {
+      let start = Math.max(0, g.originStart + dt);
+      if (snap.enabled) start = Math.max(0, snapClipStart(start, duration, points, threshold));
       const target = document
         .elementFromPoint(e.clientX, e.clientY)
         ?.closest<HTMLElement>("[data-track-id]");
@@ -103,17 +165,19 @@ export function ClipView({
       store.moveClip(clip.id, start, trackId, false);
     } else if (g.mode === "trim-start") {
       let t = g.originStart + dt;
-      if (store.snapping) t = snapTime(t, points, threshold);
+      if (snap.enabled) t = snapTime(t, points, threshold);
       store.trimClip(clip.id, "start", t, undefined, false);
     } else {
       let t = g.originEnd + dt;
-      if (store.snapping) t = snapTime(t, points, threshold);
+      if (snap.enabled) t = snapTime(t, points, threshold);
       store.trimClip(clip.id, "end", t, asset?.durationSec, false);
     }
   };
 
   const onPointerUp = () => {
+    const g = gesture.current;
     gesture.current = undefined;
+    if (g && !g.started && g.collapseOnClick) useProjectStore.getState().selectClip(clip.id);
   };
 
   const thumb =
@@ -152,11 +216,19 @@ export function ClipView({
         if (!clipMenuHasItems(track, clip, asset)) return;
         e.preventDefault();
         e.stopPropagation();
-        useProjectStore.getState().selectClip(clip.id);
+        // Right click on a clip of the selection keeps the selection (batch actions).
+        if (!useProjectStore.getState().selectedClipIds.includes(clip.id))
+          useProjectStore.getState().selectClip(clip.id);
         setMenu({ x: e.clientX, y: e.clientY });
       }}
       onKeyDown={(e) => {
-        if (e.key === "Enter") useProjectStore.getState().selectClip(clip.id);
+        if (e.key === "Enter")
+          useProjectStore
+            .getState()
+            .selectClip(
+              clip.id,
+              e.ctrlKey || e.metaKey ? "toggle" : e.shiftKey ? "range" : "replace",
+            );
       }}
     >
       {track.kind === "audio" && asset ? (

@@ -1,11 +1,22 @@
 "use client";
 
-import { detectedPublishFlags, hasAiContentHits, type AiContentHit } from "@studio/shared";
-import { ShieldAlert, Sparkles } from "lucide-react";
+import {
+  aspectLabel,
+  detectedPublishFlags,
+  formatLufsEs,
+  hasAiContentHits,
+  loudnessFor,
+  loudnessOk,
+  SOCIAL_LOUDNESS,
+  type AiContentHit,
+  type Job,
+} from "@studio/shared";
+import { CircleCheck, ShieldAlert, Sparkles, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo } from "react";
 import { Checkbox, Input } from "@/components/ui/input";
 import { Badge, Section } from "@/components/ui/misc";
 import { DEFAULT_AI_LABEL_TEXT } from "@/lib/ai-types";
+import { exportResultOf } from "@/lib/api-export";
 import {
   effectiveFlags,
   hasAiContent,
@@ -15,6 +26,7 @@ import {
   projectPublish,
   socialPatch,
 } from "@/lib/publish";
+import { useExportPresetsStore } from "@/stores/export-presets-store";
 import { useMediaStore } from "@/stores/media-store";
 import { usePersonsStore } from "@/stores/persons-store";
 import { useProjectStore } from "@/stores/project-store";
@@ -45,6 +57,86 @@ function DetectedRow({
   );
 }
 
+/** One check row of the last export (Sprint 5: «Sonoridad», «Formato»). */
+function CheckRow({
+  title,
+  ok,
+  text,
+  testId,
+}: {
+  title: string;
+  ok: boolean | undefined;
+  text: string;
+  testId: string;
+}) {
+  return (
+    <li
+      className={
+        ok === false
+          ? "flex items-start gap-1.5 rounded-md bg-amber-500/10 px-2 py-1 text-[11px] text-amber-800 dark:text-amber-300"
+          : "flex items-start gap-1.5 rounded-md bg-muted/50 px-2 py-1 text-[11px]"
+      }
+      data-testid={testId}
+      data-ok={ok === undefined ? "unknown" : String(ok)}
+    >
+      {ok === false ? (
+        <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+      ) : (
+        <CircleCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+      )}
+      <span>
+        <strong>{title}:</strong> {text}
+      </span>
+    </li>
+  );
+}
+
+const dbEs = (v: number) => `${v.toFixed(1).replace(".", ",").replace("-", "−")} dBTP`;
+
+/**
+ * Sprint 5 (M3): «Sonoridad» (the last export meets −14 LUFS ± 1 and TP ≤ −1) and «Formato»
+ * (vertical without blurred bars) rows of the last finished export of the project.
+ */
+function LastExportChecks({ job }: { job: Job | undefined }) {
+  const presets = useExportPresetsStore((s) => s.presets);
+  const result = exportResultOf(job);
+  if (!job || !result)
+    return (
+      <p className="text-[11px] text-muted-foreground" data-testid="social-checks-empty">
+        Exportá una vez para revisar la sonoridad y el formato.
+      </p>
+    );
+  const presetId = (job.payload as { presetId?: unknown } | undefined)?.presetId;
+  const preset = presets.find((p) => p.id === presetId);
+  const target = (preset && loudnessFor(preset)) ?? SOCIAL_LOUDNESS;
+  const l = result.loudness;
+  const loudOk = l ? loudnessOk({ integrated: l.output_i, truePeak: l.output_tp }, target) : false;
+  const loudText = l
+    ? `${formatLufsEs(l.output_i)}, pico ${dbEs(l.output_tp)}${
+        loudOk
+          ? ` (objetivo ${formatLufsEs(target.integrated)}).`
+          : `: fuera de ${formatLufsEs(target.integrated)} ± 1; las redes lo van a subir o bajar solas.`
+      }`
+    : "sin normalizar: las redes lo van a subir o bajar solas. Activá «Normalizar» en Sonido.";
+  const fit = result.aspectFit;
+  const fmt = preset ? aspectLabel(preset.width, preset.height) : undefined;
+  const formatOk = fit !== "blur";
+  const formatText =
+    fit === "blur"
+      ? "sale con franjas borrosas arriba y abajo: el video se ve más chico. Probá «Seguir la cara»."
+      : fit === "reframe"
+        ? `vertical sin franjas, siguiendo la cara${fmt ? ` (${fmt})` : ""}.`
+        : fit === "center"
+          ? `vertical sin franjas, recortado al centro${fmt ? ` (${fmt})` : ""}.`
+          : `${fmt ?? "mismo formato que el lienzo"}, sin franjas.`;
+  return (
+    <ul className="flex flex-col gap-1" aria-label="Revisión del último export">
+      <CheckRow title="Sonoridad" ok={loudOk} text={loudText} testId="social-check-loudness" />
+      <CheckRow title="Formato" ok={formatOk} text={formatText} testId="social-check-format" />
+    </ul>
+  );
+}
+
 /**
  * Exportar → «Revisión para redes» (project.publish): checklist of risky content with the
  * platform consequences and the burned-in «Contenido alterado con IA» label.
@@ -55,7 +147,7 @@ function DetectedRow({
  * redes» is turned on (decision 4); the exported file always records what was detected in its
  * metadata (decision 9), with or without the label.
  */
-export function SocialReview() {
+export function SocialReview({ lastExport }: { lastExport?: Job | undefined } = {}) {
   const project = useProjectStore((s) => s.project);
   const assets = useMediaStore((s) => s.assets);
   const persons = usePersonsStore((s) => s.list);
@@ -126,6 +218,7 @@ export function SocialReview() {
             Marcá lo que tiene el video. Studio te avisa qué piden YouTube, TikTok e Instagram.
           </p>
           {detection}
+          <LastExportChecks job={lastExport} />
           <ul className="flex flex-col gap-1">
             {PUBLISH_FLAGS.map((f) => {
               const locked =
@@ -199,6 +292,7 @@ export function SocialReview() {
             Etiqueta IA desactivada (solo para redes)
           </p>
           {detection}
+          <LastExportChecks job={lastExport} />
         </>
       )}
     </Section>

@@ -108,3 +108,15 @@ async def infer(req: InferRequest) -> dict[str, Any]:
         keep_alive=settings.agent_keep_alive,
         before_llm=_release_gpu,
     )
+
+
+# BEGIN sprint5:M1
+@router.post("/tasks/{task_id}/cancel")
+def cancel_task(task_id: str) -> dict[str, Any]:
+    """Sprint 5: cancel the task (TaskCancelResponse); 404 TASK_NOT_FOUND when unknown."""
+    from ..tasks import cancel_or_404
+
+    return cancel_or_404(style_queue(), task_id)
+
+
+# END sprint5:M1

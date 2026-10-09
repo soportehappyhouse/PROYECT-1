@@ -100,7 +100,8 @@ function ShortcutsTab() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <p className="text-xs text-muted-foreground">
-          Haz clic en un atajo y pulsa la nueva combinación (Esc cancela, Retroceso lo borra).
+          Hacé clic en un atajo y tocá la nueva combinación (Esc cancela, Retroceso lo borra). Los
+          atajos de edición andan también después de clicar la regla; nunca mientras escribís.
         </p>
         <Button size="xs" variant="outline" onClick={resetShortcuts}>
           <RotateCcw /> Restablecer
@@ -119,7 +120,14 @@ function ShortcutsTab() {
                 key={a.id}
                 className="flex items-center justify-between gap-2 px-2 py-1.5 text-sm"
               >
-                <span>{a.label}</span>
+                <span className="flex min-w-0 flex-col">
+                  <span>{a.label}</span>
+                  <span className="text-[11px] text-muted-foreground" data-testid="hotkey-help">
+                    {a.help}
+                    {a.scope === "global" ? " · funciona en todo Studio" : ""}
+                    {a.inTextFields ? " (también escribiendo)" : ""}
+                  </span>
+                </span>
                 <button
                   type="button"
                   aria-label={`Cambiar atajo de ${a.label}`}

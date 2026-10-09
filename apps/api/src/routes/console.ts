@@ -17,7 +17,7 @@ import { renderProjectFrame } from "../console/frame.js";
 import { ConsoleManager, type ConsoleSocket, type SpawnPty } from "../console/sessions.js";
 import { isAllowedOrigin } from "../lib/cors.js";
 import { errorBody, HttpError } from "../lib/errors.js";
-import { resolvePlan } from "../services/agent/resolve.js";
+import { resolvePlanForRecord } from "../services/agent/aspect.js";
 
 /**
  * Sprint 3b — Consola Claude (docs/trabajo/sprint3b-contratos.md §A): the Claude Code CLI runs in a
@@ -201,7 +201,8 @@ export const consoleRoutes: FastifyPluginAsync<ConsoleRoutesOptions> = async (ap
         errors: validation.errors,
       });
     const packs = await workers.packs().catch(() => undefined);
-    const r = resolvePlan(validation.plan, {
+    // Sprint 5: plan expanded for 9:16 (reframe added or a PlanChoice).
+    const r = resolvePlanForRecord(validation.plan, {
       project,
       media: (id) => repos.media.get(id),
       ...(body.cursor !== undefined && { cursor: body.cursor }),
@@ -222,6 +223,8 @@ export const consoleRoutes: FastifyPluginAsync<ConsoleRoutesOptions> = async (ap
       warnings: [],
       ok: r.unresolved.length === 0 && validation.plan.ops.length > 0,
       plan: validation.plan,
+      added: [],
+      choices: [],
       ...r,
       errors: [],
     };

@@ -11,6 +11,7 @@ import {
   type StemsMode,
   type TtsProvider,
   type TtsVoiceInfo,
+  WORKERS_DOWN_ES,
 } from "@studio/shared";
 import { Download, Eraser, Mic, Plus, Split, Trash2, Undo2, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -27,6 +28,7 @@ import {
   Spinner,
   Tabs,
 } from "@/components/ui/misc";
+import { useAiAvailability, type AiAvailability } from "@/hooks/use-ai-availability";
 import { useApiResource } from "@/hooks/use-api-resource";
 import { aiApi, api, ApiRequestError, errorMessage, fileUrl, isNotImplemented } from "@/lib/api";
 import { PERSONS_CHANGED_EVENT } from "@/lib/api-persons";
@@ -90,6 +92,7 @@ function VoiceDownloads({
   onPackInstalled: () => void;
 }) {
   const [busy, setBusy] = useState<Record<string, number | null>>({});
+  const ai = useAiAvailability("workers");
   const missing = voices.filter((v) => !v.installed);
   if (voices.length === 0) return null;
 
@@ -142,6 +145,8 @@ function VoiceDownloads({
           variant="outline"
           className="self-start"
           tooltip="Paquete «voces-es»: descarga en secuencia con progreso (Ajustes → Paquetes de IA)"
+          disabled={!ai.enabled}
+          disabledReason={ai.reason_es}
           onClick={downloadPack}
         >
           <Download /> Descargar las {missing.length} que faltan (paquete voces-es)
@@ -173,7 +178,8 @@ function VoiceDownloads({
                 <Button
                   size="xs"
                   variant="outline"
-                  disabled={downloading}
+                  disabled={downloading || !ai.enabled}
+                  disabledReason={ai.reason_es}
                   tooltip={`Descargar de Hugging Face (rhasspy/piper-voices)${v.sizeBytes ? `, ${formatMb(v.sizeBytes)}` : ""}`}
                   onClick={() => void download(v)}
                 >
@@ -196,8 +202,9 @@ function VoiceDownloads({
 /** Spanish explanation for a failed voice download (codes from the api). */
 export function downloadErrorMessage(err: unknown): string {
   if (err instanceof ApiRequestError) {
-    if (err.code === "WORKERS_UNAVAILABLE" || err.status === 503)
-      return "Los workers de voz no están corriendo: inicia Studio con start.ps1 y reintenta.";
+    // The api text already says «… abrilo con scripts\windows\start.cmd» (and the banner too).
+    if (err.code === "WORKERS_UNAVAILABLE")
+      return err.message.includes("start.cmd") ? err.message : WORKERS_DOWN_ES;
     if (err.code === "DOWNLOAD_OFFLINE")
       return "Sin conexión a Internet (o un proxy bloquea huggingface.co). " + err.message;
     if (err.code === "DOWNLOAD_FORBIDDEN") return err.message;
@@ -326,6 +333,7 @@ function SelfVoiceSection() {
                   size="icon-sm"
                   variant="ghost"
                   aria-label={`Borrar ${a.name}`}
+                  tooltip="Borrar esta muestra de tu voz (el audio ya generado no cambia)"
                   onClick={() => void store().deleteSelfRef(a.id)}
                 >
                   <Trash2 />
@@ -453,6 +461,10 @@ function TtsForm() {
   const [text, setText] = useState("");
   const [speed, setSpeed] = useState(1);
   const [busy, setBusy] = useState(false);
+  const localAi = useAiAvailability(provider === "chatterbox" ? "chatterbox" : "workers");
+  // Cloud voices (ElevenLabs/OpenAI) do not need the local workers.
+  const ai: AiAvailability =
+    provider === "piper" || provider === "chatterbox" ? localAi : { enabled: true };
 
   useEffect(() => {
     void useVoiceCloneStore.getState().load();
@@ -655,7 +667,12 @@ function TtsForm() {
           />
         </Label>
       )}
-      <Button size="sm" disabled={busy || !text.trim() || !canSubmit} onClick={() => void submit()}>
+      <Button
+        size="sm"
+        disabled={busy || !text.trim() || !canSubmit || !ai.enabled}
+        disabledReason={ai.reason_es}
+        onClick={() => void submit()}
+      >
         {busy ? <Spinner /> : null} Generar y añadir al cursor
       </Button>
       {isChatterbox ? <SelfVoiceSection /> : null}
@@ -668,6 +685,7 @@ function DenoiseSection() {
   const sel = useSelectedClip();
   const [replace, setReplace] = useState(true);
   const [busy, setBusy] = useState(false);
+  const ai = useAiAvailability("denoise");
 
   const run = async () => {
     if (!hasAudio(sel)) return;
@@ -705,7 +723,12 @@ function DenoiseSection() {
         <Checkbox checked={replace} onChange={(e) => setReplace(e.target.checked)} />
         Reemplazar el audio del clip (si no, el resultado queda en Media)
       </label>
-      <Button size="sm" disabled={busy || !hasAudio(sel)} onClick={() => void run()}>
+      <Button
+        size="sm"
+        disabled={busy || !hasAudio(sel) || !ai.enabled}
+        disabledReason={ai.reason_es}
+        onClick={() => void run()}
+      >
         {busy ? <Spinner /> : <Eraser />} Limpiar voz (IA)
       </Button>
     </Section>
@@ -728,6 +751,7 @@ export function StemsSection() {
   const job = useJobsStore((s) => (run?.jobId ? s.jobs[run.jobId] : undefined));
   const busy = run?.status === "starting" || run?.status === "running";
   const canUndo = run?.status === "done" && !!run.result?.undoSnapshotId;
+  const ai = useAiAvailability("stems");
 
   return (
     <Section title="Separar audio">
@@ -750,7 +774,8 @@ export function StemsSection() {
       </Label>
       <Button
         size="sm"
-        disabled={busy || !hasAudio(sel)}
+        disabled={busy || !hasAudio(sel) || !ai.enabled}
+        disabledReason={ai.reason_es}
         onClick={() => sel && void separate(sel.clip.id)}
       >
         {busy ? <Spinner /> : <Split />} Separar audio
@@ -867,6 +892,7 @@ function EffectsForm() {
               size="icon-sm"
               variant="ghost"
               aria-label="Añadir efecto"
+              tooltip="Sumar el efecto elegido al final de la cadena"
               onClick={() => setChain((c) => [...c, defaultEffect(addType)])}
             >
               <Plus />
@@ -885,6 +911,7 @@ function EffectsForm() {
                 size="icon-sm"
                 variant="ghost"
                 aria-label="Quitar efecto"
+                tooltip="Quitar este efecto de la cadena"
                 onClick={() => setChain((c) => c.filter((_, j) => j !== i))}
               >
                 <Trash2 />
@@ -949,6 +976,7 @@ function RvcForm() {
   const [f0Method, setF0Method] = useState<RvcRequest["f0Method"]>("rmvpe");
   const [useCuda, setUseCuda] = useState(false);
   const [busy, setBusy] = useState(false);
+  const ai = useAiAvailability("rvc");
   const model = modelId || models.data?.[0]?.id || "";
 
   const submit = async () => {
@@ -1041,7 +1069,12 @@ function RvcForm() {
         />
         Usar GPU (CUDA){config.data?.useCuda ? "" : " — no disponible"}
       </label>
-      <Button size="sm" disabled={busy || !hasAudio(sel) || !model} onClick={() => void submit()}>
+      <Button
+        size="sm"
+        disabled={busy || !hasAudio(sel) || !model || !ai.enabled}
+        disabledReason={ai.reason_es}
+        onClick={() => void submit()}
+      >
         {busy ? <Spinner /> : null} Convertir voz
       </Button>
     </div>

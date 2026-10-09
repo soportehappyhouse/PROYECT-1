@@ -27,6 +27,7 @@ import { WorkersError } from "../../services/workers-client.js";
 import { registerAudioAsset, requireMediaAsset } from "../../voice-ai/media-bridge.js";
 import { JobAbortedError } from "../state.js";
 import type { JobContext, JobHandler } from "../types.js";
+import { cancelWorkerTaskOnAbort, looseTaskDetail } from "./util.js";
 import { toPackRequired, viaPacks, type AiDeps, type AiHandlerOptions } from "./ai.js";
 
 /**
@@ -182,6 +183,20 @@ async function pollStemsTask(
   ctx: JobContext,
   o: AiHandlerOptions & { from: number; to: number },
 ): Promise<WorkerStemsResult> {
+  const dispose = cancelWorkerTaskOnAbort(deps.workers, "audio", taskId, ctx);
+  try {
+    return await pollStemsLoop(deps, taskId, ctx, o);
+  } finally {
+    dispose();
+  }
+}
+
+async function pollStemsLoop(
+  deps: AiDeps,
+  taskId: string,
+  ctx: JobContext,
+  o: AiHandlerOptions & { from: number; to: number },
+): Promise<WorkerStemsResult> {
   const t0 = Date.now();
   const timeoutMs = o.timeoutMs ?? 3 * 3600_000;
   let failures = 0;
@@ -201,7 +216,9 @@ async function pollStemsTask(
       ctx.reportProgress(
         o.from + task.progress * (o.to - o.from),
         `Separando audio ${pct} %${task.message ? ` · ${task.message}` : ""}`,
+        looseTaskDetail(task),
       );
+      if ((task.status as string) === "canceled") throw new JobAbortedError();
       if (task.status === "error")
         throw new Error(`Separar audio: ${task.error ?? "error desconocido en los workers"}`);
       if (task.status === "done") return WorkerStemsResultSchema.parse(task.result ?? {});

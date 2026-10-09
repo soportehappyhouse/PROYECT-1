@@ -661,9 +661,12 @@ if (SKIP_MOTION) {
   });
 }
 
-async function exportWith(presetId, expect) {
+async function exportWith(presetId, expect, extra = {}) {
   const t = Date.now();
-  const { jobId } = await ok("POST", `/api/projects/${ctx.project.id}/export`, { presetId });
+  const { jobId } = await ok("POST", `/api/projects/${ctx.project.id}/export`, {
+    presetId,
+    ...extra,
+  });
   const job = await waitOk(jobId);
   const elapsed = Date.now() - t;
   const local = await download(job.result.path, `${presetId}.${job.result.path.split(".").pop()}`);
@@ -725,7 +728,8 @@ await step("export YouTube 1080p preset (youtube-1080p)", () =>
   exportWith("youtube-1080p", { w: 1920, h: 1080, sec: 6, fps: 30 }),
 );
 await step("export Reels 9:16 preset (reels-tiktok, blurred reframe)", () =>
-  exportWith("reels-tiktok", { w: 1080, h: 1920, sec: 6, fps: 30 }),
+  // Sprint 5: horizontal -> vertical needs an explicit aspectFit (blur = the old behavior).
+  exportWith("reels-tiktok", { w: 1080, h: 1920, sec: 6, fps: 30 }, { aspectFit: "blur" }),
 );
 
 // Sprint 1 «render por bloques»: exporting the same project twice must take every block from
@@ -1115,7 +1119,11 @@ await step(
       ["youtube-1080p", 1920, 1080],
       ["reels-tiktok", 1080, 1920],
     ]) {
-      const r = await ok("POST", `/api/projects/${p.id}/export`, { presetId });
+      // Sprint 5: horizontal -> vertical needs an explicit aspectFit (blur = the old behavior).
+      const r = await ok("POST", `/api/projects/${p.id}/export`, {
+        presetId,
+        ...(h > w && { aspectFit: "blur" }),
+      });
       const job = await waitOk(r.jobId);
       const log = (await ok("GET", `/api/jobs/${r.jobId}/log`)).lines ?? [];
       assert(
@@ -2133,11 +2141,30 @@ await step(
     );
     assert(plan.route === "deterministic", `route ${plan.route}`);
     assert(plan.model == null, `model ${plan.model} (the LLM must not be used)`);
+    // Sprint 5 (H6): the video is horizontal: the api inserts reframe(face) before the export
+    // when the «reframe» pack is installed, or leaves a framing choice (here: «al centro»).
+    let current = plan;
+    if (plan.choices?.length) {
+      const exportAt = plan.plan.ops.findIndex((o) => o.op === "export");
+      assert(
+        !plan.ok && plan.resolved[exportAt] === null && plan.choices[0].options.length === 3,
+        `choice ${JSON.stringify(plan).slice(0, 400)}`,
+      );
+      current = await ok("POST", `/api/agent/plans/${plan.id}/choose`, {
+        choiceId: plan.choices[0].id,
+        optionId: "center",
+      });
+    } else
+      assert(
+        plan.plan.ops.map((o) => o.op).join(",") === "reframe,export" && plan.added?.length === 1,
+        `reframe not added: ${JSON.stringify(plan).slice(0, 400)}`,
+      );
+    const ei = current.plan.ops.findIndex((o) => o.op === "export");
     assert(
-      plan.ok && plan.plan.ops.length === 1 && plan.resolved[0]?.preset === "reels-tiktok",
-      `plan ${JSON.stringify(plan).slice(0, 400)}`,
+      current.ok && current.resolved[ei]?.preset === "reels-tiktok",
+      `plan ${JSON.stringify(current).slice(0, 400)}`,
     );
-    assert(plan.resolved[0].confirm === true, "export must always ask for confirmation");
+    assert(current.resolved[ei].confirm === true, "export must always ask for confirmation");
     // export is destructive: without the separate confirmation (confirmedIndexes) -> 409
     const unconfirmed = await api("POST", "/api/agent/apply", { planId: plan.id });
     assert(
@@ -2147,12 +2174,15 @@ await step(
     const { jobId } = await ok(
       "POST",
       "/api/agent/apply",
-      { planId: plan.id, confirmedIndexes: [0] },
+      { planId: plan.id, confirmedIndexes: [ei] },
       [202],
     );
     const job = await waitOk(jobId, { timeoutMs: 300_000 });
-    assert(job.result.applied === 1 && !job.result.failed, `apply ${JSON.stringify(job.result)}`);
-    const exported = job.result.steps[0].result;
+    assert(
+      job.result.applied === current.plan.ops.length && !job.result.failed,
+      `apply ${JSON.stringify(job.result)}`,
+    );
+    const exported = job.result.steps[ei].result;
     const file = await download(exported.path, "agente-reels.mp4");
     const v = (await ffprobe(file)).streams.find((x) => x.codec_type === "video");
     assert(v.width === 1080 && v.height === 1920, `export ${v.width}x${v.height}`);
@@ -4201,6 +4231,416 @@ await step(
   },
 );
 // ------------------------------------------------------------------ END sprint4:auditoría
+
+// ---------------------------------------------------------------- BEGIN sprint5:M2
+await step("sprint5: projects summary + rename + duplicate", async () => {
+  const a = await ok("POST", "/api/projects", { name: "S5 lista A" }, [201]);
+  const b = await ok("POST", "/api/projects", { name: "S5 lista B" }, [201]);
+  const list = await ok("GET", "/api/projects?view=summary", undefined, [200]);
+  assert(
+    Array.isArray(list) && list.length >= 2,
+    `summary list ${JSON.stringify(list)?.slice(0, 200)}`,
+  );
+  for (const s of list.slice(0, 2))
+    for (const k of ["id", "name", "updatedAt", "durationS", "width", "height", "clips"])
+      assert(k in s, `summary item lacks ${k}: ${JSON.stringify(s)}`);
+  assert(!("tracks" in list[0]), "summary must not carry the tracks");
+  const order = list.map((s) => s.id);
+  assert(order.indexOf(b.id) < order.indexOf(a.id), "summary is not newest first");
+  const renamed = await ok("PATCH", `/api/projects/${a.id}`, { name: "S5 renombrado ñ" }, [200]);
+  assert(renamed.name === "S5 renombrado ñ" && renamed.id === a.id, JSON.stringify(renamed));
+  const bad = await api("PATCH", `/api/projects/${a.id}`, { name: "" });
+  assert(bad.status === 400, `PATCH empty name -> ${bad.status}`);
+  const missing = await api("PATCH", "/api/projects/no-existe", { name: "X" });
+  assert(
+    missing.status === 404 && missing.json?.error?.code === "PROJECT_NOT_FOUND",
+    `PATCH unknown -> ${missing.status} ${JSON.stringify(missing.json)}`,
+  );
+  const dup = await ok("POST", `/api/projects/${a.id}/duplicate`, {}, [201]);
+  assert(dup.name === "S5 renombrado ñ (copia)" && dup.id !== a.id, JSON.stringify(dup.name));
+  const srcTracks = (await ok("GET", `/api/projects/${a.id}`)).tracks.map((t) => t.id);
+  assert(
+    dup.tracks.every((t) => !srcTracks.includes(t.id)),
+    "duplicate kept old track ids",
+  );
+  for (const id of [a.id, b.id, dup.id])
+    await ok("DELETE", `/api/projects/${id}`, undefined, [204]);
+  const after = await ok("GET", "/api/projects?view=summary");
+  assert(!after.some((s) => [a.id, b.id, dup.id].includes(s.id)), "deleted projects still listed");
+  return { listed: list.length, duplicate: dup.name };
+});
+// ------------------------------------------------------------------ END sprint5:M2
+
+// ---------------------------------------------------------------- BEGIN sprint5:M1
+// Centro de trabajos y errores: agent.eval with real progress (mocked planner, 0.2 s per command,
+// scripts/e2e/workers-with-mocks.py STUDIO_MOCK_AGENT_EVAL), cancel down to the worker task, and
+// the Spanish WORKERS_UNAVAILABLE of an api whose workers are off.
+const S5_WORKERS = opt("workers", "http://127.0.0.1:8001").replace(/\/+$/, "");
+
+async function s5WorkerTask(area, taskId) {
+  const res = await fetch(`${S5_WORKERS}/${area}/tasks/${taskId}`);
+  return res.ok ? res.json() : { status: `HTTP ${res.status}` };
+}
+
+async function s5TaskIdFromLog(jobId, re) {
+  const lines = (await ok("GET", `/api/jobs/${jobId}/log`)).lines ?? [];
+  for (const l of lines) {
+    const m = re.exec(l);
+    if (m) return m[1];
+  }
+  return undefined;
+}
+
+await step("sprint5: agent.eval rápida (mock) 20 ítems con stage y ETA → completado", async () => {
+  const { jobId } = await ok("POST", "/api/agent/eval", {}, [202]);
+  const seen = [];
+  const job = await waitJob(jobId, {
+    timeoutMs: 120_000,
+    onProgress: (j) => {
+      if (j.status === "running" && j.detail) seen.push(j.detail);
+    },
+  });
+  assert(job.status === "succeeded", `agent.eval ${job.status}: ${job.error ?? job.message}`);
+  const staged = seen.filter((d) => /· \d+\/20$/.test(d.stage_es ?? ""));
+  assert(staged.length > 0, `no stage «modelo · n/20»: ${JSON.stringify(seen.slice(-3))}`);
+  assert(
+    staged.some((d) => d.total === 20 && d.done > 0 && d.done < 20 && d.unit === "commands"),
+    `no intermediate done/total: ${JSON.stringify(staged.slice(-3))}`,
+  );
+  assert(
+    seen.some((d) => typeof d.eta_s === "number"),
+    `no ETA while running: ${JSON.stringify(seen.slice(-2))}`,
+  );
+  assert(
+    job.result?.mode === "quick" && job.result?.n === 20,
+    JSON.stringify(job.result)?.slice(0, 200),
+  );
+  return { polls: seen.length, last: staged.at(-1)?.stage_es };
+});
+
+await step("sprint5: agent.eval cancelada → job canceled + tarea canceled", async () => {
+  const { jobId } = await ok("POST", "/api/agent/eval", { mode: "full" }, [202]);
+  const end = Date.now() + 60_000;
+  for (;;) {
+    const j = (await api("GET", `/api/jobs/${jobId}`)).json;
+    if ((j.detail?.done ?? 0) >= 2) break;
+    assert(!["succeeded", "failed", "canceled"].includes(j.status), `ended early: ${j.status}`);
+    assert(Date.now() < end, "eval did not advance");
+    await sleep(200);
+  }
+  const t = Date.now();
+  await ok("POST", `/api/jobs/${jobId}/cancel`, {}, [200]);
+  const job = await waitJob(jobId, { timeoutMs: 30_000 });
+  assert(job.status === "canceled", `job ${job.status}`);
+  const taskId = await s5TaskIdFromLog(jobId, /Tarea de evaluación (\w+)/);
+  assert(taskId, "task id not in the job log");
+  let task;
+  for (let i = 0; i < 20; i++) {
+    task = await s5WorkerTask("agent", taskId);
+    if (task.status === "canceled") break;
+    await sleep(150);
+  }
+  assert(task?.status === "canceled", `worker task ${JSON.stringify(task)?.slice(0, 200)}`);
+  assert(task.done < task.total, `the worker went on: ${task.done}/${task.total}`);
+  return { taskId, stoppedAt: `${task.done}/${task.total}`, ms: Date.now() - t };
+});
+
+await step(
+  "sprint5: cancelar vision.reframe llega al worker",
+  async () => {
+    assert(ctx.s2track, "needs the sprint2 tracking step");
+    const { video } = await sprint2TexturedMedia();
+    const p = await sprint2Project("E2E S5 cancelar reencuadre", video);
+    const res = await ok("POST", "/api/ai/vision/reframe", {
+      projectId: p.id,
+      target: "9:16",
+      subject: "track",
+      trackAssetId: ctx.s2track.trackAssetId,
+    });
+    let j;
+    for (let i = 0; i < 200; i++) {
+      j = (await api("GET", `/api/jobs/${res.jobId}`)).json;
+      if (j.status !== "queued") break;
+      await sleep(25);
+    }
+    const cancel = await api("POST", `/api/jobs/${res.jobId}/cancel`, {});
+    assert(cancel.status === 200, `cancel -> ${cancel.status}`);
+    const job = await waitJob(res.jobId, { timeoutMs: 60_000 });
+    if (job.status === "succeeded") return "terminó antes de poder cancelarlo (video corto)";
+    assert(job.status === "canceled", `job ${job.status}: ${job.error}`);
+    const taskId = await s5TaskIdFromLog(res.jobId, /(?:tarea|Tarea)\s+(\w{8,})/);
+    if (!taskId) return { job: "canceled", worker: "sin id de tarea en el log" };
+    // Cooperative cancel: the worker stops at its next progress update.
+    let task;
+    for (let i = 0; i < 50; i++) {
+      task = await s5WorkerTask("vision", taskId);
+      if (["canceled", "done", "error"].includes(task.status)) break;
+      await sleep(200);
+    }
+    assert(task.status === "canceled", `worker task ${task.status}`);
+    return { job: job.status, worker: task.status };
+  },
+  "optional",
+);
+
+await step("sprint5: workers apagados → 503 WORKERS_UNAVAILABLE con start.cmd", async () => {
+  const dist = path.join(REPO, "apps", "api", "dist", "index.js");
+  assert(existsSync(dist), "apps/api/dist/index.js missing (pnpm -r build)");
+  const port = 3000 + 90 + Math.floor(Math.random() * 9);
+  const storage = path.join(WORK, "s5-workers-off");
+  await mkdir(storage, { recursive: true });
+  const child = spawn(process.execPath, [dist], {
+    cwd: path.join(REPO, "apps", "api"),
+    windowsHide: true,
+    env: {
+      ...process.env,
+      API_PORT: String(port),
+      API_HOST: "127.0.0.1",
+      STORAGE_DIR: storage,
+      WORKERS_URL: "http://127.0.0.1:1",
+    },
+    stdio: "ignore",
+  });
+  const base = `http://127.0.0.1:${port}`;
+  try {
+    let health;
+    for (let i = 0; i < 100 && !health; i++) {
+      health = await fetch(`${base}/api/health`)
+        .then((r) => (r.ok ? r.json() : undefined))
+        .catch(() => undefined);
+      if (!health) await sleep(150);
+    }
+    assert(health, "second api did not start");
+    assert(health.workers?.reachable === false && health.checkedAt, JSON.stringify(health));
+    const project = await (
+      await fetch(`${base}/api/projects`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "S5 sin workers" }),
+      })
+    ).json();
+    const res = await fetch(`${base}/api/agent/plan`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId: project.id, command: "poné un título que diga hola" }),
+    });
+    const body = await res.json();
+    assert(res.status === 503, `plan -> ${res.status} ${JSON.stringify(body)}`);
+    assert(body.error?.code === "WORKERS_UNAVAILABLE", JSON.stringify(body));
+    assert(body.error.message.includes("scripts\\windows\\start.cmd"), body.error.message);
+    assert(!/TypeError|ECONNREFUSED|start\.ps1/.test(body.error.message), body.error.message);
+    return body.error.message;
+  } finally {
+    child.kill();
+  }
+});
+// ------------------------------------------------------------------ END sprint5:M1
+
+// ---------------------------------------------------------------- BEGIN sprint5:M3
+/** ffprobe + lavfi ebur128 of a local file (cwd = its folder: `C:\` breaks the filter parser). */
+async function s5Ebur128(file) {
+  const out = await run(
+    FFPROBE,
+    [
+      "-v",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      `amovie=${path.basename(file)},ebur128=metadata=1:peak=true`,
+      "-show_entries",
+      "frame_tags=lavfi.r128.I,lavfi.r128.true_peaks_ch0,lavfi.r128.true_peaks_ch1",
+      "-of",
+      "json",
+    ],
+    { cwd: path.dirname(file) },
+  );
+  const frames = (JSON.parse(out).frames ?? []).filter((f) => f.tags?.["lavfi.r128.I"]);
+  const tags = frames.at(-1)?.tags ?? {};
+  const toDb = (v) => (v > 0 ? 20 * Math.log10(v) : v);
+  const peaks = ["lavfi.r128.true_peaks_ch0", "lavfi.r128.true_peaks_ch1"]
+    .map((k) => Number(tags[k]))
+    .filter(Number.isFinite)
+    .map(toDb);
+  return { I: Number(tags["lavfi.r128.I"]), TP: Math.max(...peaks) };
+}
+
+/** RMS (dB) of the audio of `file` in [start, start+dur) after `filters` (astats). */
+async function s5Rms(file, start, dur, filters) {
+  const err = await new Promise((resolve, reject) => {
+    const p = spawn(
+      FFMPEG,
+      [
+        "-hide_banner",
+        "-nostats",
+        "-ss",
+        String(start),
+        "-t",
+        String(dur),
+        "-i",
+        file,
+        "-vn",
+        "-af",
+        `${filters},astats=measure_perchannel=none:measure_overall=RMS_level`,
+        "-f",
+        "null",
+        "-",
+      ],
+      { windowsHide: true },
+    );
+    let e = "";
+    p.stderr.on("data", (d) => (e += d));
+    p.on("error", reject);
+    p.on("close", () => resolve(e));
+  });
+  const m = /RMS level dB:\s*(-?[\d.]+)/.exec(err);
+  assert(m, `astats: ${err.slice(-300)}`);
+  return Number(m[1]);
+}
+
+/** Tone WAV (lavfi sine) at `db` for `seconds`. */
+async function s5Tone(name, freq, seconds, db) {
+  const file = path.join(WORK, name);
+  await run(FFMPEG, [
+    "-y",
+    "-v",
+    "error",
+    "-f",
+    "lavfi",
+    "-i",
+    `sine=frequency=${freq}:sample_rate=48000:duration=${seconds}`,
+    "-af",
+    `volume=${db}dB`,
+    "-ac",
+    "2",
+    file,
+  ]);
+  const asset = await upload(file, "audio/wav");
+  await waitAssetJobs(asset.id, ["media.probe"]);
+  return asset;
+}
+
+/** Horizontal project: the moving-box video + voice (role voice) + music (role music). */
+async function s5MixProject(name, voice, music, voiceAt = 2) {
+  const { video } = await sprint2Media();
+  const p = await sprint2Project(name, video);
+  const A = p.tracks.find((t) => t.kind === "audio");
+  const clip = (trackId, assetId, start, dur) => ({
+    id: id("c"),
+    trackId,
+    assetId,
+    start,
+    in: 0,
+    out: dur,
+  });
+  const musicTrack = { ...A, id: id("tr"), name: "Música", role: "music", clips: [] };
+  musicTrack.clips = [clip(musicTrack.id, music.id, 0, S2.dur)];
+  p.tracks = [
+    ...p.tracks.filter((t) => t.kind !== "audio"),
+    { ...A, role: "voice", clips: [clip(A.id, voice.id, voiceAt, 2)] },
+    musicTrack,
+  ];
+  return ok("PUT", `/api/projects/${p.id}`, p);
+}
+
+await step("sprint5: export reels-tiktok con loudnorm −14 LUFS (ffprobe ebur128)", async () => {
+  const voice = await s5Tone("s5-voz.wav", 1000, 2, -12);
+  const music = await s5Tone("s5-musica.wav", 220, S2.dur, -20);
+  const p = await s5MixProject("S5 sonoridad", voice, music);
+  const { jobId } = await ok("POST", `/api/projects/${p.id}/export`, {
+    presetId: "reels-tiktok",
+    aspectFit: "center",
+  });
+  const job = await waitOk(jobId);
+  const file = await download(job.result.path, "s5-reels-loudnorm.mp4");
+  const m = await s5Ebur128(file);
+  assert(near(m.I, -14, 1), `integrated ${m.I} LUFS`);
+  assert(m.TP <= -0.8, `true peak ${m.TP} dBTP`);
+  assert(
+    job.result.loudness && near(job.result.loudness.output_i, m.I, 1),
+    JSON.stringify(job.result),
+  );
+  assert(job.result.durationS > 0 && job.result.sizeBytes > 0, JSON.stringify(job.result));
+  return { ...m, loudness: job.result.loudness };
+});
+
+await step("sprint5: ducking automático música bajo voz", async () => {
+  const voice = await s5Tone("s5-voz-baja.wav", 1000, 2, -12);
+  const music = await s5Tone("s5-musica-200.wav", 200, S2.dur, -12);
+  const p = await s5MixProject("S5 ducking", voice, music, 2);
+  const exp = async (autoDuck, name) => {
+    const { jobId } = await ok("POST", `/api/projects/${p.id}/export`, {
+      presetId: "youtube-1080p",
+      normalizeLoudness: false,
+      autoDuck,
+    });
+    const job = await waitOk(jobId);
+    return { job, file: await download(job.result.path, name) };
+  };
+  const on = await exp(true, "s5-duck-on.mp4");
+  const off = await exp(false, "s5-duck-off.mp4");
+  assert(on.job.result.ducked?.musicTracks === 1, JSON.stringify(on.job.result));
+  const band = "lowpass=f=300,lowpass=f=300,lowpass=f=300";
+  const ducked = await s5Rms(on.file, 2.8, 1, band);
+  const plain = await s5Rms(off.file, 2.8, 1, band);
+  assert(plain - ducked >= 8, `music under the voice: ${plain} -> ${ducked} dB`);
+  return { plain, ducked };
+});
+
+await step(
+  "sprint5: export vertical desde horizontal sin elección → 409 ASPECT_CHOICE_REQUIRED; con center → 1080×1920",
+  async () => {
+    const { video } = await sprint2Media();
+    const p = await sprint2Project("S5 encuadre", video);
+    const r = await api("POST", `/api/projects/${p.id}/export`, { presetId: "reels-tiktok" });
+    assert(r.status === 409 && r.json?.error?.code === "ASPECT_CHOICE_REQUIRED", JSON.stringify(r));
+    const d = r.json.error.details;
+    assert(
+      d.options.join(",") === "reframe,center,blur" && d.preset.id === "reels-tiktok",
+      JSON.stringify(d),
+    );
+    const noKf = await api("POST", `/api/projects/${p.id}/export`, {
+      presetId: "reels-tiktok",
+      aspectFit: "reframe",
+    });
+    assert(
+      noKf.status === 409 && noKf.json?.error?.code === "REFRAME_REQUIRED",
+      JSON.stringify(noKf),
+    );
+    const { jobId } = await ok("POST", `/api/projects/${p.id}/export`, {
+      presetId: "reels-tiktok",
+      aspectFit: "center",
+      range: { start: 0, end: 2 },
+    });
+    const job = await waitOk(jobId);
+    assert(job.result.aspectFit === "center", JSON.stringify(job.result));
+    const v = (await ffprobe(await download(job.result.path, "s5-center.mp4"))).streams.find(
+      (x) => x.codec_type === "video",
+    );
+    assert(v.width === 1080 && v.height === 1920, `${v.width}x${v.height}`);
+    return { message: r.json.error.message, reframeReady: d.reframeReady };
+  },
+);
+
+await step("sprint5: plan Reels desde horizontal propone reframe", async () => {
+  const { video } = await sprint2Media();
+  const p = await sprint2Project("S5 plan reels", video);
+  const plan = { version: 1, summary_es: "Reels", ops: [{ op: "export", preset: "reels-tiktok" }] };
+  const rec = await ok("POST", "/api/console/plans", { projectId: p.id, plan, save: false }, [200]);
+  const ops = rec.plan.ops.map((o) => o.op).join(",");
+  if (rec.choices?.length) {
+    assert(ops === "export" && rec.resolved[0] === null, JSON.stringify(rec).slice(0, 400));
+    assert(
+      rec.choices[0].options.map((o) => o.id).join(",") === "reframe,center,blur",
+      JSON.stringify(rec.choices),
+    );
+  } else {
+    assert(ops === "reframe,export" && rec.plan.ops[1].aspect_fit === "reframe", ops);
+    assert(rec.preview_es[0].includes("(agregado por Studio)"), rec.preview_es[0]);
+  }
+  return { ops, choices: rec.choices?.length ?? 0, preview: rec.preview_es };
+});
+// ------------------------------------------------------------------ END sprint5:M3
 
 // ---------------------------------------------------------------- report
 sse.controller.abort();

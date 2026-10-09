@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Label, Select } from "@/components/ui/input";
 import { Progress } from "@/components/ui/misc";
+import { useAiAvailability } from "@/hooks/use-ai-availability";
 import { REFRAME_TARGETS, type ReframeTarget } from "@/lib/vision-types";
 import { useJobsStore } from "@/stores/jobs-store";
 import { useMediaStore } from "@/stores/media-store";
@@ -17,6 +18,7 @@ import { useVisionStore } from "@/stores/vision-store";
  * preview (amber) → «Aplicar» writes project.reframe (cyan; keyframes editable in Propiedades).
  */
 export function ReframePanel() {
+  const ai = useAiAvailability("workers");
   const draft = usePreviewStore((s) => s.reframeDraft);
   const applied = useProjectStore((s) => s.project.reframe);
   const busy = useVisionStore((s) => s.busy.reframe);
@@ -81,7 +83,8 @@ export function ReframePanel() {
       ) : null}
       <Button
         size="xs"
-        disabled={!!busy || (subject === "track" && !trackId)}
+        disabled={!!busy || (subject === "track" && !trackId) || !ai.enabled}
+        disabledReason={ai.reason_es}
         onClick={() =>
           void useVisionStore
             .getState()

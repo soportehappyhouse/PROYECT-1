@@ -5,6 +5,7 @@ import { ScanFace, Undo2 } from "lucide-react";
 import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge, Section } from "@/components/ui/misc";
+import { useAiAvailability } from "@/hooks/use-ai-availability";
 import { canSwapFace, useFaceStore } from "@/stores/face-store";
 import { usePersonsStore } from "@/stores/persons-store";
 
@@ -20,6 +21,7 @@ export function FaceSwapSection({
 }) {
   const persons = usePersonsStore((s) => s.list);
   const swapped = clip.faceSwap;
+  const ai = useAiAvailability("faceswap");
   useEffect(() => {
     if (swapped && usePersonsStore.getState().status === "idle")
       void usePersonsStore.getState().refresh();
@@ -48,6 +50,8 @@ export function FaceSwapSection({
           size="xs"
           variant="outline"
           className="self-start"
+          disabled={!ai.enabled}
+          disabledReason={ai.reason_es}
           onClick={() => void useFaceStore.getState().openWizard(clip.id)}
         >
           <ScanFace /> Cambiar cara…

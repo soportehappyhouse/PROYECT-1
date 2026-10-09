@@ -355,7 +355,7 @@
           <li class="d3"><a href="#41-encabezado">4.1 Encabezado</a></li>
           <li class="d3"><a href="#42-los-13-paneles">4.2 Los 13 paneles</a></li>
           <li class="d3"><a href="#43-personalizar">4.3 Personalizar</a></li>
-          <li class="d3"><a href="#44-guardado-del-proyecto">4.4 Guardado del proyecto</a></li>
+          <li class="d3"><a href="#44-proyectos-y-guardado">4.4 Proyectos y guardado</a></li>
           <li class="d2"><a href="#5-flujos-paso-a-paso">5. Flujos paso a paso</a></li>
           <li class="d3">
             <a href="#flujo-1--cortar-y-exportar-un-clip">Flujo 1 — Cortar y exportar un clip</a>
@@ -386,6 +386,11 @@
           <li class="d3">
             <a href="#flujo-7--exportar-en-varios-formatos"
               >Flujo 7 — Exportar en varios formatos</a
+            >
+          </li>
+          <li class="d3">
+            <a href="#flujo-8--reels-desde-un-video-horizontal"
+              >Flujo 8 — Reels desde un video horizontal</a
             >
           </li>
           <li class="d2"><a href="#6-formatos-soportados">6. Formatos soportados</a></li>
@@ -448,6 +453,7 @@
           <li class="d3"><a href="#176-limpiar-voz-ia">17.6 Limpiar voz (IA)</a></li>
           <li class="d3"><a href="#177-revisión-para-redes">17.7 Revisión para redes</a></li>
           <li class="d3"><a href="#178-problemas-frecuentes">17.8 Problemas frecuentes</a></li>
+          <li class="d3"><a href="#179-sonido-al-exportar">17.9 Sonido al exportar</a></li>
           <li class="d2">
             <a href="#18-vista-previa-multicapa-keyframes-y-visión-ia"
               >18. Vista previa multicapa, keyframes y visión (IA)</a
@@ -557,9 +563,7 @@
           </li>
           <li class="d3"><a href="#273-python-312">27.3 Python 3.12</a></li>
           <li class="d3">
-            <a href="#274--full--update-y-diagnóstico"
-              >27.4 <code>-Full</code>, <code>-Update</code> y diagnóstico</a
-            >
+            <a href="#274--full--update-y-diagnóstico">27.4 -Full, -Update y diagnóstico</a>
           </li>
           <li class="d3"><a href="#275-test-de-rendimiento">27.5 Test de rendimiento</a></li>
           <li class="d3"><a href="#276-rvc-en-la-gpu">27.6 RVC en la GPU</a></li>
@@ -747,12 +751,19 @@
             </p>
           </li>
           <li>
-            <p>Arrancá Studio (o doble clic en <code>scripts\windows\start.cmd</code>):</p>
+            <p>
+              Arrancá Studio con doble clic en
+              <strong><code>scripts\windows\start.cmd</code></strong> (es la forma de siempre).
+              Desde PowerShell es lo mismo que:
+            </p>
             <pre><code class="language-powershell">powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\start.ps1
 </code></pre>
             <p>
               Se abren tres ventanas (workers, api, web) y el navegador en
-              <a href="http://localhost:3000" rel="noopener">http://localhost:3000</a>.
+              <a href="http://localhost:3000" rel="noopener">http://localhost:3000</a>. Si la IA
+              local (workers) no arrancó o se cerró, Studio lo dice con
+              <strong>una sola franja arriba</strong> y deja grises los botones de IA con el motivo
+              (ver <a href="#12-solución-de-problemas">§12</a>).
             </p>
           </li>
           <li>
@@ -852,6 +863,7 @@
             </tbody>
           </table>
         </div>
+
         <h2 id="4-recorrido-por-el-dashboard">4. Recorrido por el dashboard</h2>
         <figure>
           <img
@@ -872,10 +884,21 @@
         <p>De izquierda a derecha:</p>
         <ul>
           <li>
-            <strong>Studio / nombre del proyecto</strong> y un indicador de guardado:
-            <em>Cambios sin guardar</em>, <em>Guardando…</em>, <em>Guardado</em>,
-            <em>Guardado local</em> (la API no responde: se guardó solo en este navegador) o
-            <em>Error al guardar</em>.
+            <strong>Studio / nombre del proyecto</strong>: tocalo (o <code>Ctrl+O</code>) para abrir
+            <strong>Proyectos</strong> (ver <a href="#44-proyectos-y-guardado">§4.4</a>). Al lado,
+            el indicador de guardado: <em>Cambios sin guardar</em>, <em>Guardando…</em>,
+            <em>Guardado</em>, <em>Guardado local</em> (la API no responde: se guardó solo en este
+            navegador) o <em>Error al guardar</em>.
+          </li>
+          <li>
+            A la derecha, siempre a la vista (también en una pantalla de 1366 px):
+            <strong>Asistente</strong> y <strong>Exportar</strong> (botón principal), que abren o
+            enfocan su panel.
+          </li>
+          <li>
+            <strong>Trabajos en curso</strong>: un círculo que gira y la cantidad de trabajos
+            activos; clic y se abre el panel <strong>Trabajos</strong>. No aparece si no hay nada
+            corriendo.
           </li>
           <li>
             <strong>Indicador de IA</strong> (chip con ícono de placa o de procesador): dice si la
@@ -884,7 +907,10 @@
             mouse muestra el detalle y al hacer clic ofrece <strong>Liberar GPU</strong> (ver
             <a href="#172-indicador-de-gpu">§17.2</a>).
           </li>
-          <li><strong>Comandos</strong> (<code>Ctrl+K</code>): abre la paleta de comandos.</li>
+          <li>
+            <strong>Comandos</strong> (<code>Ctrl+K</code>, solo en pantallas anchas; en las chicas
+            usá el atajo): abre la paleta de comandos.
+          </li>
           <li><strong>Paneles</strong> (ícono de paneles): mostrar u ocultar cada panel.</li>
           <li>
             <strong>Layouts</strong> (ícono de cuadrícula): <em>Restaurar layout</em>,
@@ -892,15 +918,26 @@
           </li>
           <li><strong>Tema</strong> (sol / luna / monitor): Claro, Oscuro o Sistema.</li>
           <li>
+            <strong>🐞 Reportar error</strong>: abre el formulario de reporte (ver
+            <a href="#13-cómo-reportar-un-error">§13</a>).
+          </li>
+          <li>
             <strong>Ajustes</strong> (engranaje): pestañas <em>Apariencia</em>, <em>Atajos</em>,
             <em>Layouts</em>, <em>Paquetes de IA</em>, <em>Asistente local</em> y
             <em>Personas</em> (ver <a href="#24-personas-y-consentimiento">§24</a>).
           </li>
-          <li>
-            <strong>🐞 Reportar error</strong>: abre el formulario de reporte (ver
-            <a href="#13-cómo-reportar-un-error">§13</a>).
-          </li>
         </ul>
+        <p>
+          <strong>Cada botón se explica</strong>: pasá el mouse por cualquier botón de ícono y dice
+          qué hace, su atajo y, si está deshabilitado, <strong>por qué</strong> (por ejemplo «La IA
+          local está apagada…»).
+        </p>
+        <p>
+          Debajo del encabezado puede aparecer <strong>una franja amarilla</strong> cuando la IA
+          local o Studio no responden (con <strong>Reintentar</strong> y
+          <strong>Cómo iniciarla</strong>); es el único aviso: no se repite en cada panel (ver
+          <a href="#12-solución-de-problemas">§12</a>).
+        </p>
         <h3 id="42-los-13-paneles">4.2 Los 13 paneles</h3>
         <div class="table-wrap">
           <table>
@@ -953,14 +990,16 @@
                   deshacer/rehacer, tijera (<strong>dividir</strong> en el cursor), tacho, onda
                   (<strong>Quitar silencios y muletillas</strong>), menú
                   <strong>Escenas</strong> (<em>Detectar escenas</em>, <em>Cortar en escenas</em>,
-                  <em>Mostrar marcadores de escena</em>), <strong>imán</strong>, tiempo actual /
-                  total y zoom.
+                  <em>Mostrar marcadores de escena</em>), <strong>imán</strong> (con la flechita
+                  eligís a qué se pega), tiempo actual / total y zoom. Vacía dice «Agregá un medio
+                  con el botón + del panel Media o arrastrándolo hasta una pista».
                 </td>
               </tr>
               <tr>
                 <td><strong>Propiedades</strong></td>
                 <td>
-                  Sin clip seleccionado: nombre y tamaño del proyecto (ancho, alto, FPS y botones
+                  Con varios clips elegidos: velocidad y volumen de todos a la vez («3 clips»). Sin
+                  clip seleccionado: nombre y tamaño del proyecto (ancho, alto, FPS y botones
                   <em>16:9 1080p</em>, <em>9:16 vertical</em>, <em>1:1</em>) y datos del medio
                   seleccionado. Con un clip: tiempo (inicio, entrada, salida, velocidad), imagen
                   (opacidad, <strong>escala y posición X/Y en %</strong> con
@@ -998,21 +1037,37 @@
               <tr>
                 <td><strong>Exportar</strong></td>
                 <td>
-                  Elegir preset (arranca en <em>YouTube 1080p</em>), duplicarlo y editarlo (incluida
-                  la casilla <strong>Transparencia</strong>),
-                  <strong>Revisión para redes</strong> (casilla <em>Voy a subirlo a redes</em>,
-                  avisos y etiqueta de IA), nombre del archivo, exportar un rango,
-                  <strong>Quemar subtítulos en el video</strong> y la lista de
+                  <strong>¿Dónde lo vas a publicar?</strong>: tarjetas <em>Reels / TikTok</em> (la
+                  primera y la elegida al abrir), <em>YouTube Shorts</em>, <em>YouTube 1080p</em>,
+                  <em>YouTube 4K</em> y <em>Otro</em> (todos los formatos); lo técnico (CRF,
+                  bitrate, códecs, duplicar/editar formatos con <strong>Transparencia</strong>)
+                  queda plegado en <strong>Avanzado</strong>. Si el video es horizontal y el destino
+                  vertical, pide <strong>cómo encuadrarlo</strong> antes de habilitar Exportar.
+                  Sección <strong>Sonido</strong> (normalizar a −14 LUFS, bajar la música cuando hay
+                  voz, rol de cada pista; ver <a href="#179-sonido-al-exportar">§17.9</a>),
+                  <strong>Solo el rango I–O</strong> si marcaste entrada/salida,
+                  <strong>Revisión para redes</strong>, nombre del archivo, exportar un rango,
+                  <strong>Quemar subtítulos en el video</strong>, la tarjeta
+                  <strong>Último resultado</strong> (miniatura, ruta, duración, tamaño, sonoridad,
+                  <strong>Abrir carpeta</strong>, <strong>Revisar</strong>) y
                   <strong>Exportaciones recientes</strong> con <strong>Descargar</strong>.
                 </td>
               </tr>
               <tr>
                 <td><strong>Trabajos</strong></td>
                 <td>
-                  Todo lo que tarda (análisis, proxies, renders, voz, transcripción, exportación)
-                  con su progreso. Permite cancelar, abrir el resultado, filtrar
-                  <em>Todos/Activos</em>, limpiar terminados y, en los que fallan,
-                  <strong>Reportar</strong>. Arriba indica la conexión: <em>En vivo</em>,
+                  Todo lo que tarda (transcribir, quitar el fondo, exportar, evaluar modelos,
+                  descargar paquetes…) en dos grupos: <strong>En curso</strong> y
+                  <strong>Terminados</strong> (limpiar). Cada fila muestra qué está haciendo
+                  («qwen3:8b · 17/20», «Video: bloque 3 de 12»), cuánto lleva («17/20 comandos») y
+                  <strong>cuánto falta</strong> («faltan ~6 min»; «calculando…» los primeros
+                  segundos). Si no avanza en 2 minutos dice
+                  <strong>«sin avance hace 2 min»</strong> en ámbar.
+                  <strong>Cancelar</strong> detiene el trabajo también en la IA local (la GPU se
+                  libera en segundos); los que terminan en segundos (aplicar cortes, analizar un
+                  medio) no se pueden cancelar. En los que fallan, tocá el error para verlo completo
+                  y <strong>Reportar</strong>. La insignia <strong>CPU</strong> indica que corrió
+                  sin GPU. Arriba indica la conexión: <em>En vivo</em>,
                   <em>Consulta periódica</em> o <em>Sin conexión</em>.
                 </td>
               </tr>
@@ -1046,6 +1101,21 @@
             </tbody>
           </table>
         </div>
+        <p>
+          <strong>Distribución.</strong> Izquierda: Media, Biblioteca, Motion graphics y Voz y
+          audio. Centro: Vista previa. Derecha: Propiedades, Asistente y Exportar. Abajo: Línea de
+          tiempo, Subtítulos, Trabajos, Consola Claude y Perfil de estilo. Si un grupo no tiene
+          lugar para todas sus pestañas aparece <strong>Más paneles ⌄</strong> con la lista.
+          <strong>Layouts → Restaurar layout</strong> (<code>Ctrl+Shift+R</code>) vuelve a esta
+          distribución (los layouts que guardaste quedan como estaban).
+        </p>
+        <p>
+          <strong>Vista previa vacía.</strong> Sin clips muestra «Arrastrá un video acá o tocá
+          Importar»: soltá un archivo ahí o tocá <strong>Importar</strong> y queda en la línea de
+          tiempo. Con el primer video, un proyecto «Proyecto sin título» toma el nombre del archivo
+          y el lienzo se ajusta al video (por ejemplo 1080×1920 para un vertical); el aviso trae
+          <strong>Deshacer</strong>.
+        </p>
         <p>Cómo se trabaja en la <strong>línea de tiempo</strong>:</p>
         <ul>
           <li>
@@ -1058,14 +1128,61 @@
           <li>
             <strong>Recortar</strong>: arrastrá los bordes del clip (se frenan en el clip vecino).
           </li>
-          <li><strong>Dividir</strong>: poné el cursor y tocá <code>S</code> (o la tijera).</li>
+          <li>
+            <strong>Clic en la regla</strong> mueve el cursor y <strong>no</strong> le quita el
+            teclado a la línea de tiempo: después de clicar podés usar <code>S</code>,
+            <code>Espacio</code>, <code>J</code>/<code>K</code>/<code>L</code>, <code>Supr</code>,
+            <code>Q</code>/<code>W</code>, <code>I</code>/<code>O</code> enseguida.
+          </li>
+          <li>
+            <strong>Dividir</strong>: poné el cursor y tocá <code>S</code> (o la tijera). Con clips
+            elegidos corta los elegidos que están bajo el cursor; si ninguno lo está, corta todo lo
+            que está bajo el cursor.
+          </li>
+          <li>
+            <strong>Elegir clips</strong>: clic elige uno; <code>Ctrl+clic</code> suma o quita;
+            <code>Mayús+clic</code> suma todos los de la pista entre el elegido y el clicado;
+            arrastrar desde una zona vacía dibuja un rectángulo y elige lo que toca (con
+            <code>Mayús</code>/<code>Ctrl</code> suma a lo elegido); <code>Ctrl+A</code> elige todo
+            lo de pistas sin bloquear; <code>Esc</code> quita la selección. Con varios elegidos,
+            arrastrar uno mueve todos.
+          </li>
+          <li>
+            <strong>Borrar</strong>: <code>Supr</code> borra lo elegido y deja el hueco;
+            <code>Mayús+Supr</code> borra y <strong>cierra el hueco</strong> (lo que sigue en esa
+            pista se corre a la izquierda). Si borrás en la
+            <strong>pista de video principal</strong> (la primera de video), todo lo demás queda
+            sincronizado: subtítulos, textos, motion y audio de las otras pistas se corren lo mismo,
+            y lo que caía justo en el tramo borrado se recorta (un texto o una música que lo cruzaba
+            queda más corta; uno que estaba entero adentro se borra). Todo es
+            <strong>un solo paso</strong> de deshacer. Para que una pista no se mueva,
+            <strong>bloqueala</strong> antes. Clic derecho en un clip: <strong>Borrar</strong>,
+            <strong>Borrar y cerrar hueco</strong>,
+            <strong>Cerrar huecos de la pista</strong> (<code>Ctrl+Mayús+Supr</code>). Las pistas
+            bloqueadas nunca se tocan.
+          </li>
+          <li>
+            <strong>Recortar al cursor</strong>: <code>Q</code> corta desde el comienzo del clip
+            hasta el cursor y <code>W</code> desde el cursor hasta el final; lo que sigue se corre
+            para no dejar hueco.
+          </li>
+          <li>
+            <strong>Entrada y salida</strong>: <code>I</code> marca la entrada y <code>O</code> la
+            salida (franja de color en la regla y en las pistas, etiqueta «I–O»);
+            <code>Alt+X</code> o un clic en la etiqueta las quita. Exportar puede usar solo ese
+            tramo. La salida tiene que quedar después de la entrada: si apretás <code>O</code> antes
+            de la <code>I</code>, avisa y deja el tramo como estaba. Al borrar con
+            <code>Mayús+Supr</code> o recortar con <code>Q</code>/<code>W</code> en la pista de
+            video principal, el tramo se corre con el video; al abrir otro proyecto se quita.
+          </li>
           <li>
             <strong>Zoom</strong>: <code>Ctrl</code> + rueda del mouse, el control deslizante o las
             teclas <code>=</code> y <code>-</code>.
           </li>
           <li>
             <strong>Imán</strong> (<code>N</code>): pega los clips al 0, al cursor, a los bordes de
-            otros clips y a los <strong>marcadores de escena</strong> (si están visibles).
+            otros clips, a las marcas I/O y a los <strong>marcadores de escena</strong> (si están
+            visibles); la flechita al lado del imán elige a qué se pega.
           </li>
           <li>
             <strong>Escenas</strong>: con un clip de video seleccionado,
@@ -1083,7 +1200,11 @@
             después quedan <strong>encima</strong>. Para reordenarlas, arrastrá la cabecera de la
             pista o usá su menú (ver <a href="#221-orden-de-las-capas">§22.1</a>).
           </li>
-          <li>Hasta <strong>100 pasos</strong> de deshacer/rehacer.</li>
+          <li>
+            Hasta <strong>100 pasos</strong> de deshacer/rehacer; borrar o mover varios clips,
+            <code>Mayús+Supr</code>, <code>Q</code>/<code>W</code> y renombrar el proyecto son
+            <strong>un solo paso</strong> cada uno.
+          </li>
         </ul>
         <figure>
           <img
@@ -1140,19 +1261,26 @@
           <img src="img/06-command-palette.png" alt="Paleta de comandos (Ctrl+K)." loading="lazy" />
           <figcaption>Paleta de comandos (Ctrl+K).</figcaption>
         </figure>
-        <h3 id="44-guardado-del-proyecto">4.4 Guardado del proyecto</h3>
+        <h3 id="44-proyectos-y-guardado">4.4 Proyectos y guardado</h3>
         <ul>
           <li>
-            Studio trabaja con <strong>un proyecto abierto a la vez</strong>. Cada cambio se guarda
-            solo (a los 1,5 s) en el navegador y en la API. <code>Ctrl+S</code> fuerza el guardado.
+            <strong>Proyectos</strong> (<code>Ctrl+O</code> o clic en el nombre del proyecto): lista
+            con miniatura, fecha, duración y cantidad de clips, los más recientes primero, con
+            buscador. <strong>Abrir</strong> guarda antes el proyecto actual. El lápiz
+            <strong>renombra</strong> (Enter guarda, Esc cancela), el ícono de copia
+            <strong>duplica</strong> (misma línea de tiempo y mismos medios, «… (copia)») y la
+            papelera <strong>borra</strong> después de confirmar con el nombre (los medios no se
+            borran). <strong>Proyecto nuevo</strong> (<code>Ctrl+Alt+N</code>;
+            <code>Ctrl+N</code> lo reserva el navegador) crea uno vacío de 1920×1080 a 30 fps con
+            cuatro pistas (video, audio, texto, motion).
           </li>
           <li>
-            <strong>Nuevo proyecto</strong> (paleta) reemplaza el proyecto abierto por uno vacío de
-            1920×1080 a 30 fps con cuatro pistas (video, audio, texto, motion).
-            <strong>No hay una lista para volver a abrir proyectos anteriores</strong> desde la
-            interfaz: exportá antes de empezar otro.
+            Cada cambio se guarda solo (a los 1,5 s; en proyectos muy grandes a los 0,3 s) en el
+            navegador y en la API. <code>Ctrl+S</code> fuerza el guardado. Si cerrás la pestaña
+            justo después de un cambio, Studio lo envía igual al cerrarse.
           </li>
         </ul>
+
         <h2 id="5-flujos-paso-a-paso">5. Flujos paso a paso</h2>
         <h3 id="flujo-1--cortar-y-exportar-un-clip">Flujo 1 — Cortar y exportar un clip</h3>
         <ol>
@@ -1166,31 +1294,39 @@
             en el cursor.
           </li>
           <li>
-            Llevá el cursor al punto de corte (clic en la regla o <code>←</code>/<code>→</code>
-            fotograma a fotograma) y tocá <code>S</code>.
+            Hacé clic en la regla donde querés cortar y tocá <code>S</code> (no hace falta clicar el
+            clip; <code>←</code>/<code>→</code> mueven fotograma a fotograma). Para cortar desde el
+            comienzo del clip hasta ahí, <code>Q</code>; desde ahí hasta el final, <code>W</code>.
           </li>
           <li>
-            Seleccioná la parte que no querés y apretá <code>Supr</code>. Repetí para el final.
+            Elegí la parte que no querés y apretá <code>Mayús+Supr</code>: se borra y lo que sigue
+            se corre, sin hueco (<code>Supr</code> solo deja el hueco). En la pista de video
+            principal también se corren los textos, los gráficos, la música y los subtítulos de ese
+            tramo en adelante (lo que lo cruzaba se recorta); bloqueá una pista si no querés que se
+            mueva. Para recortes exactos usá <em>Entrada (s)</em> y <em>Salida (s)</em> en
+            <strong>Propiedades → Tiempo</strong>.
           </li>
           <li>
-            Si quedó un hueco al principio, seleccioná el clip y en
-            <strong>Propiedades → Tiempo</strong> poné <em>Inicio en timeline (s)</em> en
-            <code>0</code>. Para recortes exactos usá <em>Entrada (s)</em> y <em>Salida (s)</em>.
+            Para varias partes a la vez: <code>Ctrl+clic</code> en cada una (o un rectángulo) y
+            <code>Mayús+Supr</code>.
           </li>
           <li>
-            Abrí <strong>Exportar</strong> (<code>Ctrl+E</code>), elegí
-            <strong>YouTube 1080p (16:9)</strong>, escribí un nombre (opcional) y tocá
-            <strong>Exportar</strong>.
+            Tocá <strong>Exportar</strong> (cabecera o <code>Ctrl+E</code>), en
+            <strong>¿Dónde lo vas a publicar?</strong> elegí <strong>YouTube 1080p</strong>, escribí
+            un nombre (opcional) y tocá <strong>Exportar</strong>.
           </li>
           <li>
-            Cuando el trabajo diga <em>Completado</em>, tocá <strong>Descargar</strong> en
-            <em>Exportaciones recientes</em>. El archivo también queda en
-            <code>storage\exports\&lt;nombre&gt;-&lt;fecha&gt;.mp4</code>.
+            Cuando termine, la tarjeta <strong>Último resultado</strong> muestra la ruta, la
+            duración, el tamaño y la sonoridad, con <strong>Abrir carpeta</strong> (abre el
+            Explorador con el archivo marcado) y <strong>Revisar</strong>. El archivo queda en
+            <code>storage\exports\&lt;nombre&gt;-&lt;fecha&gt;.mp4</code> y también se baja con
+            <strong>Descargar</strong> en <em>Exportaciones recientes</em>.
           </li>
         </ol>
         <p>
-          Tip: para exportar solo un tramo sin cortar, marcá <em>Exportar solo un rango</em> y
-          completá <em>Desde (s)</em> / <em>Hasta (s)</em>.
+          Tip: para exportar solo un tramo sin cortar, marcá la entrada con <code>I</code> y la
+          salida con <code>O</code> y en Exportar tildá <strong>Solo el rango I–O</strong> (o
+          <em>Exportar solo un rango</em> con <em>Desde (s)</em> / <em>Hasta (s)</em>).
         </p>
         <h3 id="flujo-2--video-vertical-para-reelstiktok-con-subtítulos-animados">
           Flujo 2 — Video vertical para Reels/TikTok con subtítulos animados
@@ -1205,11 +1341,12 @@
             <strong>Ajustar lienzo</strong>.
           </li>
           <li>
-            <strong>Video horizontal</strong>: dejá el proyecto en 16:9. Al exportar con el preset
-            vertical, Studio pone el cuadro completo centrado con un
-            <strong>fondo desenfocado</strong> arriba y abajo. (Si en cambio ponés el proyecto en
-            9:16 con un video horizontal, el video queda con <strong>barras negras</strong>: no hay
-            recorte ni zoom en la interfaz.)
+            <strong>Video horizontal</strong>: dejá el proyecto en 16:9 y seguí el
+            <a href="#flujo-8--reels-desde-un-video-horizontal">Flujo 8</a>: al exportar para Reels
+            Studio pregunta cómo encuadrarlo (seguir la cara, recortar al centro o franjas
+            borrosas); nunca pone franjas sin preguntarte. (Si ponés el <strong>lienzo</strong> en
+            9:16 con un video horizontal adentro, el video queda con
+            <strong>barras negras</strong>.)
           </li>
         </ul>
         <p>Pasos:</p>
@@ -1292,20 +1429,34 @@
             pista de audio.
           </li>
         </ol>
-        <p><strong>Bajar la música bajo la voz — dos opciones</strong></p>
+        <p><strong>Bajar la música bajo la voz</strong></p>
         <ul>
           <li>
-            <strong>Opción A, desde el dashboard (sin ducking automático)</strong>: seleccioná el
-            clip de música y en <strong>Propiedades → Audio</strong> bajá el <em>Volumen</em> (por
-            ejemplo al 20–30 %). Si querés que suba en las pausas, dividí la música (<code>S</code>)
-            y poné volúmenes distintos a cada parte.
+            <strong>Automático al exportar (recomendado)</strong>: en
+            <strong>Exportar → Sonido</strong> dejá tildado
+            <strong>Bajar la música cuando hay voz</strong> (viene así y queda guardado en el
+            proyecto). La música baja unos 12 dB mientras suena una pista de <strong>Voz</strong> y
+            vuelve sola en las pausas. Studio decide el rol de cada pista: el video y las voces de
+            texto a voz o clonadas cuentan como <strong>Voz</strong>; lo que agregás desde la
+            <strong>Biblioteca</strong> como <em>Música</em> (o <em>Ambiente</em>) va a una pista
+            <strong>Música</strong>; una música importada desde Media cuenta como
+            <strong>Música</strong> si la pista o el archivo se llaman con «música», «music» o
+            «fondo» (por ejemplo <code>musica-fondo.mp3</code>); si no, queda como
+            <strong>Otro</strong>: cambiale el rol a <strong>Música</strong> en la misma sección
+            (ver <a href="#179-sonido-al-exportar">§17.9</a>). Si falta una pista de Voz o de
+            Música, Exportar lo avisa debajo de la opción y la tarjeta del resultado dice «Música
+            sin bajar».
           </li>
           <li>
-            <strong>Opción B, ducking automático (avanzado)</strong>: el efecto
-            <em>ducking</em> existe en el motor de audio pero
-            <strong>no tiene botón en el dashboard</strong> (ver
-            <a href="#15-limitaciones-conocidas">§15</a>). Se pide a la API desde PowerShell y
-            genera un único audio con la voz + la música que baja sola cuando hay voz:
+            <strong>A mano</strong>: seleccioná el clip de música y en
+            <strong>Propiedades → Audio</strong> bajá el <em>Volumen</em> (por ejemplo al 20–30 %).
+            Si querés que suba en las pausas, dividí la música (<code>S</code>) y poné volúmenes
+            distintos a cada parte.
+          </li>
+          <li>
+            <strong>Un solo audio con ducking (avanzado)</strong>: el efecto <em>ducking</em> por
+            clip sigue disponible por la API y genera un único audio con la voz + la música que baja
+            sola cuando hay voz:
             <ol>
               <li>
                 <p>
@@ -1447,7 +1598,12 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3001/api/voice/effects `
             >
             o Freesound si configuraste la clave).
           </li>
-          <li>Tocá ▶ para escuchar y <strong>+</strong> para agregarlo a la línea de tiempo.</li>
+          <li>
+            Tocá ▶ para escuchar y <strong>+</strong> para agregarlo a la línea de tiempo. La música
+            y los ambientes van a una pista con rol <strong>Música</strong> (baja sola bajo la voz
+            al exportar) y los efectos a una pista <strong>Efectos</strong>, sin mezclarse con la
+            pista de tu voz.
+          </li>
           <li>
             Movelo al momento justo y ajustá su volumen en <strong>Propiedades → Audio</strong>.
           </li>
@@ -1459,17 +1615,19 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3001/api/voice/effects `
         <h3 id="flujo-7--exportar-en-varios-formatos">Flujo 7 — Exportar en varios formatos</h3>
         <ol>
           <li>
-            Abrí <strong>Exportar</strong> (arranca en <strong>YouTube 1080p (16:9)</strong>) y
-            elegí un preset de la tabla de <a href="#62-salida-presets-de-exportación">§6.2</a>.
+            Abrí <strong>Exportar</strong>: arranca en
+            <strong>¿Dónde lo vas a publicar? → Reels / TikTok</strong>. Elegí otra tarjeta o
+            <strong>Otro</strong> para cualquier preset de la tabla de
+            <a href="#62-salida-presets-de-exportación">§6.2</a>.
           </li>
           <li>
-            Para un formato propio: elegí uno parecido, tocá <strong>Duplicar preset</strong> y
-            cambiá <em>Nombre</em>, <em>Aspecto</em>, <em>Ancho</em>, <em>Alto</em>, <em>FPS</em>,
-            <em>Contenedor</em>, <em>Códec de video</em>, <em>Calidad CRF (0–51)</em> o
-            <em>Bitrate video (kbps)</em> (si lo completás, se ignora el CRF),
-            <em>Códec de audio</em>, <em>Bitrate audio (kbps)</em> y
-            <strong>Transparencia</strong> (canal alfa: WebM VP9 o ProRes 4444). Tocá
-            <strong>Guardar preset</strong>.
+            Para un formato propio: abrí <strong>Avanzado</strong>, elegí uno parecido, tocá
+            <strong>Duplicar preset</strong> y cambiá <em>Nombre</em>, <em>Aspecto</em>,
+            <em>Ancho</em>, <em>Alto</em>, <em>FPS</em>, <em>Contenedor</em>,
+            <em>Códec de video</em>, <em>Calidad CRF (0–51)</em> o <em>Bitrate video (kbps)</em> (si
+            lo completás, se ignora el CRF), <em>Códec de audio</em>,
+            <em>Bitrate audio (kbps)</em> y <strong>Transparencia</strong> (canal alfa: WebM VP9 o
+            ProRes 4444). Tocá <strong>Guardar preset</strong>.
             <ul>
               <li>Los presets incluidos no se editan ni se borran: duplicalos.</li>
               <li>
@@ -1506,6 +1664,51 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3001/api/voice/effects `
             Panel Exportar: preset, Transparencia, Quemar subtítulos y exportaciones recientes.
           </figcaption>
         </figure>
+        <h3 id="flujo-8--reels-desde-un-video-horizontal">
+          Flujo 8 — Reels desde un video horizontal
+        </h3>
+        <ol>
+          <li>Dejá el proyecto en <strong>16:9</strong> e importá el video.</li>
+          <li>
+            <strong>Exportar → ¿Dónde lo vas a publicar? → Reels / TikTok</strong> (ya viene
+            elegido).
+          </li>
+          <li>
+            Studio avisa «El video es horizontal y Reels es 9:16: ¿cómo lo encuadro?»:
+            <ul>
+              <li>
+                <strong>Seguir la cara</strong> (recomendado): abrí
+                <strong>Reencuadrar</strong> (botón del aviso), <strong>Analizá</strong> y
+                <strong>Aplicá</strong>; al volver el aviso desaparece y dice «Usa el reencuadre del
+                proyecto». Necesita el paquete <strong>Reencuadre</strong> (ver
+                <a href="#186-reencuadrar-a-916--11--45">§18.6</a>).
+              </li>
+              <li>
+                <strong>Recortar al centro</strong>: rápido, puede cortar a la persona si no está en
+                el medio.
+              </li>
+              <li>
+                <strong>Dejarlo entero con franjas borrosas</strong>: el cuadro completo, más chico.
+              </li>
+            </ul>
+          </li>
+          <li>
+            <strong>Sonido</strong>: dejá «Normalizar a −14,0 LUFS» y «Bajar la música cuando hay
+            voz».
+          </li>
+          <li>
+            <strong>Exportar</strong>. La tarjeta <strong>Último resultado</strong> muestra la ruta,
+            la duración, el tamaño, «−14,0 LUFS», <strong>Abrir carpeta</strong> y
+            <strong>Revisar</strong>.
+          </li>
+        </ol>
+        <p>
+          Con el <strong>Asistente</strong>: «Exportá para Reels» sobre un video horizontal arma
+          <em>Reencuadrar (agregado por Studio)</em> + <em>Exportar</em>; si falta el paquete
+          Reencuadre pregunta con 3 botones (<em>Seguir la cara (descarga…)</em>,
+          <em>Recortar al centro</em>, <em>Dejarlo entero con franjas borrosas</em>).
+        </p>
+
         <h2 id="6-formatos-soportados">6. Formatos soportados</h2>
         <h3 id="61-entrada-lo-que-podés-importar-en-media">
           6.1 Entrada (lo que podés importar en Media)
@@ -1681,8 +1884,18 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3001/api/voice/effects `
             4444 con alfa).
           </li>
           <li>
-            Si el aspecto del proyecto y del preset difieren, el cuadro entra completo con
-            <strong>fondo desenfocado</strong> (o con bordes transparentes si el preset tiene alfa).
+            Si el aspecto del proyecto y del preset difieren (por ejemplo 16:9 → 9:16), Studio
+            <strong>pregunta cómo encuadrar</strong>: seguir la cara (reencuadre), recortar al
+            centro o el cuadro completo con <strong>fondo desenfocado</strong> (<a
+              href="#flujo-8--reels-desde-un-video-horizontal"
+              >Flujo 8</a
+            >). Con un reencuadre aplicado en el proyecto lo usa sin preguntar. Con alfa, bordes
+            transparentes.
+          </li>
+          <li>
+            <strong>Sonoridad</strong>: los cuatro presets de redes y YouTube normalizan la mezcla a
+            <strong>−14 LUFS / −1 dBTP</strong> (2 pasadas); GIF y WebM con transparencia no (ver
+            <a href="#179-sonido-al-exportar">§17.9</a>).
           </li>
           <li>
             Subtítulos: se queman si está marcada
@@ -1768,6 +1981,7 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3001/api/voice/effects `
             </tbody>
           </table>
         </div>
+
         <h2 id="7-límites-y-recomendaciones">7. Límites y recomendaciones</h2>
         <p><strong>Impuestos por el programa</strong> (si los superás, Studio muestra un error):</p>
         <div class="table-wrap">
@@ -2420,12 +2634,14 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
         </ul>
         <h2 id="10-atajos-de-teclado">10. Atajos de teclado</h2>
         <p>
-          Todos se cambian en <strong>Ajustes → Atajos</strong> (ahí también aparecen todos).
-          Mientras escribís en un campo de texto solo funcionan <code>Ctrl+K</code>,
-          <code>Ctrl+S</code>, <code>Ctrl+E</code> y <code>Ctrl+Shift+A</code>;
-          <code>Espacio</code> reproduce/pausa aunque un botón tenga el foco (no lo
+          Todos se cambian en <strong>Ajustes → Atajos</strong>, que muestra también para qué sirve
+          cada uno. Los de edición y reproducción funcionan después de clicar la regla (las flechas
+          no); ninguno se dispara mientras escribís en un campo de texto, salvo <code>Ctrl+K</code>,
+          <code>Ctrl+S</code>, <code>Ctrl+E</code>, <code>Ctrl+O</code>, <code>Ctrl+Alt+N</code> y
+          <code>Ctrl+Shift+A</code>. Con la paleta, Ajustes o Proyectos abiertos solo funcionan los
+          globales. <code>Espacio</code> reproduce/pausa aunque un botón tenga el foco (no lo
           &quot;aprieta&quot; dos veces). Al pasar el mouse por cualquier botón de ícono aparece qué
-          hace y su atajo, por ejemplo <em>Cortar en el cursor (S)</em>.
+          hace y su atajo, por ejemplo <em>Cortar el clip en el cursor (S)</em>.
         </p>
         <div class="table-wrap">
           <table>
@@ -2443,88 +2659,93 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
                 <td>Reproducción</td>
               </tr>
               <tr>
-                <td>Ir al inicio</td>
-                <td><code>Inicio</code></td>
+                <td>Ir al inicio / al final</td>
+                <td><code>Inicio</code> / <code>Fin</code></td>
                 <td>Reproducción</td>
               </tr>
               <tr>
-                <td>Ir al final</td>
-                <td><code>Fin</code></td>
+                <td>Reproducir hacia atrás / adelante (otra vez: 2×, 4×)</td>
+                <td><code>J</code> / <code>L</code></td>
                 <td>Reproducción</td>
               </tr>
               <tr>
-                <td>Reproducir hacia atrás</td>
-                <td><code>J</code> (otra vez: 2×, 4×)</td>
-                <td>Reproducción</td>
-              </tr>
-              <tr>
-                <td>Pausa (detenido: keyframe)</td>
+                <td>Pausa (detenido, con un clip: keyframe)</td>
                 <td><code>K</code></td>
                 <td>Reproducción</td>
               </tr>
               <tr>
-                <td>Reproducir hacia adelante</td>
-                <td><code>L</code> (otra vez: 2×, 4×)</td>
+                <td>Fotograma anterior / siguiente</td>
+                <td><code>←</code> / <code>→</code></td>
                 <td>Reproducción</td>
               </tr>
               <tr>
-                <td>Fotograma anterior</td>
-                <td><code>←</code></td>
-                <td>Reproducción</td>
-              </tr>
-              <tr>
-                <td>Fotograma siguiente</td>
-                <td><code>→</code></td>
-                <td>Reproducción</td>
-              </tr>
-              <tr>
-                <td>Cortar (dividir) en el cursor</td>
+                <td>Cortar en el cursor</td>
                 <td><code>S</code></td>
                 <td>Línea de tiempo</td>
               </tr>
               <tr>
-                <td>Eliminar clip (o keyframe)</td>
+                <td>Borrar lo elegido (deja hueco; o un keyframe)</td>
                 <td><code>Supr</code></td>
                 <td>Línea de tiempo</td>
               </tr>
               <tr>
-                <td>Acercar</td>
-                <td><code>=</code></td>
+                <td>Borrar y cerrar el hueco</td>
+                <td><code>Mayús+Supr</code></td>
                 <td>Línea de tiempo</td>
               </tr>
               <tr>
-                <td>Alejar</td>
-                <td><code>-</code></td>
+                <td>Cerrar huecos de la pista</td>
+                <td><code>Ctrl+Mayús+Supr</code></td>
                 <td>Línea de tiempo</td>
               </tr>
               <tr>
-                <td>Activar / desactivar imán</td>
+                <td>Elegir todos los clips / quitar la selección</td>
+                <td><code>Ctrl+A</code> / <code>Esc</code></td>
+                <td>Línea de tiempo</td>
+              </tr>
+              <tr>
+                <td>Recortar comienzo / final hasta el cursor</td>
+                <td><code>Q</code> / <code>W</code></td>
+                <td>Línea de tiempo</td>
+              </tr>
+              <tr>
+                <td>Marcar entrada / salida / quitarlas</td>
+                <td><code>I</code> / <code>O</code> / <code>Alt+X</code></td>
+                <td>Línea de tiempo</td>
+              </tr>
+              <tr>
+                <td>Acercar / alejar</td>
+                <td><code>=</code> / <code>-</code></td>
+                <td>Línea de tiempo</td>
+              </tr>
+              <tr>
+                <td>Imán</td>
                 <td><code>N</code></td>
                 <td>Línea de tiempo</td>
               </tr>
               <tr>
-                <td>Deshacer</td>
-                <td><code>Ctrl+Z</code></td>
-                <td>Edición</td>
-              </tr>
-              <tr>
-                <td>Rehacer</td>
-                <td><code>Ctrl+Shift+Z</code></td>
+                <td>Deshacer / rehacer</td>
+                <td><code>Ctrl+Z</code> / <code>Ctrl+Shift+Z</code></td>
                 <td>Edición</td>
               </tr>
               <tr>
                 <td>Exportar (abre el panel)</td>
-                <td><code>Ctrl+E</code></td>
+                <td><code>Ctrl+E</code> (global)</td>
                 <td>Proyecto</td>
               </tr>
               <tr>
-                <td>Guardar proyecto</td>
-                <td><code>Ctrl+S</code></td>
+                <td>Guardar</td>
+                <td><code>Ctrl+S</code> (global)</td>
+                <td>Proyecto</td>
+              </tr>
+              <tr>
+                <td>Abrir proyecto / proyecto nuevo</td>
+                <td><code>Ctrl+O</code> / <code>Ctrl+Alt+N</code> (globales)</td>
                 <td>Proyecto</td>
               </tr>
               <tr>
                 <td>Paleta de comandos</td>
-                <td><code>Ctrl+K</code></td>
+                <td><code>Ctrl+K</code> (global)</td>
                 <td>Interfaz</td>
               </tr>
               <tr>
@@ -2534,7 +2755,7 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
               </tr>
               <tr>
                 <td>Asistente: escribir un comando</td>
-                <td><code>Ctrl+Shift+A</code></td>
+                <td><code>Ctrl+Shift+A</code> (global)</td>
                 <td>Interfaz</td>
               </tr>
               <tr>
@@ -2547,9 +2768,23 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
                 <td><code>Ctrl</code> + rueda</td>
                 <td>(fijo)</td>
               </tr>
+              <tr>
+                <td>Elegir varios clips</td>
+                <td><code>Ctrl+clic</code>, <code>Mayús+clic</code>, rectángulo</td>
+                <td>(fijo)</td>
+              </tr>
             </tbody>
           </table>
         </div>
+        <p>
+          <code>Ctrl+N</code>, <code>Ctrl+W</code> y <code>Ctrl+T</code> los reserva el navegador
+          (Chrome/Edge) y no se pueden usar. <code>Ctrl+Mayús+Supr</code> en Chrome/Edge también
+          abre «Borrar datos de navegación»: si en tu navegador abre esa ventana en lugar de cerrar
+          los huecos, cerrala sin borrar nada y usá el clic derecho en un clip →
+          <strong>Cerrar huecos de la pista</strong>, o cambiá el atajo en
+          <strong>Ajustes → Atajos</strong> (por ejemplo <code>Alt+Supr</code>).
+        </p>
+
         <h2 id="11-variables-de-env-que-podés-tocar">
           11. Variables de <code>.env</code> que podés tocar
         </h2>
@@ -2839,13 +3074,49 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
             <tbody>
               <tr>
                 <td>
-                  El encabezado dice <strong>Guardado local</strong> o Trabajos dice
+                  Franja amarilla arriba:
+                  <strong
+                    >«La IA local está apagada. Cerrá Studio y abrilo de nuevo con
+                    scripts\windows\start.cmd.»</strong
+                  >
+                  y los botones de IA (Transcribir, Proponer, Quitar fondo…) grises con ese motivo
+                  al pasar el mouse
+                </td>
+                <td>Los workers de IA (puerto 8001) no corren o se cerraron.</td>
+                <td>
+                  Tocá <strong>Reintentar</strong> (a veces tardan en arrancar). Si sigue: cerrá la
+                  ventana de Studio y la pestaña, y abrí <code>scripts\windows\start.cmd</code> con
+                  doble clic. Si vuelve a pasar, mirá la ventana «workers» o corré
+                  <code>scripts\windows\doctor.cmd</code>.
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  Franja:
+                  <strong>«Studio no está corriendo. Abrilo con scripts\windows\start.cmd.»</strong
+                  >, el encabezado dice <strong>Guardado local</strong> o Trabajos dice
                   <strong>Sin conexión</strong>
                 </td>
                 <td>La API (3001) no está corriendo.</td>
                 <td>
-                  Mirá la ventana &quot;api&quot;. Corré <code>stop.ps1</code> y
-                  <code>start.ps1</code>. Revisá <code>doctor.ps1</code>.
+                  Abrí <code>scripts\windows\start.cmd</code> (si quedó algo colgado, antes
+                  <code>stop.ps1</code>). Revisá <code>doctor.ps1</code>.
+                </td>
+              </tr>
+              <tr>
+                <td>Un trabajo dice <strong>«sin avance hace 2 min»</strong></td>
+                <td>El modelo se está cargando la primera vez o algo se trabó.</td>
+                <td>
+                  Esperá un poco más; si no cambia, <strong>Cancelar</strong> y probá de nuevo. Si
+                  se repite, <strong>Reportar</strong>.
+                </td>
+              </tr>
+              <tr>
+                <td>Un aviso dice <strong>Paquete requerido</strong></td>
+                <td>La función necesita un modelo que todavía no bajaste.</td>
+                <td>
+                  <strong>Descargar</strong> en la misma ventana o en
+                  <strong>Ajustes → Paquetes de IA</strong>; al terminar, Studio repite la acción.
                 </td>
               </tr>
               <tr>
@@ -2927,7 +3198,8 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
                 <td>ElevenLabs/OpenAI dicen <strong>(sin API key)</strong></td>
                 <td>Falta la clave en <code>.env</code>.</td>
                 <td>
-                  Poné la clave y reiniciá con <code>stop.ps1</code> + <code>start.ps1</code>.
+                  Poné la clave y reiniciá: <code>stop.ps1</code> y después
+                  <code>scripts\windows\start.cmd</code>.
                 </td>
               </tr>
               <tr>
@@ -3044,11 +3316,32 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
                 <td>Volvé a lanzarlo desde el panel correspondiente.</td>
               </tr>
               <tr>
-                <td>Perdí el proyecto anterior al tocar <em>Nuevo proyecto</em></td>
-                <td>No hay lista de proyectos en la interfaz.</td>
+                <td>No encuentro el proyecto anterior después de tocar <em>Nuevo proyecto</em></td>
+                <td>Se abrió uno nuevo; el anterior sigue guardado.</td>
                 <td>
-                  Sigue guardado en la API, pero no se puede reabrir desde el dashboard. Exportá
-                  antes de crear otro.
+                  <strong>Proyectos</strong> (<code>Ctrl+O</code> o clic en el nombre del proyecto)
+                  → <strong>Abrir</strong> (ver <a href="#44-proyectos-y-guardado">§4.4</a>).
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  Exportar dice
+                  <strong>«El video es horizontal y … es 9:16: elegí cómo encuadrarlo…»</strong>
+                </td>
+                <td>El destino es vertical y el proyecto horizontal, sin reencuadre.</td>
+                <td>
+                  Elegí <em>Seguir la cara</em>, <em>Recortar al centro</em> o
+                  <em>Franjas borrosas</em> (<a href="#flujo-8--reels-desde-un-video-horizontal"
+                    >Flujo 8</a
+                  >).
+                </td>
+              </tr>
+              <tr>
+                <td>La exportación dice que no pudo medir la sonoridad</td>
+                <td>La mezcla no se pudo medir (aviso <code>LOUDNESS_MEASURE_FAILED</code>).</td>
+                <td>
+                  El archivo salió igual, sin normalizar. Si se repite,
+                  <strong>Reportar</strong> con el trabajo.
                 </td>
               </tr>
             </tbody>
@@ -3059,6 +3352,7 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
           Python abre la Microsoft Store, <code>VCRUNTIME140.dll</code>, etc.): ver
           <a href="../INSTALACION-WINDOWS.md#8-solución-de-problemas">Instalación en Windows §8</a>.
         </p>
+
         <h2 id="13-cómo-reportar-un-error">13. Cómo reportar un error</h2>
         <p>
           La guía completa está en
@@ -3419,8 +3713,22 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
             animación); para animarlos usá <em>Renderizar subtítulos como motion</em>.
           </li>
           <li>
-            <strong>Ducking</strong>: solo por API (no hay botón) y no se aplica al exportar desde
-            la línea de tiempo.
+            <strong>Ducking al exportar</strong>: es automático por
+            <strong>rol de pista</strong> (Exportar → Sonido). Una pista de audio que no es voz ni
+            viene de la Biblioteca queda como <em>Otro</em> y no se baja: marcala como
+            <strong>Música</strong> si querés que baje bajo la voz. El ducking por clip (efecto de
+            voz «Ducking») sigue siendo un trabajo aparte, por la API.
+          </li>
+          <li>
+            <strong>Rol automático</strong>: las pistas de video cuentan como
+            <strong>voz</strong> (aunque tengan música de fondo grabada); cambiá su rol a
+            <em>Otro</em> si no querés que bajen la música.
+          </li>
+          <li>
+            <strong>Sonoridad</strong>: se normaliza la mezcla completa a −14 LUFS / −1 dBTP
+            (YouTube, Reels, TikTok, Shorts). GIF y WebM con transparencia no se normalizan. Las 2
+            pasadas suman el tiempo de leer el audio dos veces (segundos en un video corto). Los
+            presets propios creados antes de esta versión no normalizan: duplicá uno incluido.
           </li>
           <li>
             <strong
@@ -3447,11 +3755,22 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
             mueve el cursor pero el video se ve a saltos (el navegador no reproduce hacia atrás).
           </li>
           <li>
-            <strong>Sin recorte (crop) ni zoom</strong> en la interfaz: un video horizontal en un
-            proyecto vertical queda con barras.
+            <strong>Horizontal a vertical</strong>: al exportar para Reels/Shorts Studio pregunta
+            cómo encuadrar (seguir la cara, recortar al centro o franjas borrosas); «Seguir la cara»
+            necesita el paquete <strong>Reencuadre</strong> y reencuadrar antes (Vista previa →
+            Reencuadrar). Si ponés el <strong>lienzo</strong> en 9:16 con un video horizontal
+            adentro, el video sigue quedando con barras negras: dejá el lienzo en 16:9 y elegí el
+            encuadre al exportar. <strong>Seguir la cara</strong> no está para 16:9 desde un video
+            vertical (solo 9:16, 1:1 y 4:5): ahí Studio ofrece recortar al centro o franjas.
           </li>
           <li>
-            <strong>Un proyecto a la vez</strong>: no hay lista para reabrir proyectos anteriores.
+            <strong>Línea de tiempo</strong>: todavía no hay modo magnético por pista (que cierre
+            huecos solo), marcadores propios (<code>M</code>) ni edición de 3 puntos; el rango I–O
+            no se guarda en el proyecto.
+          </li>
+          <li>
+            <strong>Cancelar</strong> <em>Limpiar voz</em> y el texto a voz de Piper solo deja de
+            esperar (son cortos y terminan solos).
           </li>
           <li><strong>No se pueden reordenar pistas</strong> desde la interfaz.</li>
           <li>
@@ -3467,6 +3786,7 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
             recetas de <a href="#14-pruebas-que-podés-hacer-hoy">§14</a> sirven justamente para eso.
           </li>
         </ul>
+
         <h2 id="16-glosario">16. Glosario</h2>
         <div class="table-wrap">
           <table>
@@ -3912,6 +4232,20 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
             escribir la línea y las casillas siguen marcadas.
           </li>
           <li>Todo se guarda en el proyecto.</li>
+          <li>
+            Debajo de las casillas aparecen dos filas del <strong>último export</strong> del
+            proyecto:
+            <ul>
+              <li>
+                <strong>Sonoridad</strong>: ✓ si quedó a −14 LUFS ± 1 con pico ≤ −1 dBTP; aviso si
+                no se normalizó.
+              </li>
+              <li>
+                <strong>Formato</strong>: ✓ «vertical sin franjas» (siguiendo la cara o al centro);
+                aviso si salió con franjas borrosas.
+              </li>
+            </ul>
+          </li>
         </ul>
         <h3 id="178-problemas-frecuentes">17.8 Problemas frecuentes</h3>
         <div class="table-wrap">
@@ -3937,10 +4271,11 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
                 </td>
               </tr>
               <tr>
-                <td><strong>IA —</strong> en el encabezado</td>
+                <td><strong>IA —</strong> en el encabezado y la franja amarilla</td>
                 <td>
-                  Los workers no corren: mirá la ventana &quot;workers&quot; y
-                  <code>doctor.ps1</code>.
+                  Los workers no corren: <strong>Reintentar</strong>; si sigue, abrí
+                  <code>scripts\windows\start.cmd</code> (<a href="#12-solución-de-problemas">§12</a
+                  >).
                 </td>
               </tr>
               <tr>
@@ -3953,6 +4288,60 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
             </tbody>
           </table>
         </div>
+        <h3 id="179-sonido-al-exportar">17.9 Sonido al exportar</h3>
+        <p>En <strong>Exportar → Sonido</strong>:</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Opción</th>
+                <th>Qué hace</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Normalizar a −14,0 LUFS</td>
+                <td>
+                  Mide la mezcla y la lleva a −14 LUFS / −1 dBTP (2 pasadas, lineal: no cambia la
+                  dinámica).
+                </td>
+              </tr>
+              <tr>
+                <td>Bajar la música cuando hay voz</td>
+                <td>
+                  La música baja ≈ 12 dB mientras suena una pista de Voz (baja en 150 ms, vuelve en
+                  600 ms).
+                </td>
+              </tr>
+              <tr>
+                <td>Rol de cada pista</td>
+                <td>
+                  Automático (video = Voz, texto a voz/clon = Voz, nombre con
+                  «música»/«music»/«fondo» = Música, resto = Otro), Voz, Música, Efectos u Otro.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <ul>
+          <li>«Bajar la música» se guarda en el proyecto; los roles también (en cada pista).</li>
+          <li>
+            Si con la opción tildada no hay ninguna pista de <strong>Voz</strong> o ninguna de
+            <strong>Música</strong>, aparece un aviso en ámbar (no hay nada que bajar); el resultado
+            lo repite con <strong>Música sin bajar</strong>.
+          </li>
+          <li>
+            La tarjeta <strong>Último resultado</strong> dice la sonoridad final («−14,0 LUFS») y
+            <strong>Revisión para redes</strong> la controla (<a href="#177-revisión-para-redes"
+              >§17.7</a
+            >).
+          </li>
+          <li>
+            La voz se calibra sola: una voz bajita de celular baja la música igual que una de
+            estudio.
+          </li>
+        </ul>
+
         <h2 id="18-vista-previa-multicapa-keyframes-y-visión-ia">
           18. Vista previa multicapa, keyframes y visión (IA)
         </h2>
@@ -4323,7 +4712,14 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
           <li>
             Si el asistente <strong>pregunta</strong> algo (por ejemplo
             <em>¿Qué clip querés cortar?</em>), respondé en el formulario y tocá
-            <strong>Responder y volver a proponer</strong>.
+            <strong>Responder y volver a proponer</strong>. Mientras piensa se ve
+            <strong>«Pensando un plan (en tu PC)… 12 s»</strong> y <strong>Cancelar</strong>, que
+            deja de esperar y hace que Ollama corte la respuesta. Cada paso del plan lleva su
+            etiqueta: <strong>Rápido (FFmpeg)</strong> (silencios, escenas, reencuadre: segundos) o
+            <strong>IA local (puede tardar)</strong> (transcribir, voz, quitar fondo, cambiar cara).
+            Si Studio <strong>agregó</strong> un paso (por ejemplo <em>Reencuadrar</em> antes de
+            exportar un video horizontal para Reels) lo marca «(agregado por Studio)»; si tiene que
+            <strong>preguntar</strong> cómo encuadrar, muestra botones con las opciones.
           </li>
           <li>
             <strong>Aplicar</strong> ejecuta solo lo tildado, en orden, con una barra de progreso y
@@ -4409,17 +4805,24 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
             <code>http://127.0.0.1:11434</code>).
           </li>
           <li>
-            <strong>Evaluar modelos</strong>: corre 50 comandos de prueba con cada modelo instalado
-            y muestra una tabla con <strong>Válido %</strong> (el plan es correcto como formato),
-            <strong>Correcto %</strong> (hace lo pedido) y la <strong>latencia p50</strong>. Sirve
-            para elegir el mejor modelo para tu PC.
+            <strong>Evaluar modelos</strong>: dos botones, <strong>Rápida (20)</strong> (20 comandos
+            variados, uno de cada tipo de operación; unos minutos) y
+            <strong>Completa (80)</strong> (los 80 comandos de prueba), con cada modelo instalado.
+            Mientras corre se ve «qwen3:8b · 7/20 · faltan ~2 min», la barra y
+            <strong>Cancelar</strong>: Ollama deja de generar al instante y la GPU se libera. Al
+            final muestra una tabla con <strong>Válido %</strong> (el plan es correcto como
+            formato), <strong>Correcto %</strong> (hace lo pedido) y la
+            <strong>latencia p50</strong>. Sin Ollama (o sin el modelo) los botones están
+            deshabilitados con el motivo; si igual se lanza (por la Consola), el trabajo falla con
+            <strong>Paquete requerido</strong>, nunca «Completado» vacío.
           </li>
         </ul>
         <h3 id="195-límites">19.5 Límites</h3>
         <ul>
           <li>
-            Necesita <strong>Ollama</strong> abierto y el modelo descargado. Si falta, al proponer
-            se abre <em>Paquete requerido</em> con las instrucciones (instalarlo con
+            Necesita <strong>Ollama</strong> abierto y el modelo descargado, y la IA local en marcha
+            (si no, <strong>Proponer</strong> queda gris con el motivo). Si falta el modelo, al
+            proponer se abre <em>Paquete requerido</em> con las instrucciones (instalarlo con
             <code>scripts\windows\setup.ps1</code> o <code>winget install Ollama.Ollama</code>;
             <code>scripts\windows\doctor.ps1</code> verifica que esté en marcha).
           </li>
@@ -4445,6 +4848,7 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
           cuentas. La única descarga es la del modelo, una vez. <strong>Redactar con IA</strong> en
           <em>Reportar error</em> usa el mismo modelo local.
         </p>
+
         <h2 id="20-perfil-de-estilo">20. Perfil de estilo</h2>
         <p>
           <strong>Perfil de estilo</strong> copia la forma de editar de un video que te guste (un

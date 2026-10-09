@@ -241,6 +241,41 @@ describe("studio-mcp tools", () => {
     expect(shape.confirmed!.safeParse(true).success).toBe(true);
   });
 
+  it("studio_export passes aspectFit and explains the 3 framings on ASPECT_CHOICE_REQUIRED", async () => {
+    const { deps, calls } = mockApi({
+      "POST /api/projects/p1/export": (body) =>
+        (body as { aspectFit?: string }).aspectFit
+          ? { jobId: "j1" }
+          : new Response(
+              JSON.stringify({
+                error: {
+                  code: "ASPECT_CHOICE_REQUIRED",
+                  message:
+                    "El video es horizontal y «Reels / TikTok» es 9:16: elegí cómo encuadrarlo.",
+                  details: { options: ["reframe", "center", "blur"] },
+                },
+              }),
+              { status: 409 },
+            ),
+    });
+    const out = await run(
+      "studio_export",
+      {
+        projectId: "p1",
+        preset: "reels-tiktok",
+        confirmed: true,
+        aspectFit: "center",
+        wait: false,
+      },
+      deps,
+    );
+    expect(out).toEqual({ jobId: "j1", status: "queued" });
+    expect(calls[0]!.body).toMatchObject({ presetId: "reels-tiktok", aspectFit: "center" });
+    await expect(
+      run("studio_export", { projectId: "p1", preset: "reels-tiktok", confirmed: true }, deps),
+    ).rejects.toThrow(/reframe.*center.*blur/s);
+  });
+
   it("studio_preview_frame asks the api for a JSON frame", async () => {
     const { deps, calls } = mockApi({
       "GET /api/projects/p1/frame": () => ({

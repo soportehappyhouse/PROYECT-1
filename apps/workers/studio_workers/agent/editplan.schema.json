@@ -872,6 +872,11 @@
                 "description": "Quemar los subtítulos en el video.",
                 "type": "boolean"
               },
+              "aspect_fit": {
+                "description": "Cómo llevar un video horizontal a vertical.",
+                "type": "string",
+                "enum": ["reframe", "center", "blur"]
+              },
               "confirm": {
                 "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
                 "type": "boolean"

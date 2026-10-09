@@ -58,6 +58,15 @@ export const DashboardUiPrefsSchema = z.object({
   layoutPresets: z.array(LayoutPresetSchema).default([]),
   /** Last local modification; the newest copy (browser vs api) wins on load. */
   updatedAt: TimestampSchema.optional(),
+  /** Sprint 5 (M2): timeline magnet and what it snaps to. */
+  snap: z
+    .object({
+      enabled: z.boolean().default(true),
+      playhead: z.boolean().default(true),
+      clipEdges: z.boolean().default(true),
+      inOut: z.boolean().default(true),
+    })
+    .optional(),
 });
 export type DashboardUiPrefs = z.infer<typeof DashboardUiPrefsSchema>;
 

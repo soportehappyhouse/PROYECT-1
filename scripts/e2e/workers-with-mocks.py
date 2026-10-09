@@ -27,6 +27,8 @@
 - Sprint 4 M2 Chatterbox (STUDIO_MOCK_CHATTERBOX=0 turns it off): pack tts-chatterbox installed,
   CHATTERBOX_PYTHON = this interpreter and the real bridge with --mock (sine WAV, no torch).
 
+- Sprint 5 M1 (STUDIO_MOCK_AGENT_EVAL=0 turns it off): «Evaluar modelos» answers 0.2 s per command
+  without Ollama, reports done/total and honors POST /agent/tasks/{id}/cancel.
 Everything else (scenes, silences, packs, gpu, perf, vision.track with OpenCV, vision.reframe with
 a track) is the real code. Never used by setup/start.
 """
@@ -374,6 +376,46 @@ if MOCK_RVC:
 
     packs.pack_status = _m3_pack_status_rvc
 # --------------------------------------------------------------- END sprint4:M3 tools mock
+
+# ------------------------------------------------------------- BEGIN sprint5:M1
+# STUDIO_MOCK_AGENT_EVAL=0 turns it off. «Evaluar modelos» without Ollama: the planner used by
+# POST /agent/eval (calls with exclude_command) waits 0.2 s per command (asyncio.sleep, so the
+# cancel watcher can abort it like a real Ollama request) and answers a valid one-op plan. Every
+# other planner call (POST /agent/plan) is the real one.
+MOCK_AGENT_EVAL = os.environ.get("STUDIO_MOCK_AGENT_EVAL", "1") != "0"
+if MOCK_AGENT_EVAL:
+    import asyncio as _m1_asyncio
+
+    from studio_workers.agent.planner import PlanOutcome as _M1PlanOutcome
+    from studio_workers.routers import agent as _m1_agent_router
+
+    _m1_make_planner = _m1_agent_router.make_planner
+    _M1_EVAL_DELAY_S = float(os.environ.get("STUDIO_MOCK_AGENT_EVAL_DELAY", "0.2"))
+
+    class _M1EvalPlanner:
+        def __init__(self, real):  # type: ignore[no-untyped-def]
+            self._real = real
+            self.model = real.model
+
+        async def plan(self, command, project_summary="", *, use_router=True, exclude_command=""):  # type: ignore[no-untyped-def]  # noqa: E501
+            if not exclude_command:
+                return await self._real.plan(
+                    command, project_summary, use_router=use_router, exclude_command=""
+                )
+            await _m1_asyncio.sleep(_M1_EVAL_DELAY_S)
+            return _M1PlanOutcome(
+                plan={"version": 1, "summary_es": "mock e2e", "ops": [{"op": "transcribe"}]},
+                route="llm",
+                model=self.model,
+                latency_ms=int(_M1_EVAL_DELAY_S * 1000),
+                attempts=1,
+            )
+
+    def _m1_mock_make_planner(model=None, temperature=None):  # type: ignore[no-untyped-def]
+        return _M1EvalPlanner(_m1_make_planner(model, temperature))
+
+    _m1_agent_router.make_planner = _m1_mock_make_planner
+# --------------------------------------------------------------- END sprint5:M1
 
 settings = get_settings()
 uvicorn.run(

@@ -20,14 +20,14 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 import { readAnalysis } from "../jobs/handlers/style.js";
 import { errorBody, HttpError, PackRequiredError } from "../lib/errors.js";
-import { resolvePlan } from "../services/agent/resolve.js";
+import { resolvePlanForRecord } from "../services/agent/aspect.js";
 import { StylePresetRepo } from "../services/style/presets.js";
 
 /** Text of the 409 when the local vision model is missing (the console needs no download). */
 export function visionPackMessage(model = STYLE_VISION_DEFAULT_MODEL): string {
   return (
     `Falta el modelo de visión local «${model}» (paquete «Modelo de visión local», ~3,2 GB): ` +
-    `descargalo en Ajustes → Paquetes o con \`ollama pull ${model}\` (Ollama abierto en la ` +
+    `descargalo en Ajustes → Paquetes de IA o con \`ollama pull ${model}\` (Ollama abierto en la ` +
     `bandeja del sistema), o usá la Consola Claude («Deducir con Consola Claude»): no necesita ` +
     `descargar nada.`
   );
@@ -180,7 +180,8 @@ export const styleRoutes: FastifyPluginAsync = async (app) => {
     if (!validation.ok)
       throw new HttpError(500, "PLAN_INVALID", `Plan inválido: ${validation.errors.join("; ")}`);
     const packs = await workers.packs().catch(() => undefined);
-    const r = resolvePlan(validation.plan, {
+    // Sprint 5: plan expanded for 9:16 (reframe added or a PlanChoice).
+    const r = resolvePlanForRecord(validation.plan, {
       project,
       media,
       presets: repos.presets.list(),
@@ -200,6 +201,8 @@ export const styleRoutes: FastifyPluginAsync = async (app) => {
       warnings: [`style_preset:${preset.id}`],
       ok: r.unresolved.length === 0 && validation.plan.ops.length > 0,
       plan: validation.plan,
+      added: [],
+      choices: [],
       ...r,
       errors: [],
     };

@@ -33,7 +33,7 @@ const PLAN_4: EditPlanInput = {
     { op: "split", clip: { index: 1, track: "video" }, t: 2 },
     { op: "add_text", text: "Hola", t: 0.5, duration_s: 1.5, position: "top" },
     { op: "set_canvas", preset: "9:16" },
-    { op: "export", preset: "reels-tiktok", name: "agente" },
+    { op: "export", preset: "reels-tiktok", name: "agente", aspect_fit: "blur" },
   ],
 };
 

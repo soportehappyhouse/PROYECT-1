@@ -40,7 +40,7 @@ const PRESET: StylePresetDraft = {
 
 const PACK_DETAIL =
   "Falta el modelo de visión local «qwen2.5vl:3b» (paquete vision-llm, ~3,2 GB). Descargalo en " +
-  "Ajustes → Paquetes o en una terminal: `ollama pull qwen2.5vl:3b`; o usá la Consola Claude.";
+  "Ajustes → Paquetes de IA o en una terminal: `ollama pull qwen2.5vl:3b`; o usá la Consola Claude.";
 
 function analysisJson(outputDir: string) {
   return {

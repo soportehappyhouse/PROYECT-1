@@ -43,14 +43,21 @@ SPRINT4_ERROR_STATUS: dict[str, int] = {
     "PERSON_NOT_FOUND": 404,
 }
 
+# Sprint 5 (docs/trabajo/sprint5-contratos.md «Códigos de error nuevos»), workers side.
+SPRINT5_ERROR_STATUS: dict[str, int] = {
+    "TASK_NOT_FOUND": 404,
+}
+# Spanish message of TASK_NOT_FOUND (``.format(id=task_id)``).
+TASK_NOT_FOUND_ES = "La tarea {id} ya no existe en la IA local (¿se reinició?)."
+
 
 class CodedError(RuntimeError):
     """Error with an explicit API code -> ``{detail, code}`` (+ ``details`` when given).
 
-    ``status`` defaults to SPRINT4_ERROR_STATUS[code] (else 400). Background tasks can read
-    ``.code`` / ``.details`` to fill their ``{status, error, code}`` answer. Modules imported by
-    this file (tts, vision, packs...) must import it lazily inside the function (as vision/sam.py
-    does with NotFoundError) to avoid an import cycle.
+    ``status`` defaults to SPRINT4_ERROR_STATUS / SPRINT5_ERROR_STATUS[code] (else 400).
+    Background tasks can read ``.code`` / ``.details`` to fill their ``{status, error, code}``
+    answer. Modules imported by this file (tts, vision, packs...) must import it lazily inside
+    the function (as vision/sam.py does with NotFoundError) to avoid an import cycle.
     """
 
     def __init__(
@@ -58,7 +65,11 @@ class CodedError(RuntimeError):
     ) -> None:
         super().__init__(detail)
         self.code = code
-        self.status = status if status is not None else SPRINT4_ERROR_STATUS.get(code, 400)
+        self.status = (
+            status
+            if status is not None
+            else SPRINT4_ERROR_STATUS.get(code, SPRINT5_ERROR_STATUS.get(code, 400))
+        )
         self.details = details
 
     def payload(self) -> dict:

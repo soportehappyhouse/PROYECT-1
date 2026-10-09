@@ -35,6 +35,7 @@ import { WorkersError, type WorkersClient } from "../../services/workers-client.
 import { registerAudioAsset, requireMediaAsset } from "../../voice-ai/media-bridge.js";
 import { JobAbortedError } from "../state.js";
 import type { JobContext, JobHandler } from "../types.js";
+import { cancelWorkerTaskOnAbort, looseTaskDetail } from "./util.js";
 
 /** Dependencies of the Sprint 1 AI handlers (subset of AppContext, easy to fake in tests). */
 export type AiDeps = Pick<AppContext, "config" | "repos" | "queue" | "workers">;
@@ -109,6 +110,26 @@ async function pollTask(
   opts: { pollMs: number; timeoutMs: number; maxFailures?: number; kind?: "pack" | "perf" },
   onTask: (t: PackTask) => void,
 ): Promise<PackTask> {
+  const dispose = cancelWorkerTaskOnAbort(
+    workers,
+    opts.kind === "perf" ? "perf" : "packs",
+    taskId,
+    ctx,
+  );
+  try {
+    return await pollTaskLoop(workers, taskId, ctx, opts, onTask);
+  } finally {
+    dispose();
+  }
+}
+
+async function pollTaskLoop(
+  workers: WorkersClient,
+  taskId: string,
+  ctx: JobContext,
+  opts: { pollMs: number; timeoutMs: number; maxFailures?: number; kind?: "pack" | "perf" },
+  onTask: (t: PackTask) => void,
+): Promise<PackTask> {
   const t0 = Date.now();
   let failures = 0;
   for (;;) {
@@ -126,6 +147,7 @@ async function pollTask(
     }
     if (task) {
       onTask(task);
+      if ((task.status as string) === "canceled") throw new JobAbortedError();
       if (task.status === "done" || task.status === "error") return task;
     }
     if (Date.now() - t0 > opts.timeoutMs)
@@ -153,7 +175,15 @@ export function createPackDownloadHandler(
         task_id,
         ctx,
         { pollMs: o.pollMs ?? 1000, timeoutMs: o.timeoutMs ?? 2 * 3600_000 },
-        (t) => ctx.reportProgress(0.01 + t.progress * 0.98, packTaskMessage(name, t)),
+        (t) =>
+          ctx.reportProgress(0.01 + t.progress * 0.98, packTaskMessage(name, t), {
+            ...(t.bytes_total > 0 && {
+              done: Math.round(t.bytes_done),
+              total: Math.round(t.bytes_total),
+              unit: "bytes" as const,
+            }),
+            stage_es: `Descargando «${name}»`.slice(0, 120),
+          }),
       );
       if (task.status === "error")
         throw new Error(`No se pudo descargar «${name}»: ${task.error ?? "error desconocido"}`);
@@ -416,6 +446,7 @@ export function createPerfRunHandler(
             ctx.reportProgress(
               0.02 + t.progress * 0.96,
               `Midiendo rendimiento ${Math.round(t.progress * 100)} %${t.current_file ? ` · ${t.current_file}` : ""}`,
+              looseTaskDetail(t),
             ),
         );
         if (task.status === "error")

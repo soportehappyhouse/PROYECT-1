@@ -22,6 +22,7 @@ import { registerFileAsset } from "../../services/vision-assets.js";
 import { WorkersError } from "../../services/workers-client.js";
 import { JobAbortedError } from "../state.js";
 import type { JobContext, JobHandler } from "../types.js";
+import { cancelWorkerTaskOnAbort, looseTaskDetail } from "./util.js";
 
 /**
  * Sprint 3b «Perfil de estilo» jobs (docs/trabajo/sprint3b-contratos.md, B):
@@ -129,24 +130,31 @@ export function createStyleAnalyzeHandler(
       const t0 = Date.now();
       let task: StyleTask;
       let failures = 0;
-      for (;;) {
-        try {
-          task = await sw.task(accepted.task_id, ctx.signal);
-          failures = 0;
-          if (task.status === "running" || task.status === "queued")
-            ctx.reportProgress(
-              Math.min(0.97, Math.max(0.02, task.progress)),
-              task.message ?? "Analizando la referencia",
-            );
-          if (task.status === "done" || task.status === "error") break;
-        } catch (err) {
-          if (ctx.signal.aborted) throw new JobAbortedError();
-          if (err instanceof WorkersError && err.statusCode === 404)
-            throw new Error("Los workers se reiniciaron y perdieron el análisis: probá de nuevo");
-          if (++failures >= 10) throw err;
+      // Sprint 5: canceling the job cancels the worker task too.
+      const disposeCancel = cancelWorkerTaskOnAbort(app.workers, "style", accepted.task_id, ctx);
+      try {
+        for (;;) {
+          try {
+            task = await sw.task(accepted.task_id, ctx.signal);
+            failures = 0;
+            if (task.status === "running" || task.status === "queued")
+              ctx.reportProgress(
+                Math.min(0.97, Math.max(0.02, task.progress)),
+                task.message ?? "Analizando la referencia",
+                looseTaskDetail(task, "frames"),
+              );
+            if (task.status === "done" || task.status === "error") break;
+          } catch (err) {
+            if (ctx.signal.aborted) throw new JobAbortedError();
+            if (err instanceof WorkersError && err.statusCode === 404)
+              throw new Error("Los workers se reiniciaron y perdieron el análisis: probá de nuevo");
+            if (++failures >= 10) throw err;
+          }
+          if (Date.now() - t0 > timeoutMs) throw new Error("El análisis no terminó a tiempo");
+          await sleep(pollMs, ctx.signal);
         }
-        if (Date.now() - t0 > timeoutMs) throw new Error("El análisis no terminó a tiempo");
-        await sleep(pollMs, ctx.signal);
+      } finally {
+        disposeCancel();
       }
       if (task.status === "error") throw new Error(`Análisis falló: ${task.error ?? "error"}`);
       const result = task.result as { analysis_path?: string } | undefined;

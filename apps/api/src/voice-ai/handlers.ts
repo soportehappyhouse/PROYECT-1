@@ -81,8 +81,15 @@ export function createTranscribeHandler(
         resolveStoragePath(storage, wavRel),
         ctx.signal,
       );
+      // Sprint 5 (M1): canceling stops Whisper between segments (POST /transcribe/cancel).
+      const onAbort = () => void deps.workers.transcribeCancel(job.id).catch(() => false);
+      ctx.signal.addEventListener("abort", onAbort, { once: true });
+      const totalS = asset.durationSec && asset.durationSec > 0 ? asset.durationSec : undefined;
       try {
-        ctx.reportProgress(0.08, "Transcribiendo con Whisper");
+        ctx.reportProgress(0.08, "Transcribiendo con Whisper", {
+          stage_es: "Transcribiendo con Whisper",
+          ...(totalS && { done: 0, total: Math.max(1, Math.round(totalS)), unit: "seconds" }),
+        });
         const transcript = await deps.workers.transcribe(
           {
             inputPath: wavRel,
@@ -93,7 +100,18 @@ export function createTranscribeHandler(
             jobId: job.id,
             outputBase: `renders/${job.id}`,
           },
-          progressOpts(ctx, 0.08, 0.98),
+          {
+            signal: ctx.signal,
+            onProgress: (p, message) =>
+              ctx.reportProgress(0.08 + 0.9 * p, message, {
+                ...(message && { stage_es: message }),
+                ...(totalS && {
+                  done: Math.min(Math.round(totalS), Math.round(p * totalS)),
+                  total: Math.max(1, Math.round(totalS)),
+                  unit: "seconds",
+                }),
+              }),
+          },
         );
         const suggestedPack = payload.model ? undefined : await suggestTurboPack(deps.workers);
         const files = transcript.files ?? {
@@ -115,6 +133,7 @@ export function createTranscribeHandler(
           ...(suggestedPack && { suggestedPack }),
         };
       } finally {
+        ctx.signal.removeEventListener("abort", onAbort);
         await rm(resolveStoragePath(storage, wavRel), { force: true });
       }
     },

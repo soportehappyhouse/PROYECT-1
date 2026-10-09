@@ -45,6 +45,7 @@ from ..packs import STEMS_WEIGHTS_EXACT_SIZE as WEIGHTS_SIZE
 from ..packs import STEMS_WEIGHTS_SHA256 as WEIGHTS_SHA256
 from ..packs import STEMS_WEIGHTS_SHA256_PREFIX as WEIGHTS_SHA_PREFIX
 from ..packs import PackRequiredError, module_present, stems_weights_path
+from ..tasks import TaskCanceled
 
 log = logging.getLogger("studio_workers")
 
@@ -461,6 +462,8 @@ class StemsEngine:
 
         try:
             chunks = attempt(device)
+        except TaskCanceled:
+            raise  # canceled, not a CUDA failure: keep the GPU state (no CPU retry)
         except Exception as exc:
             if device != "cuda":
                 raise

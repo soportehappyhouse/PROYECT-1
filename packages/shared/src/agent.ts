@@ -531,12 +531,17 @@ export const SetPublishOpSchema = z
   .strict()
   .describe("Revisión para redes.");
 
+/** Sprint 5: how to bring a video to a different aspect (e.g. horizontal -> 9:16). */
+export const AspectFitSchema = z.enum(["reframe", "center", "blur"]);
+export type AspectFit = z.infer<typeof AspectFitSchema>;
+
 export const ExportOpSchema = z
   .object({
     op: op("export", "Exportar el video final (siempre pide confirmación)."),
     preset: PresetIdSchema,
     name: z.string().min(1).max(120).optional().describe("Nombre del archivo de salida."),
     burn_subtitles: z.boolean().optional().describe("Quemar los subtítulos en el video."),
+    aspect_fit: AspectFitSchema.optional().describe("Cómo llevar un video horizontal a vertical."),
     ...common,
   })
   .strict()
@@ -834,6 +839,24 @@ export type AgentPlanRequest = z.infer<typeof AgentPlanRequestSchema>;
  * reduced to `{id}` and every Time to seconds (null entries = op that could not be resolved, see
  * `unresolved`). `preview_es` has one line per op.
  */
+/** Sprint 5: one option of a plan choice; picking it inserts an op and/or patches an export. */
+export const PlanChoiceOptionSchema = z.object({
+  id: AspectFitSchema,
+  label_es: z.string(),
+  /** Op to insert (e.g. the reframe) before index `before`. */
+  insert: z.object({ before: z.number().int().min(0), op: EditOpSchema }).optional(),
+  patch: z.object({ index: z.number().int().min(0), aspect_fit: AspectFitSchema }).optional(),
+});
+export type PlanChoiceOption = z.infer<typeof PlanChoiceOptionSchema>;
+
+/** Sprint 5: a question the api leaves in the plan (e.g. how to frame horizontal -> 9:16). */
+export const PlanChoiceSchema = z.object({
+  id: z.string(),
+  question_es: z.string(),
+  options: z.array(PlanChoiceOptionSchema).min(2),
+});
+export type PlanChoice = z.infer<typeof PlanChoiceSchema>;
+
 export const AgentPlanValidationSchema = z.object({
   ok: z.boolean(),
   plan: EditPlanSchema.nullable(),
@@ -842,6 +865,10 @@ export const AgentPlanValidationSchema = z.object({
   risks: z.array(z.string()),
   unresolved: z.array(z.string()),
   errors: z.array(z.string()).default([]),
+  /** Sprint 5: ops the api inserted while expanding the plan (e.g. reframe before a 9:16 export). */
+  added: z.array(z.object({ index: z.number().int(), reason_es: z.string() })).default([]),
+  /** Sprint 5: pending choices (the affected op stays in `unresolved` until one is picked). */
+  choices: z.array(PlanChoiceSchema).default([]),
 });
 export type AgentPlanValidation = z.infer<typeof AgentPlanValidationSchema>;
 
@@ -976,8 +1003,13 @@ export type AgentBugreportRequest = z.infer<typeof AgentBugreportRequestSchema>;
 export const AgentEvalRequestSchema = z.object({
   models: z.array(z.string().min(1)).max(10).optional(),
   dataset: z.enum(["golden", "all"]).default("golden"),
+  /** Sprint 5: quick = AGENT_EVAL_QUICK_N deterministic examples; full = the whole dataset. */
+  mode: z.enum(["quick", "full"]).default("quick"),
 });
 export type AgentEvalRequest = z.infer<typeof AgentEvalRequestSchema>;
+
+/** Examples of the quick «Evaluar modelos» run (round-robin by first op, sorted by id). */
+export const AGENT_EVAL_QUICK_N = 20;
 
 /** Relative to STORAGE_DIR. */
 export const AGENT_EVAL_RESULT_PATH = "run/agent-eval.json";

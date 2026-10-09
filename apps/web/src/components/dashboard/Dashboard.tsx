@@ -13,17 +13,20 @@ import {
   Bug,
   Clapperboard,
   Command as CommandIcon,
+  Download,
   LayoutGrid,
   Monitor,
   Moon,
   PanelsTopLeft,
   Settings,
+  Sparkles,
   Sun,
 } from "lucide-react";
 import { useState } from "react";
 import { toast, Toaster } from "sonner";
 import type { AssetDragData } from "@/components/panels/MediaPanel";
 import type { TrackDropData } from "@/components/timeline/Timeline";
+import { announceFirstVideoAdjust } from "@/components/timeline/auto-adjust";
 import { Button } from "@/components/ui/button";
 import { Menu, MenuItem, MenuLabel, MenuSeparator } from "@/components/ui/menu";
 import { Badge } from "@/components/ui/misc";
@@ -39,12 +42,18 @@ import { TRACK_KIND_LABELS, trackKindForAsset } from "@/lib/timeline";
 import { useProjectStore, type SaveState } from "@/stores/project-store";
 import { openReport } from "@/stores/report-store";
 import { THEME_LABELS, useSettingsStore } from "@/stores/settings-store";
+import { runAction } from "./actions";
 import { CommandPalette } from "./CommandPalette";
 import { togglePanel } from "./dock-controller";
 import { DockLayout } from "./DockLayout";
 import { Hotkeys } from "./Hotkeys";
+import { ProjectsButton, ProjectsDialog } from "./ProjectsMenu";
 import { SilencesDialog } from "@/components/edit/SilencesDialog";
 import { GpuIndicator } from "./GpuIndicator";
+// BEGIN sprint5:M1
+import { JobsIndicator } from "./JobsIndicator";
+import { ServiceBanner } from "./ServiceBanner";
+// END sprint5:M1
 import { VisionDialogs } from "@/components/vision/VisionDialogs";
 import { PackRequiredDialog } from "./PackRequiredDialog";
 import { SettingsDialog } from "./SettingsDialog";
@@ -67,7 +76,6 @@ function ThemeIcon() {
 }
 
 function Header() {
-  const projectName = useProjectStore((s) => s.project.name);
   const saveState = useProjectStore((s) => s.saveState);
   const openPanels = useSettingsStore((s) => s.openPanels);
   const presets = useSettingsStore((s) => s.layoutPresets);
@@ -81,9 +89,7 @@ function Header() {
       <Clapperboard className="size-5 text-primary" aria-hidden />
       <span className="font-semibold">Studio</span>
       <span className="text-muted-foreground">/</span>
-      <span className="max-w-64 truncate text-sm" title={projectName}>
-        {projectName}
-      </span>
+      <ProjectsButton />
       {save.label ? (
         <Badge
           tone={save.tone}
@@ -97,13 +103,36 @@ function Header() {
         </Badge>
       ) : null}
       <div className="ml-auto flex items-center gap-1">
+        {/* BEGIN sprint5:M1 */}
+        <JobsIndicator />
+        {/* END sprint5:M1 */}
         <GpuIndicator />
+        {/* Sprint 5 (H8): Asistente and Exportar always visible, also at 1366 px / 125 %. */}
+        <Button
+          variant="outline"
+          size="sm"
+          data-testid="header-assistant"
+          tooltip="Abrir el Asistente para pedir cambios en español"
+          shortcut="assistant.open"
+          onClick={() => runAction("assistant.open")}
+        >
+          <Sparkles /> Asistente
+        </Button>
+        <Button
+          size="sm"
+          data-testid="header-export"
+          tooltip="Abrir Exportar para elegir dónde lo vas a publicar"
+          shortcut="project.export"
+          onClick={() => runAction("project.export")}
+        >
+          <Download /> Exportar
+        </Button>
         <Button
           variant="outline"
           size="sm"
           tooltip="Paleta de comandos"
           shortcut="palette.open"
-          className="hidden gap-2 text-muted-foreground sm:inline-flex"
+          className="hidden gap-2 text-muted-foreground xl:inline-flex"
           onClick={() => settings().setCommandPaletteOpen(true)}
         >
           <CommandIcon /> Comandos
@@ -112,7 +141,7 @@ function Header() {
         <Menu
           label="Paneles"
           trigger={(p) => (
-            <Button variant="ghost" size="icon" aria-label="Paneles" {...p}>
+            <Button variant="ghost" size="icon" aria-label="Paneles" tip="panels" {...p}>
               <PanelsTopLeft />
             </Button>
           )}
@@ -124,6 +153,7 @@ function Header() {
                 <MenuItem
                   key={panel.id}
                   checked={openPanels.includes(panel.id)}
+                  hint={panel.description}
                   onSelect={() => togglePanel(panel.id)}
                 >
                   {panel.title}
@@ -135,7 +165,7 @@ function Header() {
         <Menu
           label="Layouts"
           trigger={(p) => (
-            <Button variant="ghost" size="icon" aria-label="Layouts" {...p}>
+            <Button variant="ghost" size="icon" aria-label="Layouts" tip="layouts" {...p}>
               <LayoutGrid />
             </Button>
           )}
@@ -189,7 +219,7 @@ function Header() {
         <Menu
           label="Tema"
           trigger={(p) => (
-            <Button variant="ghost" size="icon" aria-label="Tema" {...p}>
+            <Button variant="ghost" size="icon" aria-label="Tema" tip="theme" {...p}>
               <ThemeIcon />
             </Button>
           )}
@@ -213,7 +243,7 @@ function Header() {
           variant="ghost"
           size="icon"
           aria-label="Reportar error"
-          title="Reportar error (genera un diagnóstico para Claude)"
+          tip="report"
           onClick={() => openReport({ source: "cabecera" })}
         >
           <Bug />
@@ -222,6 +252,7 @@ function Header() {
           variant="ghost"
           size="icon"
           aria-label="Ajustes"
+          tip="settings"
           onClick={() => settings().setSettingsOpen(true)}
         >
           <Settings />
@@ -252,6 +283,7 @@ export function handleAssetDrop(
     const track = useProjectStore.getState().project.tracks.find((t) => t.id === clip.trackId);
     toast.message(`Ese tramo estaba ocupado: añadido en «${track?.name ?? "otra pista"}»`);
   }
+  announceFirstVideoAdjust();
   suggestCanvasFit(data.asset);
 }
 
@@ -279,6 +311,9 @@ export function Dashboard() {
     >
       <div className="flex h-dvh flex-col bg-background text-foreground">
         <Header />
+        {/* BEGIN sprint5:M1 */}
+        <ServiceBanner />
+        {/* END sprint5:M1 */}
         <main className="min-h-0 flex-1">
           <DockLayout resolvedTheme={resolvedTheme} />
         </main>
@@ -293,6 +328,7 @@ export function Dashboard() {
       <Hotkeys />
       <CommandPalette />
       <SettingsDialog />
+      <ProjectsDialog />
       <SilencesDialog />
       <PackRequiredDialog />
       <VisionDialogs />

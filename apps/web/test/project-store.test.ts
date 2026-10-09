@@ -232,3 +232,30 @@ describe("no overlapping clips on video/audio/motion tracks (feedback 5)", () =>
     expect(track.kind).toBe("motion");
   });
 });
+
+describe("integration sprint 5 (M3 ↔ M2)", () => {
+  const music: MediaAsset = { ...audio, id: "lib-music", name: "musica.mp3", durationSec: 6 };
+
+  it("a library sound takes its role on an empty audio track, in one undo step", () => {
+    const s = useProjectStore.getState();
+    const voice = s.addAssetClip(audio, { start: 0 }); // the voice-over: first audio track
+    const undoBefore = useProjectStore.getState().past.length;
+    const m = useProjectStore.getState().addAssetClip(music, { start: 0, role: "music" });
+    const tracks = useProjectStore.getState().project.tracks;
+    const musicTrack = tracks.find((t) => t.id === m.trackId)!;
+    expect(m.trackId).not.toBe(voice.trackId);
+    expect(musicTrack.role).toBe("music");
+    expect(tracks.find((t) => t.id === voice.trackId)!.role).toBeUndefined();
+    expect(useProjectStore.getState().past.length).toBe(undoBefore + 1);
+    // A second music sound goes to the same «music» track (free range after the first one).
+    const m2 = useProjectStore.getState().addAssetClip(music, { role: "music" });
+    expect(m2.trackId).toBe(m.trackId);
+  });
+
+  it("setAudioMix persists «Bajar la música» in the project", () => {
+    useProjectStore.getState().setAudioMix({ autoDuck: false });
+    const p = useProjectStore.getState().project;
+    expect(p.audioMix).toEqual({ autoDuck: false, duckDb: -12 });
+    expect(useProjectStore.getState().saveState).toBe("dirty");
+  });
+});

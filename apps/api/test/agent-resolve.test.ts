@@ -329,7 +329,7 @@ describe("agent resolver", () => {
     );
     expect(r.resolved[0]).not.toHaveProperty("clip");
     expect(r.risks).toContain(
-      "Falta el paquete de IA «Escenas» (0,10 GB): hay que descargarlo antes (Ajustes → Paquetes).",
+      "Falta el paquete de IA «Escenas» (0,10 GB): hay que descargarlo antes (Ajustes → Paquetes de IA).",
     );
     expect(r.unresolved[0]).toMatch(
       /^Operación 3: El clip «Bienvenidos» \(T1, 5 s–8 s\) no sirve para el efecto de voz: con audio/,

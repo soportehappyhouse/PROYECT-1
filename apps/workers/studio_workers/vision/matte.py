@@ -320,8 +320,8 @@ class MatteEngine:
 
     def _kill_rvm(self) -> None:
         proc = self._rvm_proc
-        if proc is not None and proc.poll() is None:
-            proc.terminate()
+        if proc is not None:
+            gpl.kill_process_tree(proc)
 
     def _rvm(
         self,

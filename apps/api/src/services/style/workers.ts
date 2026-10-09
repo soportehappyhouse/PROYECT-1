@@ -8,7 +8,8 @@ import {
   type WorkerStyleInferResponse,
 } from "@studio/shared";
 import { z } from "zod";
-import { packRequiredFromBody, WorkersError } from "../workers-client.js";
+import { currentDiagnostics } from "../../jobs/diagnostics.js";
+import { packRequiredFromBody, WorkersError, workersDownMessage } from "../workers-client.js";
 
 /**
  * Sprint 3b: the workers' /style/* routes. Kept apart from services/workers-client.ts (shared by
@@ -80,11 +81,12 @@ export function createStyleWorkers(baseUrl: string): StyleWorkers {
       res = await request(new URL(route, baseUrl).toString(), method, body, signal);
     } catch (err) {
       if (signal?.aborted) throw err;
-      throw new WorkersError(
-        `Workers Python no disponibles en ${baseUrl} (¿está corriendo start.ps1?): ${String(err)}`,
-        503,
-        "WORKERS_UNAVAILABLE",
+      currentDiagnostics()?.stderrLine(
+        `[workers] ${method} ${route}: sin conexión (${String(err)})`,
       );
+      throw new WorkersError(workersDownMessage(baseUrl), 503, "WORKERS_UNAVAILABLE", undefined, {
+        url: baseUrl,
+      });
     }
     let json: unknown;
     try {

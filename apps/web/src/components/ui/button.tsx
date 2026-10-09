@@ -3,6 +3,7 @@
 import { cva, type VariantProps } from "class-variance-authority";
 import type { ComponentProps } from "react";
 import { displayKeys, type ShortcutActionId } from "@/lib/shortcuts";
+import { tipWithReason, type TipKey } from "@/lib/tooltips";
 import { cn } from "@/lib/utils";
 import { useSettingsStore } from "@/stores/settings-store";
 import { Tooltip } from "./tooltip";
@@ -39,6 +40,13 @@ export interface ButtonProps extends ComponentProps<"button">, VariantProps<type
   tooltip?: string | false;
   /** Shortcut shown in the tooltip, read live from the shortcut settings: "Cortar (S)". */
   shortcut?: ShortcutActionId;
+  /**
+   * Sprint 5 (H21): explanation from `TIPS` (what it does + its shortcut, already in the text);
+   * wins over `tooltip` and does not append `shortcut` again.
+   */
+  tip?: TipKey;
+  /** Sprint 5: why it is disabled, appended to the tip («… . La IA local está apagada…»). */
+  disabledReason?: string;
 }
 
 /** "Label (Keys)" for a tooltip. */
@@ -50,22 +58,49 @@ export function tooltipText(
   return keys ? `${label} (${displayKeys(keys)})` : label;
 }
 
-export function Button({ className, variant, size, tooltip, shortcut, ...props }: ButtonProps) {
+export function Button({
+  className,
+  variant,
+  size,
+  tooltip,
+  shortcut,
+  tip,
+  disabledReason,
+  ...props
+}: ButtonProps) {
   const keys = useSettingsStore((s) => (shortcut ? s.shortcuts[shortcut] : undefined));
   const isIcon = size === "icon" || size === "icon-sm";
   const label =
     tooltip === false
       ? undefined
       : (tooltip ?? (isIcon || shortcut ? (props.title ?? props["aria-label"]) : undefined));
-  const text = tooltipText(label, keys);
+  const reason = props.disabled ? disabledReason : undefined;
+  const text = tip
+    ? tipWithReason(tip, reason)
+    : reason && label
+      ? `${tooltipText(label, keys)}. ${reason}`
+      : // A text button without its own tooltip still explains why it is disabled.
+        (reason ?? tooltipText(label, keys));
   const button = (
     <button
       className={cn(buttonVariants({ variant, size }), className)}
       {...props}
       // The custom tooltip replaces the native one (no double bubble).
       title={text ? undefined : props.title}
+      // Sprint 5: the tooltip text, readable by tests (every icon button explains itself).
+      data-tooltip={text}
+      {...(tip ? { "data-tip": tip } : {})}
     />
   );
+  // A disabled button gets no pointer events: hover its wrapper to read why (Sprint 5).
+  if (text && reason)
+    return (
+      <Tooltip content={text}>
+        <span className="inline-flex" data-disabled-reason>
+          {button}
+        </span>
+      </Tooltip>
+    );
   return text ? <Tooltip content={text}>{button}</Tooltip> : button;
 }
 

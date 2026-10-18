@@ -417,7 +417,7 @@ function OpItem({ index, run }: { index: number; run: OpRunState | undefined }) 
               </Badge>
             ))}
             {needsConfirm(op) ? null : <Badge tone="muted">Sin confirmación</Badge>}
-            {isDestructive(op) && enabled && !locked ? (
+            {isDestructive(op, draft.record.resolved?.[index]) && enabled && !locked ? (
               <Badge tone={draft.confirmed.includes(index) ? "success" : "danger"}>
                 {draft.confirmed.includes(index) ? "Confirmada" : "Requiere confirmación"}
               </Badge>
@@ -529,7 +529,7 @@ function PlanView() {
   const count = enabled.filter(Boolean).length;
   const busy = run?.status === "starting" || run?.status === "running";
   // delete_clip / export: checked by hand AND confirmed with a separate click before «Aplicar».
-  const destructive = destructiveIndexes(ops, enabled);
+  const destructive = destructiveIndexes(ops, enabled, record.resolved);
   const needsConfirmClick = destructive.some((i) => !draft.confirmed.includes(i));
   const canUndo =
     !undone &&

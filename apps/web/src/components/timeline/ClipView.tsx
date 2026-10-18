@@ -7,6 +7,7 @@ import { BLEND_MODE_LABELS, layerSummary } from "@/lib/layers";
 import { fileUrl } from "@/lib/api";
 import { clipDuration, clipEnd, snapClipStart, snapTime } from "@/lib/timeline";
 import { cn } from "@/lib/utils";
+import { templateNameEs } from "@/components/design/texts";
 import { useProjectStore } from "@/stores/project-store";
 import { useKeyframeStore } from "@/stores/keyframe-store";
 import { useSettingsStore, type SnapSettings } from "@/stores/settings-store";
@@ -65,7 +66,7 @@ export function magnetPoints(
 
 export function clipLabel(clip: Clip, asset: MediaAsset | undefined): string {
   if (clip.text !== undefined) return clip.text || "Texto";
-  if (clip.motion) return `Motion · ${clip.motion.template}`;
+  if (clip.motion) return templateNameEs(clip.motion.template); // never the raw template id
   return asset?.name ?? "Clip sin medio";
 }
 

@@ -28,7 +28,6 @@ export interface InputPropsOptions {
   storageDir: string;
   /** e.g. http://127.0.0.1:3001/files/ (serves STORAGE_DIR). */
   mediaBaseUrl: string;
-  fontMode?: "google" | "system";
   /**
    * Sprint 6 M2: brand-kit tokens for the template (`__design`) and the caption pagination.
    * Absent = the provider set with setDesignTokensProvider (the api's kit); null = no kit.
@@ -169,7 +168,6 @@ export async function buildInputProps(
     __height: spec.height,
     __fps: spec.fps,
     __durationInFrames: Math.max(1, Math.round(spec.durationSec * spec.fps)),
-    __fontMode: opts.fontMode ?? "system",
   };
   const tokens = currentTokens(opts);
   if (tokens) {

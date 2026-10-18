@@ -7,6 +7,7 @@ import {
   FileAudio,
   FileVideo,
   Image as ImageIcon,
+  Lightbulb,
   Plus,
   RefreshCw,
   Scan,
@@ -29,6 +30,7 @@ import {
 import { Dialog } from "@/components/ui/dialog";
 import { saveProjectNow } from "@/hooks/use-project-sync";
 import { api, ApiRequestError, errorMessage, fileUrl, isNotImplemented } from "@/lib/api";
+import { suggestionsApi } from "@/lib/api-suggestions";
 import { formatBytes, formatTime } from "@/lib/format";
 import { suggestCanvasFit } from "@/lib/canvas-fit";
 import { announceFirstVideoAdjust } from "@/components/timeline/auto-adjust";
@@ -161,7 +163,7 @@ function MediaItem({ asset, selected }: { asset: MediaAsset; selected: boolean }
   // BEGIN sprint6:M3 (MEJORAS B15) — a medium whose probe failed: red mark + «Quitar»
   const probeError = useMediaStore((s) => s.unreadable[asset.id]);
   const liveProbeError = useJobsStore((s) => probeFailureOf(s.jobs, asset.id));
-  const unreadable = liveProbeError ?? probeError;
+  const unreadable = liveProbeError ?? asset.probeError ?? probeError;
   // END sprint6:M3
   const motionRender = isMotionRenderAsset(asset);
   // Proxies only help videos the browser plays from media/ (not renders, images or audio).
@@ -173,6 +175,17 @@ function MediaItem({ asset, selected }: { asset: MediaAsset; selected: boolean }
       toast.info("Generando proxy…");
     } catch (err) {
       toast.error("No se pudo generar el proxy", { description: errorMessage(err) });
+    }
+  };
+
+  const analyze = async () => {
+    try {
+      await suggestionsApi.analyze(asset.id, { force: true });
+      toast.info(`Analizando «${asset.name}»`, {
+        description: "Si encuentra algo para mejorar, aparece en Sugerencias (Asistente).",
+      });
+    } catch (err) {
+      toast.error("No se pudo analizar", { description: errorMessage(err) });
     }
   };
 
@@ -220,7 +233,7 @@ function MediaItem({ asset, selected }: { asset: MediaAsset; selected: boolean }
               size="xs"
               variant="ghost"
               className="h-5 px-1 text-[11px]"
-              tooltip="Quita este medio de la biblioteca (el archivo no se puede usar)"
+              tip="mediaUnreadableRemove"
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
@@ -260,6 +273,23 @@ function MediaItem({ asset, selected }: { asset: MediaAsset; selected: boolean }
             }}
           >
             <Plus />
+          </Button>
+        ) : null}
+        {/* Integration S6: «Medios → Analizar» (the suggestion cards and SUGGESTION_STALE point here) */}
+        {(asset.kind === "video" || asset.kind === "audio") && !motionRender && !unreadable ? (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Analizar ${asset.name}`}
+            tip="mediaAnalyze"
+            data-testid="media-analyze"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              void analyze();
+            }}
+          >
+            <Lightbulb />
           </Button>
         ) : null}
         {proxyApplies && !unreadable ? (

@@ -28,7 +28,7 @@ describe.skipIf(!browserPresent())("remotion render (integration)", () => {
     { timeout: 300_000 },
     async () => {
       dir = await mkdtemp(path.join(os.tmpdir(), "studio-remotion-"));
-      configureRemotionRenderer({ fontMode: "system", concurrency: 2 });
+      configureRemotionRenderer({ concurrency: 2 });
       const phases = new Set<string>();
       const base = { durationSec: 0.5, fps: 30, width: 320, height: 180 };
       for (const [template, format, out] of [

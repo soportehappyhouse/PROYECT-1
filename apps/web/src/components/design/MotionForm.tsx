@@ -33,22 +33,8 @@ import { useJobsStore } from "@/stores/jobs-store";
 import { useProjectStore } from "@/stores/project-store";
 import { SafeZoneOverlay } from "./SafeZoneCalibrator";
 
-/** Spanish names of the built-in templates (raw ids are never shown). */
-export const TEMPLATE_NAMES_ES: Record<string, string> = {
-  "title-card": "Título",
-  "lower-third": "Rótulo",
-  "animated-captions": "Subtítulos animados",
-  transition: "Transición",
-  "audio-visualizer": "Visualizador de audio",
-  "lottie-overlay": "Animación Lottie",
-  "end-screen": "Pantalla final",
-  "progress-bar": "Barra de progreso",
-  "kinetic-typography": "Tipografía cinética",
-};
-
-export function templateNameEs(id: string | undefined): string {
-  return (id && TEMPLATE_NAMES_ES[id]) ?? "Gráfico";
-}
+// Integration S6: the names live in ./texts (ClipView shows them without the whole form).
+export { TEMPLATE_NAMES_ES, templateNameEs } from "./texts";
 
 /** Output formats in plain Spanish (shown only inside «Avanzado»). */
 export const FORMAT_LABELS_ES: Record<MotionOutputFormat, string> = {

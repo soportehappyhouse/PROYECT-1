@@ -183,7 +183,7 @@ export function ScriptPanel() {
         size="xs"
         data-testid="script-remove-safe"
         disabled={st.busy || script.stats.fillers.safe === 0}
-        tooltip="Quita todas las muletillas seguras («eh», «em», repeticiones) en un solo paso de deshacer (Mayús+M)"
+        tip="scriptRemoveSafe"
         onClick={() => void st.removeSafe()}
       >
         <Wand2 />{" "}
@@ -194,7 +194,7 @@ export function ScriptPanel() {
         variant="outline"
         data-testid="script-review"
         disabled={review === 0 && script.stats.long_pauses === 0}
-        tooltip="Salta a la siguiente muletilla probable o dudosa, o a una pausa larga (. siguiente, , anterior)"
+        tip="scriptReviewDoubtful"
         onClick={() => jump(1)}
       >
         {SCRIPT_PANEL_TEXTS_ES.reviewDoubtful.replace("{n}", String(review))}
@@ -204,7 +204,7 @@ export function ScriptPanel() {
         variant="outline"
         data-testid="script-shorten-pauses"
         disabled={st.busy || script.stats.long_pauses === 0}
-        tooltip="Deja en 0,25 s cada pausa de más de 0,6 s (un paso de deshacer)"
+        tip="scriptShortenPauses"
         onClick={() => void st.shortenPauses()}
       >
         <Timer />
@@ -215,7 +215,7 @@ export function ScriptPanel() {
         variant="outline"
         data-testid="script-delete"
         disabled={st.busy || st.selected.length === 0}
-        tooltip="Borra las palabras elegidas y cierra el hueco en todas las pistas (Supr)"
+        tip="scriptDelete"
         onClick={() => void st.deleteSelection()}
       >
         <Scissors /> {SCRIPT_PANEL_TEXTS_ES.deleteSelection}
@@ -247,7 +247,7 @@ export function ScriptPanel() {
           type="submit"
           variant="secondary"
           disabled={st.busy || !target}
-          tooltip="Propone qué pausas y muletillas quitar para llegar a esa duración (no aplica nada todavía)"
+          tip="scriptFit"
         >
           <Sparkles /> {SCRIPT_PANEL_TEXTS_ES.fitPreview}
         </Button>
@@ -277,7 +277,7 @@ export function ScriptPanel() {
                     ? "Primero agregá un video o un audio con voz a la línea de tiempo"
                     : undefined
               }
-              tooltip="Transcribe palabra por palabra (sin quitar los «eh») para editar el video como texto"
+              tip="scriptTranscribe"
               onClick={() => target_clip && void st.transcribe(target_clip.id)}
             >
               <Mic /> {SCRIPT_PANEL_TEXTS_ES.transcribe}
@@ -288,7 +288,7 @@ export function ScriptPanel() {
         <>
           {script.stale ? (
             <p role="alert" className="mb-2 rounded border border-amber-500 p-2 text-xs">
-              {SCRIPT_PANEL_TEXTS_ES.stale}
+              {SCRIPT_TEXTS_ES.stale}
             </p>
           ) : null}
           <p className="mb-2 text-xs text-muted-foreground" data-testid="script-stats">
@@ -329,7 +329,7 @@ export function ScriptPanel() {
                   size="xs"
                   data-testid="script-fit-apply"
                   disabled={choices.length === 0 || (needsConfirm && !sentencesOk)}
-                  tooltip="Aplica la propuesta como un plan del Asistente (queda en el historial y se puede deshacer todo)"
+                  tip="scriptFitApply"
                   onClick={() => void st.applyFit(sentencesOk)}
                 >
                   {SCRIPT_PANEL_TEXTS_ES.fitApply}

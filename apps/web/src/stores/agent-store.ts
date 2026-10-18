@@ -156,7 +156,9 @@ function draftOf(record: AgentPlanRecord): PlanDraft {
     ops: ops.map((op) => ({ ...op })),
     // An op the api could not resolve (resolved[i] === null) starts unchecked, and so do the
     // destructive ones (delete_clip / export): the user checks them and confirms them apart.
-    enabled: ops.map((op, i) => record.resolved?.[i] !== null && !isDestructive(op)),
+    enabled: ops.map(
+      (op, i) => record.resolved?.[i] !== null && !isDestructive(op, record.resolved?.[i]),
+    ),
     answers: (record.plan?.questions ?? []).map(() => ""),
     confirmed: [],
   };
@@ -333,13 +335,14 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     if (!d) return;
     const enabled = d.enabled.map((v, i) => (i === index ? (on ?? !v) : v));
     // Checking or unchecking a delete/export op asks for the confirmation again.
-    const confirmed = d.ops[index] && isDestructive(d.ops[index]) ? [] : d.confirmed;
+    const confirmed =
+      d.ops[index] && isDestructive(d.ops[index], d.record.resolved?.[index]) ? [] : d.confirmed;
     set({ draft: { ...d, enabled, confirmed } });
   },
   confirmDestructive: () => {
     const d = get().draft;
     if (!d) return;
-    const confirmed = destructiveIndexes(d.ops, d.enabled);
+    const confirmed = destructiveIndexes(d.ops, d.enabled, d.record.resolved);
     addBreadcrumb("ui", "Asistente: confirmar borrado/exportación", { ops: confirmed.length });
     set({ draft: { ...d, confirmed } });
   },
@@ -378,7 +381,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       toast.message("Marcá al menos una operación para aplicar");
       return;
     }
-    const pendingConfirm = destructiveIndexes(d.ops, d.enabled).filter(
+    const pendingConfirm = destructiveIndexes(d.ops, d.enabled, d.record.resolved).filter(
       (i) => !d.confirmed.includes(i),
     );
     if (pendingConfirm.length > 0) {

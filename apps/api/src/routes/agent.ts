@@ -7,7 +7,7 @@ import {
   AgentEvalRequestSchema,
   AgentPlanRequestSchema,
   AgentUndoRequestSchema,
-  ALWAYS_CONFIRM_OPS,
+  opNeedsSeparateConfirm,
   API_ROUTES,
   PACK_REQUIRED,
   WORKERS_DOWN_ES,
@@ -314,10 +314,11 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
     const outOfRange = ops.filter((i) => i >= total);
     if (outOfRange.length)
       throw new HttpError(400, "BAD_REQUEST", `Operaciones inexistentes: ${outOfRange.join(", ")}`);
-    // Destructive ops (delete_clip / export) run only with the separate confirmation click.
+    // Destructive ops (delete_clip / export / face_swap) and the ones the resolver marked
+    // `confirm: true` (Sprint 6: cuts of sentences or > 20 %) run only with the separate click.
     const confirmed = new Set(body.confirmedIndexes ?? []);
     const unconfirmed = ops.filter(
-      (i) => ALWAYS_CONFIRM_OPS.includes(plan.ops[i]!.op) && !confirmed.has(i),
+      (i) => opNeedsSeparateConfirm(plan.ops[i]!, record.resolved[i]) && !confirmed.has(i),
     );
     if (unconfirmed.length)
       throw new HttpError(
@@ -325,7 +326,9 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
         "CONFIRM_REQUIRED",
         `Confirmá aparte ${unconfirmed
           .map((i) => `la operación ${i + 1} (${opTitle(plan.ops[i]!).toLowerCase()})`)
-          .join(" y ")}: borrar y exportar necesitan «Confirmar borrado/exportación».`,
+          .join(
+            " y ",
+          )}: borrar, quitar partes grandes del video y exportar necesitan la confirmación aparte.`,
         { indexes: unconfirmed },
       );
     const pending = ops.filter((i) => record.resolved[i] == null);

@@ -68,6 +68,8 @@ export const MediaAssetSchema = z.object({
   aiAltered: z.boolean().optional(),
   /** Sprint 4: what generated it (traceability; the export writes a `comment` without ids/names). */
   aiProvenance: AiProvenanceSchema.optional(),
+  /** Sprint 6 (MEJORAS B15): why the last media.probe failed (cleared by a successful probe). */
+  probeError: z.string().max(500).optional(),
   createdAt: TimestampSchema,
 });
 export type MediaAsset = z.infer<typeof MediaAssetSchema>;

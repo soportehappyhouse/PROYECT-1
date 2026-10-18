@@ -1,4 +1,4 @@
-import { ALWAYS_CONFIRM_OPS, type Job } from "@studio/shared";
+import { ALWAYS_CONFIRM_OPS, opNeedsSeparateConfirm, type Job } from "@studio/shared";
 import type {
   AgentApplyRequest,
   AgentApplyResult,
@@ -89,12 +89,25 @@ export function needsConfirm(op: EditOp): boolean {
   return ALWAYS_CONFIRM.has(op.op) || op.confirm !== false;
 }
 
-/** delete_clip / export: start unchecked and need the separate «Confirmar borrado/exportación». */
-export const isDestructive = (op: Pick<EditOp, "op">): boolean => ALWAYS_CONFIRM.has(op.op);
+/**
+ * delete_clip / export / face_swap, and (Sprint 6) the ops the api resolver marked `confirm: true`
+ * (`resolved` = `record.resolved[i]`: cuts of sentences or > 20 %): start unchecked and need the
+ * separate «Confirmar …» click (same rule as the api, `opNeedsSeparateConfirm`).
+ */
+export const isDestructive = (
+  op: Pick<EditOp, "op">,
+  resolved?: { confirm?: boolean | undefined } | null,
+): boolean => opNeedsSeparateConfirm(op, resolved);
 
 /** Checked destructive ops (plan indexes): what «Confirmar borrado/exportación» confirms. */
-export function destructiveIndexes(ops: readonly EditOp[], enabled: readonly boolean[]): number[] {
-  return ops.map((op, i) => (enabled[i] && isDestructive(op) ? i : -1)).filter((i) => i >= 0);
+export function destructiveIndexes(
+  ops: readonly EditOp[],
+  enabled: readonly boolean[],
+  resolved: readonly (EditOp | null)[] = [],
+): number[] {
+  return ops
+    .map((op, i) => (enabled[i] && isDestructive(op, resolved[i]) ? i : -1))
+    .filter((i) => i >= 0);
 }
 
 /** Label of the confirmation button for the checked destructive ops. */
@@ -108,6 +121,8 @@ export function confirmDestructiveLabel(
     kinds.has("export") && "exportación",
     // Sprint 4: face_swap is in ALWAYS_CONFIRM_OPS (consent + nobody in the video is a minor).
     kinds.has("face_swap") && "cambio de cara",
+    // Sprint 6: delete_words / fit_duration marked confirm:true by the resolver.
+    (kinds.has("delete_words") || kinds.has("fit_duration")) && "recorte",
   ].filter(Boolean);
   return `Confirmar ${parts.length > 0 ? parts.join("/") : "exportación"}`;
 }

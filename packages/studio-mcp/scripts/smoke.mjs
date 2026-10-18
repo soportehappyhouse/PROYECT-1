@@ -54,7 +54,7 @@ try {
     console.log(`${process.env.SMOKE_CALL} →`, res.content?.[0]?.text?.slice(0, 600));
   }
   child.kill();
-  process.exit(tools.length >= 18 ? 0 : 1); // sprint 4: + studio_list_persons, studio_face_swap
+  process.exit(tools.length >= 19 ? 0 : 1); // sprint 4: + studio_list_persons, studio_face_swap; sprint 6: + studio_design_check
 } catch (err) {
   console.error(String(err));
   child.kill();

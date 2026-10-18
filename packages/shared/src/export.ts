@@ -96,6 +96,10 @@ export const ExportJobResultSchema = z.object({
   ducked: z.object({ voiceTracks: z.number().int(), musicTracks: z.number().int() }).optional(),
   /** Warning codes, e.g. LOUDNESS_MEASURE_FAILED (the job still succeeds). */
   warnings: z.array(z.string()).optional(),
+  /** Sprint 6: motion clips rendered by the export because they had no render. */
+  motionRendered: z.number().int().optional(),
+  /** Sprint 6: hard design rules fixed when generating captions/titles (DESIGN_AUTOFIXED {n}). */
+  designFixed: z.number().int().optional(),
 });
 export type ExportJobResult = z.infer<typeof ExportJobResultSchema>;
 

@@ -22,8 +22,9 @@ describe("MotionSpec -> inputProps", () => {
       __height: 1920,
       __fps: 25,
       __durationInFrames: 63,
-      __fontMode: "system",
     });
+    // Integration S6: fonts are bundled, the old Google Fonts switch is gone.
+    expect(props).not.toHaveProperty("__fontMode");
   });
 
   it("turns media refs into encoded /files URLs", async () => {

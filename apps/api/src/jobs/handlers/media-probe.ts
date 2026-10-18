@@ -53,7 +53,17 @@ export function createMediaProbeHandler(
       const { signal } = ctx;
       const log = ctx.log;
       ctx.reportProgress(0.05, "Analizando con ffprobe");
-      const info = await app.ffmpeg.probe(input, signal);
+      let info;
+      try {
+        info = await app.ffmpeg.probe(input, signal);
+      } catch (err) {
+        // Sprint 6 (B15): the media list shows «No se pudo leer» with the cause after a reload.
+        if (!signal.aborted)
+          app.repos.media.update(assetId, {
+            probeError: (err instanceof Error ? err.message : String(err)).slice(0, 500),
+          });
+        throw err;
+      }
       const { raw, ...meta } = info;
       const ext = asset.path.split(".").pop()?.toLowerCase() ?? "";
       const patch: Partial<MediaAsset> = {
@@ -71,6 +81,7 @@ export function createMediaProbeHandler(
         ...(meta.audioCodec && { audioCodec: meta.audioCodec }),
         ...(!asset.mimeType && EXT_MIME[ext] && { mimeType: EXT_MIME[ext] }),
         ...aiFromComment(asset, raw),
+        probeError: undefined,
       };
       let current = app.repos.media.update(assetId, patch, raw);
       const paths = derivativePaths(assetId);

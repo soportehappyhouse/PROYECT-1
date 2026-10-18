@@ -248,7 +248,7 @@ describe("api routes (no ffmpeg)", () => {
     expect((await app.inject({ method: "GET", url: item })).statusCode).toBe(404);
   });
 
-  it("B3/B4: media in use is not deleted and exports refuse orphan or unrendered clips", async () => {
+  it("B3/B4: media in use is not deleted and exports refuse orphan or unrenderable clips", async () => {
     const { payload, headers } = await multipart("toma.mp3", "0123", "audio/mpeg");
     const asset = (
       await app.inject({ method: "POST", url: API_ROUTES.media, payload, headers })
@@ -272,7 +272,8 @@ describe("api routes (no ffmpeg)", () => {
               trackId: "tm",
               start: 1,
               out: 2,
-              motion: { template: "title-card", durationSec: 2 },
+              // Sprint 6: a renderable spec is rendered by the export; one the engines reject blocks.
+              motion: { template: "no-such-template", durationSec: 2 },
             },
           ],
         },
@@ -299,9 +300,10 @@ describe("api routes (no ffmpeg)", () => {
     });
     expect(unrendered.statusCode).toBe(409);
     expect(unrendered.json().error.code).toBe("EXPORT_BLOCKED");
-    expect(unrendered.json().error.details.problems).toEqual([
-      "Motion «title-card» sin renderizar («Motion 1» en 1,0 s)",
-    ]);
+    expect(unrendered.json().error.details.problems).toHaveLength(1);
+    expect(unrendered.json().error.details.problems[0]).toMatch(
+      /^Motion «no-such-template» no se puede renderizar/,
+    );
 
     expect((await app.inject({ method: "DELETE", url: `${item}?force=1` })).statusCode).toBe(204);
     const orphan = await app.inject({

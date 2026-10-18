@@ -1,4 +1,9 @@
-import { visibleSuggestions, type ImportSuggestion, type SuggestionKind } from "@studio/shared";
+import {
+  SUGGESTION_TEXTS_ES,
+  visibleSuggestions,
+  type ImportSuggestion,
+  type SuggestionKind,
+} from "@studio/shared";
 import { toast } from "sonner";
 import { create } from "zustand";
 import { saveProjectNow } from "@/hooks/use-project-sync";
@@ -108,19 +113,18 @@ export function selectVisibleSuggestions(s: Pick<SuggestionsState, "suggestions"
 /** «Analizando 2 medios…» (null when nothing is being analyzed). */
 export function analyzingText(n: number): string | null {
   if (n <= 0) return null;
-  return n === 1 ? "Analizando 1 medio…" : `Analizando ${n} medios…`;
+  return n === 1 ? "Analizando 1 medio…" : SUGGESTION_TEXTS_ES.analyzing.replace("{n}", String(n));
 }
 
 // ---- wiring (browser only) ---------------------------------------------------------------------
 
 if (typeof window !== "undefined") {
-  // Background analyses finish silently (no toast per analysis, decision 11): mark them handled
-  // as soon as the Jobs store sees them; reload the cards when one ends.
+  // Background analyses finish silently (no toast, `use-job-events` isBackgroundJobType; the
+  // «Analizando N medios…» line is in the JobsIndicator): reload the cards when one ends.
   useJobsStore.subscribe((state, prev) => {
     let ended = false;
     for (const [id, job] of Object.entries(state.jobs)) {
       if (job.type !== SUGGESTION_JOB) continue;
-      if (!state.handled[id]) useJobsStore.getState().markHandled(id);
       const before = prev.jobs[id]?.status;
       if (before !== job.status) {
         if (["succeeded", "failed", "canceled"].includes(job.status)) ended = true;

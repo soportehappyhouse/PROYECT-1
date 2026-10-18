@@ -46,6 +46,12 @@
                 "description": "También cortar muletillas (eh, este, o sea).",
                 "type": "boolean"
               },
+              "noise_db": {
+                "description": "Umbral de silencio en dBFS (por defecto -35). Las sugerencias pasan el que midieron.",
+                "type": "number",
+                "minimum": -60,
+                "maximum": -20
+              },
               "confirm": {
                 "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
                 "type": "boolean"

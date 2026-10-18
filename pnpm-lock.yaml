@@ -379,9 +379,6 @@ importers:
       '@remotion/captions':
         specifier: 4.0.532
         version: 4.0.532
-      '@remotion/google-fonts':
-        specifier: 4.0.532
-        version: 4.0.532(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@remotion/lottie':
         specifier: 4.0.532
         version: 4.0.532(lottie-web@5.13.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -1624,9 +1621,6 @@ packages:
 
   '@remotion/elevenlabs@4.0.532':
     resolution: {integrity: sha512-WTnWQ+obrURlIXZqKaTehd69eYwMpWLwlVv/QRnd7XKicMzhIsxw6XXK3muFXn3kyltJV6A97NTiF0g7T92TQw==}
-
-  '@remotion/google-fonts@4.0.532':
-    resolution: {integrity: sha512-zwjQ7OD4x9SFcuvf8mFXqNxcYnPULF/rWy88vNFZRMu4fMJcGu+o+9IyGMt+WdLC4gyA9VpCF+LMxK0bU23a/g==}
 
   '@remotion/licensing@4.0.532':
     resolution: {integrity: sha512-rVFt+XpEn4X5aOiy1DDCjJeUKgGey1ftYK812W8iEBZkcl6hlb1eq9SyQTIX0JlTtMzdJrev6+jLSnLCOj69OQ==}
@@ -5385,13 +5379,6 @@ snapshots:
     dependencies:
       '@remotion/captions': 4.0.532
       zod: 4.5.4
-
-  '@remotion/google-fonts@4.0.532(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
-    dependencies:
-      remotion: 4.0.532(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-    transitivePeerDependencies:
-      - react
-      - react-dom
 
   '@remotion/licensing@4.0.532': {}
 

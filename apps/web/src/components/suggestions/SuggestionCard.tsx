@@ -5,13 +5,10 @@ import { AudioLines, BellOff, Check, Scissors, TriangleAlert, Volume2, X } from 
 import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge, Section, Spinner } from "@/components/ui/misc";
+import { TIPS } from "@/lib/tooltips";
 import { cn } from "@/lib/utils";
 import { useProjectStore } from "@/stores/project-store";
-import {
-  analyzingText,
-  selectVisibleSuggestions,
-  useSuggestionsStore,
-} from "@/stores/suggestions-store";
+import { selectVisibleSuggestions, useSuggestionsStore } from "@/stores/suggestions-store";
 
 const T = SUGGESTION_UI_ES;
 
@@ -49,8 +46,8 @@ export function EvidenceBar({
   return (
     <div
       className="relative h-2 w-full overflow-hidden rounded-full bg-muted"
-      title={T.evidenceTip}
-      aria-label={T.evidenceTip}
+      title={TIPS.suggestionEvidence}
+      aria-label={TIPS.suggestionEvidence}
       role="img"
       data-testid="suggestion-evidence"
     >
@@ -93,7 +90,7 @@ export function SuggestionCard({ suggestion }: { suggestion: ImportSuggestion })
           ) : null}
         </div>
         {stale ? (
-          <Badge tone="muted" title={T.staleTip}>
+          <Badge tone="muted" title={TIPS.suggestionStale}>
             <TriangleAlert className="mr-0.5 inline size-3" aria-hidden />
             {T.stale}
           </Badge>
@@ -106,7 +103,7 @@ export function SuggestionCard({ suggestion }: { suggestion: ImportSuggestion })
         <Button
           size="xs"
           disabled={stale || anyBusy}
-          tooltip={stale ? T.staleTip : T.applyTip}
+          tip={stale ? "suggestionStale" : "suggestionApply"}
           data-testid="suggestion-apply"
           onClick={() => void apply(suggestion.id)}
         >
@@ -115,7 +112,7 @@ export function SuggestionCard({ suggestion }: { suggestion: ImportSuggestion })
         <Button
           size="xs"
           variant="ghost"
-          tooltip={T.dismissTip}
+          tip="suggestionDismiss"
           data-testid="suggestion-dismiss"
           onClick={() => void dismiss(suggestion.id)}
         >
@@ -125,7 +122,7 @@ export function SuggestionCard({ suggestion }: { suggestion: ImportSuggestion })
           size="xs"
           variant="ghost"
           className="ml-auto text-muted-foreground"
-          tooltip={T.muteTip}
+          tip="suggestionMute"
           data-testid="suggestion-mute"
           onClick={() => void dismiss(suggestion.id, true)}
         >
@@ -145,26 +142,15 @@ export function SuggestionCard({ suggestion }: { suggestion: ImportSuggestion })
 export function SuggestionsSection() {
   const projectId = useProjectStore((s) => s.project.id);
   const cards = useSuggestionsStore(selectVisibleSuggestionsShallow);
-  const analyzing = useSuggestionsStore((s) => s.analyzing.length);
   useEffect(() => {
     void useSuggestionsStore.getState().load(projectId);
   }, [projectId]);
-  const working = analyzingText(analyzing);
-  if (cards.length === 0 && !working) return null;
+  // «Analizando N medios…» lives in the JobsIndicator (integration S6, M3 cross request 5).
+  if (cards.length === 0) return null;
   return (
     <Section title={T.section}>
       <div className="flex flex-col gap-2" data-testid="suggestions">
         <p className="text-[11px] text-muted-foreground">{T.sectionHelp}</p>
-        {working ? (
-          <p
-            className="flex items-center gap-1.5 text-[11px] text-muted-foreground"
-            aria-live="polite"
-            title={T.analyzingTip}
-            data-testid="suggestions-analyzing"
-          >
-            <Spinner className="size-3" /> {working}
-          </p>
-        ) : null}
         {cards.length ? (
           <ul className="flex flex-col gap-2" aria-label={T.section}>
             {cards.map((s) => (

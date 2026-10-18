@@ -1,4 +1,4 @@
-import type { AgentPlanRecord, Job } from "@studio/shared";
+import type { AgentPlanRecord, EditOp, Job } from "@studio/shared";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runAction } from "@/components/dashboard/actions";
@@ -684,6 +684,11 @@ describe("lib/agent", () => {
     expect(destructiveIndexes(ops, [true, true, true])).toEqual([1, 2]);
     expect(confirmDestructiveLabel(ops, [1])).toBe("Confirmar borrado");
     expect(confirmDestructiveLabel(ops, [1, 2])).toBe("Confirmar borrado/exportación");
+    // Integration S6: the resolver's confirm:true (fit_duration with sentences / > 20 %) counts too.
+    const fit = [{ op: "fit_duration", target_s: 30 }] as EditOp[];
+    expect(destructiveIndexes(fit, [true])).toEqual([]);
+    expect(destructiveIndexes(fit, [true], [{ ...fit[0]!, confirm: true } as EditOp])).toEqual([0]);
+    expect(confirmDestructiveLabel(fit, [0])).toBe("Confirmar recorte");
   });
 
   it("parses times, appends answers, keeps a deduplicated history", () => {

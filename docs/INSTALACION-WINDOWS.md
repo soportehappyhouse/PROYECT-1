@@ -249,8 +249,8 @@ sonidos y abre **http://localhost:3000** en el navegador.
 - Los puertos se cambian en `.env` (`WEB_PORT`, `API_PORT`, `WORKERS_PORT`). Las URLs internas
   (`NEXT_PUBLIC_API_URL`, `WORKERS_URL`) usan `127.0.0.1`, no `localhost`, porque los servicios
   escuchan solo en `127.0.0.1`.
-- Los gráficos de Remotion usan fuentes del sistema (`REMOTION_FONTS=system`, funciona sin
-  internet); `REMOTION_FONTS=google` descarga Google Fonts la primera vez.
+- Los gráficos, los subtítulos y la vista previa usan las 10 tipografías que vienen con Studio
+  (`packages/remotion/public/fonts`, licencia OFL): nada se descarga y todo funciona sin internet.
 
 Si aparece el **Firewall de Windows** preguntando por `node.exe` o `python.exe`: todo escucha solo en
 `127.0.0.1`, así que podés elegir **Cancelar** (o solo "Redes privadas").

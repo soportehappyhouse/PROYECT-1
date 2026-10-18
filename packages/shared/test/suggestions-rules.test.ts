@@ -77,7 +77,14 @@ describe("suggestionsFromAnalysis — silences", () => {
     expect(s.evidence?.ranges).toEqual(sil);
     expect(s.clipIds).toEqual(["c0"]);
     expect(EditPlanSchema.parse(s.plan).ops).toEqual([
-      { op: "cut_silences", clip: { id: "c0" }, min_silence_ms: 500, fillers: false },
+      // the measured threshold travels with the plan (integration S6)
+      {
+        op: "cut_silences",
+        clip: { id: "c0" },
+        min_silence_ms: 500,
+        fillers: false,
+        noise_db: -50,
+      },
     ]);
     expect(() => complete(s)).not.toThrow();
   });

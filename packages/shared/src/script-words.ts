@@ -18,6 +18,7 @@ import {
   type Word,
 } from "./script.js";
 import type { SubtitleSegment, SubtitleWord } from "./subtitles.js";
+import { SCRIPT_PANEL_TEXTS_ES } from "./texts-es.js";
 import type { Clip, Project, Track } from "./timeline.js";
 
 /**
@@ -47,29 +48,6 @@ export const ACOUSTIC_WORD_BASE = 100000;
 export const SCRIPT_PAUSE_MIN_MS = 250;
 /** A filler «needs_pause» when it has at least this much silence before or after. */
 export const FILLER_CONTEXT_PAUSE_MS = 120;
-
-/** Extra Spanish texts of the Guion panel (SCRIPT_TEXTS_ES lives in texts-es.ts, Paso 0). */
-export const SCRIPT_PANEL_TEXTS_ES = {
-  title: "Guion",
-  transcribe: "Transcribir para el guion",
-  transcribing: "Transcribiendo palabras…",
-  removeSafe: "Quitar seguras ({n})",
-  reviewDoubtful: "Revisar dudosas ({n})",
-  shortenPauses: "Acortar pausas largas ({n})",
-  fitLabel: "Dejalo en",
-  fitPreview: "Ver propuesta",
-  fitApply: "Aplicar",
-  deleteSelection: "Borrar selección",
-  noAudioArtifact:
-    "Sin el análisis de audio no se detectan los «eh» que Whisper no escribe: volvé a transcribir desde el Guion.",
-  acoustic: "(eh)",
-  fixPrompt: "Corregí el texto (los tiempos no se mueven)",
-  deleted: "Borré {n} palabras (−{s} s).",
-  nothingToCut: "No hay nada para cortar con esa selección.",
-  stale:
-    "El guion no coincide con la línea de tiempo. Volvé a transcribir o deshacé el último cambio.",
-  harsh: "Corte brusco: queda sin cortar para no comerse la palabra vecina",
-} as const;
 
 /** Lowercase, no accents, no punctuation (diff and lexicon key). Keeps ñ as n. */
 export function normWord(text: string): string {

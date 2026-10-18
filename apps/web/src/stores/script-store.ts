@@ -11,6 +11,7 @@ import { create } from "zustand";
 import { showPanel } from "@/components/dashboard/dock-controller";
 import { saveProjectNow } from "@/hooks/use-project-sync";
 import { ApiRequestError, errorCode, errorMessage } from "@/lib/api";
+import { isDestructive } from "@/lib/agent";
 import { scriptApi, type ScriptTranscribeResult } from "@/lib/api-script";
 import { createId } from "@/lib/ids";
 import { waitForJob } from "@/lib/job-runner";
@@ -294,7 +295,23 @@ export const useScriptStore = create<ScriptState>()((set, get) => ({
         toast.message("Revisá la propuesta en el Asistente");
         return false;
       }
-      await agent.apply();
+      // Integration S6: ops the resolver marked confirm:true (sentences or > 20 % of the video)
+      // need the separate confirmation, here and in the Asistente.
+      const ops = record.plan?.ops ?? [];
+      const mustConfirm = ops
+        .map((op, i) => (isDestructive(op, record.resolved[i]) ? i : -1))
+        .filter((i) => i >= 0);
+      if (mustConfirm.length > 0) {
+        if (!confirmed) {
+          showPanel("assistant");
+          agent.requestFocus();
+          toast.message("Quita una parte grande del video: confirmalo en el Asistente");
+          return false;
+        }
+        for (const i of mustConfirm) agent.toggleOp(i, true);
+        useAgentStore.getState().confirmDestructive();
+      }
+      await useAgentStore.getState().apply();
       set({ fit: undefined });
       return true;
     } catch (err) {

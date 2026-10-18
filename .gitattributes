@@ -9,3 +9,6 @@
 *.mp3 binary
 *.onnx binary
 *.pth binary
+*.ttf binary
+*.otf binary
+*.woff2 binary

@@ -7,7 +7,7 @@ import {
   type ImportSuggestion,
   type SuggestionKind,
 } from "./suggestions.js";
-import { SUGGESTION_TEXTS_ES } from "./texts-es.js";
+import { SUGGESTION_TEXTS_ES, SUGGESTION_UI_ES } from "./texts-es.js";
 import type { Clip, Project } from "./timeline.js";
 
 /**
@@ -19,33 +19,6 @@ import type { Clip, Project } from "./timeline.js";
 
 /** What suggestionsFromAnalysis returns (the api adds id, status and the dates). */
 export type SuggestionDraft = Omit<ImportSuggestion, "id" | "status" | "created_at" | "updated_at">;
-
-/** UI texts of the cards (Pedido cruzado: move to texts-es.ts in the integration). */
-export const SUGGESTION_UI_ES = {
-  section: "Sugerencias",
-  sectionHelp:
-    "Studio revisó los medios que importaste y encontró cosas que se pueden mejorar. Nada se aplica solo.",
-  apply: "Aplicar",
-  applyTip: "Arma el plan de esta sugerencia y te muestra la vista previa antes de aplicarlo",
-  dismiss: "Ignorar",
-  dismissTip: "Oculta esta sugerencia (no se vuelve a mostrar para este clip)",
-  mute: "No sugerir más",
-  muteTip: "No vuelve a sugerir este tipo de cambio en ningún proyecto (se reactiva en Ajustes)",
-  stale: "El clip cambió desde el análisis",
-  staleTip: "Volvé a analizar el medio (Medios → Analizar) para actualizar la sugerencia",
-  evidenceTip: "Tramos detectados a lo largo del clip",
-  silencesDetail:
-    "Cortar silencios de {min} ms o más con un margen corto antes y después de cada corte.",
-  lowVoiceTitle: "La voz está baja ({lufs} LUFS)",
-  lowVoiceDetail:
-    "Subir {gain} dB la deja cerca de {target} LUFS (nivel normal en redes) sin saturar.",
-  clippingTitle: "El audio satura (pico de {tp} dBTP)",
-  clippingDetail: "Bajar {gain} dB deja el pico en {limit} dBTP (sin distorsión al exportar).",
-  analyzeAction: "Analizar",
-  analyzeTip: "Mide silencios y volumen para proponer sugerencias (trabajo de fondo)",
-  empty: "No hay sugerencias para este proyecto.",
-  analyzingTip: "Trabajo de fondo: nunca demora lo que pedís vos",
-} as const;
 
 /** «3,5» / «−30» (one decimal, comma, typographic minus like the rest of the UI). */
 export function fmtNumEs(n: number, digits = 1): string {
@@ -184,6 +157,8 @@ export function suggestionsFromAnalysis(
             clip: { id: c.id },
             min_silence_ms: T.silence_min_ms,
             fillers: false,
+            // Integration S6 (M3 cross request 2): cut with the threshold the card measured.
+            noise_db: Math.max(-60, Math.min(-20, Math.round(analysis.silence_threshold_db))),
           })),
         ),
       });

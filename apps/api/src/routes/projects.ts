@@ -12,6 +12,7 @@ import {
 } from "@studio/shared";
 import { errorBody } from "../lib/errors.js";
 import { exportBlockersMessage, findExportBlockers } from "../services/ffmpeg/timeline.js";
+import { motionSpecProblems } from "../services/export/motion-prerender.js";
 // BEGIN sprint5:M3
 import { checkExportAspectRequest } from "../services/export/aspect-check.js";
 // END sprint5:M3
@@ -90,8 +91,11 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     if (!project) return reply.code(404).send(notFound());
     if (!repos.presets.get(body.presetId))
       return reply.code(404).send(errorBody("NOT_FOUND", "Preset de exportación no encontrado"));
-    // B3/B4: never drop unrendered motion clips or deleted media silently.
-    const problems = findExportBlockers(project, (id) => !!repos.media.get(id), body.range);
+    // B3/B4: never drop deleted media silently. Sprint 6: unrendered motion clips are rendered
+    // by the export job itself (only a spec the engines reject still blocks).
+    const problems = findExportBlockers(project, (id) => !!repos.media.get(id), body.range, {
+      autoRenderMotion: true,
+    }).concat(motionSpecProblems(app.ctx, project, body.range));
     const blocked = exportBlockersMessage(problems);
     if (blocked) return reply.code(409).send(errorBody("EXPORT_BLOCKED", blocked, { problems }));
     // BEGIN sprint5:M3 (other aspect without a framing: 409 ASPECT_CHOICE_REQUIRED / REFRAME_REQUIRED)

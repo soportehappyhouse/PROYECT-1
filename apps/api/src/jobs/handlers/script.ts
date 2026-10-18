@@ -2,6 +2,7 @@ import { rm } from "node:fs/promises";
 import {
   IdSchema,
   ScriptTranscribeRequestSchema,
+  type ScriptTranscribeResult,
   WorkerSttWordsResultSchema,
   type Clip,
   type Project,
@@ -29,22 +30,6 @@ export const ScriptTranscribePayloadSchema = ScriptTranscribeRequestSchema.exten
   projectId: IdSchema,
 });
 export type ScriptTranscribePayload = z.infer<typeof ScriptTranscribePayloadSchema>;
-
-export interface ScriptTranscribeResult {
-  projectId: string;
-  clipId: string;
-  assetId: string;
-  /** Timeline span whose subtitles were replaced. */
-  range: { start: number; end: number };
-  /** New subtitles of that span (timeline seconds, with words). */
-  segments: SubtitleSegment[];
-  words: number;
-  noise_floor_db: number;
-  gaps: number;
-  voiced_gaps: number;
-  audioPath: string;
-  warnings?: string[];
-}
 
 const clipEnd = (c: Pick<Clip, "start" | "in" | "out" | "speed">) =>
   c.start + Math.max(0, (c.out - c.in) / (c.speed || 1));

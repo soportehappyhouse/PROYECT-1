@@ -781,6 +781,21 @@ function ExportResultCard({ job, onReview }: { job: Job; onReview: () => void })
               </Badge>
             ) : null}
           </span>
+          {result.designFixed ? (
+            <span className="text-[11px] text-muted-foreground" data-testid="export-design-fixed">
+              {formatErrorEs("DESIGN_AUTOFIXED", { n: result.designFixed })}
+            </span>
+          ) : null}
+          {result.motionRendered ? (
+            <span
+              className="text-[11px] text-muted-foreground"
+              data-testid="export-motion-rendered"
+            >
+              {result.motionRendered === 1
+                ? "Rendericé 1 gráfico que estaba sin render."
+                : `Rendericé ${result.motionRendered} gráficos que estaban sin render.`}
+            </span>
+          ) : null}
           {(result.warnings ?? []).includes("LOUDNESS_MEASURE_FAILED") ? (
             <span className="text-[11px] text-amber-700 dark:text-amber-300">
               {formatErrorEs("LOUDNESS_MEASURE_FAILED", { causa: "ver el registro del trabajo" })}

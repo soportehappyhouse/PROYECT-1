@@ -57,3 +57,9 @@ export const LOGO_POSITION_LABELS_ES = {
   "bottom-left": "Abajo a la izquierda",
   "bottom-right": "Abajo a la derecha",
 } as const;
+
+/** Spanish names of the built-in templates (raw ids are never shown; shared with the api). */
+export {
+  MOTION_TEMPLATE_NAMES_ES as TEMPLATE_NAMES_ES,
+  motionTemplateNameEs as templateNameEs,
+} from "@studio/shared";

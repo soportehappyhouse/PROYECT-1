@@ -134,7 +134,9 @@ describe("agent script ops", () => {
     expect(rec.preview_es[0]).toMatch(
       /^Ajustar duración: 60 s → 4[45],\d s \(−[\d,]+ s en \d pausas/,
     );
-    const job = await apply(rec);
+    // −15 s of 60 s (> 20 %): confirm:true from the resolver, enforced by the api.
+    expect(rec.resolved[0]).toMatchObject({ confirm: true });
+    const job = await apply(rec, [0]);
     expect(job.status, job.error ?? "").toBe("succeeded");
     const d = timelineDuration(app.ctx.repos.projects.get(projectId)!);
     expect(d).toBeGreaterThanOrEqual(44.5);
@@ -151,5 +153,15 @@ describe("agent script ops", () => {
     expect(rec.resolved[0]).not.toHaveProperty("confirm");
     expect(rec.resolved[1]).toMatchObject({ op: "fit_duration", confirm: true });
     expect(rec.risks.some((r) => r.startsWith("Quita oraciones enteras"))).toBe(true);
+    // Integration S6: the resolver's confirm:true is enforced by the api like delete/export.
+    const refused = await post(API_ROUTES.agentApply, { planId: rec.id });
+    expect(refused.statusCode, refused.body).toBe(409);
+    expect(refused.json().error).toMatchObject({
+      code: "CONFIRM_REQUIRED",
+      details: { indexes: [1] },
+    });
+    const job = await apply(rec, [1]);
+    expect(job.status, job.error ?? "").toBe("succeeded");
+    await post(buildRoute(API_ROUTES.agentPlanUndo, { id: rec.id }), { force: true });
   });
 });

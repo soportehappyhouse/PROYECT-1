@@ -48,6 +48,7 @@ import { requirePack, viaPacks } from "./ai.js";
 import { pollWorkerTask, WorkerTaskError } from "./util.js";
 // BEGIN sprint5:M3
 import { ExportPresetSchema, libraryRole, type TrackRole } from "@studio/shared";
+import { motionSpecProblems } from "../../services/export/motion-prerender.js";
 import { resolveExportAspect } from "../../services/export/aspect-check.js";
 // END sprint5:M3
 // BEGIN sprint6:M1
@@ -604,7 +605,7 @@ export function createAgentApplyHandler(
               clipId: id,
               options: {
                 minSilenceMs: op.min_silence_ms ?? 500,
-                noiseDb: -35,
+                noiseDb: op.noise_db ?? -35,
                 paddingMs: op.padding_ms ?? 120,
                 fillers: op.fillers ?? true,
               },
@@ -842,8 +843,11 @@ export function createAgentApplyHandler(
       }
       case "export": {
         const project = env.load();
+        // Sprint 6: motion clips without a render are rendered by project.export itself.
         const blocked = exportBlockersMessage(
-          findExportBlockers(project, (id) => !!repos.media.get(id)),
+          findExportBlockers(project, (id) => !!repos.media.get(id), undefined, {
+            autoRenderMotion: true,
+          }).concat(motionSpecProblems(app, project)),
         );
         if (blocked) throw new OpError(blocked);
         // BEGIN sprint5:M3 (framing of another aspect: never blurred bars unless chosen)

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { EditPlanSchema } from "./agent.js";
 import { CutRangeSchema } from "./ai.js";
 import { IdSchema, SecondsSchema } from "./common.js";
-import { TranscriptSchema, WhisperModelSchema } from "./subtitles.js";
+import { SubtitleSegmentSchema, TranscriptSchema, WhisperModelSchema } from "./subtitles.js";
 
 /**
  * Sprint 6 M1 (docs/trabajo/sprint6-contratos.md): word-level script. The single source of word
@@ -301,3 +301,24 @@ export const WorkerSttWordsResultSchema = z.object({
   audio: ScriptAudioSchema,
 });
 export type WorkerSttWordsResult = z.infer<typeof WorkerSttWordsResultSchema>;
+
+/**
+ * Result of the `script.transcribe` job (integration S6: one definition for api and web). The web
+ * applies `segments` to the span `range` in one undo step.
+ */
+export const ScriptTranscribeResultSchema = z.object({
+  projectId: IdSchema,
+  clipId: IdSchema,
+  assetId: IdSchema,
+  /** Timeline span whose subtitles were replaced. */
+  range: z.object({ start: z.number(), end: z.number() }),
+  /** New subtitles of that span (timeline seconds, with words). */
+  segments: z.array(SubtitleSegmentSchema),
+  words: z.int().nonnegative(),
+  noise_floor_db: z.number(),
+  gaps: z.int().nonnegative(),
+  voiced_gaps: z.int().nonnegative(),
+  audioPath: z.string(),
+  warnings: z.array(z.string()).optional(),
+});
+export type ScriptTranscribeResult = z.infer<typeof ScriptTranscribeResultSchema>;

@@ -176,11 +176,14 @@ export function timelineDuration(project: Project): number {
 /**
  * Clips the export would otherwise drop silently (B3/B4): motion clips without a render and clips
  * whose media was deleted. Only exported tracks and clips overlapping `range` count. Spanish lines.
+ * Sprint 6: with `autoRenderMotion` a motion clip that still has its spec is not a blocker (the
+ * export job renders it first, `services/export/motion-prerender.ts`).
  */
 export function findExportBlockers(
   project: Pick<Project, "tracks">,
   hasAsset: (id: string) => boolean,
   range?: { start: number; end: number },
+  opts: { autoRenderMotion?: boolean } = {},
 ): string[] {
   const out: string[] = [];
   const at = (t: number) => `${t.toFixed(1).replace(".", ",")} s`;
@@ -193,8 +196,10 @@ export function findExportBlockers(
       if (track.kind === "motion") {
         const id = c.renderedAssetId ?? c.assetId;
         if (id && hasAsset(id)) continue;
-        if (c.motion) out.push(`Motion «${c.motion.template}» sin renderizar (${where})`);
-        else if (id) out.push(`El render ${id} ya no existe (${where})`);
+        if (c.motion) {
+          if (!opts.autoRenderMotion)
+            out.push(`Motion «${c.motion.template}» sin renderizar (${where})`);
+        } else if (id) out.push(`El render ${id} ya no existe (${where})`);
       } else if (c.assetId && !hasAsset(c.assetId)) {
         out.push(`El medio ${c.assetId} fue borrado (${where})`);
       }

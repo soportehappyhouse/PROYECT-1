@@ -73,16 +73,32 @@ export const TIPS = {
   kitResetToken: "Volver al valor del kit de marca (tipografía o color del canal)",
   designCheck: "Revisar las 10 reglas de diseño de subtítulos y títulos del proyecto",
   designFix: "Arreglar solas las reglas que se corrigen automáticamente (un paso de deshacer)",
-  motionRenderNow: "Hacer el video del gráfico ahora (hace falta para exportar)",
+  motionRenderNow: "Hacer el video del gráfico ahora (si no, se hace solo al exportar)",
   engineFix: "Ver qué hacer para que el motor de animación funcione",
   // Sprint 6 M3 (pedido cruzado de modulo-sprint6-sugerencias.md)
   suggestionApply:
     "Armar el plan de esta sugerencia para revisarlo y aplicarlo (se puede deshacer)",
   suggestionDismiss: "Ocultar esta sugerencia; el video no cambia",
   suggestionMute: "No sugerir más este tipo de arreglo (se reactiva en Ajustes)",
-  suggestionStale: "El clip cambió desde el análisis: volvé a analizarlo para actualizarla",
-  suggestionEvidence: "Ver en la línea de tiempo dónde está lo que encontró el análisis",
+  suggestionStale:
+    "El clip cambió desde el análisis: volvé a analizarlo (Medios → Analizar) para actualizarla",
+  suggestionEvidence: "Tramos que encontró el análisis a lo largo del clip",
   mediaUnreadableRemove: "Quitar este medio: Studio no pudo leer el archivo",
+  // Integración S6: Medios → Analizar y pedidos de M1 (panel Guion)
+  mediaAnalyze:
+    "Buscar silencios largos, voz baja o audio que satura y proponer sugerencias (trabajo de fondo)",
+  scriptRemoveSafe:
+    "Quita todas las muletillas seguras («eh», «em», repeticiones) en un solo paso de deshacer (Mayús+M)",
+  scriptReviewDoubtful:
+    "Salta a la siguiente muletilla probable o dudosa, o a una pausa larga (. siguiente, , anterior)",
+  scriptShortenPauses: "Deja en 0,25 s cada pausa de más de 0,6 s (un paso de deshacer)",
+  scriptDelete: "Borra las palabras elegidas y cierra el hueco en todas las pistas (Supr)",
+  scriptFit:
+    "Propone qué pausas y muletillas quitar para llegar a esa duración (no aplica nada todavía)",
+  scriptTranscribe:
+    "Transcribe palabra por palabra (sin quitar los «eh») para editar el video como texto",
+  scriptFitApply:
+    "Aplica la propuesta como un plan del Asistente (queda en el historial y se puede deshacer todo)",
 } as const satisfies Record<string, string>;
 
 export type TipKey = keyof typeof TIPS;

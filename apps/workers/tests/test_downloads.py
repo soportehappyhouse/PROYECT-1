@@ -96,3 +96,10 @@ def test_catalog_paths() -> None:
         "es/es_ES/carlfm/x_low/es_ES-carlfm-x_low.onnx",
         "es/es_ES/carlfm/x_low/es_ES-carlfm-x_low.onnx.json",
     )
+
+
+def test_spanish_voice_names_keep_accents():
+    """Integration S6 (M2 cross request 3): «España»/«México» with accents in the catalog itself."""
+    names = " ".join(v.name for v in piper_catalog.SPANISH_VOICES)
+    assert "Espana" not in names and "Mexico" not in names
+    assert "España" in names and "México" in names

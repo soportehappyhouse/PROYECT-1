@@ -1,8 +1,12 @@
 import type { AgentPlanRecord, ImportSuggestion, Job } from "@studio/shared";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { JobsIndicator } from "@/components/dashboard/JobsIndicator";
 import { AssistantPanel } from "@/components/panels/AssistantPanel";
 import { SuggestionsSection } from "@/components/suggestions/SuggestionCard";
+import { SuggestionSettingsSection } from "@/components/suggestions/SuggestionSettingsSection";
+import { handleFinished, shouldToastSuccess } from "@/hooks/use-job-events";
 import { lastOpenPlan, useAgentStore } from "@/stores/agent-store";
 import { useJobsStore } from "@/stores/jobs-store";
 import { createEmptyProject, useProjectStore } from "@/stores/project-store";
@@ -176,21 +180,26 @@ describe("Sugerencias (Asistente)", () => {
     expect(container.textContent).toBe("");
   });
 
-  it("«Analizando 2 medios…» is one aggregated line", async () => {
-    const pid = useProjectStore.getState().project.id;
-    mockFetch((path) =>
-      path === `/api/projects/${pid}/suggestions`
-        ? { json: { suggestions: [], analyzing: ["a1", "a2"] } }
-        : undefined,
-    );
-    render(<SuggestionsSection />);
-    await waitFor(() =>
-      expect(screen.getByTestId("suggestions-analyzing").textContent).toContain(
-        "Analizando 2 medios…",
-      ),
-    );
+  it("«Analizando 2 medios…» is one aggregated line in the Trabajos indicator", () => {
+    const bg = (id: string) =>
+      ({
+        id,
+        type: "suggest.analyze",
+        status: "running",
+        progress: 0.3,
+        attempts: 1,
+        createdAt: "2026-10-18T10:00:00.000Z",
+      }) as unknown as Job;
+    useJobsStore.setState({ jobs: { a1: bg("a1"), a2: bg("a2") } });
+    render(<JobsIndicator />);
+    const ind = screen.getByTestId("jobs-indicator");
+    // background analyses are not the user's jobs
+    expect(ind.getAttribute("data-active")).toBe("0");
+    expect(screen.getByTestId("jobs-indicator-analyzing").textContent).toBe("Analizando 2 medios…");
     expect(analyzingText(1)).toBe("Analizando 1 medio…");
     expect(analyzingText(0)).toBeNull();
+    expect(shouldToastSuccess("suggest.analyze", true)).toBe(false);
+    useJobsStore.setState({ jobs: {} });
   });
 
   it("«Aplicar» asks the api for the plan and opens it in the Asistente (preview, -14 LUFS)", async () => {
@@ -247,17 +256,45 @@ describe("Sugerencias (Asistente)", () => {
     expect(calls.find((c) => c.path.endsWith("/s2/dismiss"))!.body).toEqual({ muteKind: true });
   });
 
-  it("background analyses never toast: their jobs are marked handled", () => {
+  it("background analyses never toast, not even when they fail (handleFinished)", async () => {
     const job: Job = {
       id: "j1",
       type: "suggest.analyze",
-      status: "running",
-      progress: 0.3,
+      status: "failed",
+      progress: 1,
       payload: { assetId: "a1" },
       createdAt: now,
+      error: "Los workers no están corriendo",
+      errorCode: "WORKERS_UNAVAILABLE",
     };
-    useJobsStore.getState().upsertJob(job);
+    const err = vi.spyOn(toast, "error");
+    const ok = vi.spyOn(toast, "success");
+    await handleFinished(job);
     expect(useJobsStore.getState().handled.j1).toBe(true);
+    expect(err).not.toHaveBeenCalled();
+    expect(ok).not.toHaveBeenCalled();
+  });
+});
+
+describe("Ajustes → Sugerencias al importar (integration S6)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("lists the silenced kinds and «Volver a sugerir» saves them without that kind", async () => {
+    const calls = mockFetch((path, method, body) => {
+      if (path === "/api/suggestions/settings" && method === "GET")
+        return { json: { enabled: true, mutedKinds: ["low_voice", "clipping"] } };
+      if (path === "/api/suggestions/settings" && method === "PUT") return { json: body };
+      return undefined;
+    });
+    render(<SuggestionSettingsSection />);
+    await waitFor(() => expect(screen.getAllByTestId("muted-kind")).toHaveLength(2));
+    expect(screen.getAllByTestId("muted-kind")[0]!.textContent).toContain("Voz baja");
+    await act(async () => {
+      fireEvent.click(screen.getAllByTestId("unmute-kind")[0]!);
+    });
+    const put = calls.find((c) => c.method === "PUT");
+    expect(put?.body).toEqual({ enabled: true, mutedKinds: ["clipping"] });
+    await waitFor(() => expect(screen.getAllByTestId("muted-kind")).toHaveLength(1));
   });
 });
 

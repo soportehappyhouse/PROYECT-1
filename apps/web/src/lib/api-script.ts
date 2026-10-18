@@ -9,30 +9,17 @@ import {
   type ScriptCutsRequest,
   type ScriptCutsResponse,
   type ScriptTranscribeRequest,
-  type SubtitleSegment,
+  type ScriptTranscribeResult,
 } from "@studio/shared";
 import { normalizePlanRecord } from "./agent-api";
+
+export type { ScriptTranscribeResult };
 import { apiFetch } from "./api";
 
 /**
  * Sprint 6 M1 «Guion» client (lib/api.ts is not touched: docs/trabajo/sprint6-contratos.md).
  * The script routes read the SAVED project: call `saveProjectNow()` first.
  */
-
-/** `result` of the job script.transcribe (apps/api jobs/handlers/script.ts). */
-export interface ScriptTranscribeResult {
-  projectId: string;
-  clipId: string;
-  assetId: string;
-  range: { start: number; end: number };
-  segments: SubtitleSegment[];
-  words: number;
-  noise_floor_db: number;
-  gaps: number;
-  voiced_gaps: number;
-  audioPath: string;
-  warnings?: string[];
-}
 
 /** POST /api/console/plans: validate + resolve + store an EditPlan (same as studio_validate_plan). */
 const CONSOLE_PLANS_ROUTE = "/api/console/plans";

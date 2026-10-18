@@ -278,6 +278,14 @@ export const CutSilencesOpSchema = z
       .optional()
       .describe("Margen que se deja antes y después de cada corte, en milisegundos (120)."),
     fillers: z.boolean().optional().describe("También cortar muletillas (eh, este, o sea)."),
+    noise_db: z
+      .number()
+      .min(-60)
+      .max(-20)
+      .optional()
+      .describe(
+        "Umbral de silencio en dBFS (por defecto -35). Las sugerencias pasan el que midieron.",
+      ),
     ...common,
   })
   .strict()
@@ -744,6 +752,19 @@ export const EDIT_OP_NAMES = EditOpSchema.options.map((o) => o.shape.op.value) a
  * indexes in `confirmedIndexes`). Sprint 4: face_swap (consent + nobody in the video is a minor).
  */
 export const ALWAYS_CONFIRM_OPS: readonly EditOpName[] = ["delete_clip", "export", "face_swap"];
+
+/**
+ * Sprint 6 (integration): an op needs the separate confirmation when its kind is in
+ * ALWAYS_CONFIRM_OPS or when the resolver marked it `confirm: true` (M1: `fit_duration` that
+ * removes sentences, `delete_words`/`fit_duration` removing more than 20 % of the video).
+ * `resolved` = `AgentPlanRecord.resolved[i]` (the plan op itself never carries that mark).
+ */
+export function opNeedsSeparateConfirm(
+  op: Pick<EditOp, "op">,
+  resolved?: { confirm?: boolean | undefined } | null,
+): boolean {
+  return ALWAYS_CONFIRM_OPS.includes(op.op) || resolved?.confirm === true;
+}
 
 export const EDIT_PLAN_MAX_OPS = 20;
 

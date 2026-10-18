@@ -93,9 +93,6 @@ def test_not_implemented_error() -> None:
         ("post", "/transcribe/words", {"input_path": "a.mp4", "output_base": "r/j"}, "M1 Guion"),
         ("get", "/transcribe/tasks/t1", None, "M1 Guion"),
         ("post", "/transcribe/tasks/t1/cancel", None, "M1 Guion"),
-        ("post", "/analyze/suggest", {"input_path": "a.mp4"}, "M3 Sugerencias"),
-        ("get", "/analyze/tasks/t1", None, "M3 Sugerencias"),
-        ("post", "/analyze/tasks/t1/cancel", None, "M3 Sugerencias"),
     ],
 )
 def test_stub_routes_answer_501(

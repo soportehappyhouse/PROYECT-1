@@ -269,3 +269,255 @@ def words_from_transcript(transcript: Any) -> list[Word]:
         for w in getattr(seg, "words", None) or []:
             out.append(Word(str(w.word), float(w.start), float(w.end)))
     return out
+
+
+# ------------------------------------------------------------------- import suggestions (S6 M3)
+# docs/trabajo/sprint6-contratos.md M3 + fuentes-sprint6.md §3: ONE ffmpeg decode gives the
+# loudness (``ebur128=peak=true``: integrated LUFS, LRA, true peak) and an 8 kHz mono PCM stream
+# read here in 1 s chunks. From the PCM: the noise floor (10th percentile of the RMS in 50 ms
+# windows) and the silences with ``silencedetect`` semantics (every sample under the threshold
+# for >= d) at 10 ms resolution, with a RELATIVE threshold (floor + rel_db, clamped to
+# [-50, -30] dB) that a fixed ``silencedetect=noise=`` cannot know before decoding. Low priority
+# (``-threads 2``, BELOW_NORMAL on Windows, nice on POSIX), cancel within <= 1 s of audio.
+
+SUGGEST_RATE = 8000
+SUGGEST_CHUNK_S = 1.0
+SUGGEST_RMS_WINDOW_S = 0.05
+SUGGEST_PEAK_BLOCK_S = 0.01
+SUGGEST_THRESHOLD_MIN_DB = -50.0
+SUGGEST_THRESHOLD_MAX_DB = -30.0
+SUGGEST_FLOOR_MIN_DB = -90.0  # digital silence (zeros) would be -inf
+SUGGEST_STAGE_ES = "Midiendo silencios y volumen"
+BELOW_NORMAL_PRIORITY_CLASS = 0x4000
+
+_EBU_I = re.compile(r"^\s*I:\s*(-?[\d.]+|-?inf)\s*LUFS", re.MULTILINE)
+_EBU_LRA = re.compile(r"^\s*LRA:\s*(-?[\d.]+|-?inf)\s*LU\b", re.MULTILINE)
+_EBU_PEAK = re.compile(r"^\s*Peak:\s*(-?[\d.]+|-?inf)\s*dBFS", re.MULTILINE)
+
+
+def _db(value: float) -> float:
+    import math
+
+    return 20.0 * math.log10(value) if value > 0 else float("-inf")
+
+
+def _num(text: str | None) -> float | None:
+    if text is None or "inf" in text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def parse_ebur128_summary(stderr: str) -> tuple[float | None, float | None, float | None]:
+    """(integrated LUFS, LRA, true peak dBTP) from the final ``Summary:`` of ``ebur128``.
+
+    I <= -70 LUFS (nothing passed the absolute gate: silent file) and -inf peaks give None."""
+    idx = stderr.rfind("Summary:")
+    tail = stderr[idx:] if idx >= 0 else ""
+    m_i, m_lra, m_peak = _EBU_I.search(tail), _EBU_LRA.search(tail), _EBU_PEAK.search(tail)
+    lufs = _num(m_i.group(1)) if m_i else None
+    if lufs is not None and lufs <= -70.0:
+        lufs = None
+    lra = _num(m_lra.group(1)) if m_lra else None
+    peak = _num(m_peak.group(1)) if m_peak else None
+    return lufs, lra, peak
+
+
+def chunk_stats(samples: Any) -> tuple[list[float], list[float]]:
+    """Per 1 s chunk of int16 samples -> (RMS dB of each 50 ms window, peak dB of each 10 ms
+    block), full scale = 32768. numpy when present, pure Python otherwise (same numbers)."""
+    win = int(SUGGEST_RATE * SUGGEST_RMS_WINDOW_S)
+    blk = int(SUGGEST_RATE * SUGGEST_PEAK_BLOCK_S)
+    try:
+        import numpy as np  # noqa: PLC0415 - optional speed-up
+    except ImportError:  # pragma: no cover - CI and the PC have numpy
+        np = None  # type: ignore[assignment]
+    if np is not None:
+        arr = np.asarray(samples, dtype=np.float64) / 32768.0
+        rms: list[float] = []
+        for i in range(0, len(arr), win):
+            part = arr[i : i + win]
+            if len(part):
+                rms.append(_db(float(np.sqrt(np.mean(part * part)))))
+        n_blk = len(arr) // blk
+        peaks = (
+            [_db(float(v)) for v in np.abs(arr[: n_blk * blk]).reshape(n_blk, blk).max(axis=1)]
+            if n_blk
+            else []
+        )
+        rest = arr[n_blk * blk :]
+        if len(rest):
+            peaks.append(_db(float(np.abs(rest).max())))
+        return rms, peaks
+    vals = [s / 32768.0 for s in samples]
+    rms = []
+    for i in range(0, len(vals), win):
+        part = vals[i : i + win]
+        if part:
+            rms.append(_db((sum(v * v for v in part) / len(part)) ** 0.5))
+    peaks = [_db(max(abs(v) for v in vals[i : i + blk])) for i in range(0, len(vals), blk)]
+    return rms, peaks
+
+
+def noise_floor_db(rms_db: list[float]) -> float:
+    """10th percentile of the 50 ms RMS windows (dB), never below -90."""
+    if not rms_db:
+        return SUGGEST_FLOOR_MIN_DB
+    ordered = sorted(rms_db)
+    value = ordered[min(len(ordered) - 1, int(len(ordered) * 0.10))]
+    return max(SUGGEST_FLOOR_MIN_DB, value)
+
+
+def silence_threshold_db(floor_db: float, rel_db: float) -> float:
+    return max(SUGGEST_THRESHOLD_MIN_DB, min(SUGGEST_THRESHOLD_MAX_DB, floor_db + rel_db))
+
+
+def silences_from_peaks(
+    peaks_db: list[float], threshold_db: float, min_silence_ms: int
+) -> list[tuple[float, float]]:
+    """``silencedetect`` semantics on 10 ms peak blocks: runs where every block's peak is under
+    the threshold for >= ``min_silence_ms`` -> [(start_s, end_s)] (source seconds)."""
+    out: list[tuple[float, float]] = []
+    min_blocks = max(1, round(min_silence_ms / 1000 / SUGGEST_PEAK_BLOCK_S))
+    start: int | None = None
+    for i, p in enumerate([*peaks_db, float("inf")]):
+        if p < threshold_db:
+            if start is None:
+                start = i
+        elif start is not None:
+            if i - start >= min_blocks:
+                out.append(
+                    (round(start * SUGGEST_PEAK_BLOCK_S, 3), round(i * SUGGEST_PEAK_BLOCK_S, 3))
+                )
+            start = None
+    return out
+
+
+def _low_priority_cmd(cmd: list[str]) -> tuple[list[str], dict[str, Any]]:
+    """argv + Popen kwargs for a background ffmpeg: own process group (kill_process_tree),
+    BELOW_NORMAL_PRIORITY_CLASS on Windows, ``nice -n 10`` on POSIX."""
+    import shutil
+    import sys
+
+    from .tasks import new_group_kwargs
+
+    kwargs = new_group_kwargs()
+    if sys.platform == "win32":
+        kwargs["creationflags"] = kwargs.get("creationflags", 0) | BELOW_NORMAL_PRIORITY_CLASS
+        return cmd, kwargs
+    nice = shutil.which("nice")
+    return ([nice, "-n", "10", *cmd] if nice else cmd), kwargs
+
+
+def analyze_for_suggestions(
+    path: Path,
+    *,
+    silence_min_ms: int = 500,
+    silence_rel_db: float = 9.0,
+    task: Any = None,
+) -> dict[str, Any]:
+    """One ffmpeg pass -> SuggestAnalyzeResult dict (source seconds). ``task``: the TaskQueue
+    Task (progress in seconds read, stage text, cancel); None in direct calls."""
+    import threading
+
+    from .tasks import TaskCanceled, on_cancel_kill
+
+    exe = find_ffmpeg()
+    if not exe:
+        raise FfmpegNotFoundError(
+            "ffmpeg no encontrado: instalalo (setup.ps1) o defini FFMPEG_PATH en .env"
+        )
+    graph = (
+        f"[0:a:0]asplit=2[m][p];[m]ebur128=peak=true:framelog=quiet,anullsink;"
+        f"[p]aresample={SUGGEST_RATE},aformat=sample_fmts=s16:channel_layouts=mono[pcm]"
+    )
+    base = [exe, "-hide_banner", "-nostats", "-threads", "2", "-i", str(path), "-vn"]
+    base += ["-filter_complex", graph, "-map", "[pcm]", "-f", "s16le", "-threads", "2", "pipe:1"]
+    cmd, kwargs = _low_priority_cmd(base)
+    proc = subprocess.Popen(  # noqa: S603 - fixed argv
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs
+    )
+    on_cancel_kill(proc)
+    err_parts: list[str] = []
+    header: dict[str, float] = {}
+
+    def read_stderr() -> None:
+        assert proc.stderr is not None
+        for raw in iter(proc.stderr.readline, b""):
+            line = raw.decode("utf-8", errors="replace")
+            err_parts.append(line)
+            if "duration" not in header and (m := _DURATION.search(line)):
+                h, mi, se = m.groups()
+                header["duration"] = int(h) * 3600 + int(mi) * 60 + float(se)
+
+    reader = threading.Thread(target=read_stderr, name="suggest-ffmpeg-stderr", daemon=True)
+    reader.start()
+    if task is not None:
+        task.stage_es = SUGGEST_STAGE_ES
+        task.current_file = SUGGEST_STAGE_ES
+    import array
+
+    rms_db: list[float] = []
+    peaks_db: list[float] = []
+    n_samples = 0
+    chunk_bytes = int(SUGGEST_RATE * SUGGEST_CHUNK_S) * 2
+    pending = b""
+    assert proc.stdout is not None
+    try:
+        while True:
+            if task is not None:
+                task.check_canceled()
+            data = proc.stdout.read(chunk_bytes)
+            if not data:
+                break
+            data = pending + data
+            usable = len(data) - (len(data) % 2)
+            pending = data[usable:]
+            samples = array.array("h")
+            samples.frombytes(data[:usable])
+            if sys_byteorder_big():
+                samples.byteswap()
+            r, p = chunk_stats(samples)
+            rms_db.extend(r)
+            peaks_db.extend(p)
+            n_samples += len(samples)
+            if task is not None:
+                done_s = n_samples / SUGGEST_RATE
+                total_s = max(header.get("duration") or 0.0, done_s, 1.0)
+                task.set_items(int(done_s), int(round(total_s)) or 1, SUGGEST_STAGE_ES)
+        proc.wait(timeout=60)
+    except TaskCanceled:
+        from .tasks import kill_process_tree
+
+        kill_process_tree(proc)
+        raise
+    finally:
+        reader.join(timeout=5)
+    if task is not None and task.cancel_event.is_set():
+        raise TaskCanceled(task.id)
+    stderr = "".join(err_parts)
+    if proc.returncode != 0:
+        if "matches no streams" in stderr or "Stream specifier" in stderr:
+            raise ValueError("El medio no tiene audio: no hay silencios ni volumen para medir")
+        raise RuntimeError(f"ffmpeg (sugerencias) fallo: {stderr.strip()[-400:]}")
+    lufs, lra, peak = parse_ebur128_summary(stderr)
+    floor = noise_floor_db(rms_db)
+    threshold = silence_threshold_db(floor, silence_rel_db)
+    duration = round(n_samples / SUGGEST_RATE, 3) if n_samples else header.get("duration", 0.0)
+    return {
+        "duration_s": float(duration or 0.0),
+        "noise_floor_db": round(floor, 2),
+        "silence_threshold_db": round(threshold, 2),
+        "silences": [list(s) for s in silences_from_peaks(peaks_db, threshold, silence_min_ms)],
+        "lufs_i": lufs,
+        "lra": lra,
+        "true_peak_db": peak,
+    }
+
+
+def sys_byteorder_big() -> bool:
+    import sys
+
+    return sys.byteorder == "big"

@@ -3,6 +3,9 @@ export const KIT_TEXTS_ES = {
   intro:
     "Tu canal en un solo lugar: colores, tipografías y zona segura. Subtítulos, títulos y rótulos los usan solos.",
   saved: "Kit guardado",
+  singleWeight: "Esta tipografía tiene un solo grosor.",
+  logoPending:
+    "El logo todavía no se dibuja en los videos: queda guardado para cuando Studio lo agregue.",
   name: "Nombre del canal",
   logo: "Logo (PNG, JPG o SVG, hasta 5 MB)",
   logoPosition: "Posición del logo",

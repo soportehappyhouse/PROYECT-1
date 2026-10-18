@@ -75,6 +75,20 @@ describe("BrandKitTab", () => {
     );
   });
 
+  it("says the logo is not drawn yet and locks the weight of one-face fonts (audit S6 E12–E13)", async () => {
+    api();
+    render(<BrandKitTab />);
+    expect((await screen.findByTestId("kit-logo-pending")).textContent).toMatch(
+      /todavía no se dibuja/,
+    );
+    // Default kit: display = Anton (one face) → its weight select is disabled; title is not.
+    const selects = screen
+      .getAllByRole("combobox")
+      .filter((el) => (el as HTMLSelectElement).options[0]?.value === "400");
+    expect(selects.some((el) => (el as HTMLSelectElement).disabled)).toBe(true);
+    expect(selects.some((el) => !(el as HTMLSelectElement).disabled)).toBe(true);
+  });
+
   it("a low-contrast color is marked live", async () => {
     api();
     render(<BrandKitTab />);

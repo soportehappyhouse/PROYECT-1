@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   DEFAULT_EXPORT_PRESETS,
   EXTRA_EXPORT_PRESETS,
@@ -14,6 +14,14 @@ import {
   timelineDuration,
   type TimelineAsset,
 } from "../src/services/ffmpeg/timeline.js";
+import { setAssDesign } from "../src/services/ffmpeg/ass.js";
+import { ensureAssFontsDir } from "../src/services/design/fonts.js";
+import { tempStorage } from "./helpers.js";
+
+// The api registers the bundled fonts at start (routes/design.ts); without them the burn-in
+// warns «fuentes del sistema» (audit S6 E10).
+beforeAll(() => setAssDesign({ fontsDir: ensureAssFontsDir(tempStorage()) }));
+afterAll(() => setAssDesign({ fontsDir: null }));
 
 const now = "2026-10-04T00:00:00.000Z";
 const youtube = ExportPresetSchema.parse(

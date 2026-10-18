@@ -75,4 +75,51 @@ describe.skipIf(!browserPresent())("bundled fonts in Remotion (integration, offl
       expect(firstMs).toBeLessThan(120_000);
     },
   );
+
+  it(
+    "the kit weight of each role reaches the templates (audit S6 E12)",
+    { timeout: 300_000 },
+    async () => {
+      const d = await mkdtemp(path.join(os.tmpdir(), "studio-weights-"));
+      const still = async (
+        name: string,
+        template: string,
+        role: "title" | "caption",
+        family: string,
+        weight: 400 | 700 | 900,
+        props: Record<string, unknown> = {},
+      ) => {
+        const output = path.join(d, `${name}.png`);
+        await renderTemplateStill({
+          template,
+          props: { title: "Hola Studio", ...props },
+          width: 540,
+          height: 960,
+          format: "png",
+          output,
+          storageDir: d,
+          mediaBaseUrl: "http://127.0.0.1:9/files/",
+          tokens: {
+            ...DEFAULT_DESIGN_TOKENS,
+            font: { ...DEFAULT_DESIGN_TOKENS.font, [role]: { family, weight } },
+          } as typeof DEFAULT_DESIGN_TOKENS,
+        });
+        return readFileSync(output);
+      };
+      try {
+        const t400 = await still("t400", "title-card", "title", "Inter", 400);
+        const t900 = await still("t900", "title-card", "title", "Inter", 900);
+        expect(differs(t400, t900)).toBe(true);
+        // Single-weight family: same face at 400 and 900 (no synthetic bold).
+        const b400 = await still("b400", "title-card", "title", "Bangers", 400);
+        const b900 = await still("b900", "title-card", "title", "Bangers", 900);
+        expect(differs(b400, b900)).toBe(false);
+        const c400 = await still("c400", "animated-captions", "caption", "Inter", 400);
+        const c900 = await still("c900", "animated-captions", "caption", "Inter", 900);
+        expect(differs(c400, c900)).toBe(true);
+      } finally {
+        await rm(d, { recursive: true, force: true });
+      }
+    },
+  );
 });

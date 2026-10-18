@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { access, mkdir, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import {
@@ -416,9 +416,17 @@ export function createFfmpegService(ffmpegPath: string, ffprobePath: string): Ff
         ...(input.aspectFit && { aspectFit: input.aspectFit }),
         ...(input.audioMix && { audioMix: input.audioMix }),
       });
-      const writeFiles = async (dir: string, files: { name: string; content: string }[]) => {
+      const writeFiles = async (
+        dir: string,
+        files: { name: string; content: string }[],
+        copies: readonly { from: string; name: string }[] = [],
+      ) => {
         await mkdir(dir, { recursive: true });
         for (const f of files) await writeFile(path.join(dir, f.name), f.content, "utf8");
+        for (const c of copies) {
+          await mkdir(path.dirname(path.join(dir, c.name)), { recursive: true });
+          await copyFile(c.from, path.join(dir, c.name));
+        }
       };
       const report = (
         r: number,
@@ -463,7 +471,7 @@ export function createFfmpegService(ffmpegPath: string, ffprobePath: string): Ff
       const single = async (encoder: VideoEncoderId): Promise<VideoPass> => {
         if (!separateAudio) {
           const compiled = compileExport(base(encoder));
-          await writeFiles(input.workDir, compiled.files);
+          await writeFiles(input.workDir, compiled.files, compiled.copies);
           for (const w of compiled.warnings) opts?.log?.(`AVISO: ${w}`);
           await run(compiled.args, { ...runOpts(opts, compiled.durationSec), cwd: input.workDir });
           return { durationSec: compiled.durationSec, warnings: compiled.warnings };
@@ -471,7 +479,7 @@ export function createFfmpegService(ffmpegPath: string, ffprobePath: string): Ff
         const ext = presetEncoding(input.preset, encoder).extension;
         const videoFile = path.join(input.workDir, `video.${ext}`);
         const compiled = compileExport({ ...base(encoder), output: videoFile, videoOnly: true });
-        await writeFiles(input.workDir, compiled.files);
+        await writeFiles(input.workDir, compiled.files, compiled.copies);
         for (const w of compiled.warnings) opts?.log?.(`AVISO: ${w}`);
         report(0, "Video");
         await run(compiled.args, {
@@ -558,7 +566,7 @@ export function createFfmpegService(ffmpegPath: string, ffprobePath: string): Ff
                 frames: it.w.frames,
               },
             });
-            await writeFiles(dir, compiled.files);
+            await writeFiles(dir, compiled.files, compiled.copies);
             for (const w of compiled.warnings) warnings.add(w);
             const msg = videoMsg(done + 1);
             try {

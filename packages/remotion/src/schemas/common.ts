@@ -150,6 +150,18 @@ export function kitFontFamily(role: "title" | "caption" | "body" | "display") {
     .optional();
 }
 
+/** Weight prop filled from the brand kit caption weight when absent (audit S6 E12). */
+export function kitFontWeight() {
+  return z
+    .enum(["400", "700", "900"])
+    .meta({
+      title: "Grosor",
+      [ENUM_LABELS]: { "400": "Normal", "700": "Negrita", "900": "Extra negrita" },
+      [TOKEN_PROP]: "font.caption.weight",
+    })
+    .optional();
+}
+
 /** Color prop filled from the brand kit when absent (Sprint 6 M2). */
 export function kitColor(title: string, token: "text" | "text_outline" | "accent" | "plate") {
   return z

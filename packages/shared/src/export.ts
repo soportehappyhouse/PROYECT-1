@@ -100,6 +100,8 @@ export const ExportJobResultSchema = z.object({
   motionRendered: z.number().int().optional(),
   /** Sprint 6: hard design rules fixed when generating captions/titles (DESIGN_AUTOFIXED {n}). */
   designFixed: z.number().int().optional(),
+  /** Audit S6 E11: hard design issues that could not be fixed by themselves (DESIGN_UNFIXED). */
+  designUnfixed: z.number().int().optional(),
 });
 export type ExportJobResult = z.infer<typeof ExportJobResultSchema>;
 

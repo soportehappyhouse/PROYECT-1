@@ -13,6 +13,7 @@ type Path =
   | "font.caption"
   | "font.body"
   | "font.display"
+  | "font.caption.weight"
   | "color.text"
   | "color.text_outline"
   | "color.accent"
@@ -42,6 +43,8 @@ export const TOKEN_PROPS: Record<string, Record<string, TokenProp>> = {
   },
   "animated-captions": {
     fontFamily: { token: "font.caption", legacy: "Montserrat" },
+    // Audit S6 E12: the kit caption weight when the clip does not set one.
+    fontWeight: { token: "font.caption.weight", legacy: "900" },
     textColor: { token: "color.text", legacy: "#ffffff" },
     highlightColor: { token: "color.accent", legacy: "#ffd400" },
     strokeColor: { token: "color.text_outline", legacy: "#000000" },
@@ -64,6 +67,8 @@ function tokenValue(d: DesignMeta, path: Path): unknown {
     case "font.body":
     case "font.display":
       return d.font[path.slice(5) as "title"].family satisfies FontFamily;
+    case "font.caption.weight":
+      return String(d.font.caption.weight);
     case "color.text":
       return d.color.text;
     case "color.text_outline":
@@ -94,6 +99,19 @@ export function applyDesign<T extends Record<string, unknown>>(
     if (v !== undefined) out[key] = v;
   }
   return out as T;
+}
+
+/**
+ * CSS weight of a text role (audit S6 E12): the kit weight of `role` when the api injected the
+ * kit, `fallback` (the template's pre-kit weight) otherwise. Single-weight families map every
+ * weight to their one face in @font-face, so the browser never fakes a bold.
+ */
+export function kitWeight(
+  design: DesignMeta | undefined,
+  role: "title" | "caption" | "body" | "display",
+  fallback: number,
+): number {
+  return design?.font[role]?.weight ?? fallback;
 }
 
 export function designOf(props: unknown): DesignMeta | undefined {

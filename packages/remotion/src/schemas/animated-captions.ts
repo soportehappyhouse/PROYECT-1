@@ -4,9 +4,9 @@ import {
   choice,
   color,
   type Filled,
-  FONT_WEIGHTS,
   kitColor,
   kitFontFamily,
+  kitFontWeight,
   mediaSrc,
   SafeAreaSchema,
   background,
@@ -101,7 +101,8 @@ export const animatedCaptionsSchema = z.object({
   position: choice(CAPTION_POSITIONS, "Posición").default("bottom"),
   /** Absent = kit `font.caption` (Montserrat without a kit). */
   fontFamily: kitFontFamily("caption"),
-  fontWeight: choice(FONT_WEIGHTS, "Grosor").default("900"),
+  // Audit S6 E12: absent = the kit caption weight («Del kit»), 900 without a kit.
+  fontWeight: kitFontWeight(),
   fontSize: z.number().min(16).max(300).meta({ title: "Tamaño (px a 1080 de ancho)" }).default(88),
   uppercase: z.boolean().meta({ title: "Mayúsculas" }).default(true),
   textColor: kitColor("Color del texto", "text"),

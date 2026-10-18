@@ -477,3 +477,36 @@ describe("caption timing at conversational speed (audit S6 E4)", () => {
     }
   });
 });
+
+describe("tokens longer than a line (audit S6 E11)", () => {
+  const url = "https://www.ejemplo-de-un-sitio-muy-largo.com/ruta/larga";
+  it("are split with a hyphen so every drawn line fits (no edge-to-edge text)", () => {
+    const pages = paginateCaptions(
+      [
+        { word: "mirá", start: 0, end: 0.4 },
+        { word: url, start: 0.5, end: 3 },
+      ],
+      DEFAULT_DESIGN_TOKENS.caption,
+      "9:16",
+      { maxChars: 22 },
+    );
+    const lines = pages.flatMap((p) => p.lines);
+    for (const l of lines) expect(l.length, l).toBeLessThanOrEqual(22);
+    expect(lines.join("").replace(/-(?=.)/g, "")).toContain("www");
+    expect(lines.some((l) => /-$/.test(l))).toBe(true);
+  });
+  it("the checklist no longer flags them (chars_per_line / safe_zone)", () => {
+    const p = {
+      id: "p",
+      name: "x",
+      settings: { width: 540, height: 960, fps: 30 },
+      tracks: [],
+      subtitles: [{ start: 0, end: 3, text: url, words: [{ word: url, start: 0, end: 3 }] }],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    } as unknown as Project;
+    const rules = checkDesignWithFix(p, DEFAULT_BRAND_KIT, "9:16").result.issues.map((i) => i.rule);
+    expect(rules).not.toContain("caption.chars_per_line");
+    expect(rules).not.toContain("caption.safe_zone");
+  });
+});

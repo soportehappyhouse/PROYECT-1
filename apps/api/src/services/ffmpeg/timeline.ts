@@ -28,7 +28,13 @@ import {
   type VideoEncoderId,
   type AspectFit,
 } from "@studio/shared";
-import { assSubtitlesFilter, buildAss } from "./ass.js";
+import {
+  ASS_FONTS_SUBDIR,
+  assCaptionFamily,
+  assFontCopies,
+  assSubtitlesFilter,
+  buildAss,
+} from "./ass.js";
 import { atempoChain, buildAudioFxGraph, duckingFragment } from "./audio-fx.js";
 import {
   blurredBackgroundFilter,
@@ -149,6 +155,8 @@ export interface CompiledExport {
   graph: string;
   /** Files to write into the job dir before running (graph.txt, text-N.txt, subs.ass). */
   files: { name: string; content: string }[];
+  /** Files copied into the job dir before running (audit S6 E10: `fonts/<ttf>` for libass). */
+  copies?: { from: string; name: string }[];
   durationSec: number;
   warnings: string[];
   /** Sprint 5: tracks in the ducking buses (only when the sidechain was built). */
@@ -240,6 +248,7 @@ class GraphBuilder {
   readonly inputs: string[][] = [];
   readonly parts: string[] = [];
   readonly files: { name: string; content: string }[] = [];
+  readonly copies: { from: string; name: string }[] = [];
   readonly warnings: string[] = [];
   #n = 0;
 
@@ -1155,7 +1164,16 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
     });
     const next = g.label("c");
     // BEGIN sprint6:M2 — bundled fonts for libass (fontsdir), same families as Remotion.
-    g.add(`[${cur}]${absTime(assSubtitlesFilter("subs.ass"))}[${next}]`);
+    // Audit S6 E10: copied next to subs.ass and opened with a relative path (cwd = job dir).
+    const fonts = assFontCopies(assCaptionFamily(project.captionStyle));
+    g.copies.push(...fonts);
+    if (!fonts.length)
+      g.warnings.push(
+        "Subtítulos con las fuentes del sistema: no se encontraron las tipografías de Studio (pueden verse distintos que en la vista previa).",
+      );
+    g.add(
+      `[${cur}]${absTime(assSubtitlesFilter("subs.ass", fonts.length ? ASS_FONTS_SUBDIR : null))}[${next}]`,
+    );
     // END sprint6:M2
     cur = next;
   }
@@ -1352,6 +1370,7 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
     args,
     graph,
     files: g.files,
+    ...(g.copies.length && { copies: g.copies }),
     durationSec: outDur,
     warnings: g.warnings,
     ...(ducked && { ducked }),

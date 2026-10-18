@@ -3,7 +3,9 @@
 import {
   BrandLogoPositionSchema,
   BUNDLED_FONT_FAMILIES,
+  BUNDLED_FONT_FACES,
   BUNDLED_FONT_WEIGHTS,
+  bundledFontWeight,
   contrastRatio,
   DESIGN_TEXTS_ES,
   GLOSSARY_ES,
@@ -154,6 +156,10 @@ export function BrandKitTab() {
                 </Select>
               </Label>
             </div>
+            {/* Audit S6 E13: no export draws the logo yet (S7); say it instead of implying it. */}
+            <p className="text-[11px] text-muted-foreground" data-testid="kit-logo-pending">
+              {KIT_TEXTS_ES.logoPending}
+            </p>
           </Section>
 
           <Section title={KIT_TEXTS_ES.colors}>
@@ -227,7 +233,14 @@ export function BrandKitTab() {
                   <Label>
                     Grosor
                     <Select
-                      value={String(t.font[role].weight)}
+                      // Audit S6 E12: one-face families (Anton, Bangers…) have no other weight.
+                      disabled={BUNDLED_FONT_FACES[t.font[role].family].length === 1}
+                      title={
+                        BUNDLED_FONT_FACES[t.font[role].family].length === 1
+                          ? KIT_TEXTS_ES.singleWeight
+                          : undefined
+                      }
+                      value={String(bundledFontWeight(t.font[role].family, t.font[role].weight))}
                       onChange={(e) =>
                         setTokens({
                           font: {

@@ -1,6 +1,6 @@
 import { interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { fontStack } from "../fonts.js";
-import { designOf, safePadding } from "../lib/design.js";
+import { designOf, kitWeight, safePadding } from "../lib/design.js";
 import { secToFrames, unitScale } from "../lib/anim.js";
 import type { EndScreenProps } from "../schemas/end-screen.js";
 import { Backdrop } from "./common.js";
@@ -76,7 +76,15 @@ export function EndScreen(props: EndScreenProps) {
           transform: `translateY(${(1 - titleP) * 40 * u}px)`,
         }}
       >
-        <div style={{ fontSize: 110 * u, fontWeight: 900, lineHeight: 1.05 }}>{props.title}</div>
+        <div
+          style={{
+            fontSize: 110 * u,
+            fontWeight: kitWeight(designOf(props), "title", 900),
+            lineHeight: 1.05,
+          }}
+        >
+          {props.title}
+        </div>
         {props.subtitle ? (
           <div style={{ fontSize: 44 * u, opacity: 0.8, marginTop: 12 * u }}>{props.subtitle}</div>
         ) : null}

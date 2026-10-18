@@ -383,6 +383,11 @@ export const SPRINT6_WARNINGS = {
   DESIGN_AUTOFIXED: {
     message_es: "Ajusté {n} subtítulos o títulos para que cumplan las reglas de diseño.",
   },
+  /** Audit S6 E11. */
+  DESIGN_UNFIXED: {
+    message_es:
+      "Quedan {n} cosas que no cumplen las reglas de diseño y no se arreglan solas (mirá «Revisar diseño»).",
+  },
 } as const satisfies Record<string, { message_es: string }>;
 export type Sprint6WarningCode = keyof typeof SPRINT6_WARNINGS;
 

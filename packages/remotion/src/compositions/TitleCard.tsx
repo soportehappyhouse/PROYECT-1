@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 import { interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { fontStack } from "../fonts.js";
 import { clamp01, inOut, secToFrames, unitScale } from "../lib/anim.js";
-import { designOf, safePadding } from "../lib/design.js";
+import { designOf, kitWeight, safePadding } from "../lib/design.js";
 import type { TitleCardProps } from "../schemas/title-card.js";
 import { Backdrop } from "./common.js";
 
@@ -34,7 +34,7 @@ export function TitleCard(props: TitleCardProps) {
 
   const titleStyle: CSSProperties = {
     fontFamily: font,
-    fontWeight: 900,
+    fontWeight: kitWeight(design, "title", 900),
     fontSize: props.titleSize * u,
     color: props.titleColor,
     margin: 0,

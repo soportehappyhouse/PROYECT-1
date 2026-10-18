@@ -678,7 +678,7 @@ Parámetros (nombre en el panel → valores; **negrita** = por defecto):
    (0,3–3, **1**), Margen (0–30 %, **6**), colores de acento, nombre, cargo y caja.
 3. **Subtítulos animados**: Transcripción (JSON con `segments` y `words`; trae un ejemplo),
    Captions (formato Remotion, opcional), Estilo (**highlight**, karaoke, pop, box), Posición
-   (**bottom**, center, top), Tipografía (**Montserrat**), Grosor (400, 700, **900**), Tamaño
+   (**bottom**, center, top), Tipografía (**Montserrat**), Grosor (400, 700, 900; **del kit**), Tamaño
    (16–300, **88**), Mayúsculas (**sí**), colores de texto, resaltado, caja y borde, Grosor del
    borde (0–40, **10**), Agrupar palabras dentro de (0–5000 ms, **900**), Zona segura (%) (si no la
    ponés, se calcula sola según 9:16 o 16:9), Video de fondo (URL), Fondo (**transparent**).
@@ -2202,13 +2202,18 @@ borrás o corregís en uno se ve en el otro.
 - **Clic** en una palabra lleva el cabezal ahí. **Arrastrá** o usá **Mayús+clic** para elegir
   varias y **Supr** para borrarlas: el hueco se cierra en todas las pistas con un fundido de 12 ms
   para que no se note el corte. **Ctrl+Z** deshace el borrado entero (un solo paso).
-- Las muletillas aparecen marcadas: **fondo ámbar** = seguras («eh», «em», repeticiones),
-  **subrayado ámbar** = probables («o sea», «digamos», «este» con pausa), **punteado gris** =
-  dudosas («tipo», «nada», «¿viste?»). **Quitar seguras** (Mayús+M) borra todas las seguras de una;
+- Las muletillas aparecen marcadas: **fondo ámbar** = seguras («eh», «em», «mmm», tartamudeos
+  como «que que» o «en el en el»), **subrayado ámbar** = probables («o sea», «digamos», «este» con
+  pausa, «ah», y repeticiones que pueden ser a propósito: «muy muy», «nunca nunca», una cuenta
+  «uno dos tres uno dos tres»), **punteado gris** = dudosas («tipo», «nada», «¿viste?»). **Quitar seguras** (Mayús+M) borra todas las seguras de una;
   las demás revisalas con **.** (siguiente) y **,** (anterior).
 - **(eh)** en gris = un sonido que Whisper no escribió pero se oye entre dos palabras.
 - **Acortar pausas largas** deja en 0,25 s cada silencio de más de 0,6 s.
 - ⚠ junto a una palabra = no se cortó porque estaba pegada a la vecina (sonaría brusco).
+- Si una pista **bloqueada** tiene algo después del corte, no se corta nada y te avisa
+  «Desbloqueá la pista…»: si no, el audio y los subtítulos se desfasarían del video.
+- Volver a **Transcribir** reemplaza los subtítulos de ese tramo: si corregiste palabras a mano,
+  te pregunta antes («Transcribir igual»).
 
 ### 28.2 «Dejalo en __ s»
 
@@ -2223,7 +2228,9 @@ Consola Claude).
 
 **F2** o **doble clic** corrige una palabra mal transcripta sin mover los tiempos: los subtítulos
 palabra por palabra (karaoke) siguen sincronizados. Si escribís más o menos palabras, Studio
-reparte los tiempos y las marca con un borde punteado («tiempo estimado por la corrección»).
+reparte los tiempos y las marca con un borde punteado («tiempo estimado por la corrección»). Una
+palabra agregada sin pausa al lado toma la mitad del tiempo de la vecina más larga, así que no se
+pierde en los cortes siguientes.
 
 ### 28.4 Desde el Asistente o la Consola
 
@@ -2240,12 +2247,16 @@ títulos y rótulos los usan solos. Hay un solo kit (el de tu canal).
 
 ### 29.1 Qué se configura
 
-- **Nombre y logo** (PNG, JPG o SVG, hasta 5 MB).
+- **Nombre y logo** (PNG, JPG o SVG sin scripts, hasta 5 MB). El logo queda guardado pero
+  **todavía no se dibuja en los videos** (llega en una próxima versión); subir otro reemplaza el
+  anterior.
 - **4 colores** (texto, contorno, acento y placa) con el contraste en vivo: si un par se lee mal,
   el color se marca y dice «Poco contraste».
-- **4 tipografías** (títulos, subtítulos, texto y destacados), solo entre las 10 que vienen con
-  Studio: funcionan sin internet y se ven igual en la vista previa, los gráficos y los subtítulos
-  quemados.
+- **4 tipografías** (títulos, subtítulos, texto y destacados) con su **grosor**, solo entre las
+  10 que vienen con Studio: funcionan sin internet y se ven igual (familia y grosor) en la vista
+  previa, los gráficos y los subtítulos quemados. Las de un solo grosor (Anton, Bangers, Bebas
+  Neue, Archivo Black) no lo dejan cambiar; Oswald llega hasta Negrita (700). El grosor de
+  «texto» se usa en el cargo del rótulo; el nombre sigue en negrita.
 - **Zona segura 9:16**: el lugar donde Reels y TikTok no tapan con botones. Es una guía: tocá
   **Calibrar con una captura**, subí una captura de tu teléfono y mové las 4 guías hasta los
   botones de la app. En «Avanzado» hay un perfil **Shorts (derecha 18 %)** y el tamaño de los
@@ -2262,7 +2273,10 @@ línea en 9:16 / 1:1 / 16:9; letra de al menos 4,5 % del lado corto; contorno o 
 segundo); títulos adentro de la zona segura; duración mínima de los títulos; y como mucho 2
 tipografías. Las reglas duras **se corrigen solas** al generar los subtítulos y al exportar: el
 resultado de la exportación dice «Ajusté N subtítulos o títulos para que cumplan las reglas de
-diseño». En **Subtítulos → Revisar diseño** ves el checklist y **Arreglar automáticamente**
+diseño». Con habla rápida una página puede mostrarse hasta medio segundo antes de su primera
+palabra para que dé el tiempo de lectura; una palabra más larga que la línea (una URL) se parte
+con guion. Lo que no se puede arreglar solo (habla de más de ~3 palabras por segundo sostenida)
+también lo dice el resultado: «Quedan N cosas que no cumplen las reglas de diseño…». En **Subtítulos → Revisar diseño** ves el checklist y **Arreglar automáticamente**
 corrige lo que se puede en el proyecto (un solo Deshacer).
 
 ### 29.3 Gráficos en Propiedades

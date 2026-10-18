@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   CAPTION_STYLE_PRESETS,
@@ -11,7 +11,13 @@ import {
 } from "@studio/shared";
 import { BUNDLED_FONTS_DIR } from "@studio/remotion";
 import { afterEach, describe, expect, it } from "vitest";
-import { assSubtitlesFilter, buildAss, setAssDesign } from "../src/services/ffmpeg/ass.js";
+import {
+  ASS_FONTS_SUBDIR,
+  assFontCopies,
+  assSubtitlesFilter,
+  buildAss,
+  setAssDesign,
+} from "../src/services/ffmpeg/ass.js";
 import { ensureAssFontsDir } from "../src/services/design/fonts.js";
 import { compileExport, type TimelineAsset } from "../src/services/ffmpeg/timeline.js";
 import { tempStorage } from "./helpers.js";
@@ -192,7 +198,21 @@ describe("ASS from the design tokens (Sprint 6 M2)", () => {
       updatedAt: "2026-10-18T00:00:00.000Z",
     });
     const c = compileExport({ project, preset, assets, output: "/s/out.mp4" });
-    expect(c.graph).toMatch(/subtitles=subs\.ass:fontsdir='[^']*fonts-ass'/);
+    // Audit S6 E10: the TTFs of the caption family are copied to <job>/fonts and libass opens
+    // them with a relative path (no user profile path with tildes in the filter).
+    expect(c.graph).toMatch(/subtitles=subs\.ass:fontsdir='?fonts'?(?=[[,;:]|$)/m);
+    expect(c.graph).not.toContain("fonts-ass");
+    expect(c.copies!.map((f) => f.name).sort()).toEqual([
+      "fonts/Inter-400.ttf",
+      "fonts/Inter-700.ttf",
+      "fonts/Inter-900.ttf",
+    ]);
+    for (const f of c.copies!) expect(f.from.startsWith(dir!)).toBe(true);
+    expect(c.warnings.join(" ")).not.toMatch(/fuentes del sistema/);
+    setAssDesign({ fontsDir: null });
+    const noFonts = compileExport({ project, preset, assets, output: "/s/out.mp4" });
+    expect(noFonts.graph).toMatch(/subtitles=subs\.ass(?!:fontsdir)/);
+    expect(noFonts.warnings.join(" ")).toMatch(/fuentes del sistema/);
     expect(c.files.find((f) => f.name === "subs.ass")!.content).toContain(
       "Style: Default,Inter,65",
     );
@@ -202,9 +222,21 @@ describe("ASS from the design tokens (Sprint 6 M2)", () => {
   it.skipIf(!hasFfmpeg)("libass draws the bundled family from fontsdir (no system font)", () => {
     const work = tempStorage("studio-ass-");
     const fontsDir = ensureAssFontsDir(work)!;
-    const render = (family: string, withDir: boolean, weight: 400 | 700 | 900 = 400) => {
-      const d = path.join(work, `${family.replace(/ /g, "")}-${withDir}-${weight}`);
+    const render = (
+      family: string,
+      withDir: boolean | "relative",
+      weight: 400 | 700 | 900 = 400,
+    ) => {
+      const d = path.join(
+        work,
+        `Ñandú con espacios ${family.replace(/ /g, "")}-${withDir}-${weight}`,
+      );
       mkdirSync(d, { recursive: true });
+      // Audit S6 E10: the export copies the family to <job>/fonts and uses fontsdir=fonts.
+      for (const f of withDir === "relative" ? assFontCopies(family, fontsDir) : []) {
+        mkdirSync(path.dirname(path.join(d, f.name)), { recursive: true });
+        copyFileSync(f.from, path.join(d, f.name));
+      }
       const tokens = DesignTokensSchema.parse({
         ...DEFAULT_DESIGN_TOKENS,
         font: { ...DEFAULT_DESIGN_TOKENS.font, caption: { family, weight } },
@@ -228,7 +260,10 @@ describe("ASS from the design tokens (Sprint 6 M2)", () => {
           "-i",
           "color=c=gray:s=540x960:d=1",
           "-vf",
-          assSubtitlesFilter("subs.ass", withDir ? fontsDir : null),
+          assSubtitlesFilter(
+            "subs.ass",
+            withDir === "relative" ? ASS_FONTS_SUBDIR : withDir ? fontsDir : null,
+          ),
           "-frames:v",
           "1",
           "-f",
@@ -245,6 +280,8 @@ describe("ASS from the design tokens (Sprint 6 M2)", () => {
       a.reduce((n, v, i) => n + (Math.abs(v - b[i]!) > 40 ? 1 : 0), 0);
     // Bangers is not a system font: with fontsdir it renders differently than the fallback.
     expect(diff(render("Bangers", true), render("Bangers", false))).toBeGreaterThan(200);
+    // The relative fonts/ folder of the job (path with tildes and spaces) draws the same.
+    expect(diff(render("Bangers", "relative"), render("Bangers", true))).toBe(0);
     // Two bundled families differ from each other through fontsdir.
     expect(diff(render("Bangers", true), render("Playfair Display", true))).toBeGreaterThan(200);
     // Audit S6 E1: the kit weight reaches the burn-in (Regular, Bold and Black are 3 faces)…

@@ -96,6 +96,43 @@ describe("brand kit (Sprint 6 M2)", () => {
     expect(media.json().kind).toBe("image");
   });
 
+  it("logo: content must match the type; SVG with script is refused (audit S6 E20)", async () => {
+    const exe = await logoForm("fake.png", Buffer.from("MZ\x90\x00binario"), "image/png");
+    const r1 = await app.inject({ method: "POST", url: API_ROUTES.brandKitLogo, ...exe });
+    expect(r1.statusCode).toBe(400);
+    expect(r1.json().error.code).toBe("BRAND_LOGO_INVALID");
+    const evil = await logoForm(
+      "logo.svg",
+      '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+      "image/svg+xml",
+    );
+    const r2 = await app.inject({ method: "POST", url: API_ROUTES.brandKitLogo, ...evil });
+    expect(r2.statusCode).toBe(400);
+    const clean = await logoForm(
+      "logo.svg",
+      '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>',
+      "image/svg+xml",
+    );
+    const r3 = await app.inject({ method: "POST", url: API_ROUTES.brandKitLogo, ...clean });
+    expect(r3.statusCode).toBe(200);
+  });
+
+  it("replacing the logo deletes the previous one (no orphan media; audit S6 E13)", async () => {
+    const up = async () =>
+      (
+        await app.inject({
+          method: "POST",
+          url: API_ROUTES.brandKitLogo,
+          ...(await logoForm("logo.png", PNG_1PX, "image/png")),
+        })
+      ).json().logo_asset_id as string;
+    const first = await up();
+    const second = await up();
+    expect(second).not.toBe(first);
+    expect(app.ctx.repos.media.get(first)).toBeUndefined();
+    expect(app.ctx.repos.media.get(second)).toBeDefined();
+  });
+
   it("GET /api/design/tokens resolves the kit for a canvas", async () => {
     const r = await app.inject({ method: "GET", url: `${API_ROUTES.designTokens}?aspect=9:16` });
     expect(r.statusCode).toBe(200);

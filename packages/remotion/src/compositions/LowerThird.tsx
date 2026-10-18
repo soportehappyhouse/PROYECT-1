@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 import { Easing, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { fontStack } from "../fonts.js";
 import { secToFrames, unitScale } from "../lib/anim.js";
-import { designOf, safePadding } from "../lib/design.js";
+import { designOf, kitWeight, safePadding } from "../lib/design.js";
 import { trackPoint } from "../lib/track.js";
 import type { LowerThirdProps } from "../schemas/lower-third.js";
 
@@ -90,7 +90,8 @@ export function LowerThird(props: LowerThirdProps) {
   };
   const roleStyle: CSSProperties = {
     fontFamily: font,
-    fontWeight: 400,
+    // Audit S6 E12: the role line is body text (kit «Texto» weight); the name stays bold.
+    fontWeight: kitWeight(designOf(props), "body", 400),
     fontSize: 34 * u,
     color: props.roleColor,
     lineHeight: 1.2,

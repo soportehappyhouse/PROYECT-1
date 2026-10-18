@@ -129,7 +129,7 @@ function CaptionPage({
 
   const base: CSSProperties = {
     fontFamily: font,
-    fontWeight: Number(props.fontWeight),
+    fontWeight: Number(props.fontWeight ?? 900),
     fontSize,
     lineHeight: 1.15,
     textTransform: props.uppercase ? "uppercase" : "none",

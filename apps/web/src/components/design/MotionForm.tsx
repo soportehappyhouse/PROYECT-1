@@ -62,9 +62,12 @@ export function engineFixHint(engine: MotionEngineInfo): string {
 
 function kitValue(kit: BrandKit | undefined, token: string | undefined): unknown {
   if (!kit || !token) return undefined;
-  const [group, key] = token.split(".");
+  const [group, key, sub] = token.split(".");
   if (group === "color") return kit.tokens.color[key as keyof BrandKit["tokens"]["color"]];
-  if (group === "font") return kit.tokens.font[key as keyof BrandKit["tokens"]["font"]]?.family;
+  const font =
+    group === "font" ? kit.tokens.font[key as keyof BrandKit["tokens"]["font"]] : undefined;
+  if (font && sub === "weight") return String(font.weight);
+  if (font) return font.family;
   return undefined;
 }
 

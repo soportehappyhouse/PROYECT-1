@@ -788,6 +788,14 @@ function ExportResultCard({ job, onReview }: { job: Job; onReview: () => void })
               {formatErrorEs("DESIGN_AUTOFIXED", { n: result.designFixed })}
             </span>
           ) : null}
+          {result.designUnfixed ? (
+            <span
+              className="text-[11px] text-amber-700 dark:text-amber-300"
+              data-testid="export-design-unfixed"
+            >
+              {formatErrorEs("DESIGN_UNFIXED", { n: result.designUnfixed })}
+            </span>
+          ) : null}
           {result.motionRendered ? (
             <span
               className="text-[11px] text-muted-foreground"

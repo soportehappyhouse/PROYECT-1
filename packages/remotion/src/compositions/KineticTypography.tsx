@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Easing, interpolate, Sequence, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { fontStack } from "../fonts.js";
-import { designOf, safePadding } from "../lib/design.js";
+import { designOf, kitWeight, safePadding } from "../lib/design.js";
 import { splitKinetic, unitScale } from "../lib/anim.js";
 import type { KineticTypographyProps } from "../schemas/kinetic-typography.js";
 import { Backdrop } from "./common.js";
@@ -64,7 +64,7 @@ function Word({
       <div
         style={{
           fontFamily: font,
-          fontWeight: 900,
+          fontWeight: kitWeight(designOf(props), "display", 900),
           fontSize: props.fontSize * u,
           lineHeight: 1,
           color,

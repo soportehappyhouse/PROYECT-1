@@ -447,6 +447,31 @@ export function balanceLines(
 }
 
 /**
+ * A token longer than a line (URL, number, long name) is cut into pieces of maxChars − 1 plus a
+ * hyphen, with the time shared by length: with `WrapStyle: 2` libass would draw it edge to edge
+ * (audit S6 E11).
+ */
+function splitLongWord(
+  w: { text: string; start: number; end: number },
+  maxChars: number,
+): { text: string; start: number; end: number }[] {
+  if (w.text.length <= maxChars || maxChars < 4) return [w];
+  const step = maxChars - 1;
+  const parts: string[] = [];
+  for (let i = 0; i < w.text.length; i += step) parts.push(w.text.slice(i, i + step));
+  if (parts.length > 1 && parts.at(-1)!.length === 1) parts[parts.length - 2] += parts.pop()!;
+  const span = Math.max(0, w.end - w.start);
+  let at = w.start;
+  return parts.map((t, k) => {
+    const last = k === parts.length - 1;
+    const d = (span * t.length) / w.text.length;
+    const piece = { text: last ? t : `${t}-`, start: at, end: last ? w.end : at + d };
+    at += d;
+    return piece;
+  });
+}
+
+/**
  * Word timings -> caption pages. A page ends on a pause ≥ page_break_pause_ms, at the end of a
  * sentence, at a comma once it is half full, when it would not fit in max_lines lines of
  * `maxChars`, or when it would last more than max_duration_s. Pages are then stretched (into the
@@ -467,7 +492,8 @@ export function paginateCaptions(
       start: w.start,
       end: Math.max(w.end, w.start),
     }))
-    .filter((w) => w.text !== "");
+    .filter((w) => w.text !== "")
+    .flatMap((w) => splitLongWord(w, maxChars));
   const groups: (typeof list)[] = [];
   let cur: typeof list = [];
   const flush = () => {

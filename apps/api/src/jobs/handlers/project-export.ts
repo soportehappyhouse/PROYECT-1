@@ -13,6 +13,8 @@ import {
   loudnessFor,
   ProjectAudioMixSchema,
   SEGMENT_CACHE_SUBDIR,
+  type BrandKit,
+  type DesignAspect,
   type ExportJobPayload,
   type ExportJobResult,
   type MediaAsset,
@@ -133,12 +135,12 @@ export function createProjectExportHandler(
         if (still) throw new Error(still);
       }
       // Sprint 6: hard design rules the ASS/Remotion generation fixes by itself -> warning.
-      const designFixed = checkDesignWithFix(
+      const { designFixed, designUnfixed } = exportDesignSummary(
         project,
         new BrandKitRepo(app.repos.settings).get(),
         aspectOfCanvas(preset.width, preset.height),
-        req.burnSubtitles !== undefined ? { burnSubtitles: req.burnSubtitles } : {},
-      ).fixedCount;
+        req.burnSubtitles,
+      );
       // Sprint 5: framing of another aspect (409 texts as job errors when it changed meanwhile).
       const aspectFit = resolveExportAspect(project, preset, req.aspectFit);
       const loudness = req.normalizeLoudness === false ? null : loudnessFor(preset);
@@ -286,13 +288,17 @@ export function createProjectExportHandler(
           ...(outcome.ducked && { ducked: outcome.ducked }),
           ...(motionRendered > 0 && { motionRendered }),
           ...(designFixed > 0 && { designFixed }),
+          ...(designUnfixed > 0 && { designUnfixed }),
         };
         const warnings = [
           ...(outcome.warningCodes ?? []),
           ...(designFixed > 0 ? ["DESIGN_AUTOFIXED"] : []),
+          ...(designUnfixed > 0 ? ["DESIGN_UNFIXED"] : []),
         ];
         if (warnings.length) result.warnings = warnings;
         if (designFixed > 0) ctx.log(formatErrorEs("DESIGN_AUTOFIXED", { n: designFixed }));
+        if (designUnfixed > 0)
+          ctx.log(`AVISO: ${formatErrorEs("DESIGN_UNFIXED", { n: designUnfixed })}`);
       } catch (err) {
         await rm(absPath(app, rel), { force: true }); // drop the reserved (partial) output
         throw err;
@@ -301,5 +307,27 @@ export function createProjectExportHandler(
       }
       return result;
     },
+  };
+}
+
+/**
+ * Design checklist of an export: hard rules the generation fixes by itself (DESIGN_AUTOFIXED) and
+ * hard rules nothing fixes (DESIGN_UNFIXED, audit S6 E11: told instead of hidden).
+ */
+export function exportDesignSummary(
+  project: Project,
+  kit: BrandKit,
+  aspect: DesignAspect,
+  burnSubtitles?: boolean,
+): { designFixed: number; designUnfixed: number } {
+  const design = checkDesignWithFix(
+    project,
+    kit,
+    aspect,
+    burnSubtitles !== undefined ? { burnSubtitles } : {},
+  );
+  return {
+    designFixed: design.fixedCount,
+    designUnfixed: design.result.issues.filter((i) => i.severity === "hard" && !i.autofix).length,
   };
 }

@@ -1,5 +1,5 @@
 import { createWriteStream } from "node:fs";
-import { rename, rm } from "node:fs/promises";
+import { readFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import fastifyStatic from "@fastify/static";
@@ -35,6 +35,17 @@ import { StillService, type StillRenderer } from "../services/design/still.js";
 import { resolveStoragePath, storageRelative } from "../services/storage.js";
 
 const LOGO_MAX_BYTES = 5 * 1024 * 1024;
+/** PNG / JPEG by signature; SVG as text without scripts, event handlers or external links. */
+export function logoContentOk(ext: string, buf: Buffer): boolean {
+  if (ext === "png") return buf.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex"));
+  if (ext === "jpg") return buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+  const text = buf.toString("utf8");
+  if (!/<svg[\s>]/i.test(text)) return false;
+  return !/<script|<foreignobject|<!entity|\son\w+\s*=|javascript:|(?:xlink:)?href\s*=\s*["']?(?!#|data:image\/)/i.test(
+    text,
+  );
+}
+
 const LOGO_TYPES: Record<string, string> = {
   "image/png": "png",
   "image/jpeg": "jpg",
@@ -77,10 +88,10 @@ export function stillReason(err: unknown): string {
 export const designRoutes: FastifyPluginAsync = async (app) => {
   const { ctx } = app;
   const kits = new BrandKitRepo(ctx.repos.settings);
-  setAssDesign({
-    tokens: () => kits.get().tokens,
-    fontsDir: ensureAssFontsDir(ctx.config.storageDir),
-  });
+  const fontsDir = ensureAssFontsDir(ctx.config.storageDir);
+  if (!fontsDir)
+    app.log.warn("No se pudieron preparar las tipografías para los subtítulos (tmp/fonts-ass)");
+  setAssDesign({ tokens: () => kits.get().tokens, fontsDir });
   setDesignTokensProvider(() => kits.get().tokens);
 
   let version: Promise<string> | undefined;
@@ -125,10 +136,21 @@ export const designRoutes: FastifyPluginAsync = async (app) => {
       await pipeline(file.file, createWriteStream(part));
       if (file.file.truncated || size > LOGO_MAX_BYTES) throw logoInvalid({ size });
       if (size === 0) throw logoInvalid({ size });
+      // Audit S6 E20: the content must be what the type says; SVG without scripts or links out.
+      const head = await readFile(part);
+      if (!logoContentOk(ext, head))
+        throw logoInvalid({ type: file.mimetype, content: "mismatch" });
       await rename(part, target);
     } catch (err) {
       await rm(part, { force: true });
       throw err;
+    }
+    // Audit S6 E13: replacing the logo deletes the previous one (it was only the kit's).
+    const previous = kits.get().logo_asset_id;
+    const old = previous ? ctx.repos.media.get(previous) : undefined;
+    if (old && old.name.startsWith("Logo del kit")) {
+      ctx.repos.media.delete(old.id);
+      await rm(resolveStoragePath(ctx.config.storageDir, old.path), { force: true });
     }
     ctx.repos.media.insert({
       id,
@@ -194,7 +216,6 @@ export const designRoutes: FastifyPluginAsync = async (app) => {
     });
     try {
       const res = await stills.get(body, kits.get().tokens, ctrl.signal);
-      const { readFile } = await import("node:fs/promises");
       return reply
         .header("content-type", res.contentType)
         .header("cache-control", "no-cache")

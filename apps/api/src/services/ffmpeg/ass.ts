@@ -15,6 +15,8 @@ import {
   type Size,
   type SubtitleSegment,
 } from "@studio/shared";
+import { readdirSync } from "node:fs";
+import path from "node:path";
 import { escapeFilterPath } from "./escape.js";
 
 /**
@@ -142,9 +144,45 @@ export function currentAssTokens(): DesignTokens {
   }
 }
 
+/** Folder (relative to the job dir) where the export copies the caption TTFs (audit S6 E10). */
+export const ASS_FONTS_SUBDIR = "fonts";
+
 /**
- * `subtitles=<file>` + `fontsdir=<bundled fonts>` (escaped absolute path, Windows-safe), so the
- * burn-in uses the same OFL families as Remotion and the preview, never the system fonts.
+ * TTFs of `family` in the flat fonts folder, to copy into `<job>/fonts/` (audit S6 E10: libass
+ * then opens `fontsdir=fonts` relative to the job dir like `subs.ass`, never an absolute path with
+ * tildes or spaces from the user's profile). Empty when the folder is missing or has none.
+ */
+export function assFontCopies(
+  family: string,
+  fontsDir = assDesign.fontsDir,
+): { from: string; name: string }[] {
+  if (!fontsDir) return [];
+  const stem = `${family.replace(/ /g, "")}-`;
+  try {
+    return readdirSync(fontsDir)
+      .filter((f) => f.startsWith(stem) && /\.(ttf|otf)$/i.test(f))
+      .map((f) => ({ from: path.join(fontsDir, f), name: `${ASS_FONTS_SUBDIR}/${f}` }));
+  } catch {
+    return [];
+  }
+}
+
+/** Family libass draws for these tokens / style (the kit caption family unless the style opts out). */
+export function assCaptionFamily(
+  style?: Partial<CaptionStyle>,
+  tokens = currentAssTokens(),
+): string {
+  const kitBase = kitCaptionStyle(tokens);
+  return captionStyleFromTokens(
+    tokens,
+    style ? ({ ...kitBase, ...style } as CaptionStyle) : undefined,
+  ).fontFamily;
+}
+
+/**
+ * `subtitles=<file>` + `fontsdir=<bundled fonts>` (escaped path, Windows-safe), so the burn-in
+ * uses the same OFL families as Remotion and the preview, never the system fonts. The export
+ * passes the relative ASS_FONTS_SUBDIR (audit S6 E10).
  */
 export function assSubtitlesFilter(file: string, fontsDir = assDesign.fontsDir): string {
   return fontsDir

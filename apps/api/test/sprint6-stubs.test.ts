@@ -4,6 +4,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { makeApp } from "./helpers.js";
 
 /** Sprint 6 Paso 0: every new route answers 501 NOT_IMPLEMENTED naming its module. */
+// The modules replaced their stubs during the sprint (M1 Guion: script.test.ts); the routes are
+// checked to be live (no 501 left).
 const ROUTES: [string, string, string][] = [
   ["GET", API_ROUTES.script, SPRINT6_MODULES.M1],
   ["POST", API_ROUTES.scriptTranscribe, SPRINT6_MODULES.M1],
@@ -18,18 +20,15 @@ describe("sprint 6 Paso 0 stubs", () => {
   });
   afterAll(() => app.close());
 
-  it.each(ROUTES)("%s %s -> 501 NOT_IMPLEMENTED (%s)", async (method, route, module) => {
+  it.each(ROUTES)("%s %s is live, no 501 (%s)", async (method, route) => {
     const url = route.replace(":id", "p1").replace(":sid", "s1");
     const res = await app.inject({
       method: method as "GET" | "POST" | "PUT",
       url,
       ...(method === "GET" ? {} : { payload: {} }),
     });
-    expect(res.statusCode).toBe(501);
-    const body = ApiErrorSchema.parse(res.json());
-    expect(body.error.code).toBe("NOT_IMPLEMENTED");
-    expect(body.error.message).toBe(`Todavía no está disponible (${module}).`);
-    expect(body.error.details).toEqual({ module });
+    expect(res.statusCode).not.toBe(501);
+    expect(ApiErrorSchema.parse(res.json()).error.code).not.toBe("NOT_IMPLEMENTED");
   });
 
   it("the background lane exists with one slot", () => {

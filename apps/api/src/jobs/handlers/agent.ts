@@ -7,12 +7,10 @@ import {
   CAPTION_STYLE_PRESETS,
   CreateReportRequestSchema,
   FEATURE_PACKS,
-  formatErrorEs,
   MotionSpecSchema,
   nextTrackOrder,
   PACK_REQUIRED,
   reframeWindow,
-  SPRINT6_MODULES,
   VOICE_EFFECT_PRESETS,
   type AgentApplyPayload,
   type AgentApplyResult,
@@ -52,6 +50,24 @@ import { pollWorkerTask, WorkerTaskError } from "./util.js";
 import { ExportPresetSchema, libraryRole, type TrackRole } from "@studio/shared";
 import { resolveExportAspect } from "../../services/export/aspect-check.js";
 // END sprint5:M3
+// BEGIN sprint6:M1
+import {
+  applyDeleteWords,
+  applyFit,
+  applyFixText,
+  fixTextTargets,
+} from "../../services/script/ops.js";
+
+/** Script errors (SCRIPT_EMPTY / STALE / NOTHING_TO_CUT) stop the op with their Spanish text. */
+function scriptOp<T>(fn: () => T): T {
+  try {
+    return fn();
+  } catch (err) {
+    if (err instanceof HttpError) throw new OpError(err.message);
+    throw err;
+  }
+}
+// END sprint6:M1
 
 /**
  * Sprint 3 job `agent.apply` (lane edit): run the confirmed ops of a stored AgentPlan in order on
@@ -880,11 +896,32 @@ export function createAgentApplyHandler(
         if (md?.markdown_es) await appendToReport(app.config.storageDir, report.id, md.markdown_es);
         return { reportId: report.id, zipPath: report.zipPath };
       }
-      // BEGIN sprint6:M1 (Paso 0 stub: the resolver never lets these through yet)
-      case "delete_words":
-      case "fit_duration":
-      case "fix_text":
-        throw new OpError(formatErrorEs("NOT_IMPLEMENTED", { modulo: SPRINT6_MODULES.M1 }));
+      // BEGIN sprint6:M1 (Guion: cuts on every unlocked track + subtitles, one undo snapshot)
+      case "delete_words": {
+        const out = scriptOp(() => applyDeleteWords(env.load(), op, () => nanoid()));
+        env.save(out.project);
+        if (out.skipped) env.ctx.log(`${out.skipped} palabras sin cortar (cortes bruscos)`);
+        return { removedSec: round3(out.removed_s), cuts: out.cuts, skipped: out.skipped };
+      }
+      case "fit_duration": {
+        const out = scriptOp(() => applyFit(env.load(), op, () => nanoid()));
+        env.save(out.project);
+        return {
+          fromSec: round3(out.from_s),
+          toSec: round3(out.to_s),
+          ...(out.speed && { speed: out.speed }),
+        };
+      }
+      case "fix_text": {
+        const project = env.load();
+        const at = typeof op.at === "number" ? op.at : undefined;
+        const targets = fixTextTargets(project, op, at);
+        if ("question" in targets) throw new OpError(targets.question);
+        const out = applyFixText(project, op, targets);
+        env.save(out.project);
+        if (out.estimated) env.ctx.log(`${out.estimated} palabras con tiempos estimados`);
+        return { corrected: out.corrected, estimatedWords: out.estimated };
+      }
       // END sprint6:M1
       case "face_swap": {
         // Sprint 4 M1: sub-job face.swap on the clip (its own preflight: licence, pack, consent of

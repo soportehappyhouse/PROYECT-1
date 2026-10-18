@@ -30,7 +30,7 @@ import { HttpError, PackRequiredError } from "../../lib/errors.js";
 import { applyInheritedAiProvenance } from "../../services/ai-provenance.js";
 import { createConsentGate } from "../../services/persons/gate.js";
 import { resolveStoragePath } from "../../services/storage.js";
-import { applyCuts } from "../../services/timeline-edit.js";
+import { applyCuts, applyTimelineCuts } from "../../services/timeline-edit.js";
 import { WorkersError, type WorkersClient } from "../../services/workers-client.js";
 import { registerAudioAsset, requireMediaAsset } from "../../voice-ai/media-bridge.js";
 import { JobAbortedError } from "../state.js";
@@ -323,7 +323,12 @@ export function createApplyCutsHandler(
       const project = deps.repos.projects.get(req.projectId);
       if (!project) throw new HttpError(404, "NOT_FOUND", "Proyecto no encontrado");
       ctx.reportProgress(0.2, "Aplicando cortes");
-      const out = applyCuts(project, req.clipId, req.cuts, () => nanoid());
+      // BEGIN sprint6:M1 (mode "timeline": timeline seconds on every unlocked track + join fades)
+      const out =
+        req.mode === "timeline"
+          ? applyTimelineCuts(project, req.clipId, req.cuts, () => nanoid(), req.joinFadeMs)
+          : applyCuts(project, req.clipId, req.cuts, () => nanoid());
+      // END sprint6:M1
       const saved = deps.repos.projects.save(req.projectId, out.project);
       if (!saved) throw new HttpError(404, "NOT_FOUND", "Proyecto no encontrado");
       ctx.log(`Quitados ${out.removedSec.toFixed(2)} s en ${out.pieceIds.length} tramos`);

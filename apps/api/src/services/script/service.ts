@@ -1,0 +1,183 @@
+import { readFileSync, statSync } from "node:fs";
+import {
+  buildScript,
+  fitDuration,
+  formatErrorEs,
+  gapsToTimeline,
+  planCutsInternal,
+  refineCutsWithEnergy,
+  scriptIsStale,
+  ScriptAudioSchema,
+  timelineToSource,
+  type Clip,
+  type FitDurationPreview,
+  type FitDurationRequest,
+  type Project,
+  type Script,
+  type ScriptAudio,
+  type ScriptAudioGap,
+  type ScriptBuildAudio,
+  type ScriptCutsRequest,
+  type ScriptCutsResponse,
+} from "@studio/shared";
+import type { Db } from "../../db/database.js";
+import { HttpError } from "../../lib/errors.js";
+import { resolveStoragePath } from "../storage.js";
+import { listScriptAudio, type ScriptAudioRow } from "./store.js";
+
+/**
+ * Sprint 6 M1: the Guion services shared by routes/script.ts, the agent ops (resolve.ts /
+ * handlers/agent.ts) and the job script.transcribe. The Script is always computed from the
+ * project (`buildScript`); the audio artifacts (gaps + RMS envelope, SOURCE seconds of each asset)
+ * are mapped to the timeline through the clips that show that asset.
+ */
+
+export interface ScriptDeps {
+  db: Db;
+  storageDir: string;
+}
+
+const WINDOW_S = 0.005;
+
+interface Artifact {
+  audio: ScriptAudio;
+  rms?: Float32Array;
+}
+
+const cache = new Map<string, { mtimeMs: number; value: Artifact | undefined }>();
+
+function readArtifact(storageDir: string, rel: string): Artifact | undefined {
+  let abs: string;
+  try {
+    abs = resolveStoragePath(storageDir, rel);
+  } catch {
+    return undefined;
+  }
+  let mtimeMs: number;
+  try {
+    mtimeMs = statSync(abs).mtimeMs;
+  } catch {
+    return undefined;
+  }
+  const hit = cache.get(abs);
+  if (hit && hit.mtimeMs === mtimeMs) return hit.value;
+  let value: Artifact | undefined;
+  try {
+    const audio = ScriptAudioSchema.parse(JSON.parse(readFileSync(abs, "utf8")));
+    let rms: Float32Array | undefined;
+    try {
+      const buf = readFileSync(resolveStoragePath(storageDir, audio.rms_db_path));
+      rms = new Float32Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+    } catch {
+      rms = undefined; // no envelope: no energy refinement
+    }
+    value = { audio, ...(rms && { rms }) };
+  } catch {
+    value = undefined;
+  }
+  cache.set(abs, { mtimeMs, value });
+  if (cache.size > 32) cache.delete(cache.keys().next().value!);
+  return value;
+}
+
+const mediaClips = (project: Pick<Project, "tracks">): Clip[] =>
+  project.tracks
+    .filter((t) => t.kind === "video" || t.kind === "audio")
+    .flatMap((t) => t.clips.filter((c) => c.assetId));
+
+interface Loaded {
+  row: ScriptAudioRow;
+  artifact: Artifact;
+}
+
+function loadArtifacts(deps: ScriptDeps, project: Project): Loaded[] {
+  const used = new Set(mediaClips(project).map((c) => c.assetId!));
+  return listScriptAudio(deps.db, project.id)
+    .filter((r) => used.has(r.asset_id))
+    .map((row) => ({ row, artifact: readArtifact(deps.storageDir, row.path) }))
+    .filter((x): x is Loaded => x.artifact !== undefined);
+}
+
+/** Acoustic gaps of every transcribed asset of the project, in timeline seconds. */
+export function scriptAudioFor(deps: ScriptDeps, project: Project): ScriptBuildAudio | undefined {
+  const list = loadArtifacts(deps, project);
+  if (list.length === 0) return undefined;
+  const clips = mediaClips(project);
+  const gaps: ScriptAudioGap[] = list.flatMap(({ row, artifact }) =>
+    gapsToTimeline(artifact.audio.gaps, clips, row.asset_id),
+  );
+  const latest = list[0]!;
+  return {
+    jobId: latest.row.job_id,
+    noise_floor_db: latest.artifact.audio.noise_floor_db,
+    gaps: gaps.sort((a, b) => a.start - b.start),
+  };
+}
+
+/** RMS dB at a timeline time (undefined: no envelope there). */
+export function energyLookup(
+  deps: ScriptDeps,
+  project: Project,
+): ((t: number) => number | undefined) | undefined {
+  const list = loadArtifacts(deps, project).filter((x) => x.artifact.rms);
+  if (list.length === 0) return undefined;
+  const clips = mediaClips(project);
+  return (t: number) => {
+    for (const { row, artifact } of list) {
+      const src = timelineToSource(t, clips, row.asset_id);
+      if (src === undefined) continue;
+      const i = Math.floor(src / WINDOW_S);
+      const v = artifact.rms![i];
+      if (v !== undefined && Number.isFinite(v)) return v;
+    }
+    return undefined;
+  };
+}
+
+export function getScript(deps: ScriptDeps, project: Project): Script {
+  return buildScript(project, scriptAudioFor(deps, project), {
+    stale: scriptIsStale(project),
+  });
+}
+
+export function scriptError(
+  code: "SCRIPT_EMPTY" | "SCRIPT_STALE" | "SCRIPT_NOTHING_TO_CUT",
+  details?: unknown,
+) {
+  const status = code === "SCRIPT_NOTHING_TO_CUT" ? 422 : 409;
+  return new HttpError(status, code, formatErrorEs(code), details);
+}
+
+/** Script ready to cut: SCRIPT_EMPTY without words, SCRIPT_STALE when it no longer fits. */
+export function requireScript(deps: ScriptDeps, project: Project): Script {
+  const script = getScript(deps, project);
+  if (script.words.length === 0) throw scriptError("SCRIPT_EMPTY");
+  if (script.stale) throw scriptError("SCRIPT_STALE");
+  return script;
+}
+
+/** POST …/script/cuts: planWordCuts + energy refinement (does not apply). */
+export function computeCuts(
+  deps: ScriptDeps,
+  project: Project,
+  req: ScriptCutsRequest,
+  opts: { allowEmpty?: boolean } = {},
+): ScriptCutsResponse {
+  const script = requireScript(deps, project);
+  const { response, bounded } = planCutsInternal(script, req);
+  const energy = energyLookup(deps, project);
+  const cuts = energy ? refineCutsWithEnergy(bounded, energy) : response.cuts;
+  const removed_s = Math.round(cuts.reduce((s, c) => s + (c.end - c.start), 0) * 1000) / 1000;
+  if (cuts.length === 0 && !opts.allowEmpty)
+    throw scriptError("SCRIPT_NOTHING_TO_CUT", { skipped: response.skipped });
+  return { cuts, removed_s, skipped: response.skipped };
+}
+
+/** POST …/script/fit: fitDuration preview + plan (does not apply). */
+export function computeFit(
+  deps: ScriptDeps,
+  project: Project,
+  req: Partial<FitDurationRequest> & Pick<FitDurationRequest, "target_s">,
+): FitDurationPreview {
+  return fitDuration(requireScript(deps, project), req);
+}

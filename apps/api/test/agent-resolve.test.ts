@@ -208,19 +208,33 @@ describe("agent resolver", () => {
     expect(r.risks.some((x) => x.includes("nunca sobrescribe"))).toBe(true);
   });
 
-  it("sprint 6 Paso 0: script ops become a «todavía no» question (M1 replaces it)", () => {
+  it("sprint 6 M1: script ops without a transcript ask to transcribe first", () => {
+    const p = project();
+    p.subtitles = [];
     const r = resolvePlan(
       plan([
         { op: "delete_words", fillers: "safe" },
         { op: "fit_duration", target_s: 45 },
         { op: "fix_text", find: "a", replace: "b" },
       ]),
+      ctx(p),
+    );
+    expect(r.unresolved).toEqual([
+      "Operación 1: Primero transcribí el video (Guion → Transcribir).",
+      "Operación 2: Primero transcribí el video (Guion → Transcribir).",
+      "Operación 3: Primero transcribí el video (Guion → Transcribir).",
+    ]);
+    // With subtitles: fix_text resolves, delete_words has nothing safe to cut.
+    const ok = resolvePlan(
+      plan([
+        { op: "fix_text", find: "edición", replace: "edición de video" },
+        { op: "delete_words", fillers: "safe" },
+      ]),
       ctx(),
     );
-    expect(r.unresolved).toHaveLength(3);
-    expect(r.unresolved[0]).toBe(
-      "Operación 1: «Borrar palabras»: Todavía no está disponible (M1 Guion).",
-    );
+    expect(ok.resolved[0]).toMatchObject({ op: "fix_text" });
+    expect(ok.preview_es[0]).toMatch(/^Corregir «edición» → «edición de video» \(1 vez\)/);
+    expect(ok.unresolved[0]).toMatch(/^Operación 2: No hay nada para cortar/);
   });
 
   it("scenes on the timeline and deferred scenes after detect_scenes", () => {

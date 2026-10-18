@@ -1152,10 +1152,15 @@ export function deleteRangesPlan(
 ): EditPlan | undefined {
   if (cuts.length === 0) return undefined;
   const ops: EditOp[] = [];
-  for (let k = 0; k < cuts.length && ops.length < 20; k += 200)
+  // Chunks of 200 from the END of the timeline backwards: applying a later chunk first never moves
+  // the ranges of the chunks before it.
+  const sorted = [...cuts].sort((a, b) => a.start - b.start);
+  for (let hi = sorted.length; hi > 0 && ops.length < 20; hi -= 200)
     ops.push({
       op: "delete_words",
-      ranges: cuts.slice(k, k + 200).map((c) => ({ start: round3(c.start), end: round3(c.end) })),
+      ranges: sorted
+        .slice(Math.max(0, hi - 200), hi)
+        .map((c) => ({ start: round3(c.start), end: round3(c.end) })),
       ...(confirm && { confirm: true }),
     });
   return { version: 1, summary_es: summary_es.slice(0, 500), ops };

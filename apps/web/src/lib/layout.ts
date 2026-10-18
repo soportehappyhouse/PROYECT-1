@@ -6,7 +6,14 @@ import { z } from "zod";
  * Dashboard panels: shared `PanelIdSchema` + `assistant` (Sprint 3; it lives only in the dockview
  * layout, the contract `panels` array does not list it).
  */
-export type WebPanelId = PanelId | "assistant" | "console" | "style";
+export type WebPanelId =
+  | PanelId
+  | "assistant"
+  | "console"
+  | "style"
+  // BEGIN sprint6:M1 (panel «Guion», next to Subtítulos)
+  | "script";
+// END sprint6:M1
 
 export interface PanelInfo {
   id: WebPanelId;
@@ -36,6 +43,9 @@ export const PANELS: readonly PanelInfo[] = [
     title: "Perfil de estilo",
     description: "Copiar el estilo de un video de referencia",
   },
+  // BEGIN sprint6:M1
+  { id: "script", title: "Guion", description: "Editar el video desde el texto (palabras)" },
+  // END sprint6:M1
 ];
 
 export const PANEL_IDS = PANELS.map((p) => p.id);
@@ -117,6 +127,9 @@ const DEFAULT_PLACEMENT: Record<
   export: { anchor: "inspector", direction: "within", inactive: true },
   timeline: { direction: "below" },
   subtitles: { anchor: "timeline", direction: "within", inactive: true },
+  // BEGIN sprint6:M1 (Guion: a tab next to Subtítulos)
+  script: { anchor: "timeline", direction: "within", inactive: true },
+  // END sprint6:M1
   jobs: { anchor: "timeline", direction: "within", inactive: true },
   // Sprint 3b: Consola Claude and «Perfil de estilo», inactive until Ctrl+Shift+C / the palette.
   console: { anchor: "timeline", direction: "within", inactive: true },
@@ -164,6 +177,9 @@ export function buildDefaultLayout(api: LayoutBuilderApi): void {
     "export",
     "timeline",
     "subtitles",
+    // BEGIN sprint6:M1
+    "script",
+    // END sprint6:M1
     "jobs",
     "console",
     "style",

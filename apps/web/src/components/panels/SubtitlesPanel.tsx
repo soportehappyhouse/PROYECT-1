@@ -25,6 +25,9 @@ import { formatTime } from "@/lib/format";
 import { warnIfCpu } from "@/lib/gpu-preflight";
 import { createId } from "@/lib/ids";
 import { animatedCaptionsProps, toSrt } from "@/lib/subtitles";
+// BEGIN sprint6:M1
+import { editSubtitleText } from "@/lib/script";
+// END sprint6:M1
 import {
   CAPTION_STYLES,
   useCaptionStyleStore,
@@ -449,10 +452,9 @@ export function SubtitlesPanel() {
                   aria-label="Texto del segmento"
                   className="text-xs"
                   value={s.text}
-                  // Editing text invalidates word timings.
-                  onChange={(e) =>
-                    store().updateSubtitle(i, { text: e.target.value, words: undefined })
-                  }
+                  /* BEGIN sprint6:M1 (H11: keep the word timings, one undo step per edit) */
+                  onChange={(e) => editSubtitleText(i, e.target.value)}
+                  /* END sprint6:M1 */
                 />
               </li>
             ))}

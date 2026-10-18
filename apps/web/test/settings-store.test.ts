@@ -63,6 +63,7 @@ describe("layout validation", () => {
       "export",
       "timeline",
       "subtitles",
+      "script", // Sprint 6 M1: «Guion», a tab next to Subtítulos
       "jobs",
       "console",
       "style",

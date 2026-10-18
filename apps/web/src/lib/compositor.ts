@@ -3,6 +3,7 @@ import {
   effectiveBurnSubtitles,
   fitRect,
   maskShapeRect,
+  motionTemplateNameEs,
   reframeCropAt as sharedReframeCropAt,
   rendersOwnTrack,
   subtitlesToBurn,
@@ -329,7 +330,7 @@ export function composeAt(input: CompositorInput): Composition {
               height: canvas.height * 0.12,
             },
             text: {
-              content: `Motion «${c.motion?.template ?? "?"}» — pendiente de render`,
+              content: `${motionTemplateNameEs(c.motion?.template)} — sin renderizar (se renderiza al exportar)`,
               style: { fontFamily: "Inter", fontSize: 36, color: "#ffffff", position: "top" },
             },
           });

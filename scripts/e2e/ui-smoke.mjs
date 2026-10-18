@@ -315,11 +315,11 @@ await step("Motion panel: choose «Título», edit props, «Renderizar y añadir
   await page.locator(".dv-tab", { hasText: "Motion graphics" }).click();
   const panel = page.locator("section[aria-label='Motion graphics']");
   await panel.locator("select").first().selectOption({ value: "remotion:title-card" });
+  // Integration S6: the M2 form wraps the label text in a <span> (room for the «Del kit» badge).
   const field = (label) =>
     panel
-      .locator(
-        `xpath=.//label[normalize-space(text()[1])='${label}']//*[self::input or self::textarea]`,
-      )
+      .locator("label", { has: page.locator(`span:text-is("${label}")`) })
+      .locator("input, textarea")
       .first();
   await field("Título").fill("Mi primer título");
   await field("Subtítulo").fill("Hecho con Studio");
@@ -1911,7 +1911,7 @@ await step(
       if (!pack?.installed) return { skipped: "no AI media and tts-chatterbox not installed" };
       await page.locator(".dv-tab", { hasText: "Voz y audio" }).click();
       const voice = page.locator("section[aria-label='Voz y audio']");
-      await voice.getByRole("tab", { name: "Texto a voz" }).click();
+      await voice.getByRole("tab", { name: "Voces de Studio" }).click(); // Sprint 6 M2 (H20)
       await voice.getByLabel("Motor").selectOption("chatterbox");
       await voice.getByRole("textbox").first().fill("Voz sintética para la revisión de redes.");
       await voice.getByRole("button", { name: /Generar y añadir al cursor/ }).click();
@@ -2202,8 +2202,10 @@ await step(
       new URL("../../apps/web/src/lib/tooltips.ts", import.meta.url),
       "utf8",
     );
-    const tipKeys = new Set([...src.matchAll(/^\s{2}(\w+): "/gm)].map((m) => m[1]));
-    if (tipKeys.size !== 51) throw new Error(`TIPS keys parsed: ${tipKeys.size}`);
+    // Integration S6: keys whose text wraps to the next line count too; 51 (S5) + 12 (M2) + 8
+    // (integration) = 71, the same number apps/web/test/tooltips.test.tsx checks.
+    const tipKeys = new Set([...src.matchAll(/^\s{2}(\w+):\s*(?:"|\n)/gm)].map((m) => m[1]));
+    if (tipKeys.size !== 71) throw new Error(`TIPS keys parsed: ${tipKeys.size}`);
     await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).click();
     await page.locator(".dv-tab", { hasText: "Vista previa" }).click();
     await page.locator(".dv-tab", { hasText: "Media" }).first().click();
@@ -2898,17 +2900,19 @@ if (UX_METRICS)
     ]) {
       const tab = page.locator(".dv-tab", { hasText: title }).first();
       if (!(await tab.count())) {
-        // closed panel: open it from «Paneles»
+        // closed panel: open it from «Paneles» (a checked item would close it: integration S6)
         await page.getByRole("button", { name: "Paneles" }).click();
-        await page
+        const item = page
           .getByRole("menuitemcheckbox", { name: title })
           .or(page.getByRole("menuitem", { name: title }))
-          .first()
-          .click();
+          .first();
+        if ((await item.getAttribute("aria-checked").catch(() => null)) !== "true")
+          await item.click();
         await page.keyboard.press("Escape");
       }
       if (await tab.count()) await tab.click();
       const sec = page.locator(`section[aria-label='${title}']`);
+      await sec.waitFor({ timeout: 5_000 }).catch(() => {});
       metrics.english[name] = (await sec.count())
         ? await s6m2English(sec, deny)
         : ["(panel cerrado)"];

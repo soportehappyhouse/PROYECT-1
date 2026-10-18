@@ -257,7 +257,8 @@ function MediaItem({ asset, selected }: { asset: MediaAsset; selected: boolean }
           </p>
         ) : null}
       </div>
-      <div className="flex flex-col gap-0.5 opacity-70 group-hover:opacity-100">
+      {/* Integration S6: 2 columns, so 4 actions (Añadir, Analizar, Proxy, Eliminar) keep the row short */}
+      <div className="grid grid-cols-2 gap-0.5 opacity-70 group-hover:opacity-100">
         {!dataOnly ? (
           <Button
             variant="ghost"

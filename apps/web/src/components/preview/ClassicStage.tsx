@@ -3,6 +3,7 @@
 import {
   effectiveBurnSubtitles,
   fitRect,
+  motionTemplateNameEs as templateNameEs,
   subtitlesToBurn,
   videoRectAt,
   type CaptionStyle as SharedCaptionStyle,
@@ -246,7 +247,7 @@ export function ClassicStage({ scale }: { scale: number }) {
             key={clip.id}
             className="pointer-events-none absolute inset-x-[10%] top-[10%] rounded border border-dashed border-fuchsia-400 bg-fuchsia-500/20 p-2 text-center text-xs text-white"
           >
-            Motion «{clip.motion?.template ?? "?"}» — pendiente de render
+            {templateNameEs(clip.motion?.template)} — sin renderizar (se renderiza al exportar)
           </div>
         ),
       )}

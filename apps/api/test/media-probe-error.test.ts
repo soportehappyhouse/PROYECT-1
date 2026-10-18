@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { API_ROUTES, buildRoute, type Job, type MediaAsset } from "@studio/shared";
+import { probeErrorEs } from "../src/jobs/handlers/media-probe.js";
 import { makeApp, multipart, waitFor } from "./helpers.js";
 
 /** Integration S6 (M3 cross request 7, MEJORAS B15): MediaAsset.probeError survives a reload. */
@@ -25,5 +26,19 @@ describe("media.probe failure -> probeError on the asset", () => {
     ).json<MediaAsset>();
     expect(got.probeError).toBeTruthy();
     expect(got.probeError!.length).toBeLessThanOrEqual(500);
+    // Audit S6 E23: a short Spanish reason, without the user's absolute paths.
+    expect(got.probeError).toMatch(/^(El archivo|No se)/);
+    expect(got.probeError).not.toMatch(/[/\\]/);
+  });
+
+  it("probeErrorEs classifies the raw ffprobe errors", () => {
+    expect(probeErrorEs("ffprobe falló: [mov,mp4] moov atom not found /tmp/x/media/a.mp4")).toBe(
+      "El archivo está dañado o incompleto.",
+    );
+    expect(probeErrorEs("Invalid data found when processing input")).toBe(
+      "El archivo está dañado o incompleto.",
+    );
+    expect(probeErrorEs("spawn /opt/ffprobe ENOENT")).toMatch(/ffprobe/);
+    expect(probeErrorEs("algo raro")).toBe("No se pudo leer el archivo (formato no reconocido).");
   });
 });

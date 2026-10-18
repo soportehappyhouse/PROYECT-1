@@ -139,7 +139,8 @@ describe("POST /api/design/check (Sprint 6 M2, C2)", () => {
     });
     const fb = fixed.json();
     expect(fb.passed).toBe(10);
-    expect(fb.fixed).toBe(2);
+    // Audit S6 E25: one style fix repairs both rules (counted once).
+    expect(fb.fixed).toBe(1);
     expect(ProjectSchema.parse(fb.project).captionStyle!.fontSize).toBeGreaterThanOrEqual(49);
     // Not saved by the api (the web applies it as one undo step).
     const stored = await app.inject({

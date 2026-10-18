@@ -392,6 +392,8 @@ export const DesignCheckResultSchema = z.object({
     .array(z.object({ id: DesignRuleIdSchema, passed: z.boolean(), issues: z.int().nonnegative() }))
     .length(DESIGN_RULE_IDS.length),
   passed: z.int().min(0).max(DESIGN_RULE_IDS.length),
+  /** Audit S6 E25: false = no burned captions, titles nor texts (nothing was checked). */
+  applicable: z.boolean().optional(),
   issues: z.array(DesignIssueSchema),
   fixed: z.int().nonnegative(),
   /** With fix:true, the fixed project (the web pushes it as one undo step). */

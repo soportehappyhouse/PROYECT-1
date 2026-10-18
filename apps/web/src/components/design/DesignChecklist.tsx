@@ -84,9 +84,11 @@ export function DesignChecklist({ compact = false }: { compact?: boolean }) {
       {result ? (
         <>
           <p className="text-xs" role="status">
-            {result.passed === 10
-              ? DESIGN_TEXTS_ES.allRulesPass
-              : DESIGN_TEXTS_ES.rulesFailed.replace("{n}", String(10 - result.passed))}
+            {result.applicable === false
+              ? DESIGN_TEXTS_ES.nothingToCheck
+              : result.passed === 10
+                ? DESIGN_TEXTS_ES.allRulesPass
+                : DESIGN_TEXTS_ES.rulesFailed.replace("{n}", String(10 - result.passed))}
           </p>
           <ul className="flex flex-col gap-1 text-xs">
             {result.rules.map((r) => {

@@ -38,8 +38,41 @@ export function text(title: string, max = 200) {
 }
 
 /** Media URL resolved by the api from MotionSpec.media (http://127.0.0.1:3001/files/...). */
+/**
+ * A media URL Studio serves itself: relative paths, data:/blob:, or http(s) to loopback or a
+ * private-network host (the api on another PC of the LAN). Anything else would make Chrome fetch
+ * from internet during a render (audit S6 E21: «ningún render usa la red»).
+ */
+export function isLocalMediaSrc(src: string): boolean {
+  if (src === "" || /^(data|blob):/i.test(src)) return true;
+  if (src.startsWith("//")) return false;
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(src)) return true; // relative
+  let host: string;
+  try {
+    const u = new URL(src);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+    host = u.hostname.replace(/^\[|\]$/g, "");
+  } catch {
+    return false;
+  }
+  return (
+    host === "localhost" ||
+    host === "::1" ||
+    /^127\./.test(host) ||
+    /^10\./.test(host) ||
+    /^192\.168\./.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+  );
+}
+
 export function mediaSrc(title: string) {
-  return z.string().meta({ title, format: "uri" }).optional();
+  return z
+    .string()
+    .refine(isLocalMediaSrc, {
+      message: "Solo archivos de Studio (Media): las plantillas no descargan nada de internet",
+    })
+    .meta({ title, format: "uri" })
+    .optional();
 }
 
 /** OFL families bundled in public/fonts (see src/fonts.ts; = BUNDLED_FONT_FAMILIES of shared). */

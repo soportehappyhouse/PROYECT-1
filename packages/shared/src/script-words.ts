@@ -19,6 +19,7 @@ import {
 } from "./script.js";
 import type { SubtitleSegment, SubtitleWord } from "./subtitles.js";
 import { SCRIPT_PANEL_TEXTS_ES } from "./texts-es.js";
+import { interpolate, sortKeyframes, type ClipKeyframes, type Keyframe } from "./keyframes.js";
 import type { Clip, Project, Track } from "./timeline.js";
 
 /**
@@ -99,11 +100,28 @@ export interface BuildScriptOptions {
 const clipEndOf = (c: Pick<Clip, "start" | "in" | "out" | "speed">) =>
   c.start + Math.max(0, (c.out - c.in) / (c.speed || 1));
 
-/** Timeline duration (end of the last clip). */
-export function timelineDuration(project: Pick<Project, "tracks">): number {
+/**
+ * Timeline duration = what the export renders (audit S6 E15: one function for the Guion, «Dejalo
+ * en N s» and the export): the end of the last clip of a visible track (hidden audio tracks still
+ * count: muted, not removed) or of the last subtitle. Unrounded.
+ */
+export function exportDuration(
+  project: Pick<Project, "tracks"> & Partial<Pick<Project, "subtitles">>,
+): number {
   let end = 0;
-  for (const t of project.tracks) for (const c of t.clips) end = Math.max(end, clipEndOf(c));
-  return round3(end);
+  for (const t of project.tracks) {
+    if (t.hidden && t.kind !== "audio") continue;
+    for (const c of t.clips) end = Math.max(end, clipEndOf(c));
+  }
+  for (const s of project.subtitles ?? []) end = Math.max(end, s.end);
+  return end;
+}
+
+/** Timeline duration in ms precision (exportDuration rounded to 3 decimals). */
+export function timelineDuration(
+  project: Pick<Project, "tracks"> & Partial<Pick<Project, "subtitles">>,
+): number {
+  return round3(exportDuration(project));
 }
 
 /** Words of a segment; a segment without `words` gets estimated ones (by letters, corrected). */
@@ -780,6 +798,25 @@ export function cutTimeline<P extends Pick<Project, "tracks" | "subtitles"> & Pa
   return { project: next, removed_s, newClipIds };
 }
 
+/** Keyframes of the [offset, offset + dur] window of a clip, re-based to 0 (audit S6 E17). */
+export function keyframesWindow(kf: ClipKeyframes, offset: number, dur: number): ClipKeyframes {
+  const out: Record<string, Keyframe[]> = {};
+  for (const [prop, list] of Object.entries(kf) as [string, Keyframe[] | undefined][]) {
+    if (!list?.length) continue;
+    const sorted = sortKeyframes(list);
+    const inside = sorted
+      .filter((k) => k.t > offset + EPS && k.t < offset + dur - EPS)
+      .map((k) => ({ ...k, t: round(k.t - offset) }));
+    const easeAt = (t: number) => [...sorted].reverse().find((k) => k.t <= t)?.ease ?? "linear";
+    out[prop] = [
+      { t: 0, v: interpolate(sorted, offset)!, ease: easeAt(offset) },
+      ...inside,
+      { t: round(dur), v: interpolate(sorted, offset + dur)!, ease: easeAt(offset + dur) },
+    ];
+  }
+  return out as ClipKeyframes;
+}
+
 function splitAround(
   c: Clip,
   m: ReturnType<typeof cutMapping>,
@@ -815,6 +852,12 @@ function splitAround(
       in: round(c.in + (k.start - start) * speed),
       out: round(c.in + (k.end - start) * speed),
     };
+    // Audit S6 E17: keyframes are relative to the clip start: shift them into the piece (with
+    // the interpolated value at both ends) instead of restarting the animation in every piece.
+    if (c.keyframes)
+      piece.keyframes = keyframesWindow(c.keyframes, k.start - start, k.end - k.start);
+    // A face swap job belongs to one clip: only the first piece keeps it.
+    if (i > 0) delete piece.faceSwap;
     delete piece.transitionIn;
     delete piece.transitionOut;
     if (atStart && c.transitionIn) piece.transitionIn = c.transitionIn;

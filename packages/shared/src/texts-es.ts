@@ -113,6 +113,8 @@ export const DESIGN_TEXTS_ES = {
   safeZoneGuide:
     "La zona segura es una guía (las apps cambian): calibrala con una captura de tu teléfono.",
   allRulesPass: "Subtítulos y títulos cumplen las 10 reglas de diseño.",
+  /** Audit S6 E25. */
+  nothingToCheck: "No hay subtítulos quemados, títulos ni textos para revisar.",
   rulesFailed: "{n} de 10 reglas de diseño no se cumplen.",
   lowContrast: "Poco contraste: se lee mal sobre el video.",
   fontsBundled: "Tipografías incluidas en Studio (funcionan sin internet).",

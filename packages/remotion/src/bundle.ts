@@ -21,13 +21,26 @@ async function listFiles(dir: string): Promise<string[]> {
   return nested.flat().sort();
 }
 
-/** Hash of every file in packages/remotion/src + the Remotion version (bundle cache key). */
-export async function computeSourceHash(srcDir = SRC_DIR): Promise<string> {
+const PUBLIC_DIR = path.join(PACKAGE_DIR, "public");
+
+/**
+ * Hash of every file in packages/remotion/src and public/ (the bundled fonts: audit S6 E19, a
+ * changed TTF must not reuse the old bundle) + the Remotion version (bundle cache key).
+ */
+export async function computeSourceHash(
+  srcDir = SRC_DIR,
+  publicDir: string | null = srcDir === SRC_DIR ? PUBLIC_DIR : null,
+): Promise<string> {
   const hash = createHash("sha256").update(`remotion@${VERSION}`);
   for (const file of await listFiles(srcDir)) {
     hash.update(path.relative(srcDir, file).replace(/\\/g, "/"));
     hash.update(await readFile(file));
   }
+  if (publicDir && existsSync(publicDir))
+    for (const file of await listFiles(publicDir)) {
+      hash.update(`public/${path.relative(publicDir, file).replace(/\\/g, "/")}`);
+      hash.update(await readFile(file));
+    }
   return hash.digest("hex").slice(0, 16);
 }
 

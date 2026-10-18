@@ -72,15 +72,22 @@ describe("background lane", () => {
   });
 
   it("a second user job of the workers lane never waits behind a background job", async () => {
+    // Audit S6 E22: the old check (indexOf ≤ 1 with 2 items) could not fail. Now the background
+    // job holds until the user job has run: if the user job waited behind it, this would hang.
     const store = new SqliteJobStore(openDatabase(":memory:"));
     queue = new JobQueue({ store, storageDir: "/tmp" });
-    const order: string[] = [];
+    const events: string[] = [];
+    let releaseBg!: () => void;
+    const bgHeld = new Promise<void>((r) => (releaseBg = r));
+    let userDone!: () => void;
+    const userRan = new Promise<void>((r) => (userDone = r));
     queue.register({
       type: "suggest.analyze",
       parse: (p) => p,
       run: async () => {
-        order.push("bg");
-        await new Promise((r) => setTimeout(r, 200));
+        events.push("bg:start");
+        await bgHeld;
+        events.push("bg:end");
         return null;
       },
     });
@@ -88,15 +95,22 @@ describe("background lane", () => {
       type: "subtitles.transcribe",
       parse: (p) => p,
       run: async () => {
-        order.push("user");
+        events.push("user");
+        userDone();
         return null;
       },
     });
     queue.enqueue({ type: "suggest.analyze", payload: {}, priority: -10 });
-    queue.enqueue({ type: "subtitles.transcribe", payload: {} });
     queue.start();
+    await until(() => events.includes("bg:start"));
+    queue.enqueue({ type: "subtitles.transcribe", payload: {} });
+    await Promise.race([
+      userRan,
+      new Promise((_, rej) => setTimeout(() => rej(new Error("user job waited")), 3000)),
+    ]);
+    expect(events).toEqual(["bg:start", "user"]);
+    releaseBg();
     await queue.onIdle();
-    expect(order).toContain("user");
-    expect(order.indexOf("user")).toBeLessThanOrEqual(1);
+    expect(events).toEqual(["bg:start", "user", "bg:end"]);
   });
 });

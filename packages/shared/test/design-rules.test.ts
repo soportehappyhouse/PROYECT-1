@@ -290,7 +290,8 @@ describe("checkDesign", () => {
     expect(res.passed).toBe(8);
     expect(res.issues.every((i) => i.autofix && i.severity === "hard")).toBe(true);
     const { fixed, fixedCount } = checkDesignWithFix(p, DEFAULT_BRAND_KIT);
-    expect(fixedCount).toBe(2);
+    // Audit S6 E25: both issues are fixed by the same style fix (counted once).
+    expect(fixedCount).toBe(1);
     expect(checkDesign(fixed, DEFAULT_BRAND_KIT).passed).toBe(10);
     // autofixCaptionStyle alone does the same.
     const r = resolveDesign(DEFAULT_DESIGN_TOKENS, { w: 1080, h: 1920 });
@@ -508,5 +509,46 @@ describe("tokens longer than a line (audit S6 E11)", () => {
     const rules = checkDesignWithFix(p, DEFAULT_BRAND_KIT, "9:16").result.issues.map((i) => i.rule);
     expect(rules).not.toContain("caption.chars_per_line");
     expect(rules).not.toContain("caption.safe_zone");
+  });
+});
+
+describe("nothing to check (audit S6 E25)", () => {
+  const empty = {
+    id: "p",
+    name: "x",
+    settings: { width: 1080, height: 1920, fps: 30 },
+    tracks: [],
+    subtitles: [],
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  } as unknown as Project;
+  it("a project without captions or titles is «not applicable», not 10/10", () => {
+    const c = checkDesignWithFix(empty, DEFAULT_BRAND_KIT, "9:16");
+    expect(c.result.applicable).toBe(false);
+    const withSubs = { ...empty, subtitles: [{ start: 0, end: 2, text: "Hola" }] } as Project;
+    expect(checkDesignWithFix(withSubs, DEFAULT_BRAND_KIT, "9:16").result.applicable).toBe(true);
+  });
+  it("fixedCount counts distinct fixes (one style fix for several caption rules)", () => {
+    const bad = {
+      ...empty,
+      subtitles: [{ start: 0, end: 2, text: "Hola" }],
+      captionStyle: {
+        id: "x",
+        name: "x",
+        fontFamily: "Inter",
+        fontSize: 20,
+        color: "#777777",
+        background: "",
+        highlightColor: "#ffffff",
+        position: "bottom",
+        uppercase: false,
+        animation: "none",
+        outlineWidth: 0,
+        fromBrandKit: false,
+      },
+    } as unknown as Project;
+    const c = checkDesignWithFix(bad, DEFAULT_BRAND_KIT, "9:16");
+    expect(c.result.issues.filter((i) => i.autofix).length).toBeGreaterThan(1);
+    expect(c.fixedCount).toBe(1);
   });
 });

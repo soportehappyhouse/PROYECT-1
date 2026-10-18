@@ -167,6 +167,34 @@ const REASON_CHOICE: Record<ScriptCutReason, FitChoice> = {
 };
 
 /**
+ * Audit S6 E14: «acelerar» only exists with every cut group (the api recomputes fit_duration);
+ * unchecking another group unchecks it, and checking it checks them all back.
+ */
+export function toggleFitChoice(
+  preview: FitDurationPreview,
+  enabled: readonly FitChoice[],
+  id: FitChoice,
+  on: boolean,
+): FitChoice[] {
+  const ids = fitChoices(preview).map((c) => c.id);
+  if (id === "speed" && on) return ids;
+  const next = on ? [...new Set([...enabled, id])] : enabled.filter((x) => x !== id);
+  return !on && id !== "speed" ? next.filter((x) => x !== "speed") : next;
+}
+
+/** Duration the checked groups give (the preview's own total when everything is checked). */
+export function fitShownTotal(
+  preview: FitDurationPreview,
+  enabled: ReadonlySet<FitChoice>,
+): number {
+  if (fitChoices(preview).every((c) => enabled.has(c.id))) return preview.to_s;
+  const removed = preview.cuts
+    .filter((c) => enabled.has(REASON_CHOICE[c.reason]))
+    .reduce((s, c) => s + (c.end - c.start), 0);
+  return Math.max(0, preview.from_s - removed);
+}
+
+/**
  * EditPlan for «Aplicar» of a fit preview with some groups unchecked: all checked (and a speed-up)
  * = the api plan as is (fit_duration recomputed at apply time); otherwise delete_words with the
  * cuts of the checked groups.

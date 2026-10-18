@@ -1079,13 +1079,21 @@ export function checkDesignWithFix(
     const n = c.issues.filter((i) => i.rule === id).length;
     return { id, passed: n === 0, issues: n };
   });
-  for (const f of c.fixes) f();
-  const fixedCount = c.fixes.length;
+  // Audit S6 E25: one fix shared by several issues (the caption style) counts once.
+  const fixes = [...new Set(c.fixes)];
+  for (const f of fixes) f();
+  const fixedCount = fixes.length;
+  // Audit S6 E25: without burned captions, titles or texts there is nothing to check.
+  const applicable =
+    (burn && project.subtitles.some((s) => s.text.trim() !== "")) ||
+    motionClips(project).length > 0 ||
+    project.tracks.some((t) => t.kind === "text" && !t.hidden && t.clips.length > 0);
   return {
     result: {
       aspect: asp,
       rules: rulesOut,
       passed: rulesOut.filter((r) => r.passed).length,
+      applicable,
       issues: c.issues,
       fixed: 0,
       checkedAt: new Date().toISOString(),

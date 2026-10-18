@@ -18,6 +18,7 @@ import {
   ScriptSchema,
   SCRIPT_RULES,
   speedUpTimeline,
+  timelineDuration,
   type Project,
   type SubtitleSegment,
   type SubtitleWord,
@@ -488,5 +489,47 @@ describe("scriptIsStale", () => {
     expect(scriptIsStale(p)).toBe(false);
     p.tracks[0]!.clips[0]!.out = 0.6;
     expect(scriptIsStale(p)).toBe(true);
+  });
+});
+
+describe("timelineDuration = export duration (audit S6 E15)", () => {
+  it("skips hidden non-audio tracks and counts subtitles, like the export", () => {
+    const p = project([], 60);
+    p.tracks[1]!.clips[0]!.out = 90; // text 10–100
+    p.tracks[1]!.hidden = true;
+    expect(timelineDuration(p)).toBe(60);
+    p.tracks[1]!.hidden = false;
+    expect(timelineDuration(p)).toBe(100);
+    const withSubs = project([seg("hola@61-61.5")], 60);
+    expect(timelineDuration(withSubs)).toBe(61.5);
+  });
+});
+
+describe("cut pieces keep their keyframes in place (audit S6 E17)", () => {
+  it("each piece's keyframes are relative to the piece and stay inside it; faceSwap only once", () => {
+    const p = project([], 10);
+    const clip = p.tracks[0]!.clips[0]!;
+    clip.keyframes = {
+      opacity: [
+        { t: 0, v: 0, ease: "linear" },
+        { t: 8, v: 1, ease: "linear" },
+      ],
+    };
+    (clip as { faceSwap?: unknown }).faceSwap = { personId: "per1", status: "pending" };
+    let n = 0;
+    const out = cutTimeline(p, [{ start: 2, end: 3 }], { newId: () => `n${++n}` });
+    const [a, b] = out.project.tracks[0]!.clips;
+    const kfA = a!.keyframes!.opacity!;
+    const kfB = b!.keyframes!.opacity!;
+    // Piece 1 = 0–2 s: from 0 to the value at 2 s (0,25).
+    expect(kfA.map((k) => k.t)).toEqual([0, 2]);
+    expect(kfA.at(-1)!.v).toBeCloseTo(0.25, 6);
+    // Piece 2 = source 3–10 s, 7 s long: starts at the value at 3 s and keeps t=8 as t=5.
+    expect(kfB[0]).toMatchObject({ t: 0 });
+    expect(kfB[0]!.v).toBeCloseTo(0.375, 6);
+    expect(kfB.some((k) => Math.abs(k.t - 5) < 1e-6 && k.v === 1)).toBe(true);
+    for (const k of kfB) expect(k.t).toBeLessThanOrEqual(7 + 1e-6);
+    expect((a as { faceSwap?: unknown }).faceSwap).toBeDefined();
+    expect((b as { faceSwap?: unknown }).faceSwap).toBeUndefined();
   });
 });

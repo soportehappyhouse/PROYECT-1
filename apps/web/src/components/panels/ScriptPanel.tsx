@@ -18,7 +18,13 @@ import { useAiAvailability } from "@/hooks/use-ai-availability";
 import { Button } from "@/components/ui/button";
 import { Checkbox, Input, Label } from "@/components/ui/input";
 import { EmptyState, Spinner } from "@/components/ui/misc";
-import { fitChoices, localScript, nextReviewIndex, scriptTargetClip } from "@/lib/script";
+import {
+  fitChoices,
+  fitShownTotal,
+  localScript,
+  nextReviewIndex,
+  scriptTargetClip,
+} from "@/lib/script";
 import { cn } from "@/lib/utils";
 import { useProjectStore } from "@/stores/project-store";
 import { useScriptStore } from "@/stores/script-store";
@@ -298,7 +304,8 @@ export function ScriptPanel() {
           {fit ? (
             <div data-testid="script-fit-preview" className="mb-2 rounded border p-2 text-xs">
               <p className="mb-1 font-medium">
-                {fmtS(fit.preview.from_s)} s → {fmtS(fit.preview.to_s)} s
+                {fmtS(fit.preview.from_s)} s →{" "}
+                {fmtS(fitShownTotal(fit.preview, new Set(fit.enabled)))} s
               </p>
               {choices.map((c) => (
                 <label key={c.id} className="flex items-center gap-1">

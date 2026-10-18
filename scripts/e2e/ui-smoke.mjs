@@ -9,9 +9,12 @@
 // Needs the `playwright` package (global: `npm i -g playwright && npx playwright install chromium`,
 // or set --playwright <path to playwright/index.mjs>). The web must be built with
 // NEXT_PUBLIC_API_URL pointing at --api. It does not fail fast: each step is reported.
+// Storage: a fresh STORAGE_DIR is the reference run (the counts in the docs). A storage already
+// used (media from an earlier run) also works: this run's files get a «-r<id>» suffix.
 
 import { readdir, stat } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -95,8 +98,25 @@ async function shot(page, name, opts = {}) {
   return `${name} ${Math.round((await stat(file)).size / 1024)} KB`;
 }
 
+// Audit S6: a storage that already has media (a previous run) is accepted: every file this run
+// uploads gets a run suffix («clip-r1a2b.mp4»), so the Media list never has two items with the
+// same name (strict locators) and nothing waits on the old jobs.
+const REUSED = await fetch(`${API}/api/media?limit=1`)
+  .then((r) => r.json())
+  .then((list) => Array.isArray(list) && list.length > 0)
+  .catch(() => false);
+const RUN = REUSED ? `-r${Date.now().toString(36)}` : "";
+const uname = (name) => (RUN ? name.replace(/(\.[^.]+)?$/, (ext) => `${RUN}${ext}`) : name);
+if (REUSED) console.log(`storage ya usado: los archivos de esta corrida llevan «${RUN}»`);
 const files = await readdir(MEDIA);
-const pick = (re) => files.map((f) => path.join(MEDIA, f)).find((f) => re.test(f));
+const runDir = REUSED ? mkdtempSync(path.join(os.tmpdir(), "studio-ui-run-")) : undefined;
+const pick = (re) => {
+  const f = files.map((x) => path.join(MEDIA, x)).find((x) => re.test(x));
+  if (!f || !runDir) return f;
+  const copy = path.join(runDir, uname(path.basename(f)));
+  copyFileSync(f, copy);
+  return copy;
+};
 const VIDEO = pick(/\.(mp4|mov|webm|mkv)$/i);
 const AUDIO = pick(/\.(wav|mp3|m4a|ogg)$/i);
 const IMAGE = pick(/\.(png|jpe?g|webp)$/i);
@@ -591,7 +611,8 @@ async function waitApiJob(jobId, ms = 300_000) {
     await sleep(500);
   }
 }
-async function lavfiUpload(name, graph, extra = []) {
+async function lavfiUpload(rawName, graph, extra = []) {
+  const name = uname(rawName);
   const { mkdtemp, readFile } = await import("node:fs/promises");
   const os = await import("node:os");
   s2.dir ??= await mkdtemp(path.join(os.tmpdir(), "studio-ui-s2-"));

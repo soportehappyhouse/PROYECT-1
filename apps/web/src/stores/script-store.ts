@@ -24,6 +24,7 @@ import {
   fitChoices,
   fitPlanFor,
   localScript,
+  toggleFitChoice,
   type FitChoice,
   type ScriptAudioMeta,
   type SourceGap,
@@ -304,8 +305,7 @@ export const useScriptStore = create<ScriptState>()((set, get) => ({
   toggleFit: (id, on) => {
     const fit = get().fit;
     if (!fit) return;
-    const enabled = on ? [...new Set([...fit.enabled, id])] : fit.enabled.filter((x) => x !== id);
-    set({ fit: { ...fit, enabled } });
+    set({ fit: { ...fit, enabled: toggleFitChoice(fit.preview, fit.enabled, id, on) } });
   },
   closeFit: () => set({ fit: undefined }),
   applyFit: async (confirmed = false) => {

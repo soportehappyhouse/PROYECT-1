@@ -14,6 +14,8 @@ dependencies = [
   "httpx>=0.28.1,<1",
   # Sprint 3: EditPlan validation with the JSON Schema exported by @studio/shared
   "jsonschema>=4.23,<5",
+  # Sprint 6 (audit E18): stt/words.py imports it at start-up (it came only through faster-whisper)
+  "numpy>=1.26",
 ]
 
 [project.optional-dependencies]

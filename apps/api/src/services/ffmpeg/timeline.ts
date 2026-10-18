@@ -3,6 +3,7 @@ import {
   aiLabelText,
   blendModeToFfmpeg,
   effectiveBurnSubtitles,
+  exportDuration,
   fitRect,
   hasKeyframes,
   maskShapeRect,
@@ -172,13 +173,8 @@ export function clipDuration(c: Pick<Clip, "in" | "out" | "speed">): number {
 
 /** Timeline end over visible tracks (and subtitles). */
 export function timelineDuration(project: Project): number {
-  let end = 0;
-  for (const t of project.tracks) {
-    if (t.hidden && t.kind !== "audio") continue;
-    for (const c of t.clips) end = Math.max(end, c.start + clipDuration(c));
-  }
-  for (const s of project.subtitles) end = Math.max(end, s.end);
-  return end;
+  // Audit S6 E15: the same function as the Guion / «Dejalo en N s» (shared).
+  return exportDuration(project);
 }
 
 /**

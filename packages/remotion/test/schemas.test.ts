@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { isColor } from "../src/schemas/common.js";
 import { DEMO_TRANSCRIPT } from "../src/schemas/animated-captions.js";
 import { validateRemotionProps } from "../src/templates.js";
+import { findTemplateDef } from "../src/catalog.js";
 
 describe("template props validation", () => {
   it("accepts valid props and applies defaults", () => {
@@ -66,5 +67,20 @@ describe("template props validation", () => {
 
   it("demo transcript matches the shared Transcript contract (faster-whisper output)", () => {
     expect(() => TranscriptSchema.parse(DEMO_TRANSCRIPT)).not.toThrow();
+  });
+});
+
+describe("media props never point to internet (audit S6 E21)", () => {
+  const lottie = (lottieSrc: string) =>
+    findTemplateDef("lottie-overlay")!.schema.safeParse({ lottieSrc }).success;
+  it("accepts Studio's own files (loopback / LAN api, relative, data:) and rejects external URLs", () => {
+    expect(lottie("http://127.0.0.1:3001/files/media/a.json")).toBe(true);
+    expect(lottie("http://localhost:3001/files/media/a.json")).toBe(true);
+    expect(lottie("http://192.168.0.10:3001/files/media/a.json")).toBe(true);
+    expect(lottie("media/a.json")).toBe(true);
+    expect(lottie("data:application/json;base64,e30=")).toBe(true);
+    expect(lottie("https://example.com/anim.json")).toBe(false);
+    expect(lottie("http://8.8.8.8/a.json")).toBe(false);
+    expect(lottie("//example.com/a.json")).toBe(false);
   });
 });

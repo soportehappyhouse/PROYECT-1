@@ -35,14 +35,15 @@ const events = (ass: string) => ass.split("\n").filter((l) => l.startsWith("Dial
 describe("ASS from the design tokens (Sprint 6 M2)", () => {
   afterEach(() => setAssDesign({ tokens: () => DEFAULT_DESIGN_TOKENS, fontsDir: null }));
 
-  it("9:16 kit style: Fontname, Fontsize = 6 % of the short side, Outline 8 %, safe-zone margins", () => {
+  it("9:16 kit style: Fontname, Fontsize = 6 % of the short side, Outline 8 %, margins = safe zone", () => {
     const ass = buildAss(SPEECH, { canvas: { width: 1080, height: 1920 } });
     const s = styleLine(ass);
     expect(s[1]).toBe("Inter");
     expect(Number(s[2])).toBe(65);
     expect(s[7]).toBe("900");
     expect(Number(s[16])).toBe(5);
-    expect(s.slice(19, 22).map(Number)).toEqual([119, 119, 672]);
+    // Margins = safe zone (119/119/672 px) + the outline (5 px): the whole glyph stays inside.
+    expect(s.slice(19, 22).map(Number)).toEqual([124, 124, 677]);
     expect(ass).toContain("WrapStyle: 2");
     expect(ass).toContain("ScaledBorderAndShadow: yes");
     for (const e of events(ass)) {
@@ -61,11 +62,31 @@ describe("ASS from the design tokens (Sprint 6 M2)", () => {
     });
     const s = styleLine(ass);
     expect(Number(s[2])).toBe(54);
-    expect(Number(s[21])).toBe(108);
+    // 10 % bottom (108 px) + the box padding (18 % of 54 = 10 px).
+    expect(Number(s[21])).toBe(118);
     // Box style (clásico): BorderStyle 3.
     expect(s[15]).toBe("3");
     for (const e of events(ass))
       for (const l of e.split(",,").at(-1)!.split("\\N")) expect(l.length).toBeLessThanOrEqual(42);
+  });
+
+  it("«Mayúsculas» applies to the paginated lines (word timings keep their case)", () => {
+    const segs = [
+      {
+        start: 0,
+        end: 1.2,
+        text: "hola mundo",
+        words: [
+          { word: "hola", start: 0, end: 0.5 },
+          { word: "mundo", start: 0.6, end: 1.1 },
+        ],
+      },
+    ];
+    const ass = buildAss(segs, {
+      canvas: { width: 1080, height: 1920 },
+      style: CAPTION_STYLE_PRESETS[1],
+    });
+    expect(events(ass)[0]).toMatch(/HOLA MUNDO$/);
   });
 
   it("hard rules are auto-fixed on generation (30 px without outline)", () => {

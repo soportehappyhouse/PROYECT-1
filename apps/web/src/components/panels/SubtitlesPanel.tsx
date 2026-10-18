@@ -298,7 +298,7 @@ export function SubtitlesPanel() {
     <Panel title="Subtítulos">
       <div className="flex flex-col gap-4">
         <Section title="Transcribir (Whisper)">
-          <SelectedClipHint sel={sel} need="Selecciona un clip con voz para transcribirlo." />
+          <SelectedClipHint sel={sel} need="Elegí un clip con voz para transcribirlo." />
           <div className="grid grid-cols-2 gap-2">
             <Label>
               Idioma
@@ -340,7 +340,7 @@ export function SubtitlesPanel() {
           <Button
             size="sm"
             disabled={!hasAudio(sel)}
-            tooltip={hasAudio(sel) ? undefined : "Selecciona un clip con voz"}
+            tooltip={hasAudio(sel) ? undefined : "Elegí un clip con voz"}
             onClick={() => sel && useSilencesStore.getState().open(sel.clip.id)}
           >
             <Scissors /> Quitar silencios y muletillas…

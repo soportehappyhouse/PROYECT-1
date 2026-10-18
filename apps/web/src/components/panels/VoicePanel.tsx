@@ -893,10 +893,7 @@ function EffectsForm() {
 
   return (
     <div className="flex flex-col gap-3">
-      <SelectedClipHint
-        sel={sel}
-        need="Selecciona un clip de audio o video en la línea de tiempo."
-      />
+      <SelectedClipHint sel={sel} need="Elegí un clip de audio o video en la línea de tiempo." />
       <DenoiseSection />
       <StemsSection />
       <Section title="Presets">
@@ -937,7 +934,9 @@ function EffectsForm() {
         }
       >
         {chain.length === 0 ? (
-          <p className="text-xs text-muted-foreground">Elige un preset o añade efectos.</p>
+          <p className="text-xs text-muted-foreground">
+            Elegí un ajuste guardado o agregá efectos.
+          </p>
         ) : null}
         {chain.map((effect, i) => (
           <div key={i} className="rounded-md border p-2">
@@ -1127,7 +1126,7 @@ export function VoicePanel() {
   const [choice, setChoice] = useState<VoiceChoice>("studio");
   const help = VOICE_CHOICES.find((c) => c.value === choice)?.help;
   return (
-    <Panel title={GLOSSARY_ES.panels.voice}>
+    <Panel title="Voz y audio">
       <div className="flex flex-col gap-3">
         <Tabs
           value={tab}

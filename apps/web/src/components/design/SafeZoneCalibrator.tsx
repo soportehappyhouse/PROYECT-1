@@ -3,6 +3,7 @@
 import type { SafeZone } from "@studio/shared";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { FileButton } from "@/components/ui/file-button";
 import { Label, Range } from "@/components/ui/input";
 import { DESIGN_TEXTS_ES, GLOSSARY_ES } from "@studio/shared";
 import { KIT_TEXTS_ES, SIDE_LABELS_ES } from "./texts";
@@ -34,15 +35,11 @@ export function SafeZoneCalibrator({
       data-testid="calibrator"
     >
       <p className="text-xs text-muted-foreground">{KIT_TEXTS_ES.calibrateHelp}</p>
-      <input
-        type="file"
+      <FileButton
+        label="Captura del teléfono"
         accept="image/png,image/jpeg"
-        aria-label="Captura del teléfono"
-        className="text-xs"
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) setShot(URL.createObjectURL(f));
-        }}
+        className="self-start"
+        onFile={(f) => setShot(URL.createObjectURL(f))}
       />
       <div className="flex gap-3">
         <div

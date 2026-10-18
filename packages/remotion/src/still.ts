@@ -22,6 +22,8 @@ export interface StillOptions {
   mediaBaseUrl: string;
   /** Kit tokens (null = no kit; undefined = the registered provider). */
   tokens?: DesignTokens | null;
+  /** Browser console lines (tests: a font that failed to load logs a warning). */
+  onBrowserLog?: (text: string) => void;
 }
 
 /**
@@ -64,7 +66,11 @@ export async function renderTemplateStill(o: StillOptions): Promise<{ frame: num
     logLevel: "warn" as const,
     chromeMode: "headless-shell" as const,
   };
-  const composition = await selectComposition({ ...common, id: o.template });
+  const composition = await selectComposition({
+    ...common,
+    id: o.template,
+    ...(o.onBrowserLog && { onBrowserLog: (l: { text: string }) => o.onBrowserLog!(l.text) }),
+  });
   const frame = Math.min(
     composition.durationInFrames - 1,
     Math.max(0, o.frame ?? def.thumbnailFrame),
@@ -77,6 +83,7 @@ export async function renderTemplateStill(o: StillOptions): Promise<{ frame: num
     output: o.output,
     imageFormat: o.format,
     overwrite: true,
+    ...(o.onBrowserLog && { onBrowserLog: (l: { text: string }) => o.onBrowserLog!(l.text) }),
   });
   return { frame, ms: Date.now() - started };
 }

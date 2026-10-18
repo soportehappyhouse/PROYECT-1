@@ -198,7 +198,11 @@ export function buildAss(segments: readonly SubtitleSegment[], o: BuildAssOption
   };
   const marginsFor = (rect: Rect, lines: number) => {
     const rd = rectDesign(rect);
-    const lay = captionLayout({ position, fontSize: st.fontSize }, rd, lines);
+    const lay = captionLayout(
+      { position, fontSize: st.fontSize, box, outlineWidth: st.outlineWidth ?? 0 },
+      rd,
+      lines,
+    );
     const left = Math.round(rect.x + lay.marginL);
     const right = Math.round(o.canvas.width - rect.x - rect.width + lay.marginR);
     const vertical =
@@ -253,7 +257,9 @@ export function buildAss(segments: readonly SubtitleSegment[], o: BuildAssOption
     for (const p of pages) {
       const mm = marginsFor(rect, p.lines.length);
       const align = mm.align === m0.align ? "" : `{\\an${mm.align}}`;
-      const text = p.lines.map(assText).join("\\N");
+      // Word timings keep the original case: «Mayúsculas» applies to the drawn lines.
+      const lines = st.uppercase ? p.lines.map((l) => l.toLocaleUpperCase("es")) : p.lines;
+      const text = lines.map(assText).join("\\N");
       events.push(
         `Dialogue: 0,${assTime(p.start)},${assTime(p.end)},Default,,${mm.left},${mm.right},${mm.vertical},,${align}${text}`,
       );

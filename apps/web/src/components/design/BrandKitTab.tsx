@@ -12,10 +12,10 @@ import {
   type DesignTokens,
   type SafeZone,
 } from "@studio/shared";
-import { Upload } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { FileButton } from "@/components/ui/file-button";
 import { Input, Label, Range, Select } from "@/components/ui/input";
 import { ErrorNotice, Section, Spinner } from "@/components/ui/misc";
 import { useApiResource } from "@/hooks/use-api-resource";
@@ -103,7 +103,10 @@ export function BrandKitTab() {
   return (
     <div className="flex flex-col gap-5" data-testid="brand-kit-tab">
       <p className="text-xs text-muted-foreground">{KIT_TEXTS_ES.intro}</p>
-      <div className="grid gap-5 md:grid-cols-[1fr_auto]">
+      <Section title={KIT_TEXTS_ES.preview}>
+        <TokenPreview kit={draft} {...(lastVideo && { backgroundAssetId: lastVideo })} />
+      </Section>
+      <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-5">
           <Section title={KIT_TEXTS_ES.name}>
             <Input
@@ -113,16 +116,13 @@ export function BrandKitTab() {
               onChange={(e) => update({ ...draft, name: e.target.value })}
             />
             <div className="flex flex-wrap items-end gap-2">
-              <Label className="flex-1">
+              <div className="flex flex-1 flex-col gap-1 text-xs font-medium text-muted-foreground">
                 {KIT_TEXTS_ES.logo}
-                <input
-                  type="file"
+                <FileButton
+                  label={draft.logo_asset_id ? "Cambiar el logo" : "Subir logo"}
                   accept="image/png,image/jpeg,image/svg+xml"
-                  className="text-xs"
-                  aria-label={KIT_TEXTS_ES.logo}
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (!f) return;
+                  className="self-start"
+                  onFile={(f) => {
                     designApi
                       .uploadLogo(f)
                       .then((k) => {
@@ -134,7 +134,7 @@ export function BrandKitTab() {
                       );
                   }}
                 />
-              </Label>
+              </div>
               <Label>
                 {KIT_TEXTS_ES.logoPosition}
                 <Select
@@ -153,9 +153,6 @@ export function BrandKitTab() {
                   ))}
                 </Select>
               </Label>
-              {draft.logo_asset_id ? (
-                <Upload className="size-4 text-muted-foreground" aria-label="Logo cargado" />
-              ) : null}
             </div>
           </Section>
 
@@ -200,9 +197,9 @@ export function BrandKitTab() {
 
           <Section title={KIT_TEXTS_ES.fonts}>
             <p className="text-[11px] text-muted-foreground">{DESIGN_TEXTS_ES.fontsBundled}</p>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="flex flex-col gap-2">
               {(Object.keys(FONT_ROLE_LABELS_ES) as FontRole[]).map((role) => (
-                <div key={role} className="flex gap-1">
+                <div key={role} className="grid grid-cols-[1fr_9rem] gap-2">
                   <Label className="flex-1">
                     {FONT_ROLE_LABELS_ES[role]}
                     <Select
@@ -342,10 +339,6 @@ export function BrandKitTab() {
             </details>
           </Section>
         </div>
-
-        <Section title={KIT_TEXTS_ES.preview} className="md:w-[440px]">
-          <TokenPreview kit={draft} {...(lastVideo && { backgroundAssetId: lastVideo })} />
-        </Section>
       </div>
 
       <Section title={KIT_TEXTS_ES.check}>

@@ -300,7 +300,7 @@ function ProjectSettings() {
         </Section>
       ) : null}
       <p className="text-xs text-muted-foreground">
-        Selecciona un clip en la línea de tiempo para editar sus propiedades.
+        Elegí un clip en la línea de tiempo para editar sus propiedades.
       </p>
     </div>
   );

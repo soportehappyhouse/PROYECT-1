@@ -90,6 +90,12 @@ export function colorDistance(a: string, b: string): number {
   return Math.hypot(x.r - y.r, x.g - y.g, x.b - y.b);
 }
 
+/** Grays (low chroma) go with any palette: the brand check ignores them. */
+export function isNeutral(color: string): boolean {
+  const c = parseCssColor(color);
+  return Boolean(c) && Math.max(c!.r, c!.g, c!.b) - Math.min(c!.r, c!.g, c!.b) < 24;
+}
+
 /** Colors of the kit (text, outline, accent, plate and palette). */
 export function kitColors(tokens: DesignTokens): string[] {
   const c = tokens.color;
@@ -241,7 +247,11 @@ export function charWidthEm(family: string, uppercase: boolean): number {
  */
 export function captionMaxChars(style: CaptionStyle, resolved: ResolvedDesign): number {
   const sizePx = style.fontSize * captionUnit(resolved);
-  const width = resolved.canvas.w - resolved.safe_zone_px.left - resolved.safe_zone_px.right;
+  const width =
+    resolved.canvas.w -
+    resolved.safe_zone_px.left -
+    resolved.safe_zone_px.right -
+    2 * captionBorderPx(style, resolved);
   const fit = Math.floor(
     width / Math.max(1, sizePx * charWidthEm(style.fontFamily, style.uppercase)),
   );
@@ -266,30 +276,57 @@ export interface CaptionLayout {
  * the bottom safe line, top = under the top safe line, center = centered in the safe area.
  */
 export function captionLayout(
-  style: Pick<CaptionStyle, "position" | "fontSize">,
+  style: Pick<CaptionStyle, "position" | "fontSize"> &
+    Partial<Pick<CaptionStyle, "box" | "outlineWidth">>,
   resolved: ResolvedDesign,
   lines: number,
 ): CaptionLayout {
   const { h } = resolved.canvas;
   const sz = resolved.safe_zone_px;
   const sizePx = style.fontSize * captionUnit(resolved);
-  const block = Math.max(1, lines) * sizePx * CAPTION_LINE_HEIGHT;
-  const base = { marginL: sz.left, marginR: sz.right };
+  const border = captionBorderPx(style, resolved);
+  // Text block + the outline (or the box padding) on both sides: all of it inside the safe zone.
+  const block = Math.max(1, lines) * sizePx * CAPTION_LINE_HEIGHT + 2 * border;
+  const base = { marginL: sz.left + border, marginR: sz.right + border };
   if (style.position === "top")
-    return { ...base, align: 8, marginV: sz.top, blockTop: sz.top, blockBottom: sz.top + block };
+    return {
+      ...base,
+      align: 8,
+      marginV: sz.top + border,
+      blockTop: sz.top,
+      blockBottom: sz.top + block,
+    };
   if (style.position === "center") {
     const cy = (sz.top + (h - sz.bottom)) / 2;
     const bottom = Math.round(cy + block / 2);
     return {
       ...base,
       align: 2,
-      marginV: h - bottom,
+      marginV: h - bottom + border,
       blockTop: bottom - block,
       blockBottom: bottom,
     };
   }
   const bottom = h - sz.bottom;
-  return { ...base, align: 2, marginV: sz.bottom, blockTop: bottom - block, blockBottom: bottom };
+  return {
+    ...base,
+    align: 2,
+    marginV: sz.bottom + border,
+    blockTop: bottom - block,
+    blockBottom: bottom,
+  };
+}
+
+/** Pixels the outline (or the box padding, 18 % of the size) adds around the text. */
+export function captionBorderPx(
+  style: Pick<CaptionStyle, "fontSize"> & Partial<Pick<CaptionStyle, "box" | "outlineWidth">>,
+  resolved: Pick<ResolvedDesign, "canvas">,
+): number {
+  const unit = captionUnit(resolved);
+  const sizePx = style.fontSize * unit;
+  return style.box
+    ? Math.max(2, Math.round(sizePx * 0.18))
+    : Math.max(0, Math.round((style.outlineWidth ?? 0) * unit));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -759,7 +796,8 @@ export function checkDesignWithFix(
         );
       const lay = captionLayout(drawn, resolved, p.lines.length);
       const width =
-        longest * drawn.fontSize * unit * charWidthEm(drawn.fontFamily, drawn.uppercase);
+        longest * drawn.fontSize * unit * charWidthEm(drawn.fontFamily, drawn.uppercase) +
+        2 * captionBorderPx(drawn, resolved);
       const sz = resolved.safe_zone_px;
       if (
         lay.blockTop < sz.top - 1 ||
@@ -913,7 +951,7 @@ export function checkDesignWithFix(
     const colors = kitColors(t);
     for (const [k, v] of Object.entries(props)) {
       if (!COLOR_KEY.test(k) || typeof v !== "string" || !v.startsWith("#")) continue;
-      if (colors.every((kc) => colorDistance(kc, v) > KIT_COLOR_TOLERANCE))
+      if (!isNeutral(v) && colors.every((kc) => colorDistance(kc, v) > KIT_COLOR_TOLERANCE))
         issue(c, "brand.consistency", target, `El color ${v} no es del kit de marca.`, () => {
           delete props[k];
         });

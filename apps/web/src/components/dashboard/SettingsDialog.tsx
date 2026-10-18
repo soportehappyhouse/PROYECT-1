@@ -155,7 +155,7 @@ function ShortcutsTab() {
                   }}
                 >
                   {recording === a.id
-                    ? "Pulsa una tecla…"
+                    ? "Tocá una tecla…"
                     : shortcuts[a.id]
                       ? displayKeys(shortcuts[a.id])
                       : "—"}

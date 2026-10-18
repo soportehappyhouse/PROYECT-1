@@ -105,31 +105,35 @@ Fuente: criterios 🟡 de `DEVOLUCION-2026-10-04-studio.md` (sprints 0–5), «A
 reconciliar). «Sandbox» = se puede cerrar acá con prueba; «PC» = solo con la RTX 4050/Windows/servicios
 reales del usuario.
 
-| # | Ítem | Origen | Dónde se cierra | Asignado |
-| - | ---- | ------ | --------------- | -------- |
-| 1 | Flujo completo con Whisper/Piper/RVC reales | S0 crit. 2 🟡 | PC | PC |
-| 2 | `-Update` omite lo instalado | S1 crit. 1 🟡 | **ya medido en la PC** (2026-10-05: `actualizar.cmd` cambió a CUDA, 6/6 paquetes) | Integración S6: reclasificar 🟢 con esa evidencia |
-| 3 | Re-render con un cambio < 20 % (NVENC) | S1 crit. 2b 🟡 (42 % en CPU) | PC | PC (verificador #14) |
-| 4 | Recorte ≥ 15 fps 1080p | S2 🟡 | PC | PC (verificador #14) |
-| 5 | Evaluar modelos qwen3:8b ≥ 90 % golden; Rápida ≤ 3 min; Ollama corta al cancelar | S3 crit. 4 🟡, S5 | PC | PC (verificador #14) |
-| 6 | Consola con `claude` real | S3b 🟡 | PC | PC |
-| 7 | Stems 1 min < 60 s en GPU + sha256 de Demucs | S3b 🟡 | PC | PC (verificador #14) |
-| 8 | Halos HQ en clip real | S3b 🟡 | PC | PC |
-| 9 | FaceFusion fps, Chatterbox RTF, RVC < 15 s/min | S4 crit. 5 🟡 | PC | PC (verificador #14) |
-| 10 | `taskkill /T` del árbol; `Ctrl+O`/`Ctrl+Alt+N` en Edge; 125 % en 1366 px; loudnorm 10 min; «Abrir carpeta» con tildes | S5 🟡 | PC | PC |
-| 11 | H18 parcial: reabrir el último borrador del Asistente tras recargar | S5 parcial | Sandbox | **M3 (P2)** |
-| 12 | H19 parcial: glosario único, voces «Espana/Mexico», columna «Lo usa» con ids | S5 parcial | Sandbox | **M2** |
-| 13 | MEJORAS B7: lienzo sin máximo (20000×20000 rompe el export) | R2 | Sandbox | **Paso 0** (`ProjectSettings` máx. 8192) |
-| 14 | Verificador de la PC: un `verificar-pc.cmd` que corre Test de rendimiento + «Evaluar modelos» Rápida + stems 1 min y deja `storage/run/verificacion.json` para pegar (convierte los ítems 3, 4, 5, 7, 9 en un solo paso del usuario) | panel «pendiente PC» | Sandbox (script) + PC (correrlo) | **M3 (P3)** |
-| 15 | MEJORAS B11: motor no disponible responde en inglés («Motion engine "m…») | R2 | Sandbox | **M2** |
-| 16 | MEJORAS B13: renders motion con «Sin proxy» y botón «Generar proxy» | R2 | Sandbox | **M3 (P2, con H16)** |
-| 17 | MEJORAS B15: medio con probe fallido sin marca ni acción | R2 | Sandbox | **M3 (P2, con H16)** |
-| 18 | MEJORAS B6: `title-card` con fondo opaco `#111111` sobre WebM alfa | R2 | Sandbox | **M2** (tokens: fondo transparente por defecto) |
-| 19 | `GET /api/projects?view=summary` lee cada proyecto completo | S5 Descubierto | Sandbox | S7 |
-| 20 | Cancelar `audio.denoise` y `voice.tts` de Piper | S5 Descubierto | Sandbox | S7 |
-| 21 | PIN local; filtro NSFW de fotos de Persona | S4 Descubierto | Sandbox | S7 |
-| 22 | Hashes de Hugging Face; texto real del rechazo NSFW | S4 Descubierto | PC | PC |
-| 23 | MEJORAS B8–B10, B12, U6 (disco), U7 (0,067 s al soltar): reconciliar (varios ya resueltos) | R2 | Sandbox | Integración S6 (solo reconciliar el documento) / S7 |
+| # | Ítem | Origen | Dónde se cierra | Asignado | Estado (integración S6) |
+| - | ---- | ------ | --------------- | -------- | ------- |
+| 1 | Flujo completo con Whisper/Piper/RVC reales | S0 crit. 2 🟡 | PC | PC | 🟡 PC |
+| 2 | `-Update` omite lo instalado | S1 crit. 1 🟡 | **ya medido en la PC** (2026-10-05: `actualizar.cmd` cambió a CUDA, 6/6 paquetes) | Integración S6: reclasificar 🟢 con esa evidencia | 🟢 reclasificado (evidencia 2026-10-05: `actualizar.cmd` cambió a CUDA, 6/6 paquetes) |
+| 3 | Re-render con un cambio < 20 % (NVENC) | S1 crit. 2b 🟡 (42 % en CPU) | PC | PC (verificador #14) | 🟡 PC (verificador) |
+| 4 | Recorte ≥ 15 fps 1080p | S2 🟡 | PC | PC (verificador #14) | 🟡 PC (verificador) |
+| 5 | Evaluar modelos qwen3:8b ≥ 90 % golden; Rápida ≤ 3 min; Ollama corta al cancelar | S3 crit. 4 🟡, S5 | PC | PC (verificador #14) | 🟡 PC (verificador) |
+| 6 | Consola con `claude` real | S3b 🟡 | PC | PC | 🟡 PC |
+| 7 | Stems 1 min < 60 s en GPU + sha256 de Demucs | S3b 🟡 | PC | PC (verificador #14) | 🟡 PC (verificador) |
+| 8 | Halos HQ en clip real | S3b 🟡 | PC | PC | 🟡 PC |
+| 9 | FaceFusion fps, Chatterbox RTF, RVC < 15 s/min | S4 crit. 5 🟡 | PC | PC (verificador #14) | 🟡 PC (verificador) |
+| 10 | `taskkill /T` del árbol; `Ctrl+O`/`Ctrl+Alt+N` en Edge; 125 % en 1366 px; loudnorm 10 min; «Abrir carpeta» con tildes | S5 🟡 | PC | PC | 🟡 PC |
+| 11 | H18 parcial: reabrir el último borrador del Asistente tras recargar | S5 parcial | Sandbox | **M3 (P2)** | 🟢 M3 (`lastOpenPlan`, test H18) |
+| 12 | H19 parcial: glosario único, voces «Espana/Mexico», columna «Lo usa» con ids | S5 parcial | Sandbox | **M2** | 🟢 M2 (`GLOSSARY_ES` en Ajustes, «España/México» en la web y, integración, en los workers; «Lo usa» sin ids) |
+| 13 | MEJORAS B7: lienzo sin máximo (20000×20000 rompe el export) | R2 | Sandbox | **Paso 0** (`ProjectSettings` máx. 8192) | 🟢 Paso 0 (`PROJECT_CANVAS_MAX` 8192) |
+| 14 | Verificador de la PC: un `verificar-pc.cmd` que corre Test de rendimiento + «Evaluar modelos» Rápida + stems 1 min y deja `storage/run/verificacion.json` para pegar (convierte los ítems 3, 4, 5, 7, 9 en un solo paso del usuario) | panel «pendiente PC» | Sandbox (script) + PC (correrlo) | **M3 (P3)** | 🟢 script (M3: `verificar-pc.cmd/.ps1`); correrlo = PC |
+| 15 | MEJORAS B11: motor no disponible responde en inglés («Motion engine "m…») | R2 | Sandbox | **M2** | 🟢 M2 (mensajes en español + «Arreglar») |
+| 16 | MEJORAS B13: renders motion con «Sin proxy» y botón «Generar proxy» | R2 | Sandbox | **M3 (P2, con H16)** | 🟢 ya estaba (feedback 12; verificado por M3) |
+| 17 | MEJORAS B15: medio con probe fallido sin marca ni acción | R2 | Sandbox | **M3 (P2, con H16)** | 🟢 M3 + integración (`MediaAsset.probeError`) |
+| 18 | MEJORAS B6: `title-card` con fondo opaco `#111111` sobre WebM alfa | R2 | Sandbox | **M2** (tokens: fondo transparente por defecto) | 🟢 M2 (fondo `transparent`, `plate` del kit) |
+| 19 | `GET /api/projects?view=summary` lee cada proyecto completo | S5 Descubierto | Sandbox | S7 | ⏳ S7 |
+| 20 | Cancelar `audio.denoise` y `voice.tts` de Piper | S5 Descubierto | Sandbox | S7 | ⏳ S7 |
+| 21 | PIN local; filtro NSFW de fotos de Persona | S4 Descubierto | Sandbox | S7 | ⏳ S7 |
+| 22 | Hashes de Hugging Face; texto real del rechazo NSFW | S4 Descubierto | PC | PC | 🟡 PC |
+| 23 | MEJORAS B8–B10, B12, U6 (disco), U7 (0,067 s al soltar): reconciliar (varios ya resueltos) | R2 | Sandbox | Integración S6 (solo reconciliar el documento) / S7 | 🟢 reconciliado en `docs/MEJORAS.md` («Reconciliación Sprint 6»): B7, B11, B13, B15, U7 cerrados; B8, B9, B10, B12, U6 a S7 |
+
+**Al integrar (2026-10-18): 10 cerrados en el sandbox** (#2 reclasificado, #11, #12, #13, #14 como
+script, #15, #16, #17, #18 y #23 reconciliado), 5 bajan con una corrida del verificador en la PC
+(#3, #4, #5, #7, #9), 5 siguen en la PC (#1, #6, #8, #10, #22) y 3 pasan a S7 (#19, #20, #21).
 
 **Entran en el Sprint 6: 9 ítems** — 5 firmes (#2 reclasificación con evidencia, #12, #13, #15, #18),
 3 de prioridad 2 en M3 (#11, #16, #17) y 1 opcional (#14, P3). Con #2 y los verdes de C1–C6 el panel

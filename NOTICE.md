@@ -7,9 +7,10 @@ licencias**. Lista resumida; la tabla completa (versiones, origen, cómo se aís
 
 ## Código incluido en este repositorio
 
-| Componente                   | Licencia         | Notas                                                                                                                                                                                                                                            |
-| ---------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `apps/workers/vision_gpl/**` | GPL-3.0-or-later | Derivado de RobustVideoMatting (recorte de fondo). Cada archivo lleva su cabecera SPDX; corre en un venv propio (`.venv-gpl`) y en un proceso aparte, nunca importado por el resto de Studio. Al redistribuirlo rigen las condiciones de la GPL. |
+| Componente                          | Licencia         | Notas                                                                                                                                                                                                                                                                                                                            |
+| ----------------------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/workers/vision_gpl/**`        | GPL-3.0-or-later | Derivado de RobustVideoMatting (recorte de fondo). Cada archivo lleva su cabecera SPDX; corre en un venv propio (`.venv-gpl`) y en un proceso aparte, nunca importado por el resto de Studio. Al redistribuirlo rigen las condiciones de la GPL.                                                                                 |
+| `packages/remotion/public/fonts/**` | SIL OFL 1.1      | Tipografías Inter, Montserrat, Poppins, Roboto, Oswald, Playfair Display, Bebas Neue, Anton, Archivo Black y Bangers (texto de la licencia en el `OFL.txt` de cada carpeta), de github.com/google/fonts; instancias estáticas y subconjunto latino generados con fontTools (MIT) por `packages/remotion/scripts/fetch-fonts.py`. |
 
 ## Herramientas y modelos que se descargan en la PC del usuario (no se versionan)
 

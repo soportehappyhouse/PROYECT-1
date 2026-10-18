@@ -572,6 +572,28 @@
               >27.7 Ajustar la VRAM (RTX 4050 y otras de 6 GB)</a
             >
           </li>
+          <li class="d2">
+            <a href="#28-guion-editar-el-video-desde-el-texto"
+              >28. Guion: editar el video desde el texto</a
+            >
+          </li>
+          <li class="d3">
+            <a href="#281-borrar-palabras-y-muletillas">28.1 Borrar palabras y muletillas</a>
+          </li>
+          <li class="d3"><a href="#282-dejalo-en-__-s">28.2 «Dejalo en __ s»</a></li>
+          <li class="d3"><a href="#283-corregir-una-palabra">28.3 Corregir una palabra</a></li>
+          <li class="d3">
+            <a href="#284-desde-el-asistente-o-la-consola">28.4 Desde el Asistente o la Consola</a>
+          </li>
+          <li class="d2">
+            <a href="#29-kit-de-marca-y-sistema-de-diseño">29. Kit de marca y sistema de diseño</a>
+          </li>
+          <li class="d3"><a href="#291-qué-se-configura">29.1 Qué se configura</a></li>
+          <li class="d3"><a href="#292-las-10-reglas">29.2 Las 10 reglas</a></li>
+          <li class="d3">
+            <a href="#293-gráficos-en-propiedades">29.3 Gráficos en Propiedades</a>
+          </li>
+          <li class="d2"><a href="#30-sugerencias-al-importar">30. Sugerencias al importar</a></li>
         </ol>
       </nav>
       <main>
@@ -2206,8 +2228,8 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3001/api/voice/effects `
           Todas las plantillas Remotion admiten fondo <code>transparent</code> salvo
           <strong>Transición entre clips</strong>. Las tipografías disponibles son: Inter,
           Montserrat, Poppins, Roboto, Oswald, Playfair Display, Bebas Neue, Anton, Archivo Black y
-          Bangers (con <code>REMOTION_FONTS=system</code>, el valor por defecto, se usan las fuentes
-          instaladas en Windows y no se descarga nada). Los colores aceptan <code>#rrggbb</code>,
+          Bangers: vienen con Studio (licencia OFL) y las usan igual los gráficos, los subtítulos
+          quemados y la vista previa, sin descargar nada. Los colores aceptan <code>#rrggbb</code>,
           <code>rgba(...)</code>, nombres CSS y <code>transparent</code>.
         </p>
         <div class="table-wrap">
@@ -2393,6 +2415,7 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3001/api/voice/effects `
             como <em>no disponible</em>; es un esqueleto para el futuro.
           </li>
         </ul>
+
         <h2 id="9-voz-piper-efectos-y-rvc">9. Voz: Piper, efectos y RVC</h2>
         <blockquote>
           <p>
@@ -2924,14 +2947,6 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
                 <td><code>true</code> para intentar codificar motion con la GPU.</td>
               </tr>
               <tr>
-                <td><code>REMOTION_FONTS</code></td>
-                <td><code>system</code></td>
-                <td>
-                  <code>system</code> no descarga nada; <code>google</code> baja Google Fonts la
-                  primera vez (necesita internet).
-                </td>
-              </tr>
-              <tr>
                 <td><code>REMOTION_BUNDLE_CACHE</code></td>
                 <td>vacío (<code>storage/tmp/remotion-bundle</code>)</td>
                 <td>Carpeta de caché de Remotion.</td>
@@ -3047,6 +3062,7 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
             </tbody>
           </table>
         </div>
+
         <h2 id="12-solución-de-problemas">12. Solución de problemas</h2>
         <p>
           Primero, siempre:
@@ -3234,17 +3250,17 @@ models\rvc\mi-voz\added_xxx.index (opcional, mejora el parecido)
               </tr>
               <tr>
                 <td>
-                  La exportación no arranca y dice que hay clips motion sin renderizar o medios
-                  borrados
+                  La exportación no arranca y dice que hay medios borrados o un gráfico que no se
+                  puede renderizar
                 </td>
                 <td>
-                  Un clip motion está <em>Sin renderizar</em>, o un clip usa un medio que ya no
-                  existe.
+                  Un clip usa un medio que ya no existe, o un gráfico tiene una plantilla o datos
+                  que el motor rechaza. Los gráficos <em>Sin renderizar</em> ya no frenan: la
+                  exportación los renderiza sola.
                 </td>
                 <td>
-                  Leé el mensaje (lista los clips): renderizalos (<strong
-                    >Actualizar clip y renderizar</strong
-                  >) o quitá esos clips.
+                  Leé el mensaje (lista los clips): quitá esos clips o corregí el gráfico en
+                  Propiedades.
                 </td>
               </tr>
               <tr>
@@ -5919,6 +5935,158 @@ existentes. Agregala al catálogo, a los tests y al manual (§8).
           Cerrá Studio (<code>stop.ps1</code>) y volvé a abrirlo para que tome los valores. El Test
           de rendimiento (<a href="#275-test-de-rendimiento">§27.5</a>) muestra si Chatterbox corrió
           en la GPU.
+        </p>
+        <h2 id="28-guion-editar-el-video-desde-el-texto">
+          28. Guion: editar el video desde el texto
+        </h2>
+        <p>
+          La pestaña <strong>Guion</strong> (abajo, junto a Subtítulos) muestra lo que se dice en el
+          video, palabra por palabra. La primera vez tocá
+          <strong>Transcribir para el guion</strong> (usa Whisper sin quitar los «eh»; el progreso
+          dice cuántos segundos lleva). Los subtítulos y el guion usan las mismas palabras: lo que
+          borrás o corregís en uno se ve en el otro.
+        </p>
+        <h3 id="281-borrar-palabras-y-muletillas">28.1 Borrar palabras y muletillas</h3>
+        <ul>
+          <li>
+            <strong>Clic</strong> en una palabra lleva el cabezal ahí. <strong>Arrastrá</strong> o
+            usá <strong>Mayús+clic</strong> para elegir varias y <strong>Supr</strong> para
+            borrarlas: el hueco se cierra en todas las pistas con un fundido de 12 ms para que no se
+            note el corte. <strong>Ctrl+Z</strong> deshace el borrado entero (un solo paso).
+          </li>
+          <li>
+            Las muletillas aparecen marcadas: <strong>fondo ámbar</strong> = seguras («eh», «em»,
+            repeticiones), <strong>subrayado ámbar</strong> = probables («o sea», «digamos», «este»
+            con pausa), <strong>punteado gris</strong> = dudosas («tipo», «nada», «¿viste?»).
+            <strong>Quitar seguras</strong> (Mayús+M) borra todas las seguras de una; las demás
+            revisalas con <strong>.</strong> (siguiente) y <strong>,</strong> (anterior).
+          </li>
+          <li>
+            <strong>(eh)</strong> en gris = un sonido que Whisper no escribió pero se oye entre dos
+            palabras.
+          </li>
+          <li>
+            <strong>Acortar pausas largas</strong> deja en 0,25 s cada silencio de más de 0,6 s.
+          </li>
+          <li>
+            ⚠ junto a una palabra = no se cortó porque estaba pegada a la vecina (sonaría brusco).
+          </li>
+        </ul>
+        <h3 id="282-dejalo-en-__-s">28.2 «Dejalo en __ s»</h3>
+        <p>
+          Escribí la duración que querés y tocá <strong>Ver propuesta</strong>: Studio propone qué
+          pausas y muletillas sacar, de la más larga a la más corta, y muestra la duración final
+          exacta (la misma que vas a obtener al aplicar). Podés destildar grupos y
+          <strong>Aplicar</strong>: queda en el historial del Asistente y se puede
+          <strong>Deshacer todo</strong>. Nunca quita oraciones salvo que se lo pidas; si la
+          propuesta quita oraciones o más del 20 % del video, te pide confirmarlo aparte (también en
+          el Asistente y en la Consola Claude).
+        </p>
+        <h3 id="283-corregir-una-palabra">28.3 Corregir una palabra</h3>
+        <p>
+          <strong>F2</strong> o <strong>doble clic</strong> corrige una palabra mal transcripta sin
+          mover los tiempos: los subtítulos palabra por palabra (karaoke) siguen sincronizados. Si
+          escribís más o menos palabras, Studio reparte los tiempos y las marca con un borde
+          punteado («tiempo estimado por la corrección»).
+        </p>
+        <h3 id="284-desde-el-asistente-o-la-consola">28.4 Desde el Asistente o la Consola</h3>
+        <ul>
+          <li>
+            «Sacá los eh» → <code>delete_words {fillers: &quot;safe&quot;}</code> («Quitar 8
+            muletillas seguras (−3,4 s)»).
+          </li>
+          <li>«Dejalo en 45 segundos» → <code>fit_duration {target_s: 45}</code>.</li>
+          <li>
+            «Donde dice &quot;frase2&quot; va &quot;oración dos&quot;» → <code>fix_text</code>.
+          </li>
+        </ul>
+        <p>Sin guion, el plan responde «Primero transcribí el video (Guion → Transcribir)».</p>
+
+        <h2 id="29-kit-de-marca-y-sistema-de-diseño">29. Kit de marca y sistema de diseño</h2>
+        <p>
+          <strong>Ajustes → Kit de marca.</strong> Elegí una vez los colores y las tipografías de tu
+          canal: subtítulos, títulos y rótulos los usan solos. Hay un solo kit (el de tu canal).
+        </p>
+        <h3 id="291-qué-se-configura">29.1 Qué se configura</h3>
+        <ul>
+          <li><strong>Nombre y logo</strong> (PNG, JPG o SVG, hasta 5 MB).</li>
+          <li>
+            <strong>4 colores</strong> (texto, contorno, acento y placa) con el contraste en vivo:
+            si un par se lee mal, el color se marca y dice «Poco contraste».
+          </li>
+          <li>
+            <strong>4 tipografías</strong> (títulos, subtítulos, texto y destacados), solo entre las
+            10 que vienen con Studio: funcionan sin internet y se ven igual en la vista previa, los
+            gráficos y los subtítulos quemados.
+          </li>
+          <li>
+            <strong>Zona segura 9:16</strong>: el lugar donde Reels y TikTok no tapan con botones.
+            Es una guía: tocá <strong>Calibrar con una captura</strong>, subí una captura de tu
+            teléfono y mové las 4 guías hasta los botones de la app. En «Avanzado» hay un perfil
+            <strong>Shorts (derecha 18 %)</strong> y el tamaño de los subtítulos.
+          </li>
+        </ul>
+        <p>
+          La vista previa muestra cómo queda en vertical (Reels/TikTok) y horizontal (YouTube); se
+          guarda sola.
+        </p>
+        <h3 id="292-las-10-reglas">29.2 Las 10 reglas</h3>
+        <p>
+          Subtítulos y títulos se revisan contra 10 reglas: máximo 2 líneas; 30 / 34 / 42 caracteres
+          por línea en 9:16 / 1:1 / 16:9; letra de al menos 4,5 % del lado corto; contorno o caja;
+          contraste ≥ 7:1; adentro de la zona segura; tiempos de lectura (0,83–7 s por página y ≤ 17
+          caracteres por segundo); títulos adentro de la zona segura; duración mínima de los
+          títulos; y como mucho 2 tipografías. Las reglas duras
+          <strong>se corrigen solas</strong> al generar los subtítulos y al exportar: el resultado
+          de la exportación dice «Ajusté N subtítulos o títulos para que cumplan las reglas de
+          diseño». En <strong>Subtítulos → Revisar diseño</strong> ves el checklist y
+          <strong>Arreglar automáticamente</strong> corrige lo que se puede en el proyecto (un solo
+          Deshacer).
+        </p>
+        <h3 id="293-gráficos-en-propiedades">29.3 Gráficos en Propiedades</h3>
+        <p>
+          Para editar un título o rótulo, hacé <strong>doble clic</strong> en el clip: el formulario
+          aparece en <strong>Propiedades</strong>, en español, con la vista previa de un fotograma
+          (editar no renderiza). Los valores que vienen del kit dicen «Del kit» y tienen un botón
+          para volver al kit. <strong>Renderizar ahora</strong> hace el video del gráfico; si no lo
+          hacés, <strong>la exportación lo renderiza sola</strong> y lo avisa en el resultado
+          («Rendericé N gráficos que estaban sin render»).
+        </p>
+
+        <h2 id="30-sugerencias-al-importar">30. Sugerencias al importar</h2>
+        <p>
+          Cuando importás un video o un audio, Studio lo revisa en segundo plano (sin demorar lo que
+          estés haciendo: los trabajos que pedís vos siempre van primero; el indicador de Trabajos
+          dice «Analizando N medios…») y, si encuentra algo para mejorar, aparece la sección
+          <strong>Sugerencias</strong> arriba del Asistente:
+        </p>
+        <ul>
+          <li>
+            <strong>Silencios largos</strong> («3 silencios largos = 3,5 s de 12 s») → cortarlos con
+            el mismo umbral que midió el análisis.
+          </li>
+          <li>
+            <strong>Voz baja</strong> («La voz está baja (−25,6 LUFS)») → subirla hacia −14 LUFS sin
+            saturar.
+          </li>
+          <li><strong>Audio que satura</strong> → bajarlo hasta −1 dBTP.</li>
+        </ul>
+        <p>
+          Cada tarjeta muestra qué encontró y una barra con los tramos.
+          <strong>Aplicar</strong> arma el plan y te lo muestra en el Asistente antes de tocar nada;
+          después de aplicarlo, <strong>Deshacer todo</strong> lo revierte y la tarjeta vuelve.
+          <strong>Ignorar</strong> oculta la tarjeta; <strong>No sugerir más</strong> deja de
+          sugerir ese tipo. Si cambiás el clip, la tarjeta se actualiza o queda marcada «El clip
+          cambió desde el análisis»: volvé a analizarlo con el botón
+          <strong>Analizar</strong> (bombita) del medio en <strong>Media</strong>.
+        </p>
+        <p>
+          <strong>Ajustes → Asistente local → Sugerencias al importar</strong>: apagar el análisis
+          automático y volver a activar los tipos silenciados con «No sugerir más».
+        </p>
+        <p>
+          Un medio que no se pudo leer muestra <strong>No se pudo leer</strong> (en rojo, con la
+          causa en el tooltip) y <strong>Quitar</strong>, también después de recargar.
         </p>
       </main>
     </div>

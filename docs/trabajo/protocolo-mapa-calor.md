@@ -86,6 +86,11 @@ Corrida del sandbox 2026-10-18 (M2): `{"english":{"Propiedades":[],"Voz":[],"Mot
 "iconButtonsWithoutTip":[],"uiFontFamilies":["-apple-system","ui-monospace"],"firstExportClicks":6,
 "pass":true}` (con `next dev`; con `next start` no aparece el botón del overlay de Next).
 
+Corrida de la integración 2026-10-18 (`next start`, storage nuevo): `{"english":{"Propiedades":[],
+"Voz":[],"Motion":[]},"iconButtonsWithoutTip":[],"uiFontFamilies":["-apple-system","ui-monospace"],
+"firstExportClicks":5,"pass":true}`; mapa de calor **3,90 / 5** (tabla en
+`docs/trabajo/integracion-sprint6.md`).
+
 ## 6. Informe
 
 Tabla igual a la de `auditoria-fluidez.md` §(a) + promedio con dos decimales + diferencia con la

@@ -140,3 +140,22 @@ Son funciones habituales en un editor personal para Reels y YouTube que no estab
 2. **Sprint 2**: F1 (vista previa multicapa con `@remotion/player`) y F2; U2, U4 y U6.
 3. **Sprint 3**: F5 (keyframes) → F4 (reencuadre) → F9 y F11 (silencios y ortografía) → F8 (plantillas).
 4. Después: F7 (backup) antes de acumular muchos proyectos; el resto según el uso real.
+
+## Reconciliación Sprint 6 (integración, 2026-10-18)
+
+Estado de los ítems R2 que la tabla de deuda del Sprint 6 mandó reconciliar (#13, #15–#18, #23 de
+`docs/trabajo/sprint6-contratos.md`). Las filas de arriba se dejan como estaban (historia).
+
+| Ítem | Estado      | Dónde / por qué                                                                                                                 |
+| ---- | ----------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| B6   | ✅ cerrado  | `title-card` transparente por defecto; Sprint 6 M2 lo lleva a tokens (`plate` del kit).                                         |
+| B7   | ✅ cerrado  | Paso 0 del Sprint 6: `PROJECT_CANVAS_MAX = 8192` en `ProjectSettings` (`MotionSpec` sigue sin tope propio: S7).                 |
+| B8   | ⏳ Sprint 7 | El manejador conserva el `statusCode` (413/415) pero el código sigue siendo `INTERNAL_ERROR` y el mensaje en inglés de Fastify. |
+| B9   | ⏳ Sprint 7 | `routes/library.ts` sigue con `file.toBuffer()` (subir a la Biblioteca un WAV de varios GB).                                    |
+| B10  | ⏳ Sprint 7 | `POST /api/media/:id/proxy` no deduplica un `media.proxy` en curso del mismo medio.                                             |
+| B11  | ✅ cerrado  | Sprint 6 M2: motor no disponible → 409 con el motivo en español y «Arreglar».                                                   |
+| B12  | ⏳ Sprint 7 | Con proxy presente se sigue sugiriendo «Generar proxy» en navegadores sin H.264.                                                |
+| B13  | ✅ cerrado  | Feedback 12 (Sprint 4): los renders muestran «Render», sin proxy; verificado por M3.                                            |
+| B15  | ✅ cerrado  | Sprint 6 M3 + integración: «No se pudo leer» + «Quitar», `MediaAsset.probeError` sobrevive a la recarga.                        |
+| U6   | ⏳ Sprint 7 | Sin vista de espacio en disco ni limpieza de `renders/`/`proxies/`.                                                             |
+| U7   | ✅ cerrado  | Sprint 5 M2: el imán incluye `t = 0` (`magnetPoints`).                                                                          |

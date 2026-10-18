@@ -1,17 +1,17 @@
 {
  "version": 1,
- "actualizado": "2026-10-09T00:40:00Z",
+ "actualizado": "2026-10-18T16:45:00Z",
  "notas": "Fuente única del panel. Tokens en miles (k). 'medido': true = subagent_tokens de las notificaciones de la sesión; false = estimado por el coordinador. Fases del grupo: 0 coordinador, 1 investigación/contratos, 2 módulos en paralelo, 3 integración, 4 auditoría, 5 correcciones, 6 después del sprint (hotfix, CI, soporte).",
  "sesion": {
   "proyecto": "Studio",
   "repo": "PROYECT-1",
   "rama": "claude/funny-mccarthy-0bbdt6",
   "inicio": "2026-10-04T14:59:00Z",
-  "ultimo_commit": "02b23c0",
-  "commits": 100,
+  "ultimo_commit": "24d7dbf",
+  "commits": 134,
   "prs_mergeados": 10,
-  "estado": "Sprint 5 (Roces) auditado y corregido; PR #11 abierto y verde, esperando «hacé el merge». Próximo: Sprint 6 (guion y sistema de diseño)",
-  "proximo_sprint": "S6",
+  "estado": "Sprint 6 (Guion y sistema de diseño) integrado: run-e2e 91/91, ui-smoke 63/63, C1–C6 en verde (Diseño 3,90/5 medido). Próximo: auditoría del Sprint 6 y PR; después Sprint 7 (lazo autónomo)",
+  "proximo_sprint": "S6 (auditoría) → S7",
   "coordinador": {
    "modelo": "opus",
    "turnos_estimados": 94,
@@ -379,14 +379,15 @@
    "horas": 2.7,
    "commits": 10,
    "progreso": {
-    "funciones": 66.7,
+    "funciones": 83.3,
     "errores": 100,
     "diseno": 45,
-    "diseno_medido": false
+    "diseno_medido": false,
+    "funciones_nota": "Criterio 1 reclasificado 🟢 en la integración S6 (actualizar.cmd en la PC, 2026-10-05)"
    },
    "criterios": {
-    "verdes": 1,
-    "amarillos": 2,
+    "verdes": 2,
+    "amarillos": 1,
     "total": 3
    },
    "hallazgos": {
@@ -1286,31 +1287,102 @@
   {
    "id": "S6",
    "nombre": "Guion y sistema de diseño",
-   "fecha": null,
+   "fecha": "2026-10-18",
    "plan": "02-PLAN-BASE-v3",
-   "estado": "planeado",
-   "horas": null,
-   "commits": 0,
+   "estado": "integrado",
+   "horas": 4.5,
+   "commits": 30,
    "progreso": {
-    "funciones": 0,
-    "errores": 0,
-    "diseno": 50,
-    "diseno_medido": false
+    "funciones": 100,
+    "errores": 100,
+    "diseno": 78,
+    "diseno_medido": true,
+    "diseno_nota": "Mapa de calor de la integración (protocolo-mapa-calor.md): 3,90 de 5 (+1,38 contra 2,52); checklist C2 10/10 en 9:16 y 16:9"
    },
    "criterios": {
-    "verdes": 0,
+    "verdes": 6,
     "amarillos": 0,
-    "total": 2
+    "total": 6
    },
    "hallazgos": {
-    "encontrados": 0,
-    "corregidos": 0,
-    "abiertos": 0,
-    "detalle": ""
+    "encontrados": 29,
+    "corregidos": 22,
+    "abiertos": 7,
+    "detalle": "Fluidez asignada al sprint: 7 de 9 cerrados (H11, H12, H13, H14, H18, H19, H20; H16 y H25 quedan) + 15 costuras de integración corregidas + 5 hallazgos nuevos del mapa de calor (H27–H31, a Sprint 7)"
    },
-   "tests": {},
-   "corto": null,
-   "agentes": []
+   "tests": {
+    "e2e": 91,
+    "smoke": 63,
+    "node": 1113,
+    "python": 523
+   },
+   "corto": {
+    "relanzados": 0,
+    "costuras": 15,
+    "hotfix_post": 0,
+    "seguimientos": 0,
+    "agentes_extra": 0,
+    "incidentes": 0,
+    "pedidos_cruzados": 18,
+    "nota": "Ningún agente murió. 18 pedidos cruzados: 15 resueltos, 3 diferidos con motivo (normalize_loudness y tarjeta «Quitar muletillas» a S7, KIT_TEXTS_ES opcional). 15 costuras, entre ellas la vista previa de «Dejalo en» (afinado por energía) y el primer video importado antes del probe."
+   },
+   "agentes": [
+    {
+     "id": "inv",
+     "rol": "Investigación",
+     "tipo": "investigacion",
+     "modelo": "sonnet",
+     "fase": 1,
+     "k": 145,
+     "medido": true
+    },
+    {
+     "id": "con",
+     "rol": "Contratos y Paso 0",
+     "tipo": "contratos",
+     "modelo": "opus",
+     "fase": 1,
+     "k": 386,
+     "medido": true
+    },
+    {
+     "id": "m1",
+     "rol": "M1 guion",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 534,
+     "medido": true
+    },
+    {
+     "id": "m2",
+     "rol": "M2 sistema de diseño",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 567,
+     "medido": true
+    },
+    {
+     "id": "m3",
+     "rol": "M3 sugerencias",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 434,
+     "medido": true
+    },
+    {
+     "id": "int",
+     "rol": "Integración",
+     "tipo": "integracion",
+     "modelo": "opus",
+     "fase": 3,
+     "k": 680,
+     "medido": false,
+     "nota": "Estimado por el propio agente (contexto procesado en la sesión)"
+    }
+   ]
   },
   {
    "id": "S7",
@@ -1346,14 +1418,14 @@
   {
    "origen": "Auditoría de fluidez",
    "sev": "media",
-   "n": 7,
-   "texto": "Sprint 6: conservar words al corregir, Motion en español, editar motion en Propiedades, sistema de diseño, medios generados/duplicados, selector de voz único, deshacer de ajustes"
+   "n": 2,
+   "texto": "Sprint 7: medios generados/duplicados (H16) y deshacer de ajustes/estilo (H25)"
   },
   {
-   "origen": "Auditoría de fluidez",
+   "origen": "Sprint 6 · mapa de calor",
    "sev": "baja",
-   "n": 2,
-   "texto": "Parciales: reabrir el último plan tras recargar (H18); glosario y nombres de voces (H19)"
+   "n": 5,
+   "texto": "«Generar» de Voz sin motivo (H27), aviso crudo de paquete Python (H28), «Música sin bajar» sin música (H29), página > 17 cps tras cortar (H30), foco en pestañas de dockview (H31)"
   },
   {
    "origen": "Sprint 5 · Descubierto",
@@ -1368,10 +1440,16 @@
    "texto": "PIN local, filtro NSFW de fotos de Persona, hashes de Hugging Face, texto real del rechazo NSFW"
   },
   {
-   "origen": "R2 · MEJORAS.md",
+   "origen": "R2 · MEJORAS.md (reconciliado en S6)",
    "sev": "baja",
-   "n": 8,
-   "texto": "Backlog de QA no reconciliado con los sprints (varios ya resueltos)"
+   "n": 5,
+   "texto": "B8 (413 INTERNAL_ERROR), B9 (biblioteca en memoria), B10 (proxy duplicado), B12 (aviso de proxy), U6 (espacio en disco)"
+  },
+  {
+   "origen": "Sprint 6 · diferidos",
+   "sev": "baja",
+   "n": 2,
+   "texto": "normalize_loudness / tope de set_volume, tarjeta «Quitar muletillas»"
   }
  ],
  "pendiente_pc": [
@@ -1384,7 +1462,11 @@
   "Re-render con NVENC < 20 % (S1)",
   "Evaluar modelos Rápida ≤ 3 min y Ollama corta al cancelar (S5)",
   "Ctrl+O en Edge, 125 % en 1366 px (S5)",
-  "loudnorm 2 pasadas en 10 min y «Abrir carpeta» con tildes (S5)"
+  "loudnorm 2 pasadas en 10 min y «Abrir carpeta» con tildes (S5)",
+  "verificar-pc.cmd: una corrida cierra 5 ítems de la deuda (S6)",
+  "C1 con Whisper real y fundidos de 12 ms inaudibles (S6)",
+  "Zona segura calibrada con capturas del teléfono; fontsdir con tildes en Windows (S6)",
+  "3 videos de 10 min importados sin trabas (S6)"
  ],
  "estimador": [
   {

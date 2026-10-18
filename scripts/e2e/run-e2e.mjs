@@ -4931,6 +4931,85 @@ await step("sprint6: delete_words fillers safe → −X s y subtítulos corridos
 });
 // ------------------------------------------------------------------ END sprint6:M1
 
+// ---------------------------------------------------------------- BEGIN sprint6:M2
+// Sistema de diseño (M2): fuentes sin red (C4), checklist 10/10 en 9:16 y 16:9 (C2), still < 5 s.
+await step("sprint6: fuentes sin red (title-card + animated-captions)", async () => {
+  const ofl = await fetch(`${API}/fonts/Inter/OFL.txt`);
+  assert(ofl.ok && /SIL OPEN FONT LICENSE/i.test(await ofl.text()), "GET /fonts/Inter/OFL.txt");
+  const ttf = await fetch(`${API}/fonts/${encodeURIComponent("Bebas Neue")}/BebasNeue-400.ttf`);
+  assert(ttf.ok && /immutable/.test(ttf.headers.get("cache-control") ?? ""), "fonts cache");
+  if (SKIP_MOTION) return "SKIP renders (--skip-motion): solo /fonts/*";
+  const still = async (template, props) => {
+    const res = await api(
+      "POST",
+      "/api/motion/still",
+      { template, props, width: 540, height: 960 },
+      { raw: true },
+    );
+    if (res.status !== 200)
+      throw new Fail(`still ${template} -> ${res.status} ${await res.text()}`);
+    return Buffer.from(await res.arrayBuffer());
+  };
+  const bangers = await still("title-card", { title: "Fuentes sin red", fontFamily: "Bangers" });
+  const anton = await still("title-card", { title: "Fuentes sin red", fontFamily: "Anton" });
+  assert(bangers.compare(anton) !== 0, "Bangers and Anton render the same (font not loaded)");
+  const caps = await still("animated-captions", { fontFamily: "Bebas Neue" });
+  assert(caps.length > 1000, "animated-captions still");
+  return { bangers: bangers.length, anton: anton.length, captions: caps.length };
+});
+
+await step("sprint6: still 1080×1920 < 5 s con caché", async () => {
+  if (SKIP_MOTION) return "SKIP (--skip-motion)";
+  const body = {
+    template: "lower-third",
+    props: { name: `E2E ${Date.now()}` },
+    width: 1080,
+    height: 1920,
+  };
+  const t1 = Date.now();
+  const first = await api("POST", "/api/motion/still", body, { raw: true });
+  const cold = Date.now() - t1;
+  assert(first.status === 200, `still -> ${first.status}`);
+  await first.arrayBuffer();
+  const t2 = Date.now();
+  const second = await api("POST", "/api/motion/still", body, { raw: true });
+  const warm = Date.now() - t2;
+  assert(second.headers.get("x-still-cache") === "hit", "2nd request not from the cache");
+  assert(warm < 5000, `cached still ${warm} ms`);
+  return { cold_ms: cold, cached_ms: warm };
+});
+
+await step("sprint6: design-check 9:16 y 16:9 = 10/10", async () => {
+  const out = path.join(WORK, "design-check.json");
+  const args = [
+    path.join(REPO, "scripts/e2e/design-check.mjs"),
+    "--api",
+    API,
+    "--work",
+    path.join(WORK, "design"),
+    "--out",
+    out,
+    "--ffmpeg",
+    FFMPEG,
+  ];
+  const r = await new Promise((resolve) => {
+    const p = spawn(process.execPath, args, { stdio: ["ignore", "pipe", "pipe"] });
+    let log = "";
+    p.stdout.on("data", (d) => (log += d));
+    p.stderr.on("data", (d) => (log += d));
+    p.on("close", (code) => resolve({ code, log }));
+  });
+  const report = JSON.parse(await readFile(out, "utf8").catch(() => "{}"));
+  assert(r.code === 0, `design-check exit ${r.code}: ${r.log.slice(-600)}`);
+  return Object.fromEntries(
+    (report.aspects ?? []).map((a) => [
+      a.aspect,
+      `${a.rules?.passed}/10, ${a.frames?.filter((f) => f.pass).length}/5 fotogramas`,
+    ]),
+  );
+});
+// ------------------------------------------------------------------ END sprint6:M2
+
 const required = results.filter((r) => r.kind === "required");
 const failed = required.filter((r) => r.status === "FAIL");
 const report = {

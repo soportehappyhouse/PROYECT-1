@@ -32,7 +32,7 @@ import {
 } from "@/lib/api";
 import { formatBytes } from "@/lib/format";
 import { runJob } from "@/lib/job-runner";
-import { isTerminal, useJobsStore } from "@/stores/jobs-store";
+import { isTerminal, jobTypeLabel, useJobsStore } from "@/stores/jobs-store";
 import { usePacksStore } from "@/stores/packs-store";
 import { usePersonsStore } from "@/stores/persons-store";
 
@@ -95,6 +95,12 @@ export function chatterboxVariantLabel(r: PerfTools): string | undefined {
   return cb.variant === "v2"
     ? `V2 (respaldo PyPI${cb.version ? ` ${cb.version}` : ""})`
     : `V3${cb.version ? ` (${cb.version})` : ""}`;
+}
+
+/** H19 «Lo usa»: feature name, else the job label (never a raw id like `audio.denoise`). */
+function usedByLabel(id: string): string {
+  const feature = featureLabel(id);
+  return feature !== id ? feature : jobTypeLabel(id);
 }
 
 function LicenceCell({ licenceId }: { licenceId: string }) {
@@ -190,7 +196,7 @@ function PackRow({
       </td>
       <td className="py-1.5 pr-2 whitespace-nowrap tabular-nums">{formatBytes(pack.size_bytes)}</td>
       <td className="py-1.5 pr-2 text-[11px]">
-        {pack.required_by.map(featureLabel).join(", ") || "—"}
+        {pack.required_by.map(usedByLabel).join(", ") || "—"}
       </td>
       <td className="py-1.5 text-right">
         <Button

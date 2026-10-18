@@ -449,6 +449,7 @@ export function ExportPanel() {
                 size="icon"
                 variant="outline"
                 aria-label="Duplicar preset"
+                tip="presetDup"
                 onClick={duplicate}
               >
                 <Copy />
@@ -458,6 +459,7 @@ export function ExportPanel() {
                   size="icon"
                   variant="outline"
                   aria-label="Eliminar preset"
+                  tip="presetDel"
                   onClick={() => {
                     void remove(selected.id).catch((err: unknown) =>
                       toast.error("No se pudo eliminar", { description: errorMessage(err) }),

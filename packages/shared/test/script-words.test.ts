@@ -240,6 +240,16 @@ describe("planWordCuts", () => {
     const inside = refineCutsWithEnergy(bounded, (t) => (Math.abs(t - 1.12) < 0.003 ? -90 : -40));
     expect(inside[0]!.end).toBeLessThanOrEqual(1.1 + 1e-9);
   });
+
+  it("a shortened pause keeps its 250 ms (the refinement does not move it)", () => {
+    const q = buildScript(project([seg("a@0-0.5 b@1.5-2")]));
+    const { bounded } = planCutsInternal(q, { shortenLongPauses: true, avoidHarsh: true });
+    const pauses = bounded.filter((c) => c.reason === "pause");
+    expect(pauses.length).toBeGreaterThan(0);
+    const energy = (t: number) => -40 - 30 * Math.sin(t * 50); // minima everywhere
+    const out = refineCutsWithEnergy(pauses, energy);
+    expect(out.map((c) => [c.start, c.end])).toEqual(pauses.map((c) => [c.start, c.end]));
+  });
 });
 
 describe("cutTimeline", () => {

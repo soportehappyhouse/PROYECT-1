@@ -3,6 +3,8 @@ import {
   buildScript,
   fitDuration,
   fitPlan,
+  fmtS,
+  SCRIPT_RULES,
   formatErrorEs,
   gapsToTimeline,
   planCutsInternal,
@@ -199,13 +201,33 @@ export function computeFit(
   project: Project,
   req: Partial<FitDurationRequest> & Pick<FitDurationRequest, "target_s">,
 ): FitDurationPreview {
-  const preview = fitDuration(requireScript(deps, project), req);
-  if (preview.speed) return preview; // re-planned at apply time (fit_duration op)
-  const refined = refinedFitCuts(deps, project, preview.cuts);
-  if (!refined) return preview;
+  const script = requireScript(deps, project);
+  const first = fitDuration(script, req);
+  if (first.speed) return first; // re-planned at apply time (fit_duration op)
+  const refine = (p: FitDurationPreview) => {
+    const r = refinedFitCuts(deps, project, p.cuts);
+    return r ? Math.round((p.from_s - r.removed_s) * 1000) / 1000 : p.to_s;
+  };
+  let preview = first;
+  let to_s = refine(first);
+  if (to_s === first.to_s) return first;
+  // The energy refinement moves the edges a few ms inwards: when that leaves the result above
+  // the tolerance, plan once more for the missing seconds (never below target − tolerance).
+  const tol = req.tolerance_s ?? SCRIPT_RULES.fit_tolerance_s;
+  const deficit = to_s - first.to_s;
+  if (to_s > req.target_s + tol + 1e-6 && deficit > 0) {
+    const again = fitDuration(script, { ...req, target_s: req.target_s - deficit });
+    const againTo = again.speed ? to_s : refine(again);
+    if (!again.speed && Math.abs(againTo - req.target_s) < Math.abs(to_s - req.target_s)) {
+      preview = again;
+      to_s = againTo;
+    }
+  }
   // `cuts` (and the plan ranges) stay the unrefined ones: the apply refines them once.
-  const to_s = Math.round((preview.from_s - refined.removed_s) * 1000) / 1000;
-  const next: FitDurationPreview = { ...preview, to_s };
-  const plan = fitPlan(next, req);
+  const reached = to_s <= req.target_s + tol + 1e-6;
+  const next: FitDurationPreview = { ...preview, to_s, reached };
+  if (reached) delete next.question_es;
+  else next.question_es ??= `Llego a ${fmtS(to_s)} s sin tocar contenido.`;
+  const plan = fitPlan(next, { ...req });
   return { ...next, ...(plan && { plan }) };
 }

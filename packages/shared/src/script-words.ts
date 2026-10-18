@@ -585,8 +585,9 @@ function mergeBounded(list: CutWithBounds[]): CutWithBounds[] {
 
 /**
  * Move each cut edge to the quietest 5 ms window within ±60 ms, never into a word (`lo`/`hi`
- * limits from planCutsInternal). `energyDb(t)` = RMS dB at timeline time t (undefined = unknown:
- * the edge stays). Cuts that end up < 40 ms are dropped.
+ * limits from planCutsInternal); shortened pauses (`reason: "pause"`) stay as planned.
+ * `energyDb(t)` = RMS dB at timeline time t (undefined = unknown: the edge stays). Cuts that end
+ * up < 40 ms are dropped.
  */
 export function refineCutsWithEnergy(
   bounded: readonly CutWithBounds[],
@@ -611,6 +612,12 @@ export function refineCutsWithEnergy(
   };
   const out: ScriptCut[] = [];
   for (const c of bounded) {
+    // Integration S6: a shortened pause is already inside the silence and keeps 125 ms on each
+    // side (pause_target_ms); moving its edges only made the result drift (fit previews ~1 s).
+    if (c.reason === "pause") {
+      out.push({ start: c.start, end: c.end, fade_ms: c.fade_ms, reason: c.reason });
+      continue;
+    }
     const start = best(c.start, c.lo);
     const end = best(c.end, c.hi);
     if (ms(end - start) < R.min_cut_ms) continue;

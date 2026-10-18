@@ -4892,18 +4892,42 @@ await step("sprint6: fit_duration 45 s → plan válido", async () => {
   const { projectId } = ctx.s6m1;
   const fit = await ok("POST", `/api/projects/${projectId}/script/fit`, { target_s: 45 });
   assert(fit.from_s === 60, `from ${fit.from_s}`);
+  // Integration S6: `to_s` is what applying the plan gives (same energy refinement); when the
+  // refinement leaves it just above the tolerance the preview says so (question) instead of
+  // promising 45,5 s and delivering 45,7 s.
   assert(
-    fit.reached && fit.to_s >= 44.5 && fit.to_s <= 45.5,
+    fit.to_s >= 44.5 && fit.to_s <= 46 && (fit.reached || fit.question_es),
     `to ${fit.to_s} (${fit.question_es})`,
   );
   const rec = await ok("POST", "/api/console/plans", {
     projectId,
     plan: fit.plan,
     command: "dejalo en 45 s",
-    save: false,
   });
   assert(rec.ok, `plan no válido: ${JSON.stringify(rec.unresolved ?? rec.errors)}`);
-  return { to: fit.to_s, groups: fit.groups.map((g) => g.label_es), ops: fit.plan.ops.length };
+  const confirmedIndexes = rec.resolved
+    .map((op, i) => (op?.confirm ? i : -1))
+    .filter((i) => i >= 0);
+  const { jobId } = await ok(
+    "POST",
+    "/api/agent/apply",
+    { planId: rec.id, confirmedIndexes },
+    [202],
+  );
+  await waitOk(jobId);
+  const applied = await ok("GET", `/api/projects/${projectId}`);
+  const end = Math.max(
+    ...applied.tracks.flatMap((t) => t.clips.map((c) => c.start + (c.out - c.in) / (c.speed || 1))),
+  );
+  assert(near(end, fit.to_s, 0.01), `vista previa ${fit.to_s} s, aplicado ${end.toFixed(3)} s`);
+  await ok("POST", `/api/agent/plans/${rec.id}/undo`, {});
+  return {
+    to: fit.to_s,
+    applied: +end.toFixed(3),
+    reached: fit.reached,
+    groups: fit.groups.map((g) => g.label_es),
+    ops: fit.plan.ops.length,
+  };
 });
 
 await step("sprint6: delete_words fillers safe → −X s y subtítulos corridos", async () => {
@@ -4921,7 +4945,19 @@ await step("sprint6: delete_words fillers safe → −X s y subtítulos corridos
     command: "sacá los eh",
   });
   assert(rec.ok, `plan: ${JSON.stringify(rec.unresolved)}`);
-  const { jobId } = await ok("POST", "/api/agent/apply", { planId: rec.id }, [202]);
+  // Integration S6: a cut of more than 20 % comes back with confirm:true and the api refuses it
+  // without the separate confirmation (CONFIRM_REQUIRED), like a delete or an export.
+  const mustConfirm = rec.resolved.map((op, i) => (op?.confirm ? i : -1)).filter((i) => i >= 0);
+  if (mustConfirm.length) {
+    const refused = await api("POST", "/api/agent/apply", { planId: rec.id });
+    assert(refused.status === 409 && refused.json?.error?.code === "CONFIRM_REQUIRED", "sin 409");
+  }
+  const { jobId } = await ok(
+    "POST",
+    "/api/agent/apply",
+    { planId: rec.id, ...(mustConfirm.length && { confirmedIndexes: mustConfirm }) },
+    [202],
+  );
   const job = await waitOk(jobId);
   const removed = job.result.steps[0].result.removedSec;
   const after = await ok("GET", `/api/projects/${projectId}`);

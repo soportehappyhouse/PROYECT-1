@@ -251,3 +251,74 @@ Primera corrida: `actualizar.cmd` → Ajustes → Paquetes de IA → descargar `
 3. Clic en la regla y probá Espacio, S, J/K/L, Supr, Mayús+Supr, Ctrl+O y Ctrl+Alt+N en tu navegador.
 4. Exportá un video horizontal a Reels: tiene que pedir encuadre; con «Seguir la cara» usa el paquete Reencuadre. Anotá los LUFS de la tarjeta y probá «Abrir carpeta».
 5. Cancelá un recorte de fondo a mitad y mirá en el Administrador de tareas que la GPU baje en menos de 3 s.
+
+---
+
+# Sprint 6 — 2026-10-18 — Edición por guion y sistema de diseño
+
+**Plan:** `docs/02-PLAN-BASE-v3.md` (Sprint 6, ítems 1–3). **Contratos:** `docs/trabajo/sprint6-contratos.md` (criterios C1–C6 y deuda de funciones). **Fuentes:** `docs/trabajo/fuentes-sprint6.md`. **Módulos:** `modulo-sprint6-guion.md`, `modulo-sprint6-diseno.md`, `modulo-sprint6-sugerencias.md`. **Integración:** `docs/trabajo/integracion-sprint6.md` (incluye «Correcciones de auditoría»). **Auditoría:** `docs/trabajo/auditoria-sprint6.md`.
+
+## Entregado
+- **Panel Guion (edición por texto)**: transcripción de palabras con tiempos (`script.transcribe`), borrar palabras = cortar el video con ripple sincronizado en todas las pistas y un solo Deshacer por gesto; corte en el medio del hueco, afinado por energía y fundido de audio de 12 ms por lado. Muletillas en 3 niveles (seguras / probables / dudosas) con léxico rioplatense, repeticiones y hueco acústico (Whisper no escribe los «eh»); solo las seguras vienen tildadas. Corregir una palabra conserva tiempos y karaoke. «Dejalo en» (`fit_duration`) acorta a una duración dada por niveles, nunca a mitad de palabra, y pregunta antes de cortar oraciones o acelerar. Una sola fuente de tiempos: `project.subtitles[].words`.
+- **Sistema de diseño**: tokens editables en `packages/shared/src/design.ts` (Ajustes → Kit de marca: colores, tipografías con grosor por rol, zona segura por aspecto, logo), 10 reglas medibles (`DESIGN_RULES`), `POST /api/design/check` y correcciones automáticas al generar y al exportar (máx. 2 líneas, 30/34/42 caracteres por línea en 9:16/1:1/16:9, tamaño ≥ 4,5 % del lado corto, contorno o caja, duración y caracteres por segundo, zona segura). Motion en español y editable desde Propiedades, un solo selector de voz, glosario único.
+- **Sin red en los renders**: las 10 familias OFL empaquetadas en `packages/remotion/public/fonts/` y usadas igual por Remotion, libass (`fontsdir` relativo a la carpeta del trabajo) y la vista previa; Exportar renderiza solo los gráficos Motion pendientes y avisa `DESIGN_AUTOFIXED`.
+- **Sugerencias al importar**: tarjetas («silencios largos», «voz baja») calculadas en segundo plano con prioridad por debajo de lo que lance el usuario; «Aplicar» arma un plan y «Deshacer todo» lo revierte; reabrir el último borrador del Asistente tras recargar (H18), `probeError` en español.
+- **Deuda cerrada**: lienzo máximo 8192 (B7), motor no disponible en español con «Arreglar» (B11), fondo transparente del `title-card` (B6), `verificar-pc.cmd`, `MEJORAS.md` reconciliado.
+- Manual §28–§30 nuevos y §8, §11, §12 actualizados, `ARQUITECTURA.md`, `CLAUDE.md` (confirmar `delete_words` / `fit_duration`, `replace: true`, `TRACK_LOCKED`), panel de sesión.
+
+## Criterios (plan v3, Sprint 6)
+- C1 — Cortar 10 muletillas desde el guion en < 1 min → 🟢 **0,46 s** (ui-smoke: «Quitar seguras» + 2 selecciones + `Supr`; subtítulos corridos, un Deshacer). 🟡 con Whisper real sobre un video propio.
+- C2 — Subtítulos y títulos pasan las reglas sin tocar nada → 🟢 **10/10 en 9:16 y 16:9 a 2,6 y a 3 palabras/s**, caja del texto en zona segura 5/5 fotogramas. A 3,5 y 4 palabras/s da **9/10 con aviso** (`caption.timing`: no hay hueco para estirar la página); por eso el criterio vale para habla de hasta 3 palabras/s. 🟡 mirar fotogramas en el teléfono.
+- C3 — Diseño (panel) → 🟢 mapa de calor **3,90 / 5** (antes 2,52, +1,38) → panel Diseño **78 %**; 0 términos en inglés en Motion/Propiedades/Voz, 0 botones de ícono sin tooltip, 2 familias tipográficas, primer proyecto → export en 5 clics. 🟡 a 125 % en 1366 px.
+- C4 — Ningún render depende de la red → 🟢 (e2e con `STUDIO_FONTS_OFFLINE=1`, prueba que prohíbe `googleapis` en `packages/remotion/src`). 🟡 libass de Windows con rutas con tildes.
+- C5 — Sugerencias al importar → 🟢 2 tarjetas en 6,8 s (meta 15 s), una transcripción del usuario arranca sin esperar. 🟡 3 videos de 10 min en el i5.
+- C6 — Deuda de funciones → 🟢 10 cerrados en el sandbox (ver «Deuda de funciones»).
+
+## Auditoría independiente (solo lectura)
+**25 hallazgos (2 altos, 11 medios, 12 bajos) → 23 corregidos, 2 diferidos con motivo.** Altos: E1 (libass leía `Bold` como booleano y las familias de una sola cara recibían negrita falsa) y E2 (`fixWords` insertaba palabras de largo cero). Medios: muletillas con contenido pasan a «probable» (E3), páginas de subtítulos con holgura de 0,5 s antes / 0,3 s después para pasar a 3 palabras/s (E4), pista bloqueada = `TRACK_LOCKED` en vez de cortar igual (E8), re-transcribir exige `replace: true` si hay palabras corregidas a mano (E9), fuentes copiadas al trabajo para que ninguna ruta con tildes llegue a libass (E10), logo validado por firma (E20). **Diferidos:** E16 (clave `(project, asset, clip)` de `script_audio`: cambia el esquema SQLite, sin riesgo de datos; va a S7) y E24 (renombrar Playfair Display por su «Reserved Font Name» lo decide el usuario; ver pregunta abajo).
+
+## Pruebas (sandbox Linux, sin GPU, desde cero)
+| Suite | Resultado |
+| ----- | --------- |
+| Node (`pnpm -r test`) | **1150 + 2 omitidas** (shared 266, web 340, motion-engines 24, studio-mcp 21, remotion 94, api 405 + 2) |
+| pytest (normal y orden aleatorio) | **524 + 9 omitidas** |
+| e2e (`run-e2e.mjs`, sin `--skip-motion`) | **91/91** obligatorios (3 SKIP y 2 expected-fail sin Whisper/Piper/Ollama) |
+| ui-smoke (`--vp9-preview --ux-metrics`) | **63/63** |
+| design-check (9:16 y 16:9, 2,6 y 3 palabras/s) | **10/10** |
+| lint, prettier, typecheck, build, `studio-mcp smoke` (19 herramientas), ruff, `validate-dataset` | OK |
+
+- Agentes: investigación + contratos + Paso 0 + 3 módulos en paralelo + integración + auditoría + correcciones. Pedidos cruzados: 18; costuras corregidas: 15.
+
+## Deuda de funciones (C6)
+23 ítems: **10 cerrados en el sandbox** (#2 reclasificado 🟢 con la medición del 2026-10-05, #11 H18, #12 H19, #13 B7, #14 verificador, #15 B11, #16 B13, #17 B15, #18 B6, #23 reconciliado), **5 bajan con una corrida de `verificar-pc.cmd`** (#3 re-render con NVENC, #4 recorte ≥ 15 fps, #5 Evaluar modelos, #7 stems en GPU, #9 FaceFusion/Chatterbox/RVC) y **3 pasan a S7** (#19 resumen de proyectos, #20 cancelar `audio.denoise` y Piper, #21 PIN local y filtro de fotos). Siguen solo en la PC: #1, #6, #8, #10, #22.
+
+## Solo medible en tu PC
+1. Actualizá con `actualizar.cmd` y abrí Studio con `start.cmd`.
+2. Corré `scripts\windows\verificar-pc.cmd` (Test de rendimiento, «Evaluar modelos» Rápida y stems de 1 min). Pegame `storage\run\verificacion.json`.
+3. Panel Guion con un video tuyo: «Transcribir para el guion», cronometrá hasta cortar 10 muletillas (meta < 1 min), anotá cuántos «eh/em» detecta y si confunde respiraciones, y escuchá los empalmes (los fundidos de 12 ms no deberían oírse ni comer consonantes).
+4. Ajustes → Kit de marca: elegí colores y tipografías; en «Calibrar con una captura» subí una captura de Reels y otra de TikTok hechas con el teléfono y ajustá la zona segura.
+5. Exportá en 9:16 con subtítulos y títulos, pasá el MP4 al teléfono y mirá 3 fotogramas: nada tapado por la interfaz de Reels/TikTok, máximo 2 líneas.
+6. Importá un medio y mirá las tarjetas de sugerencias; con 3 videos de 10 min comprobá que la línea de tiempo no se trabe.
+7. Exportá con un título que tenga fuente propia, con el usuario de Windows con tilde o espacio en el perfil, y confirmá que los subtítulos salen con la tipografía elegida (libass con `fontsdir`).
+8. Probá Guion, Kit de marca y Voz a escala 125 % en 1366 px.
+
+## Descubierto / a Sprint 7
+- `normalize_loudness` / tope de `set_volume`: la tarjeta «La voz está baja» no puede subir el volumen de un clip más allá de +12 dB (`ClipSchema.volume` ≤ 4) y el export no tiene ganancia por clip; hace falta subir el rango o un `loudnorm` por clip.
+- Tarjeta «Quitar muletillas» en las sugerencias de importación (hoy solo silencios y voz baja).
+- H27 «Generar» de Voz queda deshabilitado sin decir por qué; H28 aviso crudo de paquete Python faltante al transcribir; H29 «Música sin bajar» aparece sin música en el proyecto; H30 una página supera 17 caracteres por segundo tras cortar (`caption.timing` no se arregla sola); H31 las pestañas de dockview no muestran anillo de foco.
+- El logo del kit se guarda pero ningún render ni exportación lo dibuja (E13).
+- Guardar el kit de marca desde el panel Estilo (hoy se edita solo en Ajustes → Kit de marca).
+- E16: clave de `script_audio` por clip y limpieza de `renders/<job>` (esquema SQLite).
+- E24: licencia de Playfair Display (abajo).
+- `verificar-pc.ps1`: agregar el chequeo de fuentes de libass con rutas con tildes.
+- Leer el WAV por bloques y extraer solo el tramo del clip (E18, hoy se lee entero).
+- También: cancelar `audio.denoise` y Piper, `GET /api/projects?view=summary`, PIN local, la tarjeta «Diseño» del panel toma el primer sprint medido (`findLast`).
+- El manual `index.html` y el PDF quedaron sin regenerar tras las correcciones de auditoría (§28–§29 del `.md` están al día); no hay script de armado en el repo.
+
+## Pregunta abierta para vos
+**E24 — La licencia de Playfair Display prohíbe publicar versiones modificadas con el mismo nombre y el repo es público: ¿la renombramos (hay que regenerar las TTF y migrar los kits guardados) o la reemplazamos por otra familia sin esa restricción?**
+
+## Próximos pasos
+1. Sprint 7 según `docs/02-PLAN-BASE-v3.md`: «Revisar resultado», escenas y caras en sugerencias, Player en vivo, y lo de «Descubierto».
+2. Pasame `verificacion.json` y las observaciones de «Solo medible en tu PC» para bajar los 🟡.
+3. Tu respuesta sobre E24.

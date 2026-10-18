@@ -2202,10 +2202,10 @@ await step(
       new URL("../../apps/web/src/lib/tooltips.ts", import.meta.url),
       "utf8",
     );
-    // Integration S6: keys whose text wraps to the next line count too; 51 (S5) + 12 (M2) + 8
-    // (integration) = 71, the same number apps/web/test/tooltips.test.tsx checks.
+    // Integration S6: keys whose text wraps to the next line count too; 51 (S5) + 12 (M2) + 11
+    // (integration) = 74, the same number apps/web/test/tooltips.test.tsx checks.
     const tipKeys = new Set([...src.matchAll(/^\s{2}(\w+):\s*(?:"|\n)/gm)].map((m) => m[1]));
-    if (tipKeys.size !== 71) throw new Error(`TIPS keys parsed: ${tipKeys.size}`);
+    if (tipKeys.size !== 74) throw new Error(`TIPS keys parsed: ${tipKeys.size}`);
     await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).click();
     await page.locator(".dv-tab", { hasText: "Vista previa" }).click();
     await page.locator(".dv-tab", { hasText: "Media" }).first().click();

@@ -81,10 +81,10 @@ export const TIPS = {
   suggestionDismiss: "Ocultar esta sugerencia; el video no cambia",
   suggestionMute: "No sugerir más este tipo de arreglo (se reactiva en Ajustes)",
   suggestionStale:
-    "El clip cambió desde el análisis: volvé a analizarlo (Medios → Analizar) para actualizarla",
+    "El clip cambió desde el análisis: volvé a analizarlo (Media → Analizar) para actualizarla",
   suggestionEvidence: "Tramos que encontró el análisis a lo largo del clip",
   mediaUnreadableRemove: "Quitar este medio: Studio no pudo leer el archivo",
-  // Integración S6: Medios → Analizar y pedidos de M1 (panel Guion)
+  // Integración S6: Media → Analizar y pedidos de M1 (panel Guion)
   mediaAnalyze:
     "Buscar silencios largos, voz baja o audio que satura y proponer sugerencias (trabajo de fondo)",
   scriptRemoveSafe:
@@ -97,6 +97,9 @@ export const TIPS = {
     "Propone qué pausas y muletillas quitar para llegar a esa duración (no aplica nada todavía)",
   scriptTranscribe:
     "Transcribe palabra por palabra (sin quitar los «eh») para editar el video como texto",
+  assistantStatus: "Volver a preguntar si el modelo local (Ollama) está en marcha y listo",
+  consoleCopy: "Copiar al portapapeles el texto que marcaste en la consola",
+  consolePaste: "Pegar en la consola lo que tenés en el portapapeles",
   scriptFitApply:
     "Aplica la propuesta como un plan del Asistente (queda en el historial y se puede deshacer todo)",
 } as const satisfies Record<string, string>;

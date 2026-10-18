@@ -130,6 +130,7 @@ function ModelStatus() {
           variant="ghost"
           className="ml-auto"
           aria-label="Comprobar el estado del asistente"
+          tip="assistantStatus"
           onClick={() => void useAgentStore.getState().loadStatus()}
         >
           <RefreshCw />

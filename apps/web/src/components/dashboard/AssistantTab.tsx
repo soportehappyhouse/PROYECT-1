@@ -124,6 +124,7 @@ export function AssistantTab() {
             size="icon-sm"
             variant="ghost"
             aria-label="Comprobar el estado del asistente"
+            tip="assistantStatus"
             onClick={() => void loadStatus()}
           >
             <RefreshCw />

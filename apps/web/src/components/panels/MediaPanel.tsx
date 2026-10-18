@@ -86,11 +86,41 @@ export function pickMediaFiles(onPicked: (files: File[]) => void): void {
   input.click();
 }
 
+/**
+ * Integration S6 (mapa de calor, flujo 1): the upload answers before `media.probe`; without its
+ * duration and size the clip got the 5 s default and the first video could not size the canvas
+ * (a 10 s vertical video exported 5 s and asked for a framing). Wait for the probe (≤ 30 s).
+ */
+export async function waitForProbe(
+  asset: MediaAsset,
+  { timeoutMs = 30_000, stepMs = 300 }: { timeoutMs?: number; stepMs?: number } = {},
+): Promise<MediaAsset> {
+  const ready = (a: MediaAsset) =>
+    a.kind === "image"
+      ? !!a.width
+      : a.durationSec !== undefined && (a.kind !== "video" || !!a.width);
+  if (ready(asset)) return asset;
+  const end = Date.now() + timeoutMs;
+  let cur = asset;
+  while (Date.now() < end) {
+    await new Promise((r) => setTimeout(r, stepMs));
+    try {
+      cur = await api.getMedia(asset.id);
+    } catch {
+      continue;
+    }
+    if (ready(cur) || cur.probeError) break;
+  }
+  useMediaStore.getState().upsert(cur);
+  return cur;
+}
+
 /** Import files and put the first playable one on the timeline (preview empty state). */
 export async function importAndPlace(files: FileList | File[]): Promise<void> {
   const assets = await uploadFiles(files);
-  const first = assets.find((a) => a.kind === "video" || a.kind === "image" || a.kind === "audio");
-  if (!first) return;
+  const picked = assets.find((a) => a.kind === "video" || a.kind === "image" || a.kind === "audio");
+  if (!picked) return;
+  const first = await waitForProbe(picked);
   useProjectStore.getState().addAssetClip(first);
   announceFirstVideoAdjust();
   suggestCanvasFit(first);
@@ -276,7 +306,7 @@ function MediaItem({ asset, selected }: { asset: MediaAsset; selected: boolean }
             <Plus />
           </Button>
         ) : null}
-        {/* Integration S6: «Medios → Analizar» (the suggestion cards and SUGGESTION_STALE point here) */}
+        {/* Integration S6: «Media → Analizar» (the suggestion cards and SUGGESTION_STALE point here) */}
         {(asset.kind === "video" || asset.kind === "audio") && !motionRender && !unreadable ? (
           <Button
             variant="ghost"

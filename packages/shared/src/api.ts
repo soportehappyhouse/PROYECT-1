@@ -365,7 +365,7 @@ export const SPRINT6_ERRORS = {
   },
   SUGGESTION_STALE: {
     status: 409,
-    message_es: "El clip cambió desde el análisis: volvé a analizarlo (Medios → Analizar).",
+    message_es: "El clip cambió desde el análisis: volvé a analizarlo (Media → Analizar).",
   },
 } as const satisfies Record<string, { status: number; message_es: string }>;
 export type Sprint6ErrorCode = keyof typeof SPRINT6_ERRORS;

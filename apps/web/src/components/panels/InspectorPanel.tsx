@@ -1,6 +1,6 @@
 "use client";
 
-import type { Clip, TextStyle, Transition } from "@studio/shared";
+import { BUNDLED_FONT_FAMILIES, type Clip, type TextStyle, type Transition } from "@studio/shared";
 import { Maximize, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useSelectedClip } from "@/components/common/SelectedClipInfo";
@@ -550,7 +550,8 @@ export function InspectorPanel() {
                   value={style.fontFamily}
                   onChange={(e) => update({ textStyle: { ...style, fontFamily: e.target.value } })}
                 >
-                  {["Inter", "Arial", "Georgia", "Impact", "Courier New", "Verdana"].map((f) => (
+                  {/* Sprint 6 M2: only the bundled families (same in preview and export). */}
+                  {BUNDLED_FONT_FAMILIES.map((f) => (
                     <option key={f}>{f}</option>
                   ))}
                 </Select>

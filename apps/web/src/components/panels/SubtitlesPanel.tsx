@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  DESIGN_RULES,
+  GLOSSARY_ES,
   MotionSpecSchema,
   videoRectAt,
   WhisperModelSchema,
@@ -16,6 +18,7 @@ import {
   useSelectedClip,
   type SelectedClip,
 } from "@/components/common/SelectedClipInfo";
+import { DesignChecklist } from "@/components/design/DesignChecklist";
 import { useAiAvailability } from "@/hooks/use-ai-availability";
 import { Button } from "@/components/ui/button";
 import { Checkbox, Input, Label, Select } from "@/components/ui/input";
@@ -123,7 +126,7 @@ function StylePicker() {
           >
             <option value="none">Ninguna</option>
             <option value="fade">Fundido</option>
-            <option value="pop">Pop</option>
+            <option value="pop">Rebote</option>
             <option value="karaoke">Karaoke</option>
           </Select>
         </Label>
@@ -135,6 +138,24 @@ function StylePicker() {
           Mayúsculas
         </label>
       </div>
+      {/* Sprint 6 M2: hard caption rules by default (kit fonts/colors, ≥ 4,5 %, ≤ 2 lines). */}
+      <label className="flex items-center gap-2 text-xs" title={DESIGN_RULES[2]!.help_es}>
+        <Checkbox
+          checked={style.fromBrandKit !== false}
+          onChange={(e) => patch({ fromBrandKit: e.target.checked ? undefined : false })}
+        />
+        Usar tipografía y colores del {GLOSSARY_ES.settings.brandKit.toLowerCase()} (recomendado)
+      </label>
+      <p className="text-[11px] text-muted-foreground">
+        Siempre en 2 líneas como máximo, con contorno y adentro de la zona segura; si el tamaño
+        queda chico, Studio lo agranda al exportar.
+      </p>
+      <details className="studio-advanced">
+        <summary>Revisar diseño</summary>
+        <div className="mt-2">
+          <DesignChecklist compact />
+        </div>
+      </details>
     </Section>
   );
 }

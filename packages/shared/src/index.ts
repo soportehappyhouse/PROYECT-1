@@ -35,3 +35,4 @@ export * from "./aspect.js";
 export * from "./design.js";
 export * from "./script.js";
 export * from "./suggestions.js";
+export * from "./suggestions-rules.js";

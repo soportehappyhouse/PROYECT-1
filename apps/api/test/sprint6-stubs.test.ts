@@ -16,12 +16,6 @@ const ROUTES: [string, string, string][] = [
   ["POST", API_ROUTES.designCheck, SPRINT6_MODULES.M2],
   ["POST", API_ROUTES.motionStill, SPRINT6_MODULES.M2],
   ["GET", "/fonts/Inter/OFL.txt", SPRINT6_MODULES.M2],
-  ["GET", API_ROUTES.suggestions, SPRINT6_MODULES.M3],
-  ["POST", API_ROUTES.suggestionPlan, SPRINT6_MODULES.M3],
-  ["POST", API_ROUTES.suggestionDismiss, SPRINT6_MODULES.M3],
-  ["POST", API_ROUTES.mediaAnalyze, SPRINT6_MODULES.M3],
-  ["GET", API_ROUTES.suggestionSettings, SPRINT6_MODULES.M3],
-  ["PUT", API_ROUTES.suggestionSettings, SPRINT6_MODULES.M3],
 ];
 
 describe("sprint 6 Paso 0 stubs", () => {

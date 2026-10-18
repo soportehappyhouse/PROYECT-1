@@ -3,6 +3,7 @@ import PQueue from "p-queue";
 import {
   estimateEtaS,
   isStalled,
+  SUGGESTION_THRESHOLDS,
   type Job,
   type JobEvent,
   type JobProgressDetail,
@@ -36,6 +37,9 @@ export const NON_CANCELLABLE_JOB_TYPES: ReadonlySet<JobType> = new Set<JobType>(
   "timeline.apply-cuts",
   "media.probe",
 ]);
+
+/** Sprint 6 M3: priority of background-lane jobs (= SUGGESTION_THRESHOLDS.background_priority). */
+export const BACKGROUND_JOB_PRIORITY = SUGGESTION_THRESHOLDS.background_priority;
 
 export const JOB_NOT_CANCELLABLE_ES = "Este trabajo termina en segundos y no se puede cancelar.";
 
@@ -156,7 +160,15 @@ export class JobQueue extends EventEmitter<{ job: [JobEvent] }> {
   enqueue(input: CreateJobInput): Job {
     const handler = this.#handlers.get(input.type);
     const payload = handler ? handler.parse(input.payload) : input.payload;
-    const job = this.options.store.create({ ...input, payload });
+    // Sprint 6 M3: background-lane jobs default to BACKGROUND_JOB_PRIORITY (lowest of the lane).
+    const priority =
+      input.priority ??
+      (this.laneOf(input.type) === "background" ? BACKGROUND_JOB_PRIORITY : undefined);
+    const job = this.options.store.create({
+      ...input,
+      payload,
+      ...(priority !== undefined && { priority }),
+    });
     this.#emit(job);
     this.#tick();
     return job;

@@ -36,7 +36,7 @@ import { createId } from "@/lib/ids";
 import { isMotionRenderAsset } from "@/lib/timeline";
 import { cn } from "@/lib/utils";
 import { useJobsStore } from "@/stores/jobs-store";
-import { useMediaStore } from "@/stores/media-store";
+import { probeFailureOf, useMediaStore } from "@/stores/media-store";
 import { useProjectStore } from "@/stores/project-store";
 import { Panel } from "./Panel";
 
@@ -158,6 +158,11 @@ function MediaItem({ asset, selected }: { asset: MediaAsset; selected: boolean }
       toast.error("No se pudo eliminar", { description: errorMessage(err) });
     }
   };
+  // BEGIN sprint6:M3 (MEJORAS B15) — a medium whose probe failed: red mark + «Quitar»
+  const probeError = useMediaStore((s) => s.unreadable[asset.id]);
+  const liveProbeError = useJobsStore((s) => probeFailureOf(s.jobs, asset.id));
+  const unreadable = liveProbeError ?? probeError;
+  // END sprint6:M3
   const motionRender = isMotionRenderAsset(asset);
   // Proxies only help videos the browser plays from media/ (not renders, images or audio).
   const proxyApplies = asset.kind === "video" && !motionRender;
@@ -206,11 +211,31 @@ function MediaItem({ asset, selected }: { asset: MediaAsset; selected: boolean }
           </Badge>
         ) : null}
         <AiBadge asset={asset} />
+        {unreadable ? (
+          <span className="flex flex-wrap items-center gap-1" data-testid="media-unreadable">
+            <Badge tone="danger" title={`No se pudo leer el archivo: ${unreadable}`}>
+              No se pudo leer
+            </Badge>
+            <Button
+              size="xs"
+              variant="ghost"
+              className="h-5 px-1 text-[11px]"
+              tooltip="Quita este medio de la biblioteca (el archivo no se puede usar)"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                void remove();
+              }}
+            >
+              Quitar
+            </Button>
+          </span>
+        ) : null}
         {motionRender ? (
           <Badge title="Render de motion graphics (overlay con alfa): no necesita proxy">
             Render{asset.hasAlpha ? " · alfa" : ""}
           </Badge>
-        ) : !asset.proxyPath && proxyApplies ? (
+        ) : !asset.proxyPath && proxyApplies && !unreadable ? (
           <p
             className="text-[11px] text-muted-foreground"
             title="La vista previa usa el original; genera un proxy si se reproduce lento"
@@ -237,7 +262,7 @@ function MediaItem({ asset, selected }: { asset: MediaAsset; selected: boolean }
             <Plus />
           </Button>
         ) : null}
-        {proxyApplies ? (
+        {proxyApplies && !unreadable ? (
           <Button
             variant="ghost"
             size="icon-sm"

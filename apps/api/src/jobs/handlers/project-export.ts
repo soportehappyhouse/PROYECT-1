@@ -1,15 +1,20 @@
 import { mkdir, open, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import {
+  aspectOfCanvas,
   AUTO_DUCK,
   AUTO_DUCK_SIDECHAIN_GAIN,
+  checkDesignWithFix,
   duckRatioFor,
   ExportJobPayloadSchema,
   ExportPresetSchema,
+  formatErrorEs,
   inferTrackRole,
   loudnessFor,
   ProjectAudioMixSchema,
   SEGMENT_CACHE_SUBDIR,
+  type BrandKit,
+  type DesignAspect,
   type ExportJobPayload,
   type ExportJobResult,
   type MediaAsset,
@@ -21,6 +26,12 @@ import { exportAiComment } from "../../services/ai-provenance.js";
 import { disableEncoder, selectEncoder } from "../../services/encoder-select.js";
 import { presetEncoding } from "../../services/ffmpeg/encoders.js";
 import { resolveExportAspect } from "../../services/export/aspect-check.js";
+import {
+  motionSpecProblems,
+  pendingMotionClips,
+  renderPendingMotion,
+} from "../../services/export/motion-prerender.js";
+import { BrandKitRepo } from "../../services/design/kit.js";
 import {
   exportBlockersMessage,
   findExportBlockers,
@@ -89,17 +100,47 @@ export function createProjectExportHandler(
     type: "project.export",
     parse: (p) => ExportJobPayloadSchema.parse(p),
     async run(req, ctx, job) {
-      const project = app.repos.projects.get(req.projectId);
+      let project = app.repos.projects.get(req.projectId);
       if (!project) throw new Error(`Proyecto ${req.projectId} no encontrado`);
       const stored = app.repos.presets.get(req.presetId);
       if (!stored) throw new Error(`Preset ${req.presetId} no encontrado`);
       const preset = ExportPresetSchema.parse(stored);
+      const hasAsset = (id: string) => !!app.repos.media.get(id);
 
       // B3/B4: the project may have changed since the route checked it (deleted media, new clip).
       const blocked = exportBlockersMessage(
-        findExportBlockers(project, (id) => !!app.repos.media.get(id), req.range),
+        findExportBlockers(project, hasAsset, req.range, { autoRenderMotion: true }).concat(
+          motionSpecProblems(app, project, req.range),
+        ),
       );
       if (blocked) throw new Error(blocked);
+      // Sprint 6 (M2 cross request 1): motion clips edited without a render are rendered here.
+      const pending = pendingMotionClips(project, hasAsset, req.range);
+      let motionRendered = 0;
+      if (pending.length) {
+        motionRendered = await renderPendingMotion(app, project.id, pending, {
+          signal: ctx.signal,
+          log: ctx.log,
+          onProgress: (done, total, label) =>
+            ctx.reportProgress(0.01, label, {
+              stage_es: label.slice(0, 120),
+              cancellable: true,
+              done,
+              total,
+              unit: "items",
+            }),
+        });
+        project = app.repos.projects.get(req.projectId) ?? project;
+        const still = exportBlockersMessage(findExportBlockers(project, hasAsset, req.range));
+        if (still) throw new Error(still);
+      }
+      // Sprint 6: hard design rules the ASS/Remotion generation fixes by itself -> warning.
+      const { designFixed, designUnfixed } = exportDesignSummary(
+        project,
+        new BrandKitRepo(app.repos.settings).get(),
+        aspectOfCanvas(preset.width, preset.height),
+        req.burnSubtitles,
+      );
       // Sprint 5: framing of another aspect (409 texts as job errors when it changed meanwhile).
       const aspectFit = resolveExportAspect(project, preset, req.aspectFit);
       const loudness = req.normalizeLoudness === false ? null : loudnessFor(preset);
@@ -245,8 +286,19 @@ export function createProjectExportHandler(
           ...(aspectFit && { aspectFit }),
           ...(outcome.loudness && { loudness: outcome.loudness }),
           ...(outcome.ducked && { ducked: outcome.ducked }),
-          ...(outcome.warningCodes?.length && { warnings: outcome.warningCodes }),
+          ...(motionRendered > 0 && { motionRendered }),
+          ...(designFixed > 0 && { designFixed }),
+          ...(designUnfixed > 0 && { designUnfixed }),
         };
+        const warnings = [
+          ...(outcome.warningCodes ?? []),
+          ...(designFixed > 0 ? ["DESIGN_AUTOFIXED"] : []),
+          ...(designUnfixed > 0 ? ["DESIGN_UNFIXED"] : []),
+        ];
+        if (warnings.length) result.warnings = warnings;
+        if (designFixed > 0) ctx.log(formatErrorEs("DESIGN_AUTOFIXED", { n: designFixed }));
+        if (designUnfixed > 0)
+          ctx.log(`AVISO: ${formatErrorEs("DESIGN_UNFIXED", { n: designUnfixed })}`);
       } catch (err) {
         await rm(absPath(app, rel), { force: true }); // drop the reserved (partial) output
         throw err;
@@ -255,5 +307,27 @@ export function createProjectExportHandler(
       }
       return result;
     },
+  };
+}
+
+/**
+ * Design checklist of an export: hard rules the generation fixes by itself (DESIGN_AUTOFIXED) and
+ * hard rules nothing fixes (DESIGN_UNFIXED, audit S6 E11: told instead of hidden).
+ */
+export function exportDesignSummary(
+  project: Project,
+  kit: BrandKit,
+  aspect: DesignAspect,
+  burnSubtitles?: boolean,
+): { designFixed: number; designUnfixed: number } {
+  const design = checkDesignWithFix(
+    project,
+    kit,
+    aspect,
+    burnSubtitles !== undefined ? { burnSubtitles } : {},
+  );
+  return {
+    designFixed: design.fixedCount,
+    designUnfixed: design.result.issues.filter((i) => i.severity === "hard" && !i.autofix).length,
   };
 }

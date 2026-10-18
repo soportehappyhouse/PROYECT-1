@@ -7,6 +7,7 @@ import {
   FileAudio,
   FileVideo,
   Image as ImageIcon,
+  Lightbulb,
   Plus,
   RefreshCw,
   Scan,
@@ -29,6 +30,7 @@ import {
 import { Dialog } from "@/components/ui/dialog";
 import { saveProjectNow } from "@/hooks/use-project-sync";
 import { api, ApiRequestError, errorMessage, fileUrl, isNotImplemented } from "@/lib/api";
+import { suggestionsApi } from "@/lib/api-suggestions";
 import { formatBytes, formatTime } from "@/lib/format";
 import { suggestCanvasFit } from "@/lib/canvas-fit";
 import { announceFirstVideoAdjust } from "@/components/timeline/auto-adjust";
@@ -36,7 +38,7 @@ import { createId } from "@/lib/ids";
 import { isMotionRenderAsset } from "@/lib/timeline";
 import { cn } from "@/lib/utils";
 import { useJobsStore } from "@/stores/jobs-store";
-import { useMediaStore } from "@/stores/media-store";
+import { probeFailureOf, useMediaStore } from "@/stores/media-store";
 import { useProjectStore } from "@/stores/project-store";
 import { Panel } from "./Panel";
 
@@ -84,11 +86,41 @@ export function pickMediaFiles(onPicked: (files: File[]) => void): void {
   input.click();
 }
 
+/**
+ * Integration S6 (mapa de calor, flujo 1): the upload answers before `media.probe`; without its
+ * duration and size the clip got the 5 s default and the first video could not size the canvas
+ * (a 10 s vertical video exported 5 s and asked for a framing). Wait for the probe (≤ 30 s).
+ */
+export async function waitForProbe(
+  asset: MediaAsset,
+  { timeoutMs = 30_000, stepMs = 300 }: { timeoutMs?: number; stepMs?: number } = {},
+): Promise<MediaAsset> {
+  const ready = (a: MediaAsset) =>
+    a.kind === "image"
+      ? !!a.width
+      : a.durationSec !== undefined && (a.kind !== "video" || !!a.width);
+  if (ready(asset)) return asset;
+  const end = Date.now() + timeoutMs;
+  let cur = asset;
+  while (Date.now() < end) {
+    await new Promise((r) => setTimeout(r, stepMs));
+    try {
+      cur = await api.getMedia(asset.id);
+    } catch {
+      continue;
+    }
+    if (ready(cur) || cur.probeError) break;
+  }
+  useMediaStore.getState().upsert(cur);
+  return cur;
+}
+
 /** Import files and put the first playable one on the timeline (preview empty state). */
 export async function importAndPlace(files: FileList | File[]): Promise<void> {
   const assets = await uploadFiles(files);
-  const first = assets.find((a) => a.kind === "video" || a.kind === "image" || a.kind === "audio");
-  if (!first) return;
+  const picked = assets.find((a) => a.kind === "video" || a.kind === "image" || a.kind === "audio");
+  if (!picked) return;
+  const first = await waitForProbe(picked);
   useProjectStore.getState().addAssetClip(first);
   announceFirstVideoAdjust();
   suggestCanvasFit(first);
@@ -158,6 +190,11 @@ function MediaItem({ asset, selected }: { asset: MediaAsset; selected: boolean }
       toast.error("No se pudo eliminar", { description: errorMessage(err) });
     }
   };
+  // BEGIN sprint6:M3 (MEJORAS B15) — a medium whose probe failed: red mark + «Quitar»
+  const probeError = useMediaStore((s) => s.unreadable[asset.id]);
+  const liveProbeError = useJobsStore((s) => probeFailureOf(s.jobs, asset.id));
+  const unreadable = liveProbeError ?? asset.probeError ?? probeError;
+  // END sprint6:M3
   const motionRender = isMotionRenderAsset(asset);
   // Proxies only help videos the browser plays from media/ (not renders, images or audio).
   const proxyApplies = asset.kind === "video" && !motionRender;
@@ -168,6 +205,17 @@ function MediaItem({ asset, selected }: { asset: MediaAsset; selected: boolean }
       toast.info("Generando proxy…");
     } catch (err) {
       toast.error("No se pudo generar el proxy", { description: errorMessage(err) });
+    }
+  };
+
+  const analyze = async () => {
+    try {
+      await suggestionsApi.analyze(asset.id, { force: true });
+      toast.info(`Analizando «${asset.name}»`, {
+        description: "Si encuentra algo para mejorar, aparece en Sugerencias (Asistente).",
+      });
+    } catch (err) {
+      toast.error("No se pudo analizar", { description: errorMessage(err) });
     }
   };
 
@@ -206,11 +254,31 @@ function MediaItem({ asset, selected }: { asset: MediaAsset; selected: boolean }
           </Badge>
         ) : null}
         <AiBadge asset={asset} />
+        {unreadable ? (
+          <span className="flex flex-wrap items-center gap-1" data-testid="media-unreadable">
+            <Badge tone="danger" title={`No se pudo leer el archivo: ${unreadable}`}>
+              No se pudo leer
+            </Badge>
+            <Button
+              size="xs"
+              variant="ghost"
+              className="h-5 px-1 text-[11px]"
+              tip="mediaUnreadableRemove"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                void remove();
+              }}
+            >
+              Quitar
+            </Button>
+          </span>
+        ) : null}
         {motionRender ? (
           <Badge title="Render de motion graphics (overlay con alfa): no necesita proxy">
             Render{asset.hasAlpha ? " · alfa" : ""}
           </Badge>
-        ) : !asset.proxyPath && proxyApplies ? (
+        ) : !asset.proxyPath && proxyApplies && !unreadable ? (
           <p
             className="text-[11px] text-muted-foreground"
             title="La vista previa usa el original; genera un proxy si se reproduce lento"
@@ -219,7 +287,8 @@ function MediaItem({ asset, selected }: { asset: MediaAsset; selected: boolean }
           </p>
         ) : null}
       </div>
-      <div className="flex flex-col gap-0.5 opacity-70 group-hover:opacity-100">
+      {/* Integration S6: 2 columns, so 4 actions (Añadir, Analizar, Proxy, Eliminar) keep the row short */}
+      <div className="grid grid-cols-2 gap-0.5 opacity-70 group-hover:opacity-100">
         {!dataOnly ? (
           <Button
             variant="ghost"
@@ -237,7 +306,24 @@ function MediaItem({ asset, selected }: { asset: MediaAsset; selected: boolean }
             <Plus />
           </Button>
         ) : null}
-        {proxyApplies ? (
+        {/* Integration S6: «Media → Analizar» (the suggestion cards and SUGGESTION_STALE point here) */}
+        {(asset.kind === "video" || asset.kind === "audio") && !motionRender && !unreadable ? (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Analizar ${asset.name}`}
+            tip="mediaAnalyze"
+            data-testid="media-analyze"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              void analyze();
+            }}
+          >
+            <Lightbulb />
+          </Button>
+        ) : null}
+        {proxyApplies && !unreadable ? (
           <Button
             variant="ghost"
             size="icon-sm"

@@ -104,6 +104,24 @@ export const API_ROUTES = {
   projectDuplicate: "/api/projects/:id/duplicate", // POST ProjectDuplicate -> 201 Project
   systemReveal: "/api/system/reveal", // POST {path} -> {ok} (only under exports/)
   voiceSelfRefs: "/api/voice/self-refs", // GET MediaAsset[] (voice-ref) | POST multipart `audio` + attestSelf=true -> 201 MediaAsset
+  // Sprint 6 (docs/trabajo/sprint6-contratos.md). M1 Guion (script.ts):
+  script: "/api/projects/:id/script", // GET -> Script (computed from subtitles words)
+  scriptTranscribe: "/api/projects/:id/script/transcribe", // POST ScriptTranscribeRequest -> 202 JobAccepted
+  scriptCuts: "/api/projects/:id/script/cuts", // POST ScriptCutsRequest -> ScriptCutsResponse (does not apply)
+  scriptFit: "/api/projects/:id/script/fit", // POST FitDurationRequest -> FitDurationPreview (does not apply)
+  // M2 Sistema de diseño (design.ts):
+  brandKit: "/api/brand-kit", // GET -> BrandKit | PUT BrandKitUpdate -> BrandKit
+  brandKitLogo: "/api/brand-kit/logo", // POST multipart `logo` -> BrandKit
+  designTokens: "/api/design/tokens", // GET ?aspect=&w=&h= -> ResolvedDesign
+  designCheck: "/api/design/check", // POST DesignCheckRequest -> DesignCheckResult
+  motionStill: "/api/motion/still", // POST MotionStillRequest -> image/png | image/jpeg
+  fonts: "/fonts/*", // GET bundled OFL fonts (FONTS_DIR_REL)
+  // M3 Sugerencias (suggestions.ts):
+  suggestions: "/api/projects/:id/suggestions", // GET -> SuggestionsResponse
+  suggestionPlan: "/api/projects/:id/suggestions/:sid/plan", // POST -> AgentPlanRecord
+  suggestionDismiss: "/api/projects/:id/suggestions/:sid/dismiss", // POST SuggestionDismissRequest -> ImportSuggestion
+  mediaAnalyze: "/api/media/:id/analyze", // POST MediaAnalyzeRequest -> 202 JobAccepted (suggest.analyze)
+  suggestionSettings: "/api/suggestions/settings", // GET | PUT SuggestionSettings
   files: "/files/*", // GET static files from STORAGE_DIR (renders/exports/proxies)
 } as const;
 export type ApiRouteKey = keyof typeof API_ROUTES;
@@ -302,9 +320,90 @@ export const SPRINT5_WARNINGS = {
 } as const satisfies Record<string, { message_es: string }>;
 export type Sprint5WarningCode = keyof typeof SPRINT5_WARNINGS;
 
+/**
+ * Sprint 6 error codes (docs/trabajo/sprint6-contratos.md «Códigos de error nuevos»). NOT_IMPLEMENTED
+ * is what the Paso 0 stubs answer (501, `details.module`) until each module replaces them.
+ */
+export const SPRINT6_ERRORS = {
+  /** Placeholder: modulo («M1 Guion»…). */
+  NOT_IMPLEMENTED: {
+    status: 501,
+    message_es: "Todavía no está disponible ({modulo}).",
+  },
+  SCRIPT_EMPTY: {
+    status: 409,
+    message_es: "El proyecto no tiene guion: transcribí el video primero (Guion → Transcribir).",
+  },
+  SCRIPT_STALE: {
+    status: 409,
+    message_es:
+      "El guion no coincide con la línea de tiempo (cambió después de transcribir). Volvé a " +
+      "transcribir o deshacé el último cambio.",
+  },
+  /** Placeholders: n (segments in the range), corregidas (words corrected by hand). */
+  SCRIPT_REPLACE_REQUIRED: {
+    status: 409,
+    message_es:
+      "Ese tramo ya tiene {n} subtítulos ({corregidas} palabras corregidas a mano) y transcribir " +
+      "los reemplaza. Confirmalo para seguir (replace: true).",
+  },
+  SCRIPT_NOTHING_TO_CUT: {
+    status: 422,
+    message_es:
+      "No hay nada para cortar con esa selección (los huecos son muy cortos o serían cortes bruscos).",
+  },
+  BRAND_LOGO_INVALID: {
+    status: 400,
+    message_es: "El logo tiene que ser PNG, JPG o SVG de hasta 5 MB.",
+  },
+  /** Placeholder: familia. */
+  FONT_NOT_BUNDLED: {
+    status: 400,
+    message_es: "La tipografía «{familia}» no viene con Studio. Elegí una de la lista.",
+  },
+  /** Placeholder: motivo. `details.reason` = the motion engine reason. */
+  STILL_UNAVAILABLE: {
+    status: 503,
+    message_es: "No se pudo generar la vista previa ({motivo}).",
+  },
+  SUGGESTION_NOT_FOUND: {
+    status: 404,
+    message_es: "Esa sugerencia ya no existe.",
+  },
+  SUGGESTION_STALE: {
+    status: 409,
+    message_es: "El clip cambió desde el análisis: volvé a analizarlo (Media → Analizar).",
+  },
+} as const satisfies Record<string, { status: number; message_es: string }>;
+export type Sprint6ErrorCode = keyof typeof SPRINT6_ERRORS;
+
+/** Sprint 6 job warnings (ExportJobResult.warnings). */
+export const SPRINT6_WARNINGS = {
+  /** Placeholder: n. */
+  DESIGN_AUTOFIXED: {
+    message_es: "Ajusté {n} subtítulos o títulos para que cumplan las reglas de diseño.",
+  },
+  /** Audit S6 E11. */
+  DESIGN_UNFIXED: {
+    message_es:
+      "Quedan {n} cosas que no cumplen las reglas de diseño y no se arreglan solas (mirá «Revisar diseño»).",
+  },
+} as const satisfies Record<string, { message_es: string }>;
+export type Sprint6WarningCode = keyof typeof SPRINT6_WARNINGS;
+
+/** Module names used in NOT_IMPLEMENTED `details.module`. */
+export const SPRINT6_MODULES = {
+  M1: "M1 Guion",
+  M2: "M2 Sistema de diseño",
+  M3: "M3 Sugerencias",
+} as const;
+export type Sprint6Module = (typeof SPRINT6_MODULES)[keyof typeof SPRINT6_MODULES];
+
 const ERROR_MESSAGES_ES: Record<string, { message_es: string }> = {
   ...SPRINT5_WARNINGS,
   ...SPRINT5_ERRORS,
+  ...SPRINT6_WARNINGS,
+  ...SPRINT6_ERRORS,
 };
 
 /** TOOL_MISSING message when the state is "python" (FaceFusion needs Python 3.12). */
@@ -312,11 +411,16 @@ export const TOOL_MISSING_PYTHON_ES =
   "Falta Python 3.12: corré scripts\\windows\\setup.ps1 -Update.";
 
 /**
- * Spanish message of a Sprint 4/5 error (or Sprint 5 warning) code with its `{placeholders}`
+ * Spanish message of a Sprint 4/5/6 error (or Sprint 5/6 warning) code with its `{placeholders}`
  * replaced (unknown ones stay).
  */
 export function formatErrorEs(
-  code: Sprint4ErrorCode | Sprint5ErrorCode | Sprint5WarningCode,
+  code:
+    | Sprint4ErrorCode
+    | Sprint5ErrorCode
+    | Sprint5WarningCode
+    | Sprint6ErrorCode
+    | Sprint6WarningCode,
   vars: Readonly<Record<string, string | number>> = {},
 ): string {
   const entry =

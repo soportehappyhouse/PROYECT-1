@@ -1,0 +1,102 @@
+{
+  "Inter": {
+    "dir": "Inter",
+    "license": "OFL-1.1",
+    "source": "github.com/google/fonts/tree/main/ofl/inter",
+    "weights": {
+      "400": "Inter-400.ttf",
+      "700": "Inter-700.ttf",
+      "900": "Inter-900.ttf"
+    }
+  },
+  "Montserrat": {
+    "dir": "Montserrat",
+    "license": "OFL-1.1",
+    "source": "github.com/google/fonts/tree/main/ofl/montserrat",
+    "weights": {
+      "400": "Montserrat-400.ttf",
+      "700": "Montserrat-700.ttf",
+      "900": "Montserrat-900.ttf"
+    }
+  },
+  "Poppins": {
+    "dir": "Poppins",
+    "license": "OFL-1.1",
+    "source": "github.com/google/fonts/tree/main/ofl/poppins",
+    "weights": {
+      "400": "Poppins-400.ttf",
+      "700": "Poppins-700.ttf",
+      "900": "Poppins-900.ttf"
+    }
+  },
+  "Roboto": {
+    "dir": "Roboto",
+    "license": "OFL-1.1",
+    "source": "github.com/google/fonts/tree/main/ofl/roboto",
+    "weights": {
+      "400": "Roboto-400.ttf",
+      "700": "Roboto-700.ttf",
+      "900": "Roboto-900.ttf"
+    }
+  },
+  "Oswald": {
+    "dir": "Oswald",
+    "license": "OFL-1.1",
+    "source": "github.com/google/fonts/tree/main/ofl/oswald",
+    "weights": {
+      "400": "Oswald-400.ttf",
+      "700": "Oswald-700.ttf",
+      "900": "Oswald-700.ttf"
+    }
+  },
+  "Playfair Display": {
+    "dir": "Playfair Display",
+    "license": "OFL-1.1",
+    "source": "github.com/google/fonts/tree/main/ofl/playfairdisplay",
+    "weights": {
+      "400": "PlayfairDisplay-400.ttf",
+      "700": "PlayfairDisplay-700.ttf",
+      "900": "PlayfairDisplay-900.ttf"
+    }
+  },
+  "Bebas Neue": {
+    "dir": "Bebas Neue",
+    "license": "OFL-1.1",
+    "source": "github.com/google/fonts/tree/main/ofl/bebasneue",
+    "weights": {
+      "400": "BebasNeue-400.ttf",
+      "700": "BebasNeue-400.ttf",
+      "900": "BebasNeue-400.ttf"
+    }
+  },
+  "Anton": {
+    "dir": "Anton",
+    "license": "OFL-1.1",
+    "source": "github.com/google/fonts/tree/main/ofl/anton",
+    "weights": {
+      "400": "Anton-400.ttf",
+      "700": "Anton-400.ttf",
+      "900": "Anton-400.ttf"
+    }
+  },
+  "Archivo Black": {
+    "dir": "Archivo Black",
+    "license": "OFL-1.1",
+    "source": "github.com/google/fonts/tree/main/ofl/archivoblack",
+    "weights": {
+      "400": "ArchivoBlack-400.ttf",
+      "700": "ArchivoBlack-400.ttf",
+      "900": "ArchivoBlack-400.ttf"
+    }
+  },
+  "Bangers": {
+    "dir": "Bangers",
+    "license": "OFL-1.1",
+    "source": "github.com/google/fonts/tree/main/ofl/bangers",
+    "weights": {
+      "400": "Bangers-400.ttf",
+      "700": "Bangers-400.ttf",
+      "900": "Bangers-400.ttf"
+    }
+  }
+}

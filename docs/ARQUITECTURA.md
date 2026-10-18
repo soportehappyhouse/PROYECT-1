@@ -237,6 +237,27 @@ antes de un export 9:16 desde 16:9 con el paquete `reframe`) y `choices` (`PlanC
 opciones, export en `unresolved` hasta elegir con `…/choose`). Detalle en
 `docs/trabajo/sprint5-contratos.md`.
 
+**Sprint 6.** Guion (M1): `GET /api/projects/:id/script` → `Script` (vista calculada de
+`project.subtitles[].words` + huecos acústicos; `stale` heurístico), `POST …/script/transcribe`
+(202, job `script.transcribe`), `POST …/script/cuts` (cortes afinados por energía, no aplica) y
+`POST …/script/fit` (vista previa de `fit_duration` + plan; `to_s` = lo que da aplicar el plan, con
+el mismo afinado por energía). Sistema de diseño (M2): `GET|PUT /api/brand-kit` (un solo kit, fila
+`settings.brand_kit`, PUT parcial, `FONT_NOT_BUNDLED`), `POST /api/brand-kit/logo`,
+`GET /api/design/tokens`, `POST /api/design/check {projectId, aspect?, fix?}` (10 reglas
+`DESIGN_RULE_IDS`; `fix:true` devuelve el proyecto arreglado sin guardarlo), `POST /api/motion/still`
+(PNG `renderStill`, caché por hash) y `GET /fonts/*` (las 10 familias OFL de
+`packages/remotion/public/fonts`). Sugerencias (M3): `GET /api/projects/:id/suggestions`,
+`POST …/suggestions/:sid/plan` (→ `AgentPlanRecord` `proposed`), `POST …/:sid/dismiss`,
+`POST /api/media/:id/analyze` (202, `suggest.analyze`) y `GET|PUT /api/suggestions/settings`.
+`MediaAsset.probeError` guarda la causa del último `media.probe` fallido. Exportar
+(`project.export`) renderiza primero los clips motion sin render (`services/export/motion-prerender.ts`,
+un `motion.render` por clip con `target`) y agrega `DESIGN_AUTOFIXED` + `designFixed` a
+`ExportJobResult` cuando la generación corrigió reglas duras; solo bloquea (409 `EXPORT_BLOCKED`) un
+medio borrado o una spec que los motores rechazan. `/api/agent/apply` exige `confirmedIndexes` para
+`ALWAYS_CONFIRM_OPS` **y** para las ops que el resolvedor marcó `confirm: true`
+(`opNeedsSeparateConfirm`: `fit_duration` con oraciones, `delete_words`/`fit_duration` que quitan
+más del 20 %). Detalle en `docs/trabajo/sprint6-contratos.md` y `integracion-sprint6.md`.
+
 ## 3. Contrato de `apps/workers` (interno, solo lo llama la api)
 
 Fuente de verdad: `WORKER_ROUTES` + `Worker*Request` (TS) y `apps/workers/studio_workers/schemas.py`
@@ -328,6 +349,13 @@ contesta **499** `{detail: "Cancelado", code: "TASK_CANCELED"}`, sin traceback; 
 `asyncio.Task` con un vigía de 100 ms: al cancelar se corta el pedido HTTP y Ollama deja de generar;
 sin modelos disponibles la tarea falla con `code PACK_REQUIRED`. `POST /agent/plan` cancela el
 planner si el cliente se desconecta.
+
+Sprint 6: `POST /transcribe/words` (tarea `stt.words`: faster-whisper con `word_timestamps`, sin
+VAD, envolvente RMS de 5 ms en `renders/<job>/script-rms.f32` y huecos con voz en
+`script-audio.json`; `GET /transcribe/tasks/{id}` y `/cancel`) y `POST /analyze/suggest` (tarea
+`suggest.analyze`: una pasada de FFmpeg con `ebur128` + PCM 8 kHz para piso de ruido y silencios;
+`-threads 2` y prioridad baja del proceso). La `TaskQueue` es una `PriorityQueue[(prioridad, seq)]`:
+0 = usuario, 5 = fondo; FIFO dentro de la misma prioridad.
 
 ## 4. Ciclo de vida de un job
 
@@ -429,6 +457,13 @@ a `packages/shared/schemas/` y `apps/workers/studio_workers/agent/editplan.schem
   `service-status-store` → **una** franja (`ServiceBanner`) y `useAiAvailability(feature)`
   deshabilita los botones de IA con el motivo como tooltip.
 - Resultado estándar de jobs que generan archivo: `FileJobResult { assetId?, path }`.
+
+**Sprint 6, carril `background`.** `suggest.analyze` corre en su propio carril (límite 1, prioridad
+−10 por defecto; un pedido manual de Media → Analizar entra con 0): nunca comparte cupo con
+`workers`/`ffmpeg`/`edit`, así que un trabajo del usuario arranca en < 1 s aunque haya análisis en
+curso. Se encola solo después de `media.probe` (video/audio con sonido, ≤ 30 min, máx. 3 activos).
+La web no muestra toasts de los trabajos de fondo (`isBackgroundJobType` en `use-job-events`); el
+`JobsIndicator` no los cuenta como trabajos del usuario y dice «Analizando N medios…».
 
 ## 5. Almacenamiento
 
@@ -634,6 +669,35 @@ playhead, clipEdges, inOut}` (persistido en `ui.snap`).
 - **Servicios**: `service-status-store` (poll de `/api/health` + migas de `WORKERS_UNAVAILABLE`) →
   `ServiceBanner` y `useAiAvailability(feature)`; `Button` muestra `tip` (`lib/tooltips.ts`, 51
   claves) y `disabledReason` (también en botones de texto sin tooltip propio).
+
+### 5.6 Guion, sistema de diseño y sugerencias (Sprint 6)
+
+- **Una sola fuente de tiempos por palabra**: `project.subtitles[].words`. `packages/shared/src/
+script-words.ts` (`buildScript`, `detectFillers`, `planWordCuts`, `refineCutsWithEnergy`,
+  `cutTimeline`, `fitDuration`, `fixWords`) lo usan la web (panel Guion, edición de texto en
+  Subtítulos), la api (rutas `script*`) y las ops `delete_words`, `fit_duration` y `fix_text`.
+  Cortar = ripple de todas las pistas sin bloquear con `Clip.audioFade` de 12 ms (`afade qsin`) en
+  cada empalme; un gesto = un paso de deshacer. Los artefactos de audio se guardan en segundos de
+  fuente del medio (tabla `script_audio`) y se mapean por los clips que lo muestran.
+- **Tokens de diseño**: `packages/shared/src/design.ts` (`DesignTokens`, `BrandKit`,
+  `DESIGN_RULE_IDS`) + `design-rules.ts` (`resolveDesign`, `paginateCaptions`,
+  `captionStyleFromTokens`, `autofixCaptionStyle`, `checkDesign`). El mismo cálculo alimenta el ASS
+  (`services/ffmpeg/ass.ts`: tipografía y peso del kit, 6 % del lado corto, contorno 8 %, páginas
+  explícitas con `WrapStyle: 2`, márgenes de zona segura + contorno), `animated-captions`
+  (`__pages`) y las plantillas Remotion (`__design`). Fuentes: un solo juego de TTF en
+  `packages/remotion/public/fonts` para Remotion (`staticFile`), la web (`GET /fonts/*` +
+  `@font-face`) y libass (`fontsdir` = espejo plano en `<storage>/tmp/fonts-ass/`); ningún render usa
+  la red (`@remotion/google-fonts` y `REMOTION_FONTS` se quitaron en la integración).
+- **Sugerencias**: `suggestionsFromAnalysis` (shared, puro) convierte un `ImportAnalysis` en tarjetas
+  con su `EditPlan` (`cut_silences {noise_db}` con el umbral medido, `set_volume`); la api guarda
+  análisis y tarjetas (`import_analysis`, `suggestions`), las recalcula cuando el clip cambia y las
+  vuelve a `open` si su plan se deshace. Web: sección «Sugerencias» del Asistente, Ajustes → Asistente
+  local → «Sugerencias al importar» (apagar y reactivar tipos), Media → Analizar.
+- **Textos**: `packages/shared/src/texts-es.ts` reúne `SCRIPT_TEXTS_ES`, `SCRIPT_PANEL_TEXTS_ES`,
+  `SUGGESTION_TEXTS_ES`, `SUGGESTION_UI_ES`, `SUGGESTION_SETTINGS_ES`, `MOTION_TEMPLATE_NAMES_ES` y
+  `GLOSSARY_ES`; los tooltips de la web están en `lib/tooltips.ts` (74 claves).
+- **studio-mcp**: 19 herramientas (+ `studio_design_check`, solo lectura; `studio_run_job` acepta
+  `script.transcribe`).
 
 ## 6. Motores de motion graphics
 

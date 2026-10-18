@@ -9,6 +9,7 @@ import {
   compileStylePreset,
   stylePlanNotes,
   validateEditPlan,
+  type EditPlan,
   type AgentPlanRecord,
   type MediaAsset,
   type Project,
@@ -61,6 +62,25 @@ export function projectSceneStarts(
  * presets (SQLite style_presets) and apply one to a project: compileStylePreset -> EditPlan stored
  * as an Assistant plan (status proposed) that the user confirms in the Asistente panel.
  */
+/**
+ * Sprint 6 M2 (StylePreset ↔ kit, `use_brand_kit` absent = yes): motion ops of the plan drop
+ * their font and color params so the templates take them from the brand kit; `false` keeps the
+ * reference's own fonts and colors.
+ */
+export function withBrandKit(plan: EditPlan, useKit: boolean): EditPlan {
+  if (!useKit) return plan;
+  return {
+    ...plan,
+    ops: plan.ops.map((op) => {
+      if (op.op !== "add_motion" || !op.params) return op;
+      const params = Object.fromEntries(
+        Object.entries(op.params).filter(([k]) => k !== "fontFamily" && !/colou?r$/i.test(k)),
+      );
+      return { ...op, params };
+    }),
+  };
+}
+
 export const styleRoutes: FastifyPluginAsync = async (app) => {
   const { repos, queue, workers, config } = app.ctx;
   const presets = new StylePresetRepo(app.ctx.db);
@@ -172,10 +192,13 @@ export const styleRoutes: FastifyPluginAsync = async (app) => {
     const project = repos.projects.get(body.projectId);
     if (!project) return reply.code(404).send(errorBody("NOT_FOUND", "Proyecto no encontrado"));
     const media = (id: string) => repos.media.get(id);
-    const plan = compileStylePreset(preset, project, {
-      scenes: projectSceneStarts(project, media),
-      asset: media,
-    });
+    const plan = withBrandKit(
+      compileStylePreset(preset, project, {
+        scenes: projectSceneStarts(project, media),
+        asset: media,
+      }),
+      preset.use_brand_kit !== false,
+    );
     const validation = validateEditPlan(plan);
     if (!validation.ok)
       throw new HttpError(500, "PLAN_INVALID", `Plan inválido: ${validation.errors.join("; ")}`);

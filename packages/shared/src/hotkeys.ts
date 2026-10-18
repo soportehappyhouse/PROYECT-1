@@ -6,10 +6,11 @@ import { z } from "zod";
  * open. Edit/transport shortcuts also fire with focus on a `role=slider` (the ruler) except the
  * arrows; never inside text fields unless `inTextFields`. Ids = the web's ShortcutActionId.
  */
-export const HotkeyScopeSchema = z.enum(["global", "editor"]);
+export const HotkeyScopeSchema = z.enum(["global", "editor", "script"]);
 export type HotkeyScope = z.infer<typeof HotkeyScopeSchema>;
 
-export type HotkeyGroup = "Reproducción" | "Línea de tiempo" | "Edición" | "Proyecto" | "Interfaz";
+export type HotkeyGroup =
+  "Reproducción" | "Línea de tiempo" | "Edición" | "Proyecto" | "Interfaz" | "Guion";
 
 export interface HotkeyDef {
   id: string;
@@ -295,3 +296,58 @@ export type HotkeyId = (typeof HOTKEYS)[number]["id"];
 export function hotkeyById(id: string): HotkeyDef | undefined {
   return HOTKEYS.find((h) => h.id === id);
 }
+
+const script = (id: string, keys: string, label_es: string, help_es: string): HotkeyDef => ({
+  id,
+  group: "Guion",
+  keys,
+  scope: "script",
+  onSlider: false,
+  inTextFields: false,
+  label_es,
+  help_es,
+});
+
+/**
+ * Sprint 6 M1 (docs/trabajo/sprint6-contratos.md): shortcuts of the Guion panel. Scope "script"
+ * = only with the focus inside the panel, which stops the propagation of Delete/Backspace/Escape
+ * so timeline.delete / timeline.deselect do not also fire. Kept out of HOTKEYS (fixed keys, not
+ * listed in Ajustes → Atajos this sprint).
+ */
+export const SCRIPT_HOTKEYS: readonly HotkeyDef[] = [
+  script(
+    "script.deleteWords",
+    "Delete",
+    "Borrar palabras",
+    "Borra las palabras elegidas y cierra el hueco (con fundido corto)",
+  ),
+  script("script.deleteWordsAlt", "Backspace", "Borrar palabras", "Igual que Supr en el guion"),
+  script("script.deselect", "Escape", "Quitar selección", "Quita la selección de palabras"),
+  script(
+    "script.removeSafe",
+    "Shift+M",
+    "Quitar muletillas seguras",
+    "Quita todas las muletillas seguras (un solo paso de deshacer)",
+  ),
+  script(
+    "script.nextFiller",
+    "Period",
+    "Siguiente muletilla",
+    "Salta a la siguiente muletilla o pausa larga",
+  ),
+  script(
+    "script.prevFiller",
+    "Comma",
+    "Muletilla anterior",
+    "Vuelve a la muletilla o pausa larga anterior",
+  ),
+  script(
+    "script.fixWord",
+    "F2",
+    "Corregir palabra",
+    "Corrige el texto de la palabra elegida sin mover los tiempos",
+  ),
+];
+
+/** Keys of SCRIPT_HOTKEYS the panel intercepts although the editor scope also binds them. */
+export const SCRIPT_INTERCEPTED_KEYS: readonly string[] = ["Delete", "Backspace", "Escape"];

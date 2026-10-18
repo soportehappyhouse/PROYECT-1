@@ -1,0 +1,272 @@
+import type { EditOp, EditPlan } from "./agent.js";
+import type { CutRange } from "./ai.js";
+import { inferTrackRole } from "./audio-mix.js";
+import type { MediaAsset } from "./media.js";
+import {
+  SUGGESTION_THRESHOLDS,
+  type ImportAnalysis,
+  type ImportSuggestion,
+  type SuggestionKind,
+} from "./suggestions.js";
+import { SUGGESTION_TEXTS_ES, SUGGESTION_UI_ES } from "./texts-es.js";
+import type { Clip, Project, TrackRole } from "./timeline.js";
+
+/**
+ * Sprint 6 M3 (docs/trabajo/sprint6-contratos.md, M3 P1.3): turn one ImportAnalysis (source
+ * seconds of the asset) into the suggestion cards of a project. Pure and deterministic: the api
+ * stores the result, the web only shows it. Each card carries an EditPlan that the api validates
+ * with resolvePlan before the user applies it (nothing is applied here).
+ */
+
+/** What suggestionsFromAnalysis returns (the api adds id, status and the dates). */
+export type SuggestionDraft = Omit<ImportSuggestion, "id" | "status" | "created_at" | "updated_at">;
+
+/** «3,5» / «−30» (one decimal, comma, typographic minus like the rest of the UI). */
+export function fmtNumEs(n: number, digits = 1): string {
+  const text = n.toFixed(digits).replace(".", ",").replace(/,0+$/, "");
+  return text === "-0" ? "0" : text.replace(/^-/, "\u2212");
+}
+
+/** «2:05» for seconds ≥ 60, «45 s» below. */
+export function fmtDurEs(s: number): string {
+  if (s < 60) return `${fmtNumEs(s)} s`;
+  const m = Math.floor(s / 60);
+  const r = Math.round(s - m * 60);
+  return r === 60 ? `${m + 1}:00` : `${m}:${String(r).padStart(2, "0")}`;
+}
+
+export function fillTemplate(tpl: string, vars: Record<string, string | number>): string {
+  return tpl.replace(/\{(\w+)\}/g, (all, k: string) => (k in vars ? String(vars[k]) : all));
+}
+
+/** Linear clip volume (0..4) in dB; 0 → -60. */
+export function volumeToDb(volume: number | undefined): number {
+  const v = volume ?? 1;
+  return v <= 0 ? -60 : 20 * Math.log10(v);
+}
+
+const round1 = (n: number) => Math.round(n * 10) / 10;
+const round3 = (n: number) => Math.round(n * 1000) / 1000;
+
+/** Clips of the project that play this asset with sound (in timeline order). */
+export function clipsOfAsset(project: Project, assetId: string): Clip[] {
+  const out: Clip[] = [];
+  for (const track of project.tracks) {
+    if (track.muted || (track.kind !== "video" && track.kind !== "audio")) continue;
+    for (const clip of track.clips) if (clip.assetId === assetId) out.push(clip);
+  }
+  return out.sort((a, b) => a.start - b.start);
+}
+
+type RulesAsset = Pick<MediaAsset, "id" | "name"> &
+  Partial<Pick<MediaAsset, "kind" | "aiProvenance">>;
+
+/** Mix role of the track of every clip of `asset` (inferTrackRole; audit S6 E7). */
+function clipRoles(project: Project, asset: RulesAsset): Map<string, TrackRole> {
+  const assetOf = (id: string) =>
+    id === asset.id ? { ...asset, kind: asset.kind ?? ("video" as const) } : undefined;
+  const out = new Map<string, TrackRole>();
+  for (const track of project.tracks) {
+    const role = inferTrackRole(track, assetOf);
+    for (const clip of track.clips) out.set(clip.id, role);
+  }
+  return out;
+}
+
+/**
+ * Stable signature of the clips of a suggestion (source range, speed, volume): when it changes
+ * after the analysis the suggestion becomes `stale` (SUGGESTION_STALE on «Aplicar»).
+ */
+export function clipsSignature(project: Project, clipIds: readonly string[]): string {
+  const byId = new Map<string, Clip>();
+  for (const t of project.tracks) for (const c of t.clips) byId.set(c.id, c);
+  return clipIds
+    .map((id) => {
+      const c = byId.get(id);
+      return c
+        ? `${id}:${round3(c.in)}-${round3(c.out)}x${round3(c.speed)}v${round3(c.volume)}`
+        : `${id}:gone`;
+    })
+    .join("|");
+}
+
+/** Silences of the analysis inside the clip's source range -> timeline seconds. */
+export function silencesInClip(analysis: ImportAnalysis, clip: Clip): CutRange[] {
+  const out: CutRange[] = [];
+  for (const s of analysis.silences) {
+    const a = Math.max(s.start, clip.in);
+    const b = Math.min(s.end, clip.out);
+    if (b - a < SUGGESTION_THRESHOLDS.silence_min_ms / 1000) continue;
+    out.push({
+      start: round3(clip.start + (a - clip.in) / clip.speed),
+      end: round3(clip.start + (b - clip.in) / clip.speed),
+    });
+  }
+  return out;
+}
+
+function plan(summary_es: string, ops: EditOp[]): EditPlan {
+  return { version: 1, summary_es, ops: ops.slice(0, 20) };
+}
+
+/** Ranking score (higher first): seconds saved relative to the clip, then dB of fix. */
+export function suggestionScore(s: Pick<SuggestionDraft, "kind" | "impact">): number {
+  if (s.kind === "silences") return 50 + (s.impact.seconds_saved ?? 0);
+  if (s.kind === "clipping") return 40 + Math.abs(s.impact.gain_db ?? 0) * 5;
+  return 30 + Math.abs(s.impact.gain_db ?? 0);
+}
+
+/**
+ * The suggestions of `project` for this analysis of `asset` (open cards, at most one per kind).
+ * - silences: removable ≥ 8 % of the clips' duration, or ≥ 5 s in ≥ 3 silences → cut_silences.
+ * - low_voice (only voice tracks: video, or the Voz role): integrated loudness (+ the clip
+ *   volume) < −24 LUFS → set_volume up to −14 LUFS,
+ *   never past −1 dBTP (and never above +12 dB, the op limit).
+ * - clipping: true peak (+ the clip volume) > −1 dBTP → set_volume down to −1 dBTP.
+ * `muted` kinds («No sugerir más») are left out.
+ */
+export function suggestionsFromAnalysis(
+  analysis: ImportAnalysis,
+  project: Project,
+  asset: RulesAsset,
+  muted: readonly SuggestionKind[] = [],
+): SuggestionDraft[] {
+  const T = SUGGESTION_THRESHOLDS;
+  const all = clipsOfAsset(project, asset.id);
+  if (!all.length) return [];
+  // Audit S6 E7: music and effects are not speech: no «Silencios» (cutting music breaks it)
+  // and no «La voz está baja» (quiet background music is right). Clipping is for any sound.
+  const roles = clipRoles(project, asset);
+  const speechish = all.filter((c) => !["music", "sfx"].includes(roles.get(c.id) ?? "other"));
+  const voice = all.filter((c) => roles.get(c.id) === "voice");
+  const clips = speechish;
+  const base = {
+    projectId: project.id,
+    assetId: asset.id,
+    params_version: analysis.params_version,
+  };
+  const out: SuggestionDraft[] = [];
+
+  // ---- silences
+  if (!muted.includes("silences")) {
+    const perClip = clips.map((clip) => ({ clip, ranges: silencesInClip(analysis, clip) }));
+    const ranges = perClip.flatMap((p) => p.ranges);
+    const total = clips.reduce((acc, c) => acc + (c.out - c.in) / c.speed, 0);
+    const silent = ranges.reduce((acc, r) => acc + (r.end - r.start), 0);
+    const offer =
+      total > 0 &&
+      ranges.length > 0 &&
+      (silent / total >= T.offer_ratio ||
+        (silent >= T.offer_min_s && ranges.length >= T.offer_min_count));
+    if (offer) {
+      const withSil = perClip.filter((p) => p.ranges.length).map((p) => p.clip);
+      const title = fillTemplate(SUGGESTION_TEXTS_ES.silences, {
+        n: ranges.length,
+        s: fmtNumEs(silent),
+        total: fmtDurEs(total),
+      }).replace(/^1 silencios largos/, "1 silencio largo");
+      out.push({
+        ...base,
+        clipIds: withSil.map((c) => c.id),
+        kind: "silences",
+        title_es: title.slice(0, 120),
+        detail_es: fillTemplate(SUGGESTION_UI_ES.silencesDetail, { min: T.silence_min_ms }),
+        impact: { seconds_saved: round1(silent), count: ranges.length },
+        evidence: { ranges: ranges.slice(0, 200) },
+        plan: plan(
+          `Cortar ${ranges.length === 1 ? "1 silencio largo" : `${ranges.length} silencios largos`} (${fmtNumEs(silent)} s) de «${asset.name}»`,
+          withSil.map((c) => ({
+            op: "cut_silences",
+            clip: { id: c.id },
+            min_silence_ms: T.silence_min_ms,
+            fillers: false,
+            // Integration S6 (M3 cross request 2): cut with the threshold the card measured.
+            noise_db: Math.max(-60, Math.min(-20, Math.round(analysis.silence_threshold_db))),
+          })),
+        ),
+      });
+    }
+  }
+
+  // ---- loudness (one of low_voice / clipping per clip group, same current volume assumed)
+  const currentDb = volumeToDb(all[0]!.volume);
+  const lufs = analysis.lufs_i === null ? null : analysis.lufs_i + currentDb;
+  const tp = analysis.true_peak_db === null ? null : analysis.true_peak_db + currentDb;
+  const sameVolume = all.every((c) => Math.abs(volumeToDb(c.volume) - currentDb) < 0.05);
+  if (sameVolume && lufs !== null && analysis.lufs_i !== null) {
+    const srcLufs = analysis.lufs_i;
+    const srcTp = analysis.true_peak_db;
+    if (!muted.includes("low_voice") && voice.length === all.length && lufs < T.low_voice_lufs) {
+      const byLufs = T.target_lufs - srcLufs;
+      const byPeak = srcTp === null ? Infinity : T.target_true_peak_db - srcTp;
+      const target = Math.min(byLufs, byPeak, 12);
+      const gain = Math.floor(target * 10) / 10;
+      if (gain - currentDb >= 1) {
+        out.push({
+          ...base,
+          clipIds: all.map((c) => c.id),
+          kind: "low_voice",
+          title_es: fillTemplate(SUGGESTION_UI_ES.lowVoiceTitle, { lufs: fmtNumEs(lufs) }),
+          detail_es: fillTemplate(SUGGESTION_UI_ES.lowVoiceDetail, {
+            gain: fmtNumEs(gain - currentDb),
+            target: fmtNumEs(Math.min(T.target_lufs, srcLufs + gain)),
+          }),
+          impact: {
+            lufs: round1(lufs),
+            target_lufs: round1(srcLufs + gain),
+            gain_db: round1(gain - currentDb),
+            ...(srcTp !== null && { true_peak_db: round1(srcTp + gain) }),
+          },
+          plan: plan(
+            fillTemplate(SUGGESTION_TEXTS_ES.lowVoice, { lufs: fmtNumEs(lufs) }),
+            all.map((c) => ({ op: "set_volume", clip: { id: c.id }, volume_db: gain })),
+          ),
+        });
+      }
+    }
+    if (
+      !muted.includes("clipping") &&
+      tp !== null &&
+      srcTp !== null &&
+      tp > T.clipping_true_peak_db
+    ) {
+      const gain = Math.max(-60, Math.floor((T.target_true_peak_db - srcTp) * 10) / 10);
+      if (gain < currentDb) {
+        out.push({
+          ...base,
+          clipIds: all.map((c) => c.id),
+          kind: "clipping",
+          title_es: fillTemplate(SUGGESTION_UI_ES.clippingTitle, { tp: fmtNumEs(tp) }),
+          detail_es: fillTemplate(SUGGESTION_UI_ES.clippingDetail, {
+            gain: fmtNumEs(Math.abs(gain - currentDb)),
+            limit: fmtNumEs(T.target_true_peak_db),
+          }),
+          impact: {
+            true_peak_db: round1(tp),
+            gain_db: round1(gain - currentDb),
+            lufs: round1(lufs),
+          },
+          plan: plan(
+            fillTemplate(SUGGESTION_TEXTS_ES.clipping, { tp: fmtNumEs(tp) }),
+            all.map((c) => ({ op: "set_volume", clip: { id: c.id }, volume_db: gain })),
+          ),
+        });
+      }
+    }
+  }
+  return out.sort((a, b) => suggestionScore(b) - suggestionScore(a));
+}
+
+/** The cards to show: open first by score, at most `max_cards`. */
+export function visibleSuggestions<S extends Pick<ImportSuggestion, "status" | "kind" | "impact">>(
+  list: readonly S[],
+  max: number = SUGGESTION_THRESHOLDS.max_cards,
+): S[] {
+  return list
+    .filter((s) => s.status === "open" || s.status === "stale")
+    .sort((a, b) => {
+      if (a.status !== b.status) return a.status === "open" ? -1 : 1;
+      return suggestionScore(b) - suggestionScore(a);
+    })
+    .slice(0, max);
+}

@@ -1,6 +1,6 @@
-import { nextTrackOrder } from "@studio/shared";
+import { cutTimeline, nextTrackOrder } from "@studio/shared";
 import type { Clip, CutRange, Project, SubtitleSegment, Track } from "@studio/shared";
-import { HttpError } from "../lib/errors.js";
+import { HttpError, lockedCutToHttp } from "../lib/errors.js";
 
 /**
  * Server-side timeline edits (Sprint 1, job `timeline.apply-cuts`). Pure functions over a Project:
@@ -340,3 +340,32 @@ export function moveClip(
   );
   return { project: { ...project, tracks }, trackId: target.id, start };
 }
+
+// BEGIN sprint6:M1
+/**
+ * Sprint 6 M1 `timeline.apply-cuts` with `mode: "timeline"`: `cuts` are TIMELINE seconds removed
+ * from every unlocked track (sync ripple, like the web rippleDelete with syncTrackId) and from the
+ * subtitles; `joinFadeMs` puts a short `Clip.audioFade` at each new join. `clipId` names the main
+ * track (it must exist and not be locked). Same pure function as the web Guion (cutTimeline).
+ */
+export function applyTimelineCuts(
+  project: Project,
+  clipId: string,
+  cuts: readonly CutRange[],
+  newId: () => string,
+  joinFadeMs?: number,
+): ApplyCutsOutcome {
+  const { track } = findClip(project, clipId);
+  const out = lockedCutToHttp(() =>
+    cutTimeline(project, cuts, {
+      newId,
+      ...(joinFadeMs !== undefined && { fadeMs: joinFadeMs }),
+    }),
+  );
+  if (out.removed_s < EPS) throw new HttpError(400, "NO_CUTS", "Los cortes no quitan nada");
+  const pieceIds = (out.project.tracks.find((t) => t.id === track.id)?.clips ?? [])
+    .filter((c) => c.id === clipId || out.newClipIds.includes(c.id))
+    .map((c) => c.id);
+  return { project: out.project, removedSec: out.removed_s, pieceIds };
+}
+// END sprint6:M1

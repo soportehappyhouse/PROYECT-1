@@ -9,10 +9,16 @@ cancellation. ``TaskQueue.cancel(id)``: a queued task never runs; a running one 
 ``cancel_event`` set and its ``on_cancel`` hooks called (close the Ollama request, kill the
 subprocess tree). The task function stops with ``TaskCanceled`` — raised by ``check_canceled()`` or
 automatically on the next progress update made from the task thread — and ends ``canceled``.
+
+Sprint 6 (docs/trabajo/sprint6-contratos.md M3): each queue is a ``PriorityQueue`` ordered by
+``(priority, seq)``: ``TASK_PRIORITY_USER`` (0) before ``TASK_PRIORITY_BACKGROUND`` (5), FIFO within
+the same priority. A running background task is not preempted: it checks ``cancel_event`` at least
+once per audio window (<= 1 s) so the api can cancel it; the next user task starts right after.
 """
 
 from __future__ import annotations
 
+import itertools
 import logging
 import os
 import queue
@@ -26,7 +32,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from .task_schema import TaskCancelResponse, TaskPublic
+from .task_schema import TASK_PRIORITY_USER, TaskCancelResponse, TaskPublic
 
 log = logging.getLogger("studio_workers")
 
@@ -162,6 +168,7 @@ class Task:
     cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
     on_cancel: list[Callable[[], None]] = field(default_factory=list, repr=False)
     runner: int | None = field(default=None, repr=False)
+    priority: int = TASK_PRIORITY_USER
 
     def __setattr__(self, name: str, value: Any) -> None:
         if (
@@ -254,12 +261,24 @@ TaskFn = Callable[[Task], Any]
 class TaskQueue:
     def __init__(self, name: str) -> None:
         self.name = name
-        self._q: queue.Queue[tuple[Task, TaskFn]] = queue.Queue()
+        # (priority, seq, task, fn): lower priority first, FIFO (seq) within the same priority.
+        self._q: queue.PriorityQueue[tuple[int, int, Task, TaskFn]] = queue.PriorityQueue()
+        self._seq = itertools.count()
         self._tasks: dict[str, Task] = {}
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
 
-    def submit(self, kind: str, target: str, fn: TaskFn, *, dedupe: bool = True) -> Task:
+    def submit(
+        self,
+        kind: str,
+        target: str,
+        fn: TaskFn,
+        *,
+        dedupe: bool = True,
+        priority: int = TASK_PRIORITY_USER,
+    ) -> Task:
+        """Queue ``fn(task)``. ``priority``: 0 = asked by the user (default), 5 = background
+        analysis; lower runs first, FIFO within the same priority."""
         with self._lock:
             if dedupe:
                 for t in self._tasks.values():
@@ -270,10 +289,10 @@ class TaskQueue:
                         and not t.cancel_event.is_set()
                     ):
                         return t
-            task = Task(id=uuid.uuid4().hex[:16], kind=kind, target=target)
+            task = Task(id=uuid.uuid4().hex[:16], kind=kind, target=target, priority=int(priority))
             self._tasks[task.id] = task
             self._gc()
-            self._q.put((task, fn))
+            self._q.put((task.priority, next(self._seq), task, fn))
             if self._thread is None or not self._thread.is_alive():
                 self._thread = threading.Thread(
                     target=self._run, name=f"tasks-{self.name}", daemon=True
@@ -331,7 +350,7 @@ class TaskQueue:
     def _run(self) -> None:
         while True:
             try:
-                task, fn = self._q.get(timeout=60)
+                _prio, _seq, task, fn = self._q.get(timeout=60)
             except queue.Empty:
                 with self._lock:
                     if self._q.empty():

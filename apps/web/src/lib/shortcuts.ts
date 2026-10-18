@@ -210,7 +210,7 @@ export function modalDialogOpen(doc: Document | undefined = globalThis.document)
 export function hotkeyPolicy(
   info: Pick<ShortcutActionInfo, "scope" | "onSlider" | "inTextFields">,
 ): {
-  scopes: "global" | "editor";
+  scopes: HotkeyDef["scope"];
   enableOnFormTags: boolean | ["slider"];
   ignoreEventWhen: (e: Pick<KeyboardEvent, "target">) => boolean;
 } {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   DEFAULT_EXPORT_PRESETS,
   EXTRA_EXPORT_PRESETS,
@@ -14,6 +14,14 @@ import {
   timelineDuration,
   type TimelineAsset,
 } from "../src/services/ffmpeg/timeline.js";
+import { setAssDesign } from "../src/services/ffmpeg/ass.js";
+import { ensureAssFontsDir } from "../src/services/design/fonts.js";
+import { tempStorage } from "./helpers.js";
+
+// The api registers the bundled fonts at start (routes/design.ts); without them the burn-in
+// warns «fuentes del sistema» (audit S6 E10).
+beforeAll(() => setAssDesign({ fontsDir: ensureAssFontsDir(tempStorage()) }));
+afterAll(() => setAssDesign({ fontsDir: null }));
 
 const now = "2026-10-04T00:00:00.000Z";
 const youtube = ExportPresetSchema.parse(
@@ -320,7 +328,7 @@ describe("timeline compiler", () => {
     // Canvas-sized PlayRes, numpad alignment 8 (top) in a real [V4+ Styles] block.
     expect(ass).toContain("PlayResX: 1920\nPlayResY: 1080");
     expect(ass).toMatch(/Style: Default,Inter,72,&H000AD6FF,.*,1,\d+,0,8,\d+,\d+,\d+,1/);
-    expect(ass).toContain(",,HOLA");
+    expect(ass).toMatch(/,,(\{\\b900\})?HOLA/);
   });
 
   it("fits burned subtitles to a pillarboxed vertical clip (feedback 4)", () => {
@@ -369,8 +377,12 @@ describe("timeline compiler", () => {
     // ...but the ones outside them are.
     p.subtitles.push({ start: 6, end: 7, text: "Fuera" });
     const forced = compileExport({ ...base, burnSubtitles: true });
-    expect(forced.files.find((f) => f.name === "subs.ass")!.content).toContain(",,Fuera");
-    expect(forced.files.find((f) => f.name === "subs.ass")!.content).not.toContain(",,Hola");
+    expect(forced.files.find((f) => f.name === "subs.ass")!.content).toMatch(
+      /,,(\{\\b900\})?Fuera/,
+    );
+    expect(forced.files.find((f) => f.name === "subs.ass")!.content).not.toMatch(
+      /,,(\{\\b900\})?Hola/,
+    );
     // Project-level choice (Export panel checkbox) is the default for the request.
     p.burnSubtitles = true;
     expect(compileExport(base).graph).toContain("subtitles=subs.ass");

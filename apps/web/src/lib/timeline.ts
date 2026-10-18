@@ -1,4 +1,4 @@
-import { nextTrackOrder } from "@studio/shared";
+import { keyframesWindow, nextTrackOrder } from "@studio/shared";
 import type { Clip, MediaAsset, Project, Track, TrackKind } from "@studio/shared";
 import { createId } from "./ids";
 import { roundTime } from "./format";
@@ -242,14 +242,26 @@ export function splitClip(clip: Clip, at: number): [Clip, Clip] | undefined {
   if (at <= clip.start + MIN_CLIP_DURATION / 2 || at >= end - MIN_CLIP_DURATION / 2)
     return undefined;
   const cut = roundTime(sourceTimeAt(clip, at));
-  const { transitionIn, transitionOut, ...rest } = clip;
-  const left: Clip = { ...rest, out: cut, ...(transitionIn ? { transitionIn } : {}) };
+  const { transitionIn, transitionOut, faceSwap, ...rest } = clip;
+  // Audit S6 E17: keyframes stay where they were in time (re-based to each piece), and the face
+  // swap job stays with the first piece.
+  const leftDur = at - clip.start;
+  const left: Clip = {
+    ...rest,
+    out: cut,
+    ...(transitionIn ? { transitionIn } : {}),
+    ...(faceSwap ? { faceSwap } : {}),
+    ...(clip.keyframes && { keyframes: keyframesWindow(clip.keyframes, 0, leftDur) }),
+  };
   const right: Clip = {
     ...rest,
     id: createId("clp"),
     start: roundTime(at),
     in: cut,
     ...(transitionOut ? { transitionOut } : {}),
+    ...(clip.keyframes && {
+      keyframes: keyframesWindow(clip.keyframes, leftDur, end - at),
+    }),
   };
   return [left, right];
 }

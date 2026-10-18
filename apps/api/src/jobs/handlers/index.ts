@@ -4,6 +4,12 @@ import { createMediaProbeHandler } from "./media-probe.js";
 import { createMediaProxyHandler } from "./media-proxy.js";
 import { createProjectExportHandler } from "./project-export.js";
 import { createVoiceEffectHandler } from "./voice-effect.js";
+// BEGIN sprint6:M3
+import { createSuggestAnalyzeHandler } from "./suggest.js";
+// END sprint6:M3
+// BEGIN sprint6:M1
+import { createScriptTranscribeHandler } from "./script.js";
+// END sprint6:M1
 
 /** Factory signature every module uses for its job handlers. */
 export type JobHandlerFactory = (app: AppContext) => JobHandler;
@@ -20,6 +26,12 @@ export const MODULE_B_HANDLERS: readonly JobHandlerFactory[] = [
   createMediaProxyHandler,
   createVoiceEffectHandler,
   createProjectExportHandler,
+  // BEGIN sprint6:M3 (suggest.analyze, lane background)
+  createSuggestAnalyzeHandler,
+  // END sprint6:M3
+  // BEGIN sprint6:M1 (script.transcribe, lane workers)
+  createScriptTranscribeHandler,
+  // END sprint6:M1
 ];
 
 export function registerModuleBHandlers(app: AppContext): void {

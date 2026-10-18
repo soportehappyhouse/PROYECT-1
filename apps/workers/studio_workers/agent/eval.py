@@ -71,8 +71,22 @@ KEY_ARGS: dict[str, tuple[str, ...]] = {
     "export": ("preset",),
     "report_bug": (),
     "face_swap": ("clip", "person"),
+    # Sprint 6 M1 (Guion)
+    "delete_words": ("fillers", "text", "long_pauses", "ranges"),
+    "fit_duration": ("target_s", "allow_speedup", "allow_sentences"),
+    "fix_text": ("find", "replace", "all"),
 }
-BOOL_DEFAULT_FALSE = {"fillers", "split", "animated", "ai_label"}
+BOOL_DEFAULT_FALSE = {
+    "fillers",
+    "split",
+    "animated",
+    "ai_label",
+    # Sprint 6 M1
+    "long_pauses",
+    "allow_speedup",
+    "allow_sentences",
+    "all",
+}
 IGNORED = ("confirm", "note_es")
 
 PlanFn = Callable[[Example], Awaitable[Any]]  # -> planner.PlanOutcome
@@ -246,8 +260,12 @@ def _get(op: dict[str, Any], path: str) -> Any:
 
 
 def arg_match(name: str, key: str, a: Any, b: Any) -> bool:
+    if key == "fillers" and name == "delete_words":
+        return a == b  # "safe" | "probable" | "all", not a flag
     if key in BOOL_DEFAULT_FALSE:
         return bool(a) == bool(b)
+    if key in ("find", "replace") and name == "fix_text":
+        return _norm_text(a) == _norm_text(b)
     if key in ("clip", "follow"):
         return _clip_match(a, b)
     if key in ("t", "in", "out"):

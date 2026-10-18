@@ -84,7 +84,6 @@ async function main(): Promise<void> {
     const inputProps = await buildInputProps(spec, {
       storageDir,
       mediaBaseUrl: values["media-base"],
-      fontMode: getRendererSettings().fontMode,
     });
     const serveUrl = await getServeUrl({ cacheDir: null });
     const id = template.thumbnail.compositionId;

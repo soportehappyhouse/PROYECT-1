@@ -50,6 +50,18 @@ SPRINT5_ERROR_STATUS: dict[str, int] = {
 # Spanish message of TASK_NOT_FOUND (``.format(id=task_id)``).
 TASK_NOT_FOUND_ES = "La tarea {id} ya no existe en la IA local (¿se reinició?)."
 
+# Sprint 6 (docs/trabajo/sprint6-contratos.md): Paso 0 stubs answer 501 NOT_IMPLEMENTED with the
+# owner module in ``details.module`` until the module replaces them.
+SPRINT5_ERROR_STATUS["NOT_IMPLEMENTED"] = 501
+NOT_IMPLEMENTED_ES = "Todavía no está disponible ({modulo})."
+
+
+def not_implemented(module: str) -> "CodedError":
+    """501 ``{detail, code: NOT_IMPLEMENTED, details: {module}}`` for a Paso 0 stub."""
+    return CodedError(
+        "NOT_IMPLEMENTED", NOT_IMPLEMENTED_ES.format(modulo=module), details={"module": module}
+    )
+
 
 class CodedError(RuntimeError):
     """Error with an explicit API code -> ``{detail, code}`` (+ ``details`` when given).

@@ -50,13 +50,13 @@ class CatalogVoice:
 # Exact file names from rhasspy/piper VOICES.md (each voice = <id>.onnx + <id>.onnx.json).
 SPANISH_VOICES: tuple[CatalogVoice, ...] = (
     CatalogVoice("es_AR-daniela-high", "Daniela (Argentina, rioplatense)", "es-AR", "high"),
-    CatalogVoice("es_MX-claude-high", "Claude (Mexico)", "es-MX", "high"),
-    CatalogVoice("es_MX-ald-medium", "Ald (Mexico)", "es-MX", "medium"),
-    CatalogVoice("es_ES-davefx-medium", "Davefx (Espana)", "es-ES", "medium"),
-    CatalogVoice("es_ES-sharvard-medium", "Sharvard (Espana, multi-voz)", "es-ES", "medium"),
-    CatalogVoice("es_ES-mls_10246-low", "MLS 10246 (Espana, baja)", "es-ES", "low"),
-    CatalogVoice("es_ES-mls_9972-low", "MLS 9972 (Espana, baja)", "es-ES", "low"),
-    CatalogVoice("es_ES-carlfm-x_low", "Carlfm (Espana, muy baja)", "es-ES", "x_low"),
+    CatalogVoice("es_MX-claude-high", "Claude (México)", "es-MX", "high"),
+    CatalogVoice("es_MX-ald-medium", "Ald (México)", "es-MX", "medium"),
+    CatalogVoice("es_ES-davefx-medium", "Davefx (España)", "es-ES", "medium"),
+    CatalogVoice("es_ES-sharvard-medium", "Sharvard (España, multi-voz)", "es-ES", "medium"),
+    CatalogVoice("es_ES-mls_10246-low", "MLS 10246 (España, baja)", "es-ES", "low"),
+    CatalogVoice("es_ES-mls_9972-low", "MLS 9972 (España, baja)", "es-ES", "low"),
+    CatalogVoice("es_ES-carlfm-x_low", "Carlfm (España, muy baja)", "es-ES", "x_low"),
 )
 CATALOG = {v.id: v for v in SPANISH_VOICES}
 

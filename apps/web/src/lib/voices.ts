@@ -14,35 +14,43 @@ export const PIPER_SPANISH_CATALOG: readonly Pick<
     language: "es-AR",
     quality: "high",
   },
-  { id: "es_MX-claude-high", name: "Claude (Mexico)", language: "es-MX", quality: "high" },
-  { id: "es_MX-ald-medium", name: "Ald (Mexico)", language: "es-MX", quality: "medium" },
-  { id: "es_ES-davefx-medium", name: "Davefx (Espana)", language: "es-ES", quality: "medium" },
+  { id: "es_MX-claude-high", name: "Claude (México)", language: "es-MX", quality: "high" },
+  { id: "es_MX-ald-medium", name: "Ald (México)", language: "es-MX", quality: "medium" },
+  { id: "es_ES-davefx-medium", name: "Davefx (España)", language: "es-ES", quality: "medium" },
   {
     id: "es_ES-sharvard-medium",
-    name: "Sharvard (Espana, multi-voz)",
+    name: "Sharvard (España, multi-voz)",
     language: "es-ES",
     quality: "medium",
   },
   {
     id: "es_ES-mls_10246-low",
-    name: "MLS 10246 (Espana, baja)",
+    name: "MLS 10246 (España, baja)",
     language: "es-ES",
     quality: "low",
   },
-  { id: "es_ES-mls_9972-low", name: "MLS 9972 (Espana, baja)", language: "es-ES", quality: "low" },
+  { id: "es_ES-mls_9972-low", name: "MLS 9972 (España, baja)", language: "es-ES", quality: "low" },
   {
     id: "es_ES-carlfm-x_low",
-    name: "Carlfm (Espana, muy baja)",
+    name: "Carlfm (España, muy baja)",
     language: "es-ES",
     quality: "x_low",
   },
 ];
 
+/**
+ * Sprint 6 M2 (H19): voice names as shown in the UI — accents restored («Espana» → «España»,
+ * «Mexico» → «México») whatever the workers' catalog sends.
+ */
+export function voiceDisplayName(name: string): string {
+  return name.replace(/\bEspana\b/g, "España").replace(/\bMexico\b/g, "México");
+}
+
 /** Piper voices from the api plus catalog voices it did not list (as not installed). */
 export function withPiperCatalog(voices: readonly TtsVoiceInfo[]): TtsVoiceInfo[] {
   const known = new Set(voices.filter((v) => v.provider === "piper").map((v) => v.id));
   return [
-    ...voices,
+    ...voices.map((v) => ({ ...v, name: voiceDisplayName(v.name) })),
     ...PIPER_SPANISH_CATALOG.filter((v) => !known.has(v.id)).map((v): TtsVoiceInfo => ({
       ...v,
       provider: "piper",

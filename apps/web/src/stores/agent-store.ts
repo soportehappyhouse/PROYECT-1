@@ -128,7 +128,11 @@ interface AgentState {
   undoAll: (force?: boolean) => Promise<void>;
   dismissUndoConflict: () => void;
   reject: () => Promise<void>;
-  openPlan: (id: string) => void;
+  /**
+   * Show a plan in the Asistente: an id of the history, or a record made elsewhere (Sprint 6:
+   * suggestion cards, Guion «fit_duration»; costura 12 of sprint6-contratos.md).
+   */
+  openPlan: (idOrRecord: string | AgentPlanRecord) => void;
   loadHistory: () => Promise<void>;
   /** Sprint 5: quick (20 commands, default) or full (80). */
   runEval: (models: string[], mode?: "quick" | "full") => Promise<void>;
@@ -152,7 +156,9 @@ function draftOf(record: AgentPlanRecord): PlanDraft {
     ops: ops.map((op) => ({ ...op })),
     // An op the api could not resolve (resolved[i] === null) starts unchecked, and so do the
     // destructive ones (delete_clip / export): the user checks them and confirms them apart.
-    enabled: ops.map((op, i) => record.resolved?.[i] !== null && !isDestructive(op)),
+    enabled: ops.map(
+      (op, i) => record.resolved?.[i] !== null && !isDestructive(op, record.resolved?.[i]),
+    ),
     answers: (record.plan?.questions ?? []).map(() => ""),
     confirmed: [],
   };
@@ -190,6 +196,25 @@ function applyResultOf(raw: unknown): AgentApplyResult | undefined {
     steps: r.steps ?? [],
     ...(r.failed && { failed: r.failed }),
   };
+}
+
+/**
+ * H18 (Sprint 6 M3): the plan the Asistente reopens after a reload: the newest `proposed` plan
+ * that was never undone and has something to apply.
+ */
+export function lastOpenPlan(
+  plans: readonly AgentPlanRecord[],
+  undone: Readonly<Record<string, true>> = {},
+): AgentPlanRecord | undefined {
+  return [...plans]
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    .find(
+      (p) =>
+        p.status === "proposed" &&
+        !undone[p.id] &&
+        !(p as { undoneAt?: string | null }).undoneAt &&
+        (p.plan?.ops.length ?? 0) > 0,
+    );
 }
 
 const persisted = typeof window === "undefined" ? {} : loadPersisted();
@@ -310,13 +335,14 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     if (!d) return;
     const enabled = d.enabled.map((v, i) => (i === index ? (on ?? !v) : v));
     // Checking or unchecking a delete/export op asks for the confirmation again.
-    const confirmed = d.ops[index] && isDestructive(d.ops[index]) ? [] : d.confirmed;
+    const confirmed =
+      d.ops[index] && isDestructive(d.ops[index], d.record.resolved?.[index]) ? [] : d.confirmed;
     set({ draft: { ...d, enabled, confirmed } });
   },
   confirmDestructive: () => {
     const d = get().draft;
     if (!d) return;
-    const confirmed = destructiveIndexes(d.ops, d.enabled);
+    const confirmed = destructiveIndexes(d.ops, d.enabled, d.record.resolved);
     addBreadcrumb("ui", "Asistente: confirmar borrado/exportación", { ops: confirmed.length });
     set({ draft: { ...d, confirmed } });
   },
@@ -355,7 +381,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       toast.message("Marcá al menos una operación para aplicar");
       return;
     }
-    const pendingConfirm = destructiveIndexes(d.ops, d.enabled).filter(
+    const pendingConfirm = destructiveIndexes(d.ops, d.enabled, d.record.resolved).filter(
       (i) => !d.confirmed.includes(i),
     );
     if (pendingConfirm.length > 0) {
@@ -489,8 +515,14 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       if (!(err instanceof ApiRequestError)) throw err;
     }
   },
-  openPlan: (id) => {
-    const record = get().plans.find((p) => p.id === id);
+  openPlan: (idOrRecord) => {
+    if (typeof idOrRecord !== "string") {
+      const record = normalizePlanRecord(idOrRecord);
+      addBreadcrumb("ui", "Asistente: abrir plan", { planId: record.id });
+      set({ draft: draftOf(record), run: undefined, plans: upsertPlan(get().plans, record) });
+      return;
+    }
+    const record = get().plans.find((p) => p.id === idOrRecord);
     if (record) set({ draft: draftOf(record), run: undefined });
   },
   loadHistory: async () => {
@@ -498,13 +530,25 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       const projectId = useProjectStore.getState().project.id;
       const list = await agentApi.plans(projectId);
       const mine = list.filter((p) => !p.projectId || p.projectId === projectId);
-      let plans = get().plans;
+      // BEGIN sprint6:M3 (H18) — the plans of another project leave with it
+      let plans = get().plans.filter((p) => !p.projectId || p.projectId === projectId);
+      // END sprint6:M3
       const undone = { ...get().undone };
       for (const p of mine) {
         plans = upsertPlan(plans, p);
         if ((p as { undoneAt?: string }).undoneAt && p.status === "proposed") undone[p.id] = true;
       }
       set({ plans, undone });
+      // BEGIN sprint6:M3 (H18) — after a reload the Asistente reopens the last plan still to
+      // apply (proposed, never undone) of this project; a draft of another project is dropped.
+      const d = get().draft;
+      if (d && d.record.projectId && d.record.projectId !== projectId)
+        set({ draft: undefined, run: undefined });
+      if (!get().draft && !get().proposing) {
+        const last = lastOpenPlan(plans, undone);
+        if (last) set({ draft: draftOf(last), run: undefined });
+      }
+      // END sprint6:M3
     } catch {
       // keep the plans of this session
     }

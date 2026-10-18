@@ -278,6 +278,14 @@ export const CutSilencesOpSchema = z
       .optional()
       .describe("Margen que se deja antes y después de cada corte, en milisegundos (120)."),
     fillers: z.boolean().optional().describe("También cortar muletillas (eh, este, o sea)."),
+    noise_db: z
+      .number()
+      .min(-60)
+      .max(-20)
+      .optional()
+      .describe(
+        "Umbral de silencio en dBFS (por defecto -35). Las sugerencias pasan el que midieron.",
+      ),
     ...common,
   })
   .strict()
@@ -609,6 +617,98 @@ export const FaceSwapOpSchema = z
   .strict()
   .describe("Cambiar cara.");
 
+/**
+ * Sprint 6 M1 (docs/trabajo/sprint6-contratos.md): script editing ops. They work on the word
+ * timings of the project subtitles (transcribe first). Ranges are timeline seconds.
+ */
+const TimeRangeArgSchema = z
+  .object({
+    start: z
+      .number()
+      .nonnegative()
+      .describe("Inicio del tramo, en segundos de la línea de tiempo."),
+    end: z.number().nonnegative().describe("Fin del tramo, en segundos de la línea de tiempo."),
+  })
+  .strict()
+  .refine((r) => r.end > r.start, { error: "end debe ser mayor que start", path: ["end"] });
+
+export const DeleteWordsOpSchema = z
+  .object({
+    op: op(
+      "delete_words",
+      "Borrar palabras del guion (cierra el hueco en todas las pistas, con fundido corto).",
+    ),
+    ranges: z
+      .array(TimeRangeArgSchema)
+      .min(1)
+      .max(200)
+      .optional()
+      .describe("Tramos a borrar, sacados de studio_read_transcript (segundos)."),
+    text: z
+      .string()
+      .min(1)
+      .max(80)
+      .optional()
+      .describe("Borrar todas las apariciones de esta palabra o frase (sin distinguir tildes)."),
+    fillers: z
+      .enum(["safe", "probable", "all"])
+      .optional()
+      .describe("Quitar muletillas: safe = las seguras (eh, em), probable = también «o sea»…"),
+    long_pauses: z
+      .boolean()
+      .optional()
+      .describe("Acortar las pausas largas (más de 0,6 s) a 0,25 s."),
+    ...common,
+  })
+  .strict()
+  .refine(
+    (o) =>
+      o.ranges !== undefined ||
+      o.text !== undefined ||
+      o.fillers !== undefined ||
+      o.long_pauses === true,
+    { error: "Indicá ranges, text, fillers o long_pauses.", path: ["ranges"] },
+  )
+  .describe("Borrar palabras.");
+
+export const FitDurationOpSchema = z
+  .object({
+    op: op(
+      "fit_duration",
+      "Dejar el video en una duración objetivo quitando pausas y muletillas («dejalo en 45 s»).",
+    ),
+    target_s: z.number().min(3).max(3600).describe("Duración objetivo en segundos."),
+    tolerance_s: z
+      .number()
+      .min(0)
+      .max(5)
+      .optional()
+      .describe("Margen aceptado alrededor del objetivo, en segundos (0,5)."),
+    allow_speedup: z
+      .boolean()
+      .optional()
+      .describe("Permitir acelerar hasta 1,1× si con los cortes no alcanza."),
+    allow_sentences: z
+      .boolean()
+      .optional()
+      .describe("Permitir quitar oraciones enteras (pide confirmación)."),
+    ...common,
+  })
+  .strict()
+  .describe("Ajustar duración.");
+
+export const FixTextOpSchema = z
+  .object({
+    op: op("fix_text", "Corregir el texto del guion o de los subtítulos sin mover los tiempos."),
+    find: z.string().min(1).max(200).describe("Texto a corregir, tal como aparece."),
+    replace: z.string().max(200).describe("Texto corregido."),
+    all: z.boolean().optional().describe("Corregir todas las apariciones (por defecto solo una)."),
+    at: TimeSchema.optional().describe("Momento del subtítulo a corregir (si hay varios)."),
+    ...common,
+  })
+  .strict()
+  .describe("Corregir texto.");
+
 export const EditOpSchema = z
   .discriminatedUnion("op", [
     CutSilencesOpSchema,
@@ -634,6 +734,9 @@ export const EditOpSchema = z
     ExportOpSchema,
     ReportBugOpSchema,
     FaceSwapOpSchema,
+    DeleteWordsOpSchema,
+    FitDurationOpSchema,
+    FixTextOpSchema,
   ])
   .describe("Una operación de edición; el campo `op` indica cuál.");
 export type EditOp = z.infer<typeof EditOpSchema>;
@@ -649,6 +752,19 @@ export const EDIT_OP_NAMES = EditOpSchema.options.map((o) => o.shape.op.value) a
  * indexes in `confirmedIndexes`). Sprint 4: face_swap (consent + nobody in the video is a minor).
  */
 export const ALWAYS_CONFIRM_OPS: readonly EditOpName[] = ["delete_clip", "export", "face_swap"];
+
+/**
+ * Sprint 6 (integration): an op needs the separate confirmation when its kind is in
+ * ALWAYS_CONFIRM_OPS or when the resolver marked it `confirm: true` (M1: `fit_duration` that
+ * removes sentences, `delete_words`/`fit_duration` removing more than 20 % of the video).
+ * `resolved` = `AgentPlanRecord.resolved[i]` (the plan op itself never carries that mark).
+ */
+export function opNeedsSeparateConfirm(
+  op: Pick<EditOp, "op">,
+  resolved?: { confirm?: boolean | undefined } | null,
+): boolean {
+  return ALWAYS_CONFIRM_OPS.includes(op.op) || resolved?.confirm === true;
+}
 
 export const EDIT_PLAN_MAX_OPS = 20;
 

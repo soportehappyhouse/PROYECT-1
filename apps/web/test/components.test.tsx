@@ -157,14 +157,14 @@ describe("MotionPanel engines (B2)", () => {
       },
     ]);
     render(<MotionPanel />);
-    const stub = await screen.findByRole("option", { name: /Círculo · motion-canvas/ });
+    const stub = await screen.findByRole("option", { name: /Círculo/ });
     await waitFor(() => expect((stub as HTMLOptionElement).disabled).toBe(true));
     expect(stub.textContent).toContain("(no disponible)");
-    const ok = screen.getByRole("option", { name: /Título · remotion/ }) as HTMLOptionElement;
+    // Sprint 6 M2: engine ids/names are not shown next to the template (only in «Avanzado»).
+    expect(stub.textContent).not.toMatch(/motion-canvas/);
+    const ok = screen.getByRole("option", { name: /^Título$/ }) as HTMLOptionElement;
     expect(ok.disabled).toBe(false);
-    expect(screen.getByText("Remotion").className).not.toBe(
-      screen.getByText("Motion Canvas").className,
-    );
+    expect(screen.queryByText("Motion Canvas")).toBeNull();
   });
 });
 

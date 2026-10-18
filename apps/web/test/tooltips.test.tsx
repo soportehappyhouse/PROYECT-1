@@ -59,11 +59,35 @@ const ARIA: Record<TipKey, string> = {
   libUpload: "Subir sonidos a la biblioteca",
   kfCopy: "Copiar keyframes",
   kfPaste: "Pegar keyframes en el cursor",
+  kitCalibrate: "Calibrar con una captura",
+  kitResetToken: "Usar el del kit",
+  designCheck: "Revisar",
+  designFix: "Arreglar automáticamente",
+  motionRenderNow: "Renderizar ahora",
+  engineFix: "Arreglar",
+  suggestionApply: "Aplicar",
+  suggestionDismiss: "Ignorar",
+  suggestionMute: "No sugerir más",
+  suggestionStale: "Volver a analizar",
+  suggestionEvidence: "Ver dónde",
+  mediaUnreadableRemove: "Quitar",
+  // integración S6 (Media → Analizar y los 7 del Guion que pidió M1)
+  mediaAnalyze: "Analizar",
+  scriptRemoveSafe: "Quitar seguras",
+  scriptReviewDoubtful: "Revisar dudosas",
+  scriptShortenPauses: "Acortar pausas largas",
+  scriptDelete: "Borrar selección",
+  scriptFit: "Ver propuesta",
+  scriptTranscribe: "Transcribir para el guion",
+  scriptFitApply: "Aplicar",
+  assistantStatus: "Comprobar el estado del asistente",
+  consoleCopy: "Copiar selección",
+  consolePaste: "Pegar",
 };
 
 describe("TIPS", () => {
-  it("has the 51 keys of the contract, each ≥ 20 characters and not its aria-label", () => {
-    expect(Object.keys(TIPS)).toHaveLength(51);
+  it("has the 74 keys of the contract (51 + 12 of Sprint 6 + 11 of the integration), each ≥ 20 characters", () => {
+    expect(Object.keys(TIPS)).toHaveLength(74);
     expect(Object.keys(TIPS).sort()).toEqual(Object.keys(ARIA).sort());
     for (const [key, text] of Object.entries(TIPS)) {
       expect(text.length, key).toBeGreaterThanOrEqual(20);

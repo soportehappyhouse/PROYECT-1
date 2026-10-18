@@ -264,6 +264,14 @@ export const ClipSchema = z.object({
    * before (POST /api/face/undo restores it); asset mattes/masks are dropped and come back on undo.
    */
   faceSwap: ClipFaceSwapSchema.optional(),
+  /**
+   * Sprint 6 M1: short audio fades at the clip edges (script cuts: 12 ms `qsin`, no overlap, the
+   * duration does not change). Video stays a hard cut.
+   */
+  audioFade: z
+    .object({ inMs: z.int().min(0).max(200), outMs: z.int().min(0).max(200) })
+    .strict()
+    .optional(),
 });
 export type Clip = z.infer<typeof ClipSchema>;
 export type ClipInput = z.input<typeof ClipSchema>;
@@ -346,9 +354,12 @@ export function moveTrackZ<T extends Pick<Track, "order"> & { id: string }>(
   return sorted.map((t, i) => ({ ...t, order: i }));
 }
 
+/** Sprint 6 (MEJORAS B7): larger canvases broke the export («Nothing was written…»). */
+export const PROJECT_CANVAS_MAX = 8192;
+
 export const ProjectSettingsSchema = z.object({
-  width: z.number().int().positive().default(1920),
-  height: z.number().int().positive().default(1080),
+  width: z.number().int().positive().max(PROJECT_CANVAS_MAX).default(1920),
+  height: z.number().int().positive().max(PROJECT_CANVAS_MAX).default(1080),
   fps: z.number().positive().default(30),
   sampleRate: z.number().int().positive().default(48_000),
 });

@@ -1,5 +1,6 @@
 import { interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { fontStack } from "../fonts.js";
+import { designOf, kitWeight, safePadding } from "../lib/design.js";
 import { secToFrames, unitScale } from "../lib/anim.js";
 import type { EndScreenProps } from "../schemas/end-screen.js";
 import { Backdrop } from "./common.js";
@@ -46,6 +47,7 @@ export function EndScreen(props: EndScreenProps) {
   const { fps, width, height } = useVideoConfig();
   const u = unitScale(width, height);
   const font = fontStack(props.fontFamily);
+  const pad = safePadding(designOf(props), width, height, { x: 0, y: 0 });
   const titleP = spring({ frame, fps, config: { damping: 200 } });
   const ctaP = spring({ frame: frame - secToFrames(0.5, fps), fps, config: { damping: 10 } });
   // Gentle pulse on the CTA once it is in.
@@ -58,7 +60,13 @@ export function EndScreen(props: EndScreenProps) {
   return (
     <Backdrop
       color={props.background}
-      style={{ justifyContent: "center", alignItems: "center", fontFamily: font, gap: 40 * u }}
+      style={{
+        justifyContent: "center",
+        alignItems: "center",
+        fontFamily: font,
+        gap: 40 * u,
+        padding: `${pad.top}px ${pad.right}px ${pad.bottom}px ${pad.left}px`,
+      }}
     >
       <div
         style={{
@@ -68,7 +76,15 @@ export function EndScreen(props: EndScreenProps) {
           transform: `translateY(${(1 - titleP) * 40 * u}px)`,
         }}
       >
-        <div style={{ fontSize: 110 * u, fontWeight: 900, lineHeight: 1.05 }}>{props.title}</div>
+        <div
+          style={{
+            fontSize: 110 * u,
+            fontWeight: kitWeight(designOf(props), "title", 900),
+            lineHeight: 1.05,
+          }}
+        >
+          {props.title}
+        </div>
         {props.subtitle ? (
           <div style={{ fontSize: 44 * u, opacity: 0.8, marginTop: 12 * u }}>{props.subtitle}</div>
         ) : null}

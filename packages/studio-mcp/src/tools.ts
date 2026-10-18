@@ -45,7 +45,10 @@ const TERMINAL = new Set(["succeeded", "failed", "canceled"]);
  * cutting the timeline (`timeline.apply-cuts`) is left out on purpose, it would skip the
  * confirmation gate; cuts go through an EditPlan (`cut_silences`, `delete_clip`) + studio_apply_plan.
  */
-export const RUNNABLE_JOBS: Record<string, { route: string; note_es: string; param?: string }> = {
+export const RUNNABLE_JOBS: Record<
+  string,
+  { route: string; note_es: string; param?: string; paramInPath?: boolean }
+> = {
   "subtitles.transcribe": {
     route: "/api/subtitles/transcribe",
     note_es: "Transcribir (Whisper). payload: {projectId, clipId} o {assetId}, language?",
@@ -101,6 +104,14 @@ export const RUNNABLE_JOBS: Record<string, { route: string; note_es: string; par
     route: "/api/style/infer",
     note_es: "Deducir estilo con el modelo local (pack vision-llm). payload: {analysisId}",
   },
+  // Sprint 6: words with times for the Guion (delete_words / fit_duration / fix_text need it).
+  "script.transcribe": {
+    route: "/api/projects/:projectId/script/transcribe",
+    param: "projectId",
+    paramInPath: true,
+    note_es:
+      "Transcribir para el guion (palabra por palabra, sin quitar los «eh»). payload: {projectId, clipId, replace?}. Si el tramo ya tiene subtítulos devuelve SCRIPT_REPLACE_REQUIRED: preguntá al usuario y repetí con replace: true.",
+  },
 };
 
 async function resolveProjectId(api: StudioApi, projectId?: string): Promise<string> {
@@ -133,6 +144,8 @@ interface PlanRecordLike {
   ok: boolean;
   status?: string;
   plan: { summary_es?: string; ops: { op: string }[]; questions?: string[] } | null;
+  /** Resolved ops (Sprint 6: `confirm: true` = needs the separate confirmation too). */
+  resolved?: ({ confirm?: boolean } | null)[];
   preview_es: string[];
   risks: string[];
   unresolved: string[];
@@ -156,11 +169,21 @@ function compactPlan(r: PlanRecordLike) {
     ...(r.unresolved.length && { unresolved: r.unresolved }),
     ...(r.plan?.questions?.length && { questions: r.plan.questions }),
     ...(r.errors?.length && { errors: r.errors }),
+    // Sprint 6: also the ops the resolver marked confirm:true (sentences or > 20 % of the video).
     needsConfirmation: ops
-      .map((op, i) => (ALWAYS_CONFIRM.has(op.op) ? i : -1))
+      .map((op, i) => (ALWAYS_CONFIRM.has(op.op) || r.resolved?.[i]?.confirm === true ? i : -1))
       .filter((i) => i >= 0),
     ...(r.model && { model: r.model }),
   };
+}
+
+/** POST /api/design/check (DesignCheckResult of packages/shared/src/design.ts; no project body). */
+interface DesignCheckLike {
+  aspect: string;
+  passed: number;
+  rules: { id: string; passed: boolean; issues: number }[];
+  issues: { rule: string; severity?: string; message_es: string; autofix?: boolean }[];
+  fixed?: number;
 }
 
 /** GET /api/persons row (PersonSummary of packages/shared/src/consent.ts; no file paths). */
@@ -304,8 +327,9 @@ export const TOOLS = [
     title: "Aplicar plan",
     description:
       "Aplica un plan propuesto (job agent.apply, con instantánea para «Deshacer todo» en el panel " +
-      "Asistente). `ops`: índices a aplicar (por defecto todos). Borrar clips y exportar SOLO se " +
-      "aplican si su índice está en `confirmedIndexes`: preguntale antes al usuario en la consola y " +
+      "Asistente). `ops`: índices a aplicar (por defecto todos). Borrar clips, exportar, cambiar " +
+      "caras y los recortes grandes (los índices de `needsConfirmation`) SOLO se aplican si su " +
+      "índice está en `confirmedIndexes`: preguntale antes al usuario en la consola y " +
       "pasá únicamente los índices que confirmó. Espera el resultado (wait=true por defecto).",
     input: {
       planId: z.string().min(1),
@@ -351,7 +375,12 @@ export const TOOLS = [
           throw new StudioApiError(400, "BAD_REQUEST", `Falta payload.${spec.param}`);
         route = route.replace(`:${spec.param}`, encodeURIComponent(v));
       }
-      const res = await api.post<{ jobId?: string; id?: string }>(route, payload);
+      // Routes that take the id only in the path validate the body strictly.
+      const body =
+        spec.param && spec.paramInPath
+          ? Object.fromEntries(Object.entries(payload).filter(([k]) => k !== spec.param))
+          : payload;
+      const res = await api.post<{ jobId?: string; id?: string }>(route, body);
       return { type, jobId: res.jobId ?? res.id, accepted: res };
     },
   }),
@@ -451,6 +480,46 @@ export const TOOLS = [
     run: async ({ t, projectId }, { api }) => {
       const id = await resolveProjectId(api, projectId);
       return api.get(`/api/projects/${encodeURIComponent(id)}/frame`, { t, format: "json" });
+    },
+  }),
+  // ------------------------------------------------------------- Sprint 6 (integración)
+  defineTool({
+    name: "studio_design_check",
+    title: "Revisar diseño",
+    description:
+      "Revisa las 10 reglas del sistema de diseño (Kit de marca) sobre subtítulos y títulos del " +
+      "proyecto: máx. 2 líneas, caracteres por línea, tamaño mínimo, contorno o caja, contraste, " +
+      "zona segura, tiempos, duración de títulos y coherencia tipográfica. `aspect` = 9:16 (Reels/" +
+      "TikTok, por defecto el del lienzo), 1:1 o 16:9. Con fix: true dice cuántas cosas se " +
+      "arreglarían solas, SIN guardar nada (la exportación corrige las reglas duras sola y lo " +
+      "avisa con DESIGN_AUTOFIXED; en la web: Subtítulos → «Revisar diseño» → «Arreglar»).",
+    input: {
+      projectId: projectIdArg,
+      aspect: z.enum(["9:16", "1:1", "16:9"]).optional(),
+      fix: z.boolean().optional().describe("Contar lo que se arreglaría solo (no guarda)."),
+    },
+    readOnly: true,
+    run: async ({ projectId, aspect, fix }, { api }) => {
+      const id = await resolveProjectId(api, projectId);
+      const res = await api.post<DesignCheckLike>("/api/design/check", {
+        projectId: id,
+        ...(aspect && { aspect }),
+        ...(fix && { fix: true }),
+      });
+      return {
+        aspect: res.aspect,
+        passed: `${res.passed}/${res.rules.length}`,
+        failed: res.rules.filter((r) => !r.passed).map((r) => r.id),
+        ...(res.issues.length && {
+          issues: res.issues.slice(0, 20).map((i) => ({
+            rule: i.rule,
+            severity: i.severity,
+            message_es: i.message_es,
+            ...(i.autofix !== undefined && { autofix: i.autofix }),
+          })),
+        }),
+        ...(fix && { wouldFix: res.fixed ?? 0 }),
+      };
     },
   }),
   defineTool({

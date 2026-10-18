@@ -10,6 +10,12 @@ export interface FormField {
   kind: FieldKind;
   description?: string;
   options?: string[];
+  /** Sprint 6 M2: Spanish label of each option (`x-enum-labels`); raw ids are never shown. */
+  optionLabels?: Record<string, string>;
+  /** Folded in «Avanzado» (`x-advanced`). */
+  advanced?: boolean;
+  /** Token of the brand kit used when the prop is absent (`x-token`, e.g. "color.accent"). */
+  token?: string;
   min?: number;
   max?: number;
   step?: number;
@@ -34,6 +40,9 @@ interface JsonSchemaLike {
   exclusiveMaximum?: number;
   multipleOf?: number;
   maxLength?: number;
+  "x-enum-labels"?: Record<string, string>;
+  "x-advanced"?: boolean;
+  "x-token"?: string;
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {
@@ -66,11 +75,17 @@ function unwrap(schema: JsonSchemaLike): JsonSchemaLike {
 
 function fieldFor(key: string, raw: JsonSchemaLike, required: boolean, sample: unknown): FormField {
   const schema = unwrap(raw);
+  const labels = raw["x-enum-labels"] ?? schema["x-enum-labels"];
+  const advanced = raw["x-advanced"] ?? schema["x-advanced"];
+  const token = raw["x-token"] ?? schema["x-token"];
   const base = {
     key,
-    label: schema.title ?? humanize(key),
+    label: raw.title ?? schema.title ?? humanize(key),
     required,
     ...(schema.description ? { description: schema.description } : {}),
+    ...(labels && { optionLabels: labels }),
+    ...(advanced && { advanced: true }),
+    ...(token && { token }),
   };
   const type = Array.isArray(schema.type) ? schema.type.find((t) => t !== "null") : schema.type;
   if (schema.enum && schema.enum.length > 0)
@@ -141,6 +156,19 @@ export function fieldsFromSchema(
       .map(([key, s]) => fieldFor(key, s, required.has(key), defaultProps[key]));
   }
   return Object.entries(defaultProps).map(([key, value]) => inferFromValue(key, value));
+}
+
+/** Visible label of an option: the Spanish label, never the raw id when one exists. */
+export function optionLabel(field: FormField, value: string): string {
+  return field.optionLabels?.[value] ?? value;
+}
+
+/** Fields shown by default vs folded in «Avanzado». */
+export function splitAdvanced(fields: FormField[]): { main: FormField[]; advanced: FormField[] } {
+  return {
+    main: fields.filter((f) => !f.advanced && f.kind !== "json"),
+    advanced: fields.filter((f) => f.advanced || f.kind === "json"),
+  };
 }
 
 /** Parse an input value back into the prop value for a field. */

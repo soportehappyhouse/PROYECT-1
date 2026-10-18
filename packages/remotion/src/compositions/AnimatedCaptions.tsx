@@ -16,7 +16,23 @@ import {
   pageEndMs,
   transcriptToCaptions,
 } from "../lib/captions.js";
+import { pagesOf } from "../lib/design.js";
 import { trackPoint } from "../lib/track.js";
+import type { CaptionPageMeta } from "../schemas/common.js";
+
+/** Design page -> TikTokPage; a "\n" token text marks the break between line 1 and line 2. */
+function toTikTokPage(p: CaptionPageMeta): TikTokPage {
+  const tokens = p.tokens.map((t) => ({ text: t.text, fromMs: t.fromMs, toMs: t.toMs }));
+  const first = p.lines[0] ?? tokens.length;
+  return {
+    text: tokens.map((t) => t.text).join(" "),
+    startMs: p.startMs,
+    durationMs: Math.max(1, p.endMs - p.startMs),
+    tokens: tokens.map((t, i) =>
+      i === first - 1 && p.lines.length > 1 ? { ...t, text: `${t.text}\n` } : t,
+    ),
+  };
+}
 import type { AnimatedCaptionsProps } from "../schemas/animated-captions.js";
 import { Backdrop } from "./common.js";
 
@@ -31,13 +47,16 @@ export function AnimatedCaptions(props: AnimatedCaptionsProps) {
   const tracked = props.track
     ? trackPoint(props.track, frame / fps, props.trackAnchor, props.trackOffset)
     : undefined;
+  const designPages = pagesOf(props);
   const pages = useMemo(() => {
+    // Sprint 6 M2: pages paginated node-side by the design rules (≤ 2 lines, pauses, balance).
+    if (designPages && designPages.length > 0) return designPages.map(toTikTokPage);
     const captions =
       props.captions && props.captions.length > 0
         ? props.captions
         : transcriptToCaptions(props.transcript);
     return buildCaptionPages(captions, props.combineWithinMs);
-  }, [props.captions, props.transcript, props.combineWithinMs]);
+  }, [designPages, props.captions, props.transcript, props.combineWithinMs]);
   const { safe, unit } = captionFrame(props, width, height);
   const totalMs = (durationInFrames / fps) * 1000;
 
@@ -110,7 +129,7 @@ function CaptionPage({
 
   const base: CSSProperties = {
     fontFamily: font,
-    fontWeight: Number(props.fontWeight),
+    fontWeight: Number(props.fontWeight ?? 900),
     fontSize,
     lineHeight: 1.15,
     textTransform: props.uppercase ? "uppercase" : "none",
@@ -187,11 +206,15 @@ function CaptionPage({
             }
             break;
         }
-        return (
+        const span = (
           <span key={`${token.fromMs}-${i}`} style={style}>
             {token.text.trim()}
           </span>
         );
+        // Line break chosen by the design rules (balanced lines, never «el | auto»).
+        return token.text.endsWith("\n")
+          ? [span, <div key={`br-${i}`} style={{ flexBasis: "100%", height: 0 }} />]
+          : span;
       })}
     </div>
   );

@@ -33,8 +33,6 @@ const EnvSchema = z.object({
   REMOTION_CONCURRENCY: z.string().optional(),
   REMOTION_BROWSER_EXECUTABLE: z.string().optional(),
   REMOTION_HW_ACCEL: boolish,
-  /** "system" (default) never downloads fonts, so the first render works offline. */
-  REMOTION_FONTS: z.enum(["google", "system"]).default("system"),
   REMOTION_BUNDLE_CACHE: z.string().optional(),
   REMOTION_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
   /** Sprint 3 local agent (same keys the workers read; the workers talk to Ollama). */
@@ -71,7 +69,6 @@ export interface ApiConfig {
     concurrency?: number | string;
     browserExecutable?: string;
     hardwareAcceleration?: "disable" | "if-possible";
-    fontMode?: "google" | "system";
     bundleCacheDir?: string;
     timeoutInMilliseconds?: number;
   };
@@ -123,7 +120,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
         browserExecutable: path.resolve(REPO_ROOT, e.REMOTION_BROWSER_EXECUTABLE),
       }),
       ...(e.REMOTION_HW_ACCEL && { hardwareAcceleration: "if-possible" as const }),
-      fontMode: e.REMOTION_FONTS,
       ...(e.REMOTION_BUNDLE_CACHE && {
         bundleCacheDir: path.resolve(REPO_ROOT, e.REMOTION_BUNDLE_CACHE),
       }),

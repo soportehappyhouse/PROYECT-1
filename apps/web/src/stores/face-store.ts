@@ -405,7 +405,7 @@ export const useFaceStore = create<FaceState>()((set, get) => ({
       const remote = await faceApi.undo(projectId, clipId);
       useProjectStore.getState().adoptServerProject(remote, "Deshizo el cambio de cara");
       toast.success("Cambio de cara deshecho", {
-        description: "El clip volvió al video original (el generado queda en Medios).",
+        description: "El clip volvió al video original (el generado queda en Media).",
       });
     } catch (err) {
       toast.error("Deshacer cambio de cara", { description: errorMessage(err) });

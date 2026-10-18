@@ -19,6 +19,7 @@ import {
 } from "@/lib/layout";
 import { addBreadcrumb } from "@/stores/breadcrumbs-store";
 import { useSettingsStore } from "@/stores/settings-store";
+import { openClipInInspector, useClipDoubleClick } from "@/hooks/use-design";
 import { getDockApi, setDockApi } from "./dock-controller";
 
 /** Wrap each panel so dockview gets FunctionComponent<IDockviewPanelProps>. */
@@ -113,6 +114,9 @@ export function DockLayout({ resolvedTheme }: { resolvedTheme: "light" | "dark" 
   }, [layoutRevision]);
 
   useEffect(() => () => setDockApi(undefined), []);
+
+  // Sprint 6 M2 (H13): double-click on a timeline clip opens it in Propiedades (motion form).
+  useClipDoubleClick(openClipInInspector);
 
   return (
     <>

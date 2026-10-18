@@ -237,6 +237,12 @@ const presetFields = {
     .optional()
     .describe("Quemar la etiqueta «Contenido alterado con IA» al exportar."),
   export_preset: PresetIdSchema,
+  use_brand_kit: z
+    .boolean()
+    .optional()
+    .describe(
+      "Usar tipografías, colores y zona segura del kit de marca del usuario (por defecto sí).",
+    ),
   notes_es: z
     .string()
     .max(1000)

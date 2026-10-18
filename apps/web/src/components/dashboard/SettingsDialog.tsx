@@ -1,6 +1,6 @@
 "use client";
 
-import type { Theme, UiDensity } from "@studio/shared";
+import { GLOSSARY_ES, type Theme, type UiDensity } from "@studio/shared";
 import { Check, RotateCcw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -25,6 +25,7 @@ import {
 } from "@/stores/settings-store";
 import { PersonsTab } from "@/components/consent/PersonsTab";
 import { FaceDialogs } from "@/components/face/FaceDialogs";
+import { BrandKitTab } from "@/components/design/BrandKitTab";
 import { AiPacksTab } from "./AiPacksTab";
 import { AssistantTab } from "./AssistantTab";
 
@@ -154,7 +155,7 @@ function ShortcutsTab() {
                   }}
                 >
                   {recording === a.id
-                    ? "Pulsa una tecla…"
+                    ? "Tocá una tecla…"
                     : shortcuts[a.id]
                       ? displayKeys(shortcuts[a.id])
                       : "—"}
@@ -256,15 +257,18 @@ export function SettingsDialog() {
             onChange={setTab}
             items={[
               { value: "appearance", label: "Apariencia" },
-              { value: "shortcuts", label: "Atajos" },
-              { value: "layouts", label: "Layouts" },
-              { value: "ai-packs", label: "Paquetes de IA" },
-              { value: "assistant", label: "Asistente local" },
-              { value: "persons", label: "Personas" },
+              { value: "brand-kit", label: GLOSSARY_ES.settings.brandKit },
+              { value: "shortcuts", label: GLOSSARY_ES.settings.shortcuts },
+              { value: "layouts", label: "Disposiciones" },
+              { value: "ai-packs", label: GLOSSARY_ES.settings.packs },
+              { value: "assistant", label: GLOSSARY_ES.settings.localAssistant },
+              { value: "persons", label: GLOSSARY_ES.settings.persons },
             ]}
           />
           {tab === "appearance" ? (
             <AppearanceTab />
+          ) : tab === "brand-kit" ? (
+            <BrandKitTab />
           ) : tab === "shortcuts" ? (
             <ShortcutsTab />
           ) : tab === "layouts" ? (

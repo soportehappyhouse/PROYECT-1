@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Easing, interpolate, Sequence, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { fontStack } from "../fonts.js";
+import { designOf, kitWeight, safePadding } from "../lib/design.js";
 import { splitKinetic, unitScale } from "../lib/anim.js";
 import type { KineticTypographyProps } from "../schemas/kinetic-typography.js";
 import { Backdrop } from "./common.js";
@@ -22,6 +23,7 @@ function Word({
   const { fps, width, height } = useVideoConfig();
   const u = unitScale(width, height);
   const font = fontStack(props.fontFamily);
+  const pad = safePadding(designOf(props), width, height, { x: 60 * u, y: 0 });
   const p = spring({ frame, fps, config: { damping: 12, stiffness: 180 } });
   const out = interpolate(frame, [length - 4, length], [0, 1], {
     extrapolateLeft: "clamp",
@@ -56,13 +58,13 @@ function Word({
         alignItems: "center",
         justifyContent: "center",
         textAlign: "center",
-        padding: `0 ${60 * u}px`,
+        padding: `${pad.top}px ${pad.right}px ${pad.bottom}px ${pad.left}px`,
       }}
     >
       <div
         style={{
           fontFamily: font,
-          fontWeight: 900,
+          fontWeight: kitWeight(designOf(props), "display", 900),
           fontSize: props.fontSize * u,
           lineHeight: 1,
           color,

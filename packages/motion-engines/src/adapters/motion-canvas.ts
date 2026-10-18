@@ -65,7 +65,8 @@ export function createMotionCanvasEngine(): MotionEngine {
     checkAvailable: () =>
       Promise.resolve({
         ok: false,
-        reason: "Motor Motion Canvas no implementado todavía (se hará sobre Revideo).",
+        reason:
+          "Este motor de animación todavía no está disponible: usá las plantillas de Remotion.",
       }),
     listTemplates: () => Promise.resolve(TEMPLATES),
     validate: (spec) => {

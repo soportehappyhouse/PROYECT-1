@@ -1,8 +1,11 @@
 "use client";
 
 import {
+  captionFontWeight,
+  captionStyleFromTokens,
   effectiveBurnSubtitles,
   fitRect,
+  motionTemplateNameEs as templateNameEs,
   subtitlesToBurn,
   videoRectAt,
   type CaptionStyle as SharedCaptionStyle,
@@ -18,6 +21,7 @@ import { blendModeToCss } from "@/lib/layers";
 import { assetPreviewUrl } from "@/lib/api";
 import { clipAt, clipsAt, sourceTimeAt } from "@/lib/timeline";
 import { useCaptionStyleStore, type CaptionStyle } from "@/stores/caption-style-store";
+import { useDesignTokensStore } from "@/stores/design-tokens-store";
 import { useMediaStore } from "@/stores/media-store";
 import { useProjectStore } from "@/stores/project-store";
 
@@ -147,15 +151,21 @@ function SubtitleOverlay({
   box: CSSProperties;
 }) {
   const words = segment.words;
+  // Audit S6 E1: the kit caption family and weight, the same face as the burn-in.
+  const tokens = useDesignTokensStore((s) => s.tokens);
+  useEffect(() => useDesignTokensStore.getState().ensureLoaded(), []);
+  const family = captionStyleFromTokens(tokens, style as SharedCaptionStyle).fontFamily;
+  const weight = captionFontWeight(tokens, style as SharedCaptionStyle);
   return (
     <div
       className={`pointer-events-none absolute flex justify-center px-[5%] ${positionClass(style.position)}`}
       style={box}
     >
       <span
-        className="rounded px-2 py-1 text-center leading-tight font-bold"
+        className="rounded px-2 py-1 text-center leading-tight"
         style={{
-          fontFamily: style.fontFamily,
+          fontFamily: `"${family}"`,
+          fontWeight: weight,
           fontSize: style.fontSize * scale,
           color: style.color,
           background: style.background || undefined,
@@ -246,7 +256,7 @@ export function ClassicStage({ scale }: { scale: number }) {
             key={clip.id}
             className="pointer-events-none absolute inset-x-[10%] top-[10%] rounded border border-dashed border-fuchsia-400 bg-fuchsia-500/20 p-2 text-center text-xs text-white"
           >
-            Motion «{clip.motion?.template ?? "?"}» — pendiente de render
+            {templateNameEs(clip.motion?.template)} — sin renderizar (se renderiza al exportar)
           </div>
         ),
       )}

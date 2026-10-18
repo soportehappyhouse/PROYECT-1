@@ -53,7 +53,20 @@ export function createMediaProbeHandler(
       const { signal } = ctx;
       const log = ctx.log;
       ctx.reportProgress(0.05, "Analizando con ffprobe");
-      const info = await app.ffmpeg.probe(input, signal);
+      let info;
+      try {
+        info = await app.ffmpeg.probe(input, signal);
+      } catch (err) {
+        // Sprint 6 (B15): the media list shows «No se pudo leer» with the cause after a reload.
+        if (!signal.aborted) {
+          // Audit S6 E23: the asset keeps a Spanish reason; the raw ffprobe text (paths
+          // relative to storage) only goes to the job log.
+          const raw = err instanceof Error ? err.message : String(err);
+          log(`ffprobe: ${raw.split(app.config.storageDir).join("<storage>").slice(0, 800)}`);
+          app.repos.media.update(assetId, { probeError: probeErrorEs(raw) });
+        }
+        throw err;
+      }
       const { raw, ...meta } = info;
       const ext = asset.path.split(".").pop()?.toLowerCase() ?? "";
       const patch: Partial<MediaAsset> = {
@@ -71,6 +84,7 @@ export function createMediaProbeHandler(
         ...(meta.audioCodec && { audioCodec: meta.audioCodec }),
         ...(!asset.mimeType && EXT_MIME[ext] && { mimeType: EXT_MIME[ext] }),
         ...aiFromComment(asset, raw),
+        probeError: undefined,
       };
       let current = app.repos.media.update(assetId, patch, raw);
       const paths = derivativePaths(assetId);
@@ -117,4 +131,14 @@ export function createMediaProbeHandler(
       return { assetId, path: current.path };
     },
   };
+}
+
+/** Short Spanish reason of a failed ffprobe (audit S6 E23: no raw English text or paths). */
+export function probeErrorEs(raw: string): string {
+  if (/moov atom|invalid data|end of file|truncat|corrupt|unexpected eof|header missing/i.test(raw))
+    return "El archivo está dañado o incompleto.";
+  if (/spawn\b.*(ENOENT|EACCES)/i.test(raw))
+    return "No se pudo ejecutar ffprobe (revisá la instalación de Studio con verificar-pc).";
+  if (/no such file|ENOENT/i.test(raw)) return "No se encontró el archivo.";
+  return "No se pudo leer el archivo (formato no reconocido).";
 }

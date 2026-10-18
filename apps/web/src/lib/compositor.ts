@@ -1,8 +1,11 @@
 import {
   blendModeToCanvas,
+  captionFontWeight,
+  captionStyleFromTokens,
   effectiveBurnSubtitles,
   fitRect,
   maskShapeRect,
+  motionTemplateNameEs,
   reframeCropAt as sharedReframeCropAt,
   rendersOwnTrack,
   subtitlesToBurn,
@@ -14,6 +17,7 @@ import {
   type CaptionStyle,
   type Clip,
   type ClipMaskShape,
+  type DesignTokens,
   type MediaAsset,
   type Project,
   type Rect,
@@ -71,6 +75,8 @@ export interface LayerSource {
 export interface TextPayload {
   content: string;
   style: TextStyle;
+  /** CSS font weight (default 600; captions: captionFontWeight, the same as the burn-in). */
+  weight?: number;
   /** Center (canvas px) when animated/tracked; otherwise the export layout (textStyle.position). */
   center?: Vec2;
 }
@@ -329,7 +335,7 @@ export function composeAt(input: CompositorInput): Composition {
               height: canvas.height * 0.12,
             },
             text: {
-              content: `Motion «${c.motion?.template ?? "?"}» — pendiente de render`,
+              content: `${motionTemplateNameEs(c.motion?.template)} — sin renderizar (se renderiza al exportar)`,
               style: { fontFamily: "Inter", fontSize: 36, color: "#ffffff", position: "top" },
             },
           });
@@ -593,7 +599,7 @@ export function drawText(
   const { style } = payload;
   const area = box ?? { x: 0, y: 0, width: canvas.width, height: canvas.height };
   const size = style.fontSize;
-  ctx.font = `600 ${size}px ${JSON.stringify(style.fontFamily || "Inter")}, sans-serif`;
+  ctx.font = `${payload.weight ?? 600} ${size}px ${JSON.stringify(style.fontFamily || "Inter")}, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
   const lines = wrapLines(ctx, payload.content, area.width * 0.9);
@@ -632,16 +638,20 @@ function drawSubtitle(
   sub: NonNullable<Composition["subtitle"]>,
   style: CaptionStyle | undefined,
   canvas: { width: number; height: number },
+  tokens: DesignTokens | undefined,
 ): void {
   const unit = Math.min(sub.rect.width, sub.rect.height) / 1080;
   const s = style;
   const text = s?.uppercase ? sub.segment.text.toLocaleUpperCase("es") : sub.segment.text;
+  // Audit S6 E1: family and weight of the burn-in (kit caption font, real face weight).
+  const family = tokens ? captionStyleFromTokens(tokens, s).fontFamily : s?.fontFamily;
   drawText(
     ctx,
     {
       content: text,
+      ...(tokens && { weight: captionFontWeight(tokens, s) }),
       style: {
-        fontFamily: s?.fontFamily ?? "Inter",
+        fontFamily: family ?? "Inter",
         fontSize: (s?.fontSize ?? 56) * unit,
         color: s?.color ?? "#ffffff",
         ...(s?.background && { background: s.background }),
@@ -733,6 +743,8 @@ function defaultScratch(slot: number, w: number, h: number): ScratchCanvas | und
 export interface DrawOptions {
   /** Offscreen canvas factory (tests); default OffscreenCanvas / <canvas>. */
   scratch?: (slot: number, width: number, height: number) => ScratchCanvas | undefined;
+  /** Brand kit tokens: captions in the kit family and weight, like the export (audit S6 E1). */
+  tokens?: DesignTokens;
 }
 
 /** Luma masks converted to alpha, per image element (SAM PNG frames are static). */
@@ -899,6 +911,6 @@ export function drawComposition(
     drawLayerBody(ctx, l, lookup, canvas);
   }
   ctx.globalAlpha = 1;
-  if (comp.subtitle) drawSubtitle(ctx, comp.subtitle, captionStyle, canvas);
+  if (comp.subtitle) drawSubtitle(ctx, comp.subtitle, captionStyle, canvas, options.tokens);
   ctx.restore();
 }

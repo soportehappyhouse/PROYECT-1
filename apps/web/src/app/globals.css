@@ -27,9 +27,23 @@
   --input: oklch(0.88 0 0);
   --ring: var(--user-accent);
 
-  /* Density (comfortable). */
+  /* Density (comfortable): controls 28 px, large controls 32 px (Sprint 6 M2 UI tokens). */
   --control-h: 2rem;
+  --control-h-lg: calc(var(--control-h) + 0.25rem);
   --panel-pad: 0.625rem;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --radius-control: calc(var(--radius) - 2px);
+  /* Icon sizes: toolbars 16 px, lists 14 px. */
+  --icon-bar: 16px;
+  --icon-list: 14px;
+  --ok: oklch(0.62 0.17 150);
+  --warning: oklch(0.75 0.16 75);
+  /* Safe-zone guide over previews (Kit de marca, Motion). */
+  --safe-zone-band: rgb(255 0 80 / 0.18);
+  --safe-zone-line: rgb(255 255 255 / 0.85);
   font-size: 14px;
 }
 
@@ -86,6 +100,22 @@
 @layer base {
   * {
     @apply border-border;
+  }
+  /* Uniform visible focus for every interactive control (keyboard users). */
+  :where(button, a, input, select, textarea, summary, [role="tab"], [tabindex]):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+  }
+  /* Disabled controls keep their tooltip (the reason) and never look clickable. */
+  :where(button, input, select, textarea):disabled {
+    cursor: not-allowed;
+  }
+  /* «Avanzado» sections fold with the same look everywhere. */
+  details.studio-advanced > summary {
+    cursor: pointer;
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+    user-select: none;
   }
   html,
   body {

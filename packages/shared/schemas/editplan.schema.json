@@ -46,6 +46,12 @@
                 "description": "También cortar muletillas (eh, este, o sea).",
                 "type": "boolean"
               },
+              "noise_db": {
+                "description": "Umbral de silencio en dBFS (por defecto -35). Las sugerencias pasan el que midieron.",
+                "type": "number",
+                "minimum": -60,
+                "maximum": -20
+              },
               "confirm": {
                 "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
                 "type": "boolean"
@@ -1004,6 +1010,149 @@
             "required": ["op", "clip", "person"],
             "additionalProperties": false,
             "description": "Cambiar cara."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "delete_words",
+                "description": "Borrar palabras del guion (cierra el hueco en todas las pistas, con fundido corto)."
+              },
+              "ranges": {
+                "description": "Tramos a borrar, sacados de studio_read_transcript (segundos).",
+                "minItems": 1,
+                "maxItems": 200,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "start": {
+                      "type": "number",
+                      "minimum": 0,
+                      "description": "Inicio del tramo, en segundos de la línea de tiempo."
+                    },
+                    "end": {
+                      "type": "number",
+                      "minimum": 0,
+                      "description": "Fin del tramo, en segundos de la línea de tiempo."
+                    }
+                  },
+                  "required": ["start", "end"],
+                  "additionalProperties": false
+                }
+              },
+              "text": {
+                "description": "Borrar todas las apariciones de esta palabra o frase (sin distinguir tildes).",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "fillers": {
+                "description": "Quitar muletillas: safe = las seguras (eh, em), probable = también «o sea»…",
+                "type": "string",
+                "enum": ["safe", "probable", "all"]
+              },
+              "long_pauses": {
+                "description": "Acortar las pausas largas (más de 0,6 s) a 0,25 s.",
+                "type": "boolean"
+              },
+              "confirm": {
+                "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
+                "type": "boolean"
+              },
+              "note_es": {
+                "description": "Aclaración breve en español para el usuario.",
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": ["op"],
+            "additionalProperties": false,
+            "description": "Borrar palabras."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "fit_duration",
+                "description": "Dejar el video en una duración objetivo quitando pausas y muletillas («dejalo en 45 s»)."
+              },
+              "target_s": {
+                "type": "number",
+                "minimum": 3,
+                "maximum": 3600,
+                "description": "Duración objetivo en segundos."
+              },
+              "tolerance_s": {
+                "description": "Margen aceptado alrededor del objetivo, en segundos (0,5).",
+                "type": "number",
+                "minimum": 0,
+                "maximum": 5
+              },
+              "allow_speedup": {
+                "description": "Permitir acelerar hasta 1,1× si con los cortes no alcanza.",
+                "type": "boolean"
+              },
+              "allow_sentences": {
+                "description": "Permitir quitar oraciones enteras (pide confirmación).",
+                "type": "boolean"
+              },
+              "confirm": {
+                "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
+                "type": "boolean"
+              },
+              "note_es": {
+                "description": "Aclaración breve en español para el usuario.",
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": ["op", "target_s"],
+            "additionalProperties": false,
+            "description": "Ajustar duración."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "fix_text",
+                "description": "Corregir el texto del guion o de los subtítulos sin mover los tiempos."
+              },
+              "find": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "description": "Texto a corregir, tal como aparece."
+              },
+              "replace": {
+                "type": "string",
+                "maxLength": 200,
+                "description": "Texto corregido."
+              },
+              "all": {
+                "description": "Corregir todas las apariciones (por defecto solo una).",
+                "type": "boolean"
+              },
+              "at": {
+                "description": "Momento del subtítulo a corregir (si hay varios).",
+                "$ref": "#/$defs/Time"
+              },
+              "confirm": {
+                "description": "Si el usuario debe confirmar esta operación antes de aplicarla (por defecto sí).",
+                "type": "boolean"
+              },
+              "note_es": {
+                "description": "Aclaración breve en español para el usuario.",
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": ["op", "find", "replace"],
+            "additionalProperties": false,
+            "description": "Corregir texto."
           }
         ],
         "description": "Una operación de edición; el campo `op` indica cuál."

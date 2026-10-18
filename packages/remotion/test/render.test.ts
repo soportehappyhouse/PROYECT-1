@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   checkRemotionAvailable,
@@ -43,5 +46,15 @@ describe("render settings", () => {
 
   it("bundle cache key is stable for unchanged sources", async () => {
     expect(await computeSourceHash()).toBe(await computeSourceHash());
+    // Audit S6 E19: a changed file under public/ (fonts) changes the hash.
+    const tmp = mkdtempSync(path.join(os.tmpdir(), "studio-hash-"));
+    mkdirSync(path.join(tmp, "src"));
+    mkdirSync(path.join(tmp, "public", "fonts"), { recursive: true });
+    writeFileSync(path.join(tmp, "src", "a.ts"), "export {};");
+    writeFileSync(path.join(tmp, "public", "fonts", "x.ttf"), "v1");
+    const h1 = await computeSourceHash(path.join(tmp, "src"), path.join(tmp, "public"));
+    writeFileSync(path.join(tmp, "public", "fonts", "x.ttf"), "v2");
+    expect(await computeSourceHash(path.join(tmp, "src"), path.join(tmp, "public"))).not.toBe(h1);
+    rmSync(tmp, { recursive: true, force: true });
   });
 });

@@ -56,6 +56,8 @@ import { Panel } from "./Panel";
 // BEGIN sprint5:M3
 import { PlanChoices } from "./PlanChoices";
 // END sprint5:M3
+import { SuggestionsSection } from "@/components/suggestions/SuggestionCard";
+import { useProjectStore } from "@/stores/project-store";
 
 export const ASSISTANT_EXAMPLES = [
   "Cortá los silencios",
@@ -128,6 +130,7 @@ function ModelStatus() {
           variant="ghost"
           className="ml-auto"
           aria-label="Comprobar el estado del asistente"
+          tip="assistantStatus"
           onClick={() => void useAgentStore.getState().loadStatus()}
         >
           <RefreshCw />
@@ -415,7 +418,7 @@ function OpItem({ index, run }: { index: number; run: OpRunState | undefined }) 
               </Badge>
             ))}
             {needsConfirm(op) ? null : <Badge tone="muted">Sin confirmación</Badge>}
-            {isDestructive(op) && enabled && !locked ? (
+            {isDestructive(op, draft.record.resolved?.[index]) && enabled && !locked ? (
               <Badge tone={draft.confirmed.includes(index) ? "success" : "danger"}>
                 {draft.confirmed.includes(index) ? "Confirmada" : "Requiere confirmación"}
               </Badge>
@@ -527,7 +530,7 @@ function PlanView() {
   const count = enabled.filter(Boolean).length;
   const busy = run?.status === "starting" || run?.status === "running";
   // delete_clip / export: checked by hand AND confirmed with a separate click before «Aplicar».
-  const destructive = destructiveIndexes(ops, enabled);
+  const destructive = destructiveIndexes(ops, enabled, record.resolved);
   const needsConfirmClick = destructive.some((i) => !draft.confirmed.includes(i));
   const canUndo =
     !undone &&
@@ -737,19 +740,23 @@ export function AssistantPanel() {
   const loading = useAgentStore((s) => !!s.status?.ready && s.status.loaded === false);
 
   const focusTick = useAgentStore((s) => s.focusTick);
+  const projectId = useProjectStore((s) => s.project.id);
 
   // On mount and every time the user calls the assistant (Ctrl+Shift+A, palette): the panel may
-  // have been mounted long ago (inactive tab) while Ollama or the api were still starting.
+  // have been mounted long ago (inactive tab) while Ollama or the api were still starting. Sprint
+  // 6 (H18): also when the project changes (its last plan to apply reopens).
   useEffect(() => {
     const s = useAgentStore.getState();
     void s.loadStatus();
     void s.loadHistory();
-  }, [focusTick]);
+  }, [focusTick, projectId]);
 
   return (
     <Panel title="Asistente">
       <div className="flex flex-col gap-4">
         <ModelStatus />
+        {/* Sprint 6 M3: cards «Sugerencias» (import analysis) above the command field */}
+        <SuggestionsSection />
         <CommandBox />
         {error ? <ErrorNotice message={`No se pudo proponer un plan: ${error}`} /> : null}
         {/* BEGIN sprint5:M1 — «Pensando… 12 s» + Cancelar (H18) */}

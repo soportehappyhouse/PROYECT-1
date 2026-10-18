@@ -40,6 +40,9 @@ export const JobTypeSchema = z.enum([
   "style.infer", // (workers /style/infer, Ollama qwen2.5vl:3b) StylePreset draft from an analysis
   "face.preview", // (workers /face/swap with preview_t) before/after PNGs of one frame
   "face.swap", // (workers /face/swap + /face/tasks/{id}) face-swapped video asset (+ clip.faceSwap)
+  // Sprint 6 (docs/trabajo/sprint6-contratos.md):
+  "script.transcribe", // (M1, workers /transcribe/words + /transcribe/tasks/{id}) words + audio gaps
+  "suggest.analyze", // (M3, workers /analyze/suggest + /analyze/tasks/{id}) lane background, low priority
 ]);
 export type JobType = z.infer<typeof JobTypeSchema>;
 

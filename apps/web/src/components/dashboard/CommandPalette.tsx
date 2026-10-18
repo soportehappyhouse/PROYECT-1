@@ -172,7 +172,7 @@ export function CommandPalette() {
       contentClassName="fixed top-[15vh] left-1/2 z-50 w-[min(560px,92vw)] -translate-x-1/2 overflow-hidden rounded-lg border bg-card text-card-foreground shadow-2xl"
     >
       <Command.Input
-        placeholder="Escribe un comando…"
+        placeholder="Escribí un comando…"
         className="h-11 w-full border-b bg-transparent px-3 text-sm outline-none placeholder:text-muted-foreground"
       />
       <Command.List className="max-h-[50vh] overflow-auto p-1">

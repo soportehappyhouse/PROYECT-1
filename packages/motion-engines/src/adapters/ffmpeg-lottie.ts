@@ -80,13 +80,13 @@ export function createFfmpegLottieEngine(options: FfmpegLottieEngineOptions): Mo
           return missing.length
             ? {
                 ok: false,
-                reason: `El FFmpeg de sistema no trae ${missing.join(", ")}. Instala la build completa: winget install -e --id Gyan.FFmpeg`,
+                reason: `El FFmpeg instalado no trae ${missing.join(", ")}. Instalá la versión completa: winget install -e --id Gyan.FFmpeg`,
               }
             : { ok: true };
         })
         .catch(() => ({
           ok: false,
-          reason: `FFmpeg no encontrado (${options.ffmpegPath}). Instálalo con winget install -e --id Gyan.FFmpeg o define FFMPEG_PATH`,
+          reason: `No encontré FFmpeg (${options.ffmpegPath}). Instalalo con winget install -e --id Gyan.FFmpeg o definí FFMPEG_PATH.`,
         }))),
     listTemplates: () => Promise.resolve([FFMPEG_TITLE_TEMPLATE]),
     validate: (spec) =>

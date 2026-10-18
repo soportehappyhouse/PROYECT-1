@@ -59,7 +59,16 @@ export function transcriptToTimeline(
  * stay in the Jobs panel. Jobs started from the UI (tracked with an intent) and every failure toast.
  */
 export function shouldToastSuccess(type: Job["type"], hasIntent: boolean): boolean {
+  if (isBackgroundJobType(type)) return false;
   return hasIntent || (type !== "media.probe" && type !== "media.proxy");
+}
+
+/**
+ * Sprint 6: background-lane jobs (import suggestions) never toast, not even when they fail
+ * (without workers they end WORKERS_UNAVAILABLE); «Trabajos» and the indicator show them.
+ */
+export function isBackgroundJobType(type: Job["type"]): boolean {
+  return type === "suggest.analyze";
 }
 
 /** Toast description of a failed job: the real cause (H2), never the bare «Error». */
@@ -85,6 +94,7 @@ export async function handleFinished(job: Job): Promise<void> {
   const jobs = useJobsStore.getState();
   if (jobs.handled[job.id]) return;
   jobs.markHandled(job.id);
+  if (isBackgroundJobType(job.type)) return; // silent (Sprint 6, decision 11)
   const label = jobLabel(job);
 
   if (job.status === "canceled") {

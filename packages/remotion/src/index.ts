@@ -8,7 +8,17 @@ export {
   type RemotionTemplateId,
   type RemotionTemplateInfo,
 } from "./templates.js";
-export { buildInputProps, type InputPropsIo } from "./props.js";
+export {
+  animatedCaptionPages,
+  buildInputProps,
+  setDesignTokensProvider,
+  type InputPropsIo,
+} from "./props.js";
+export { applyDesign, TOKEN_PROPS } from "./lib/design.js";
+export { BUNDLED_FONT_FILES, bundledFontPath } from "./font-files.js";
+export { BUNDLED_FONTS_DIR, fontFilesFor } from "./fonts-node.js";
+export { closeStillBrowser, renderTemplateStill, type StillOptions } from "./still.js";
+export { computeSourceHash } from "./bundle.js";
 export {
   checkRemotionAvailable,
   resolveBrowserExecutable,

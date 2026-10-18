@@ -15,6 +15,7 @@ import {
   safeExtension,
 } from "../services/media-files.js";
 import { resolveStoragePath, storageRelative } from "../services/storage.js";
+import { installSuggestionHooks } from "../services/suggestions/service.js";
 
 const ListQuery = z.object({
   kind: MediaKindSchema.optional(),
@@ -43,6 +44,10 @@ async function isTrackJson(abs: string): Promise<boolean> {
 export const mediaRoutes: FastifyPluginAsync = async (app) => {
   const { repos, config, queue } = app.ctx;
   const abs = (rel: string) => resolveStoragePath(config.storageDir, rel);
+  // Sprint 6 M3: a succeeded media.probe of a video/audio queues suggest.analyze (lane
+  // background, priority −10; never delays a job the user asked for).
+  const disposeHooks = installSuggestionHooks(app.ctx);
+  app.addHook("onClose", async () => disposeHooks());
 
   app.get(API_ROUTES.media, async (req) => {
     const q = ListQuery.parse(req.query);

@@ -1,4 +1,5 @@
 import threading
+from functools import lru_cache
 
 from fastapi import APIRouter
 
@@ -8,8 +9,9 @@ from ..progress import registry
 from ..schemas import TranscribeRequest, Transcript, TranscriptFiles
 from ..services import whisper_engine
 from ..stt.formats import write_all
-from ..task_schema import TranscribeCancelRequest
-from ..tasks import TaskCanceled
+from ..stt.words import run_stt_words
+from ..task_schema import TASK_PRIORITY_USER, SttWordsRequest, TranscribeCancelRequest
+from ..tasks import Task, TaskCanceled, TaskQueue, cancel_or_404, task_not_found
 
 router = APIRouter(tags=["transcribe"])
 
@@ -85,3 +87,50 @@ def transcribe_cancel(req: TranscribeCancelRequest) -> dict[str, bool]:
         return {"stopped": False}
     event.set()
     return {"stopped": True}
+
+
+# BEGIN sprint6:M1 (M1 Guion: task stt.words in the ``transcribe`` TaskQueue area, user priority;
+# docs/trabajo/sprint6-contratos.md)
+@lru_cache
+def transcribe_queue() -> TaskQueue:
+    """Word-level transcriptions for the Guion: one at a time (Whisper + numpy on the WAV)."""
+    return TaskQueue("transcribe")
+
+
+@router.post("/transcribe/words")
+def transcribe_words(req: SttWordsRequest) -> dict[str, str]:
+    """Word-level transcription without VAD + RMS envelope and gaps -> ``{task_id, status}``."""
+    settings = get_settings()
+    src = settings.storage_path(req.input_path)
+    if not src.is_file():
+        raise NotFoundError(f"No existe el audio de entrada: {req.input_path}")
+    require_module("faster_whisper", "faster-whisper==1.2.1")
+    engine = whisper_engine()
+
+    def run(task: Task) -> dict[str, object]:
+        return run_stt_words(task, req, engine, settings)
+
+    task = transcribe_queue().submit(
+        "stt.words", req.job_id or req.input_path, run, priority=TASK_PRIORITY_USER
+    )
+    return {"task_id": task.id, "status": task.status}
+
+
+@router.get("/transcribe/tasks/{task_id}")
+def transcribe_task(task_id: str) -> dict[str, object]:
+    task = transcribe_queue().get(task_id)
+    if task is None:
+        raise task_not_found(task_id)
+    out = task.public()
+    warnings = (task.result or {}).get("warnings") if isinstance(task.result, dict) else None
+    if warnings:
+        out["warnings"] = warnings
+    return out
+
+
+@router.post("/transcribe/tasks/{task_id}/cancel")
+def transcribe_task_cancel(task_id: str) -> dict[str, object]:
+    return cancel_or_404(transcribe_queue(), task_id)
+
+
+# END sprint6:M1

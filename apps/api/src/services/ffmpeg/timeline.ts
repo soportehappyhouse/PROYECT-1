@@ -3,6 +3,7 @@ import {
   aiLabelText,
   blendModeToFfmpeg,
   effectiveBurnSubtitles,
+  exportDuration,
   fitRect,
   hasKeyframes,
   maskShapeRect,
@@ -28,7 +29,13 @@ import {
   type VideoEncoderId,
   type AspectFit,
 } from "@studio/shared";
-import { buildAss } from "./ass.js";
+import {
+  ASS_FONTS_SUBDIR,
+  assCaptionFamily,
+  assFontCopies,
+  assSubtitlesFilter,
+  buildAss,
+} from "./ass.js";
 import { atempoChain, buildAudioFxGraph, duckingFragment } from "./audio-fx.js";
 import {
   blurredBackgroundFilter,
@@ -149,6 +156,8 @@ export interface CompiledExport {
   graph: string;
   /** Files to write into the job dir before running (graph.txt, text-N.txt, subs.ass). */
   files: { name: string; content: string }[];
+  /** Files copied into the job dir before running (audit S6 E10: `fonts/<ttf>` for libass). */
+  copies?: { from: string; name: string }[];
   durationSec: number;
   warnings: string[];
   /** Sprint 5: tracks in the ducking buses (only when the sidechain was built). */
@@ -164,23 +173,21 @@ export function clipDuration(c: Pick<Clip, "in" | "out" | "speed">): number {
 
 /** Timeline end over visible tracks (and subtitles). */
 export function timelineDuration(project: Project): number {
-  let end = 0;
-  for (const t of project.tracks) {
-    if (t.hidden && t.kind !== "audio") continue;
-    for (const c of t.clips) end = Math.max(end, c.start + clipDuration(c));
-  }
-  for (const s of project.subtitles) end = Math.max(end, s.end);
-  return end;
+  // Audit S6 E15: the same function as the Guion / «Dejalo en N s» (shared).
+  return exportDuration(project);
 }
 
 /**
  * Clips the export would otherwise drop silently (B3/B4): motion clips without a render and clips
  * whose media was deleted. Only exported tracks and clips overlapping `range` count. Spanish lines.
+ * Sprint 6: with `autoRenderMotion` a motion clip that still has its spec is not a blocker (the
+ * export job renders it first, `services/export/motion-prerender.ts`).
  */
 export function findExportBlockers(
   project: Pick<Project, "tracks">,
   hasAsset: (id: string) => boolean,
   range?: { start: number; end: number },
+  opts: { autoRenderMotion?: boolean } = {},
 ): string[] {
   const out: string[] = [];
   const at = (t: number) => `${t.toFixed(1).replace(".", ",")} s`;
@@ -193,8 +200,10 @@ export function findExportBlockers(
       if (track.kind === "motion") {
         const id = c.renderedAssetId ?? c.assetId;
         if (id && hasAsset(id)) continue;
-        if (c.motion) out.push(`Motion «${c.motion.template}» sin renderizar (${where})`);
-        else if (id) out.push(`El render ${id} ya no existe (${where})`);
+        if (c.motion) {
+          if (!opts.autoRenderMotion)
+            out.push(`Motion «${c.motion.template}» sin renderizar (${where})`);
+        } else if (id) out.push(`El render ${id} ya no existe (${where})`);
       } else if (c.assetId && !hasAsset(c.assetId)) {
         out.push(`El medio ${c.assetId} fue borrado (${where})`);
       }
@@ -235,6 +244,7 @@ class GraphBuilder {
   readonly inputs: string[][] = [];
   readonly parts: string[] = [];
   readonly files: { name: string; content: string }[] = [];
+  readonly copies: { from: string; name: string }[] = [];
   readonly warnings: string[] = [];
   #n = 0;
 
@@ -357,6 +367,9 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
     if (fadeIn > 0) tail.push(`afade=t=in:st=0:d=${sec(fadeIn)}`);
     if (fadeOut > 0)
       tail.push(`afade=t=out:st=${sec(Math.max(0, dur - fadeOut))}:d=${sec(fadeOut)}`);
+    // BEGIN sprint6:M1 (script cuts: short `qsin` fades at each join, no overlap, same duration)
+    tail.push(...joinFadeFilters(clip, dur, fadeIn, fadeOut));
+    // END sprint6:M1
     tail.push("aresample=48000", "aformat=sample_fmts=fltp:channel_layouts=stereo");
     const ms = Math.round(startOnTimeline * 1000);
     if (ms > 0) tail.push(`adelay=${ms}|${ms}`);
@@ -1146,7 +1159,18 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
       }),
     });
     const next = g.label("c");
-    g.add(`[${cur}]${absTime("subtitles=subs.ass")}[${next}]`);
+    // BEGIN sprint6:M2 — bundled fonts for libass (fontsdir), same families as Remotion.
+    // Audit S6 E10: copied next to subs.ass and opened with a relative path (cwd = job dir).
+    const fonts = assFontCopies(assCaptionFamily(project.captionStyle));
+    g.copies.push(...fonts);
+    if (!fonts.length)
+      g.warnings.push(
+        "Subtítulos con las fuentes del sistema: no se encontraron las tipografías de Studio (pueden verse distintos que en la vista previa).",
+      );
+    g.add(
+      `[${cur}]${absTime(assSubtitlesFilter("subs.ass", fonts.length ? ASS_FONTS_SUBDIR : null))}[${next}]`,
+    );
+    // END sprint6:M2
     cur = next;
   }
 
@@ -1342,6 +1366,7 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
     args,
     graph,
     files: g.files,
+    ...(g.copies.length && { copies: g.copies }),
     durationSec: outDur,
     warnings: g.warnings,
     ...(ducked && { ducked }),
@@ -1451,3 +1476,28 @@ export function aiLabelFilter(
     `y=h-text_h-${margin}`,
   ].join(":");
 }
+
+// BEGIN sprint6:M1
+/**
+ * Sprint 6 M1: `Clip.audioFade` (script cuts) -> `afade` with the `qsin` curve at the clip edges
+ * (≤ half the clip, skipped on a side that already fades for a transition). The fade sits inside
+ * the clip: the duration does not change.
+ */
+export function joinFadeFilters(
+  clip: Pick<Clip, "audioFade">,
+  dur: number,
+  transitionIn = 0,
+  transitionOut = 0,
+): string[] {
+  const f = clip.audioFade;
+  if (!f || dur <= EPS) return [];
+  const out: string[] = [];
+  const d = (ms: number) => Math.min(ms / 1000, dur / 2);
+  if (f.inMs > 0 && transitionIn <= 0) out.push(`afade=t=in:st=0:d=${sec(d(f.inMs))}:curve=qsin`);
+  if (f.outMs > 0 && transitionOut <= 0)
+    out.push(
+      `afade=t=out:st=${sec(Math.max(0, dur - d(f.outMs)))}:d=${sec(d(f.outMs))}:curve=qsin`,
+    );
+  return out;
+}
+// END sprint6:M1

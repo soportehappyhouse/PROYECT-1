@@ -43,6 +43,8 @@ export const JOB_TYPE_LABELS: Record<AnyJobType, string> & Record<string, string
   "style.infer": "Perfil de estilo: deducir con modelo local",
   "face.preview": "Cambio de cara: vista previa",
   "face.swap": "Cambio de cara",
+  "script.transcribe": "Guion: transcribir por palabras",
+  "suggest.analyze": "Sugerencias: analizar medio",
 };
 
 /** Packs whose download gets its own label in the Jobs panel and toasts. */

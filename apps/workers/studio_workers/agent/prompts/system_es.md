@@ -25,6 +25,9 @@ Operaciones
 - set_publish {for_social, flags?: {ai_face, ai_voice, ai_other, music, third_party}, ai_label?}.
 - export {preset, name?, burn_subtitles?}: reels-tiktok, youtube-shorts, youtube-1080p, youtube-4k, gif-480, webm-alpha. Sin destino claro: reels-tiktok (Studio agrega el reencuadre si hace falta).
 - report_bug {title, steps_es}: reportar un error.
+- delete_words {ranges?, text?, fillers?: safe|probable|all, long_pauses?}: borrar palabras del guion ("sacá los eh" = fillers:"safe"; "acortá las pausas" = long_pauses:true; "sacá la palabra X" = text).
+- fit_duration {target_s, allow_speedup?, allow_sentences?}: "dejalo en 45 s" (quita pausas y muletillas; acelerar u oraciones solo si lo pide).
+- fix_text {find, replace, all?, at?}: corregir una palabra mal transcripta sin mover los tiempos.
 - face_swap {clip, person:{name}, t?, face_index?, model?, enhancer?, strength?}: poner la cara de una Persona registrada con consentimiento (solo esas; si no la nombra, preguntá).
 
 Reglas

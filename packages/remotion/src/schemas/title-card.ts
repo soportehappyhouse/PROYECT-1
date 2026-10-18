@@ -1,25 +1,29 @@
 import { z } from "zod";
-import { background, color, fontFamily, text } from "./common.js";
+import { background, choice, color, type Filled, kitColor, kitFontFamily, text } from "./common.js";
 
 export const TITLE_CARD_STYLES = ["fade-up", "pop", "slide", "typewriter", "boxed"] as const;
 
 export const titleCardSchema = z.object({
   title: text("Título").default("Mi título"),
   subtitle: text("Subtítulo").default("Subtítulo opcional"),
-  style: z.enum(TITLE_CARD_STYLES).meta({ title: "Estilo" }).default("fade-up"),
-  align: z.enum(["center", "left"]).meta({ title: "Alineación" }).default("center"),
-  fontFamily: fontFamily("Montserrat"),
+  style: choice(TITLE_CARD_STYLES, "Estilo").default("fade-up"),
+  align: choice(["center", "left"], "Alineación").default("center"),
+  /** Absent = kit `font.title` (Montserrat without a kit). */
+  fontFamily: kitFontFamily("title"),
   titleSize: z
     .number()
     .min(16)
     .max(400)
     .meta({ title: "Tamaño del título (px a 1080p)" })
     .default(120),
-  titleColor: color("Color del título").default("#ffffff"),
+  titleColor: kitColor("Color del título", "text"),
   subtitleColor: color("Color del subtítulo").default("#d4d4d8"),
-  accentColor: color("Color de acento").default("#e13238"),
+  accentColor: kitColor("Color de acento", "accent"),
   /** B6: transparent by default so the title overlays the video; type "#111111" for a solid card. */
   background: background("transparent"),
   exit: z.boolean().meta({ title: "Animación de salida" }).default(true),
 });
-export type TitleCardProps = z.infer<typeof titleCardSchema>;
+export type TitleCardProps = Filled<
+  z.infer<typeof titleCardSchema>,
+  "fontFamily" | "titleColor" | "accentColor"
+>;

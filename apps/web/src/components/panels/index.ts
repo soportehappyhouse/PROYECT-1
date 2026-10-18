@@ -9,6 +9,9 @@ import { LibraryPanel } from "./LibraryPanel";
 import { MediaPanel } from "./MediaPanel";
 import { MotionPanel } from "./MotionPanel";
 import { PreviewPanel } from "./PreviewPanel";
+// BEGIN sprint6:M1
+import { ScriptPanel } from "./ScriptPanel";
+// END sprint6:M1
 import { StylePanel } from "./StylePanel";
 import { SubtitlesPanel } from "./SubtitlesPanel";
 import { TimelinePanel } from "./TimelinePanel";
@@ -29,4 +32,7 @@ export const PANEL_COMPONENTS: Record<WebPanelId, ComponentType> = {
   assistant: AssistantPanel,
   console: ConsolePanel,
   style: StylePanel,
+  // BEGIN sprint6:M1
+  script: ScriptPanel,
+  // END sprint6:M1
 };

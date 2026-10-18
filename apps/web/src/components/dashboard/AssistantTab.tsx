@@ -14,6 +14,7 @@ import {
   Section,
   Spinner,
 } from "@/components/ui/misc";
+import { SuggestionSettingsSection } from "@/components/suggestions/SuggestionSettingsSection";
 import { useAiAvailability } from "@/hooks/use-ai-availability";
 import { formatLatency, formatRate } from "@/lib/agent";
 import {
@@ -123,6 +124,7 @@ export function AssistantTab() {
             size="icon-sm"
             variant="ghost"
             aria-label="Comprobar el estado del asistente"
+            tip="assistantStatus"
             onClick={() => void loadStatus()}
           >
             <RefreshCw />
@@ -266,6 +268,7 @@ export function AssistantTab() {
           <EmptyState>Todavía no se evaluaron modelos en esta PC.</EmptyState>
         ) : null}
       </Section>
+      <SuggestionSettingsSection />
     </div>
   );
 }

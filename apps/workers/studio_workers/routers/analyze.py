@@ -1,14 +1,25 @@
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
 
-from ..analyze import Word, detect_scenes, plan_cuts, run_silencedetect, words_from_transcript
+from ..analyze import (
+    SUGGEST_STAGE_ES,
+    Word,
+    analyze_for_suggestions,
+    detect_scenes,
+    plan_cuts,
+    run_silencedetect,
+    words_from_transcript,
+)
 from ..config import Settings, get_settings
 from ..errors import NotFoundError
 from ..packs import module_present
 from ..schemas import ScenesRequest, SilencesRequest
 from ..services import whisper_engine
+from ..task_schema import SuggestAnalyzeRequest, SuggestAnalyzeResult
+from ..tasks import Task, TaskQueue, cancel_or_404, task_not_found
 
 router = APIRouter(prefix="/analyze", tags=["analyze"])
 
@@ -62,3 +73,49 @@ def silences(req: SilencesRequest) -> dict[str, Any]:
     if warnings:
         result["warnings"] = list(dict.fromkeys(warnings))
     return result
+
+
+# BEGIN sprint6:M3 (suggest.analyze in the ``analyze`` TaskQueue, background priority;
+# docs/trabajo/sprint6-contratos.md M3)
+@lru_cache
+def analyze_queue() -> TaskQueue:
+    """Import analyses (CPU, one at a time). Background tasks (priority 5) never run before a
+    queued user task (priority 0); a running one checks cancel every second of audio."""
+    return TaskQueue("analyze")
+
+
+@router.post("/suggest")
+def suggest(req: SuggestAnalyzeRequest) -> dict[str, str]:
+    """One FFmpeg pass (ebur128 + 8 kHz PCM: floor, relative silences) -> ``{task_id}``;
+    poll ``GET /analyze/tasks/{id}`` (result = SuggestAnalyzeResult)."""
+    src = resolve_input(get_settings(), req.input_path)
+
+    def job(task: Task) -> dict[str, Any]:
+        task.set_items(0, 1, SUGGEST_STAGE_ES)
+        raw = analyze_for_suggestions(
+            src,
+            silence_min_ms=req.silence_min_ms,
+            silence_rel_db=req.silence_rel_db,
+            task=task,
+        )
+        return SuggestAnalyzeResult.model_validate(raw).model_dump()
+
+    target = req.job_id or req.input_path
+    task = analyze_queue().submit("suggest.analyze", target, job, priority=req.priority)
+    return {"task_id": task.id, "status": task.status}
+
+
+@router.get("/tasks/{task_id}")
+def analyze_task(task_id: str) -> dict[str, Any]:
+    task = analyze_queue().get(task_id)
+    if task is None:
+        raise task_not_found(task_id)
+    return task.public()
+
+
+@router.post("/tasks/{task_id}/cancel")
+def analyze_task_cancel(task_id: str) -> dict[str, Any]:
+    return cancel_or_404(analyze_queue(), task_id)
+
+
+# END sprint6:M3

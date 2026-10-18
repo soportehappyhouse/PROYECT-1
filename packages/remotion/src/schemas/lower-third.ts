@@ -1,5 +1,14 @@
 import { z } from "zod";
-import { color, fontFamily, text, trackProps } from "./common.js";
+import {
+  type Filled,
+  ADVANCED_PROP,
+  choice,
+  color,
+  kitColor,
+  kitFontFamily,
+  text,
+  trackProps,
+} from "./common.js";
 
 export const LOWER_THIRD_STYLES = ["bar", "box", "underline", "split"] as const;
 export const LOWER_THIRD_POSITIONS = [
@@ -15,20 +24,40 @@ export const LOWER_THIRD_EXIT = ["slide", "fade", "wipe", "pop", "none"] as cons
 export const lowerThirdSchema = z.object({
   name: text("Nombre").default("Nombre Apellido"),
   role: text("Cargo / descripción").default("Cargo o descripción"),
-  style: z.enum(LOWER_THIRD_STYLES).meta({ title: "Estilo" }).default("bar"),
-  position: z.enum(LOWER_THIRD_POSITIONS).meta({ title: "Posición" }).default("bottom-left"),
-  enter: z.enum(LOWER_THIRD_ENTER).meta({ title: "Animación de entrada" }).default("slide"),
-  exit: z.enum(LOWER_THIRD_EXIT).meta({ title: "Animación de salida" }).default("slide"),
-  inSec: z.number().min(0.1).max(3).meta({ title: "Duración entrada (s)" }).default(0.6),
-  outSec: z.number().min(0.1).max(3).meta({ title: "Duración salida (s)" }).default(0.5),
-  fontFamily: fontFamily("Inter"),
+  style: choice(LOWER_THIRD_STYLES, "Estilo").default("bar"),
+  position: choice(LOWER_THIRD_POSITIONS, "Posición").default("bottom-left"),
+  enter: choice(LOWER_THIRD_ENTER, "Animación de entrada").default("slide"),
+  exit: choice(LOWER_THIRD_EXIT, "Animación de salida").default("slide"),
+  /** Absent = kit `motion.enter_ms` (0,6 s without a kit). */
+  inSec: z
+    .number()
+    .min(0.1)
+    .max(3)
+    .meta({ title: "Duración de la entrada (s)", [ADVANCED_PROP]: true })
+    .optional(),
+  outSec: z
+    .number()
+    .min(0.1)
+    .max(3)
+    .meta({ title: "Duración de la salida (s)", [ADVANCED_PROP]: true })
+    .optional(),
+  fontFamily: kitFontFamily("body"),
   scale: z.number().min(0.3).max(3).meta({ title: "Escala" }).default(1),
-  marginPct: z.number().min(0).max(30).meta({ title: "Margen (%)" }).default(6),
-  accentColor: color("Color de acento").default("#e13238"),
-  textColor: color("Color del nombre").default("#ffffff"),
+  /** Absent = the kit safe zone (6 % without a kit). */
+  marginPct: z
+    .number()
+    .min(0)
+    .max(30)
+    .meta({ title: "Margen (%)", [ADVANCED_PROP]: true })
+    .optional(),
+  accentColor: kitColor("Color de acento", "accent"),
+  textColor: kitColor("Color del nombre", "text"),
   roleColor: color("Color del cargo").default("#e4e4e7"),
   boxColor: color("Color de la caja").default("rgba(0,0,0,0.75)"),
   /** Sprint 2: follow a track (the card's center goes to the anchor point + offset). */
   ...trackProps,
 });
-export type LowerThirdProps = z.infer<typeof lowerThirdSchema>;
+export type LowerThirdProps = Filled<
+  z.infer<typeof lowerThirdSchema>,
+  "fontFamily" | "textColor" | "accentColor" | "inSec" | "outSec"
+>;

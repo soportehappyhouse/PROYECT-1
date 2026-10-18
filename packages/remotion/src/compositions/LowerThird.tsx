@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { Easing, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { fontStack } from "../fonts.js";
 import { secToFrames, unitScale } from "../lib/anim.js";
+import { designOf, kitWeight, safePadding } from "../lib/design.js";
 import { trackPoint } from "../lib/track.js";
 import type { LowerThirdProps } from "../schemas/lower-third.js";
 
@@ -89,7 +90,8 @@ export function LowerThird(props: LowerThirdProps) {
   };
   const roleStyle: CSSProperties = {
     fontFamily: font,
-    fontWeight: 400,
+    // Audit S6 E12: the role line is body text (kit «Texto» weight); the name stays bold.
+    fontWeight: kitWeight(designOf(props), "body", 400),
     fontSize: 34 * u,
     color: props.roleColor,
     lineHeight: 1.2,
@@ -169,6 +171,19 @@ export function LowerThird(props: LowerThirdProps) {
       break;
   }
 
+  // Sprint 6 M2: explicit margin wins; otherwise the kit safe zone (6 % without a kit).
+  const design = designOf(props);
+  const legacy = props.marginPct ?? 6;
+  const m =
+    props.marginPct === undefined && design
+      ? safePadding(design, width, height, { x: 0, y: 0 })
+      : {
+          top: (legacy / 100) * height,
+          bottom: (legacy / 100) * height,
+          left: (legacy / 100) * width,
+          right: (legacy / 100) * width,
+        };
+
   // Sprint 2: following a track, the card's center sits on the tracked point (per frame).
   const tracked = props.track
     ? trackPoint(props.track, frame / fps, props.trackAnchor, props.trackOffset)
@@ -199,7 +214,7 @@ export function LowerThird(props: LowerThirdProps) {
         justifyContent: vertical === "top" ? "flex-start" : "flex-end",
         alignItems:
           horizontal === "left" ? "flex-start" : horizontal === "right" ? "flex-end" : "center",
-        padding: `${(props.marginPct / 100) * height}px ${(props.marginPct / 100) * width}px`,
+        padding: `${m.top}px ${m.right}px ${m.bottom}px ${m.left}px`,
       }}
     >
       <div style={{ ...anim, transformOrigin: horizontal === "right" ? "right" : "left" }}>

@@ -11,6 +11,7 @@ import {
   type MotionEngineId,
   type MotionOutputFormat,
   MotionRenderRequestSchema,
+  motionTemplateNameEs,
   type MotionRenderRequest,
   type MotionRenderTarget,
 } from "@studio/shared";
@@ -139,7 +140,7 @@ export function createMotionRenderHandler(
         const asset = app.repos.media.insert({
           id: nanoid(),
           kind: "video",
-          name: `Motion · ${spec.template}`,
+          name: `Gráfico · ${motionTemplateNameEs(spec.template)}`,
           path: result.path,
           mimeType: MIME[result.format],
           sizeBytes: await fileSize(absPath(app, result.path)),

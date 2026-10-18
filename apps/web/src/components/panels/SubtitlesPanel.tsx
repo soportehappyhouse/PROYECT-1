@@ -1,7 +1,10 @@
 "use client";
 
 import {
+  DESIGN_RULES,
+  GLOSSARY_ES,
   MotionSpecSchema,
+  NEED_SPEECH_CLIP_ES,
   videoRectAt,
   WhisperModelSchema,
   type MotionSpecInput,
@@ -16,6 +19,7 @@ import {
   useSelectedClip,
   type SelectedClip,
 } from "@/components/common/SelectedClipInfo";
+import { DesignChecklist } from "@/components/design/DesignChecklist";
 import { useAiAvailability } from "@/hooks/use-ai-availability";
 import { Button } from "@/components/ui/button";
 import { Checkbox, Input, Label, Select } from "@/components/ui/input";
@@ -25,6 +29,9 @@ import { formatTime } from "@/lib/format";
 import { warnIfCpu } from "@/lib/gpu-preflight";
 import { createId } from "@/lib/ids";
 import { animatedCaptionsProps, toSrt } from "@/lib/subtitles";
+// BEGIN sprint6:M1
+import { editSubtitleText } from "@/lib/script";
+// END sprint6:M1
 import {
   CAPTION_STYLES,
   useCaptionStyleStore,
@@ -120,7 +127,7 @@ function StylePicker() {
           >
             <option value="none">Ninguna</option>
             <option value="fade">Fundido</option>
-            <option value="pop">Pop</option>
+            <option value="pop">Rebote</option>
             <option value="karaoke">Karaoke</option>
           </Select>
         </Label>
@@ -132,6 +139,24 @@ function StylePicker() {
           Mayúsculas
         </label>
       </div>
+      {/* Sprint 6 M2: hard caption rules by default (kit fonts/colors, ≥ 4,5 %, ≤ 2 lines). */}
+      <label className="flex items-center gap-2 text-xs" title={DESIGN_RULES[2]!.help_es}>
+        <Checkbox
+          checked={style.fromBrandKit !== false}
+          onChange={(e) => patch({ fromBrandKit: e.target.checked ? undefined : false })}
+        />
+        Usar tipografía y colores del {GLOSSARY_ES.settings.brandKit.toLowerCase()} (recomendado)
+      </label>
+      <p className="text-[11px] text-muted-foreground">
+        Siempre en 2 líneas como máximo, con contorno y adentro de la zona segura; si el tamaño
+        queda chico, Studio lo agranda al exportar.
+      </p>
+      <details className="studio-advanced">
+        <summary>Revisar diseño</summary>
+        <div className="mt-2">
+          <DesignChecklist compact />
+        </div>
+      </details>
     </Section>
   );
 }
@@ -274,7 +299,7 @@ export function SubtitlesPanel() {
     <Panel title="Subtítulos">
       <div className="flex flex-col gap-4">
         <Section title="Transcribir (Whisper)">
-          <SelectedClipHint sel={sel} need="Selecciona un clip con voz para transcribirlo." />
+          <SelectedClipHint sel={sel} need="Elegí un clip con voz para transcribirlo." />
           <div className="grid grid-cols-2 gap-2">
             <Label>
               Idioma
@@ -316,7 +341,7 @@ export function SubtitlesPanel() {
           <Button
             size="sm"
             disabled={!hasAudio(sel)}
-            tooltip={hasAudio(sel) ? undefined : "Selecciona un clip con voz"}
+            tooltip={hasAudio(sel) ? undefined : "Elegí un clip con voz"}
             onClick={() => sel && useSilencesStore.getState().open(sel.clip.id)}
           >
             <Scissors /> Quitar silencios y muletillas…
@@ -389,7 +414,7 @@ export function SubtitlesPanel() {
                     !ai.enabled
                       ? ai.reason_es
                       : !hasAudio(transcribeTarget)
-                        ? "Primero agregá un video o un audio con voz a la línea de tiempo"
+                        ? NEED_SPEECH_CLIP_ES
                         : undefined
                   }
                   tooltip="Transcribe con Whisper el clip elegido (o el primero con voz)"
@@ -449,10 +474,9 @@ export function SubtitlesPanel() {
                   aria-label="Texto del segmento"
                   className="text-xs"
                   value={s.text}
-                  // Editing text invalidates word timings.
-                  onChange={(e) =>
-                    store().updateSubtitle(i, { text: e.target.value, words: undefined })
-                  }
+                  /* BEGIN sprint6:M1 (H11: keep the word timings, one undo step per edit) */
+                  onChange={(e) => editSubtitleText(i, e.target.value)}
+                  /* END sprint6:M1 */
                 />
               </li>
             ))}

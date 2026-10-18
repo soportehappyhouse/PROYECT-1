@@ -9,11 +9,14 @@
 // Needs the `playwright` package (global: `npm i -g playwright && npx playwright install chromium`,
 // or set --playwright <path to playwright/index.mjs>). The web must be built with
 // NEXT_PUBLIC_API_URL pointing at --api. It does not fail fast: each step is reported.
+// Storage: a fresh STORAGE_DIR is the reference run (the counts in the docs). A storage already
+// used (media from an earlier run) also works: this run's files get a «-r<id>» suffix.
 
 import { readdir, stat } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const argv = process.argv.slice(2);
@@ -95,8 +98,39 @@ async function shot(page, name, opts = {}) {
   return `${name} ${Math.round((await stat(file)).size / 1024)} KB`;
 }
 
+// Audit S6: a storage that already has media (a previous run) is accepted: every file this run
+// uploads gets a run suffix («clip-r1a2b.mp4»), so the Media list never has two items with the
+// same name (strict locators) and nothing waits on the old jobs.
+const REUSED = await fetch(`${API}/api/media?limit=1`)
+  .then((r) => r.json())
+  .then((list) => Array.isArray(list) && list.length > 0)
+  .catch(() => false);
+const RUN = REUSED ? `-r${Date.now().toString(36)}` : "";
+const uname = (name) => (RUN ? name.replace(/(\.[^.]+)?$/, (ext) => `${RUN}${ext}`) : name);
+if (REUSED) {
+  console.log(`storage ya usado: los archivos de esta corrida llevan «${RUN}»`);
+  // The dock layout is saved in the api: a previous run leaves panels hidden or moved. Start
+  // from the defaults a fresh storage answers (packages/shared, built by `pnpm build`).
+  const shared = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../packages/shared/dist/index.js",
+  );
+  const { DEFAULT_DASHBOARD_SETTINGS } = await import(pathToFileURL(shared).href);
+  await fetch(`${API}/api/settings`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(DEFAULT_DASHBOARD_SETTINGS),
+  });
+}
 const files = await readdir(MEDIA);
-const pick = (re) => files.map((f) => path.join(MEDIA, f)).find((f) => re.test(f));
+const runDir = REUSED ? mkdtempSync(path.join(os.tmpdir(), "studio-ui-run-")) : undefined;
+const pick = (re) => {
+  const f = files.map((x) => path.join(MEDIA, x)).find((x) => re.test(x));
+  if (!f || !runDir) return f;
+  const copy = path.join(runDir, uname(path.basename(f)));
+  copyFileSync(f, copy);
+  return copy;
+};
 const VIDEO = pick(/\.(mp4|mov|webm|mkv)$/i);
 const AUDIO = pick(/\.(wav|mp3|m4a|ogg)$/i);
 const IMAGE = pick(/\.(png|jpe?g|webp)$/i);
@@ -315,11 +349,11 @@ await step("Motion panel: choose «Título», edit props, «Renderizar y añadir
   await page.locator(".dv-tab", { hasText: "Motion graphics" }).click();
   const panel = page.locator("section[aria-label='Motion graphics']");
   await panel.locator("select").first().selectOption({ value: "remotion:title-card" });
+  // Integration S6: the M2 form wraps the label text in a <span> (room for the «Del kit» badge).
   const field = (label) =>
     panel
-      .locator(
-        `xpath=.//label[normalize-space(text()[1])='${label}']//*[self::input or self::textarea]`,
-      )
+      .locator("label", { has: page.locator(`span:text-is("${label}")`) })
+      .locator("input, textarea")
       .first();
   await field("Título").fill("Mi primer título");
   await field("Subtítulo").fill("Hecho con Studio");
@@ -591,7 +625,8 @@ async function waitApiJob(jobId, ms = 300_000) {
     await sleep(500);
   }
 }
-async function lavfiUpload(name, graph, extra = []) {
+async function lavfiUpload(rawName, graph, extra = []) {
+  const name = uname(rawName);
   const { mkdtemp, readFile } = await import("node:fs/promises");
   const os = await import("node:os");
   s2.dir ??= await mkdtemp(path.join(os.tmpdir(), "studio-ui-s2-"));
@@ -1652,7 +1687,7 @@ await step(
     await timelineReady();
     await page.locator(".dv-tab", { hasText: "Voz y audio" }).click();
     const panel = page.locator("section[aria-label='Voz y audio']");
-    await panel.getByRole("tab", { name: "Texto a voz" }).click();
+    await panel.getByRole("tab", { name: "Voces de Studio" }).click(); // Sprint 6 M2 (H20)
     await panel.getByLabel("Motor").selectOption("chatterbox");
     await panel.getByTestId("chatterbox-options").waitFor({ timeout: 15_000 });
     if ((await panel.getByLabel("Idioma").inputValue()) !== "es") throw new Error("language != es");
@@ -1911,7 +1946,7 @@ await step(
       if (!pack?.installed) return { skipped: "no AI media and tts-chatterbox not installed" };
       await page.locator(".dv-tab", { hasText: "Voz y audio" }).click();
       const voice = page.locator("section[aria-label='Voz y audio']");
-      await voice.getByRole("tab", { name: "Texto a voz" }).click();
+      await voice.getByRole("tab", { name: "Voces de Studio" }).click(); // Sprint 6 M2 (H20)
       await voice.getByLabel("Motor").selectOption("chatterbox");
       await voice.getByRole("textbox").first().fill("Voz sintética para la revisión de redes.");
       await voice.getByRole("button", { name: /Generar y añadir al cursor/ }).click();
@@ -2202,8 +2237,10 @@ await step(
       new URL("../../apps/web/src/lib/tooltips.ts", import.meta.url),
       "utf8",
     );
-    const tipKeys = new Set([...src.matchAll(/^\s{2}(\w+): "/gm)].map((m) => m[1]));
-    if (tipKeys.size !== 51) throw new Error(`TIPS keys parsed: ${tipKeys.size}`);
+    // Integration S6: keys whose text wraps to the next line count too; 51 (S5) + 12 (M2) + 11
+    // (integration) = 74, the same number apps/web/test/tooltips.test.tsx checks.
+    const tipKeys = new Set([...src.matchAll(/^\s{2}(\w+):\s*(?:"|\n)/gm)].map((m) => m[1]));
+    if (tipKeys.size !== 74) throw new Error(`TIPS keys parsed: ${tipKeys.size}`);
     await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).click();
     await page.locator(".dv-tab", { hasText: "Vista previa" }).click();
     await page.locator(".dv-tab", { hasText: "Media" }).first().click();
@@ -2540,6 +2577,471 @@ await step("Sprint 5: Revisión para redes muestra Sonoridad y Formato", async (
   return out;
 });
 // ------------------------------------------------------------------ END sprint5:M3
+
+// ---------------------------------------------------------------- BEGIN sprint6:M3
+await step("Sprint 6: tarjeta de voz baja → Aplicar → −14 LUFS en el plan", async () => {
+  if (!page.url().startsWith(WEB)) {
+    await page.goto(WEB, { waitUntil: "domcontentloaded" });
+    await timelineReady();
+  }
+  // 220 Hz tone at ≈ −26 LUFS (no silences): the card raises it ≈ +12 dB to −14 LUFS.
+  const video = await lavfiUpload("ui-s6-voz-baja.mp4", "color=c=0x202020:s=320x180:r=25:d=6", [
+    "-f",
+    "lavfi",
+    "-i",
+    "sine=frequency=220:sample_rate=48000:duration=6",
+    "-af",
+    "volume=-3.6dB",
+    "-c:v",
+    "libx264",
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-b:a",
+    "192k",
+    "-shortest",
+  ]);
+  const p = await apiSend("POST", "/api/projects", { name: "UI S6 voz baja" });
+  const V = p.tracks.find((t) => t.kind === "video");
+  V.clips = [{ id: "s6m3c", trackId: V.id, assetId: video.id, start: 0, in: 0, out: 6 }];
+  await apiSend("PUT", `/api/projects/${p.id}`, p);
+  // The automatic analysis (background lane) may still be queued behind earlier imports.
+  let low;
+  for (let i = 0; i < 120 && !low; i++) {
+    const res = await apiJson(`/api/projects/${p.id}/suggestions`);
+    low = res.suggestions?.find((s) => s.kind === "low_voice" && s.status === "open");
+    if (!low) await sleep(500);
+  }
+  if (!low) throw new Error("no low_voice card after 60 s");
+  await openProject(p.id);
+  const panel = await openAssistant();
+  const card = panel.locator("[data-testid='suggestion-card'][data-kind='low_voice']");
+  await card.waitFor({ timeout: 15_000 });
+  const text = (await card.textContent()) ?? "";
+  if (!/La voz está baja/.test(text) || !/−14 LUFS/.test(text)) throw new Error(`card: ${text}`);
+  const tip = await card.getByTestId("suggestion-apply").getAttribute("aria-label");
+  await card.getByTestId("suggestion-apply").click();
+  const plan = panel.getByTestId("agent-plan");
+  await plan.waitFor({ timeout: 15_000 });
+  const planText = (await plan.textContent()) ?? "";
+  const plans = await apiJson(`/api/agent/plans?projectId=${p.id}`);
+  const rec = plans.find((r) => r.warnings?.includes(`suggestion:${low.id}`));
+  const op = rec?.plan?.ops?.[0];
+  // AAC moves the level a few tenths: the gain lands near +12 dB and the target on −14 LUFS.
+  if (op?.op !== "set_volume" || op.volume_db < 10 || op.volume_db > 12)
+    throw new Error(`plan op: ${JSON.stringify(op)}`);
+  if (Math.abs(low.impact.target_lufs + 14) > 0.15)
+    throw new Error(`target: ${low.impact.target_lufs}`);
+  return {
+    card: text.slice(0, 120),
+    tip,
+    plan: planText.slice(0, 120),
+    shot: await shot(page, "s6-sugerencia-voz-baja.png"),
+  };
+});
+// ------------------------------------------------------------------ END sprint6:M3
+
+// ---------------------------------------------------------------- BEGIN sprint6:M1
+/** Guion (M1): 60 s clip transcribed by the workers mock (12 fillers: 8 safe + 4 probable). */
+const s6m1 = {};
+async function s6m1Project() {
+  if (!page.url().startsWith(WEB)) {
+    await page.goto(WEB, { waitUntil: "domcontentloaded" });
+    await timelineReady();
+  }
+  const video = await lavfiUpload("ui-s6-guion.mp4", "color=c=0x303030:s=320x180:r=25:d=60", [
+    "-f",
+    "lavfi",
+    "-i",
+    "sine=frequency=220:sample_rate=48000:duration=60",
+    "-c:v",
+    "libx264",
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-shortest",
+  ]);
+  const p = await apiSend("POST", "/api/projects", { name: "UI S6 guion" });
+  const V = p.tracks.find((t) => t.kind === "video");
+  V.clips = [{ id: "s6m1c", trackId: V.id, assetId: video.id, start: 0, in: 0, out: 60 }];
+  await apiSend("PUT", `/api/projects/${p.id}`, p);
+  const { jobId } = await apiSend("POST", `/api/projects/${p.id}/script/transcribe`, {
+    clipId: "s6m1c",
+  });
+  const job = await waitApiJob(jobId, 120_000);
+  if (job.status !== "succeeded") throw new Error(`script.transcribe ${job.status}: ${job.error}`);
+  s6m1.projectId = p.id;
+  return p.id;
+}
+const scriptPanel = () => page.locator("section[aria-label='Guion']");
+const scriptWord = (text) =>
+  scriptPanel().locator("[data-testid='script-word']", { hasText: new RegExp(`^${text}$`) });
+async function waitDom(fn, arg, timeout = 15_000) {
+  await page.waitForFunction(fn, arg, { timeout, polling: 50 });
+}
+
+await step("Sprint 6: 10 muletillas en < 1 min (Guion: «Quitar seguras» + 2 × Supr)", async () => {
+  const projectId = await s6m1Project();
+  await openProject(projectId);
+  const t0 = Date.now();
+  await page.locator(".dv-tab", { hasText: /^Guion$/ }).click();
+  const panel = scriptPanel();
+  await panel.locator("[data-testid='script-word']").first().waitFor({ timeout: 15_000 });
+  const safeBtn = panel.getByTestId("script-remove-safe");
+  if (!/Quitar seguras \(8\)/.test((await safeBtn.textContent()) ?? ""))
+    throw new Error(`botón: ${await safeBtn.textContent()}`);
+  const probable = await panel.locator("[data-filler='probable']").count();
+  await safeBtn.click(); // gesto 1: 8 cortes
+  await waitDom(
+    () => !document.querySelector("section[aria-label='Guion'] [data-filler='safe']"),
+    undefined,
+  );
+  for (const text of ["Digamos", "este,"]) {
+    // gestos 2 y 3: elegir la palabra y Supr
+    await scriptWord(text).click();
+    await page.keyboard.press("Delete");
+    await waitDom(
+      (t) =>
+        ![
+          ...document.querySelectorAll("section[aria-label='Guion'] [data-testid='script-word']"),
+        ].some((w) => w.textContent === t),
+      text,
+    );
+  }
+  const ms = Date.now() - t0;
+  if (ms >= 60_000) throw new Error(`tardó ${ms} ms`);
+  const words = await panel.locator("[data-testid='script-word']").count();
+  // Un paso de deshacer por gesto: Ctrl+Z devuelve solo «este,».
+  await page.mouse.click(5, 5);
+  await page.keyboard.press("Control+z");
+  await scriptWord("este,").waitFor({ timeout: 5_000 });
+  if (await scriptWord("Digamos").count()) throw new Error("Ctrl+Z deshizo más de un gesto");
+  await scriptWord("este,").click(); // y se vuelve a cortar
+  await page.keyboard.press("Delete");
+  await waitDom(
+    () =>
+      ![
+        ...document.querySelectorAll("section[aria-label='Guion'] [data-testid='script-word']"),
+      ].some((w) => w.textContent === "este,"),
+    undefined,
+  );
+  await page.getByText("Guardado", { exact: true }).waitFor({ timeout: 15_000 });
+  const saved = await apiJson(`/api/projects/${projectId}`);
+  const subs = saved.subtitles.flatMap((s) => s.words ?? []).map((w) => w.word);
+  if (subs.some((w) => /^(eh|ehh|em|mm|mmm)$/i.test(w)))
+    throw new Error(`quedan: ${subs.join(" ")}`);
+  return {
+    ms,
+    cuts: 10,
+    wordsLeft: words,
+    probableBefore: probable,
+    shot: await shot(page, "s6-guion-muletillas.png"),
+  };
+});
+
+await step("Sprint 6: corregir una palabra conserva el karaoke (F2, tiempos iguales)", async () => {
+  const projectId = s6m1.projectId ?? (await s6m1Project());
+  if (!s6m1.projectId || !(await scriptPanel().count())) {
+    await openProject(projectId);
+    await page.locator(".dv-tab", { hasText: /^Guion$/ }).click();
+  }
+  await page.getByText("Guardado", { exact: true }).waitFor({ timeout: 15_000 });
+  const before = (await apiJson(`/api/projects/${projectId}`)).subtitles.flatMap(
+    (s) => s.words ?? [],
+  );
+  const orig = before.find((w) => w.word === "canal.");
+  if (!orig) throw new Error("no está «canal.»");
+  await scriptWord("canal\\.").click();
+  await page.keyboard.press("F2");
+  const input = scriptPanel().getByTestId("script-fix-input");
+  await input.fill("canal!");
+  await input.press("Enter");
+  await scriptWord("canal!").waitFor({ timeout: 5_000 });
+  await sleep(1500); // autosave (debounced)
+  await page.getByText("Guardado", { exact: true }).waitFor({ timeout: 15_000 });
+  const after = (await apiJson(`/api/projects/${projectId}`)).subtitles.flatMap(
+    (s) => s.words ?? [],
+  );
+  const fixed = after.find((w) => w.word === "canal!");
+  if (!fixed || fixed.start !== orig.start || fixed.end !== orig.end)
+    throw new Error(`tiempos: ${JSON.stringify(orig)} → ${JSON.stringify(fixed)}`);
+  if (after.length !== before.length)
+    throw new Error(`${before.length} → ${after.length} palabras`);
+  return { word: fixed.word, start: fixed.start, end: fixed.end, words: after.length };
+});
+// ------------------------------------------------------------------ END sprint6:M1
+
+// ---------------------------------------------------------------- BEGIN sprint6:M2
+// Sistema de diseño (M2): Kit de marca, motion en Propiedades, selector de voz y, with the flag
+// `--ux-metrics`, the automatic UX metrics of criterion C3 (JSON line «UX_METRICS {…}»).
+const UX_METRICS = argv.includes("--ux-metrics");
+/** UI_ENGLISH_DENYLIST read from packages/shared (single source). */
+async function s6m2Denylist() {
+  const { readFile } = await import("node:fs/promises");
+  const src = await readFile(
+    path.resolve(
+      path.dirname(new URL(import.meta.url).pathname),
+      "../../packages/shared/src/texts-es.ts",
+    ),
+    "utf8",
+  ).catch(() => "");
+  const block = /UI_ENGLISH_DENYLIST[^=]*=\s*\[([\s\S]*?)\];/.exec(src)?.[1] ?? "";
+  return [...block.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+}
+/** English terms visible in a section (outside folded «Avanzado», option labels included). */
+async function s6m2English(locator, deny) {
+  return locator.evaluate((root, terms) => {
+    const copy = root.cloneNode(true);
+    for (const d of copy.querySelectorAll("details:not([open])")) d.remove();
+    const parts = [copy.textContent ?? ""];
+    for (const el of copy.querySelectorAll("[title],[aria-label],[placeholder]"))
+      for (const a of ["title", "aria-label", "placeholder"])
+        if (el.getAttribute(a)) parts.push(el.getAttribute(a));
+    const text = parts.join(" \n ");
+    return terms.filter((t) =>
+      new RegExp(
+        `(^|[^\\p{L}])${t.replace(/[/\\^$*+?.()|[\]{}]/g, "\\$&")}($|[^\\p{L}])`,
+        "iu",
+      ).test(text),
+    );
+  }, deny);
+}
+const s6m2 = {};
+async function s6m2Project() {
+  if (s6m2.project) return s6m2.project;
+  if (!page.url().startsWith(WEB)) {
+    await page.goto(WEB, { waitUntil: "domcontentloaded" });
+    await timelineReady();
+  }
+  const p = await apiSend("POST", "/api/projects", {
+    name: "UI S6 diseño",
+    settings: { width: 1080, height: 1920, fps: 30 },
+  });
+  let M = p.tracks.find((t) => t.kind === "motion");
+  if (!M) {
+    M = { id: "s6m2trk", kind: "motion", name: "Motion", clips: [] };
+    p.tracks.push(M);
+  }
+  M.clips = [
+    {
+      id: "s6m2lt",
+      trackId: M.id,
+      start: 0,
+      in: 0,
+      out: 4,
+      motion: {
+        engine: "remotion",
+        template: "lower-third",
+        props: { name: "Luis", role: "Happy House" },
+        durationSec: 4,
+        width: 1080,
+        height: 1920,
+        format: "webm-vp9-alpha",
+      },
+    },
+  ];
+  await apiSend("PUT", `/api/projects/${p.id}`, p);
+  await openProject(p.id);
+  s6m2.project = p;
+  return p;
+}
+
+await step("Sprint 6: Kit de marca → cambiar acento se ve en la vista previa", async () => {
+  await s6m2Project();
+  const before = await apiJson("/api/brand-kit");
+  const stills = [];
+  page.on("request", (r) => r.url().includes("/api/motion/still") && stills.push(Date.now()));
+  await page.getByRole("button", { name: "Ajustes" }).click();
+  await page.getByRole("tab", { name: "Kit de marca" }).click();
+  const tab = page.getByTestId("brand-kit-tab");
+  await tab.waitFor({ timeout: 15_000 });
+  await page.getByTestId("token-preview").waitFor();
+  const n0 = stills.length;
+  const accent = before.tokens.color.accent.toLowerCase() === "#00aaff" ? "#ff3b6b" : "#00aaff";
+  await page.getByLabel("Color Acento").fill(accent);
+  // debounce 400 ms -> PUT /api/brand-kit -> new still requests with the new kit
+  let after;
+  for (let i = 0; i < 40; i++) {
+    after = await apiJson("/api/brand-kit");
+    if (after.tokens.color.accent.toLowerCase() === accent) break;
+    await sleep(250);
+  }
+  if (after.tokens.color.accent.toLowerCase() !== accent) throw new Error("kit not saved");
+  for (let i = 0; i < 40 && stills.length < n0 + 3; i++) await sleep(250);
+  if (stills.length < n0 + 3)
+    throw new Error(`preview did not refresh (${stills.length - n0} stills)`);
+  const s = await shot(page, "s6-kit-de-marca.png");
+  await page.keyboard.press("Escape");
+  // restore
+  await apiSend("PUT", "/api/brand-kit", { tokens: before.tokens });
+  return { accent, stills: stills.length - n0, shot: s };
+});
+
+await step("Sprint 6: editar un rótulo desde Propiedades sin renderizar", async () => {
+  await s6m2Project();
+  const renders = [];
+  page.on("request", (r) => r.url().includes("/api/motion/render") && renders.push(r.url()));
+  await page.locator("[data-clip-id='s6m2lt']").first().dblclick();
+  const insp = page.locator("section[aria-label='Propiedades']");
+  await insp.getByTestId("inspector-motion").waitFor({ timeout: 15_000 });
+  const style = insp.getByRole("combobox", { name: /Estilo/ });
+  const labels = await style.locator("option").allTextContents();
+  if (!labels.includes("Caja")) throw new Error(`options: ${labels.join(", ")}`);
+  await style.selectOption("box");
+  await sleep(1_200);
+  const local = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("studio.project.v1") ?? "{}"),
+  );
+  const clip = local.tracks?.flatMap((t) => t.clips).find((c) => c.id === "s6m2lt");
+  if (clip?.motion?.props?.style !== "box")
+    throw new Error(`props: ${JSON.stringify(clip?.motion?.props)}`);
+  if (renders.length) throw new Error("a full render was requested");
+  return { options: labels, shot: await shot(page, "s6-rotulo-propiedades.png") };
+});
+
+await step("Sprint 6: Voz con un selector", async () => {
+  await page.locator(".dv-tab", { hasText: "Voz y audio" }).first().click();
+  const panel = page.locator("section[aria-label='Voz y audio']");
+  const picker = panel.getByTestId("voice-picker");
+  await picker.waitFor({ timeout: 15_000 });
+  const options = await picker.getByRole("tab").allTextContents();
+  if (options.join("|") !== "Mis voces|Voces de Studio|Convertir mi grabación")
+    throw new Error(`options: ${options.join(", ")}`);
+  const engines = await panel
+    .getByRole("combobox", { name: "Motor" })
+    .locator("option")
+    .allTextContents();
+  return { options, engines, shot: await shot(page, "s6-voz-selector.png") };
+});
+
+if (UX_METRICS)
+  await step("Sprint 6: --ux-metrics (C3)", async () => {
+    const deny = await s6m2Denylist();
+    const metrics = {
+      english: {},
+      iconButtonsWithoutTip: [],
+      uiFontFamilies: [],
+      firstExportClicks: null,
+    };
+    // 1. English terms visible in Motion graphics, Propiedades (motion clip) and Voz.
+    await s6m2Project();
+    await page.locator("[data-clip-id='s6m2lt']").first().dblclick();
+    for (const [name, title] of [
+      ["Propiedades", "Propiedades"],
+      ["Voz", "Voz y audio"],
+      ["Motion", "Motion graphics"],
+    ]) {
+      const tab = page.locator(".dv-tab", { hasText: title }).first();
+      if (!(await tab.count())) {
+        // closed panel: open it from «Paneles» (a checked item would close it: integration S6)
+        await page.getByRole("button", { name: "Paneles" }).click();
+        const item = page
+          .getByRole("menuitemcheckbox", { name: title })
+          .or(page.getByRole("menuitem", { name: title }))
+          .first();
+        if ((await item.getAttribute("aria-checked").catch(() => null)) !== "true")
+          await item.click();
+        await page.keyboard.press("Escape");
+      }
+      if (await tab.count()) await tab.click();
+      const sec = page.locator(`section[aria-label='${title}']`);
+      await sec.waitFor({ timeout: 5_000 }).catch(() => {});
+      metrics.english[name] = (await sec.count())
+        ? await s6m2English(sec, deny)
+        : ["(panel cerrado)"];
+    }
+    // 2. Icon buttons whose tooltip does not explain more than the label.
+    metrics.iconButtonsWithoutTip = await page.$$eval("button[aria-label]", (els) =>
+      els
+        .filter((b) => !b.textContent?.trim() && b.offsetParent !== null)
+        // the Next.js dev overlay is not part of Studio
+        .filter((b) => !/Next\.js/.test(b.getAttribute("aria-label") ?? ""))
+        .filter((b) => {
+          const tip = b.dataset.tooltip ?? b.getAttribute("title") ?? "";
+          return tip.length < 20 || tip === b.getAttribute("aria-label");
+        })
+        .map((b) => b.getAttribute("aria-label")),
+    );
+    // 3. Font families of the UI (previews of the kit/motion excluded).
+    metrics.uiFontFamilies = await page.evaluate(() => {
+      const fams = new Set();
+      for (const el of document.querySelectorAll("body *")) {
+        if (el.closest("[data-testid='token-preview'],[data-testid='approx-preview'],canvas,svg"))
+          continue;
+        if (!("offsetParent" in el) || el.offsetParent === null || !el.textContent?.trim())
+          continue;
+        fams.add(window.getComputedStyle(el).fontFamily.split(",")[0].replace(/["']/g, "").trim());
+      }
+      return [...fams];
+    });
+    // 4. First project -> export: clicks (shortcuts count as one).
+    try {
+      let clicks = 0;
+      await page.mouse.click(700, 5);
+      await page.keyboard.press("Control+Alt+n");
+      clicks++;
+      await page.getByTestId("project-name").filter({ hasText: "Proyecto sin título" }).waitFor();
+      await page.locator(".dv-tab", { hasText: "Vista previa" }).click();
+      clicks++;
+      // 9:16 is the main destination: a vertical first video sets the canvas (no framing choice).
+      const video = await lavfiUpload("ui-s6-primer.mp4", "color=c=0x2b5d8a:s=360x640:r=25:d=3", [
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=220:sample_rate=48000:duration=3",
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        "-shortest",
+      ]);
+      const chooser = page.waitForEvent("filechooser");
+      await page.getByTestId("preview-empty").getByRole("button", { name: "Importar" }).click();
+      clicks++;
+      await (await chooser).setFiles(video.file);
+      await page.locator("[data-clip-id]").first().waitFor({ timeout: 60_000 });
+      await page.locator(".dv-tab", { hasText: "Exportar" }).click();
+      clicks++;
+      const exp = page.locator("section[aria-label='Exportar']");
+      const go = exp.getByRole("button", { name: "Exportar", exact: true });
+      await go.waitFor({ timeout: 15_000 });
+      // A framing choice (canvas ≠ preset) costs one more click: «recortar al centro».
+      const choice = exp.getByTestId("export-aspect-choice");
+      if (await choice.isVisible().catch(() => false)) {
+        await choice.locator("input[type=radio]").nth(1).check();
+        clicks++;
+      }
+      for (let i = 0; i < 120 && (await go.isDisabled()); i++) await sleep(500);
+      if (await go.isDisabled())
+        throw new Error(
+          `Exportar deshabilitado: ${await exp
+            .getByTestId("export-blocked")
+            .textContent()
+            .catch(() => "?")}`,
+        );
+      await go.click();
+      clicks++;
+      metrics.firstExportClicks = clicks;
+    } catch (err) {
+      metrics.firstExportClicks = { error: String(err?.message ?? err).slice(0, 160) };
+    }
+    const english = Object.values(metrics.english)
+      .flat()
+      .filter((t) => t !== "(panel cerrado)");
+    metrics.pass =
+      english.length === 0 &&
+      metrics.iconButtonsWithoutTip.length === 0 &&
+      metrics.uiFontFamilies.length <= 2 &&
+      typeof metrics.firstExportClicks === "number" &&
+      metrics.firstExportClicks <= 7;
+    console.log(`UX_METRICS ${JSON.stringify(metrics)}`);
+    return metrics;
+  });
+// ------------------------------------------------------------------ END sprint6:M2
 
 await browser.close();
 console.log(

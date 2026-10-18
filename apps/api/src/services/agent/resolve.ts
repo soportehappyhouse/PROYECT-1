@@ -3,6 +3,7 @@ import {
   CAPTION_STYLE_PRESETS,
   FACE_SWAPPER_INFO,
   FEATURE_PACKS,
+  formatErrorEs,
   VOICE_EFFECT_PRESETS,
   type BaseClipRef,
   type Clip,
@@ -31,6 +32,19 @@ import {
   type MediaLookup,
 } from "./summary.js";
 import { personsDirectory } from "./persons.js";
+// BEGIN sprint6:M1
+import { findPhrase } from "@studio/shared";
+import { HttpError } from "../../lib/errors.js";
+import {
+  applyFixText,
+  deleteWordsCuts,
+  deleteWordsPreview,
+  fitPreview,
+  fixTextTargets,
+  NO_SCRIPT_ES,
+  scriptOf,
+} from "../script/ops.js";
+// END sprint6:M1
 
 /**
  * Sprint 3: resolve the ClipRef / Time of an EditPlan against the project (ids and seconds), write
@@ -303,6 +317,28 @@ function presetFor(ctx: ResolveContext, id: string) {
 }
 
 type Out = { op: EditOp; preview: string; risks: string[] };
+
+// BEGIN sprint6:M1
+/** Script ops that remove more than this share of the timeline ask for confirmation. */
+const SCRIPT_CONFIRM_RATIO = 0.2;
+
+function requireScriptOrAsk(project: Project) {
+  const script = scriptOf(project);
+  if (script.words.length === 0) throw new Unresolved(NO_SCRIPT_ES);
+  if (script.stale) throw new Unresolved(formatErrorEs("SCRIPT_STALE"));
+  return script;
+}
+
+/** Script errors (SCRIPT_EMPTY/STALE/NOTHING_TO_CUT) become the Spanish question. */
+function scriptCall<T>(fn: () => T): T {
+  try {
+    return fn();
+  } catch (err) {
+    if (err instanceof HttpError) throw new Unresolved(err.message);
+    throw err;
+  }
+}
+// END sprint6:M1
 
 function resolveInner(op: EditOp, ctx: Ctx): Out {
   const media = ctx.media;
@@ -680,6 +716,68 @@ function resolveInner(op: EditOp, ctx: Ctx): Out {
     }
     case "report_bug":
       return { op, preview: `Redactar reporte de error «${op.title.slice(0, 60)}»`, risks };
+    // BEGIN sprint6:M1 (Guion: delete_words / fit_duration / fix_text over the word script)
+    case "delete_words": {
+      const script = requireScriptOrAsk(ctx.project);
+      if (
+        op.text &&
+        findPhrase(script.words, op.text).length === 0 &&
+        !op.ranges &&
+        !op.fillers &&
+        !op.long_pauses
+      )
+        throw new Unresolved(`No encontré «${op.text}» en el guion. ¿Cómo aparece escrito?`);
+      const res = scriptCall(() => deleteWordsCuts(ctx.project, op));
+      if (res.cuts.length === 0) throw new Unresolved(formatErrorEs("SCRIPT_NOTHING_TO_CUT"));
+      const dur = projectDuration(ctx.project);
+      const big = dur > 0 && res.removed_s > SCRIPT_CONFIRM_RATIO * dur;
+      if (big)
+        risks.push(
+          `Quita partes del video: ${fmtSec(res.removed_s)} de ${fmtSec(dur)} (más del 20 %). Se puede deshacer con «Deshacer todo».`,
+        );
+      return {
+        op: { ...op, ...(big && { confirm: true }) },
+        preview: deleteWordsPreview(op, res),
+        risks,
+      };
+    }
+    case "fit_duration": {
+      requireScriptOrAsk(ctx.project);
+      const p = scriptCall(() => fitPreview(ctx.project, op));
+      if (p.cuts.length === 0 && !p.speed) {
+        if (!p.reached) throw new Unresolved(p.question_es ?? "No encontré nada para acortar.");
+        return { op, preview: p.question_es ?? `Ya dura ${fmtSec(p.from_s)}`, risks };
+      }
+      if (!p.reached && p.question_es) risks.push(p.question_es);
+      const sentences = p.groups.some((g) => g.level === "sentences");
+      const big = p.from_s - p.to_s > SCRIPT_CONFIRM_RATIO * p.from_s;
+      if (sentences)
+        risks.push("Quita oraciones enteras del video (contenido): revisá la vista previa antes.");
+      else if (big) risks.push("Quita más del 20 % de la duración del video.");
+      return {
+        op: { ...op, ...((sentences || big) && { confirm: true }) },
+        preview: `Ajustar duración: ${fmtSec(p.from_s)} → ${fmtSec(p.to_s)} (${
+          p.groups.map((g) => g.label_es).join(", ") || "sin cortes"
+        })`,
+        risks,
+      };
+    }
+    case "fix_text": {
+      if (ctx.project.subtitles.length === 0) throw new Unresolved(NO_SCRIPT_ES);
+      const at = op.at !== undefined ? seconds(op.at, ctx, "del subtítulo a corregir") : undefined;
+      const targets = fixTextTargets(ctx.project, op, at);
+      if ("question" in targets) throw new Unresolved(targets.question);
+      const dry = applyFixText(ctx.project, op, targets);
+      const n = dry.corrected;
+      return {
+        op: { ...op, ...(at !== undefined && { at }) },
+        preview: `Corregir «${op.find.slice(0, 40)}» → «${op.replace.slice(0, 40)}» (${n} ${
+          n === 1 ? "vez" : "veces"
+        })${dry.estimated ? `: ${dry.estimated} palabras con tiempos estimados` : ""}`,
+        risks,
+      };
+    }
+    // END sprint6:M1
     case "face_swap": {
       const l = resolveClip(op.clip, ctx, {
         what: "para cambiar la cara",
@@ -862,6 +960,9 @@ const TITLES: Record<EditOp["op"], string> = {
   export: "Exportar",
   report_bug: "Reportar error",
   face_swap: "Cambiar cara",
+  delete_words: "Borrar palabras",
+  fit_duration: "Ajustar duración",
+  fix_text: "Corregir texto",
 };
 
 export const opTitle = (op: Pick<EditOp, "op">) => TITLES[op.op] ?? op.op;

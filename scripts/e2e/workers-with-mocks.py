@@ -417,6 +417,98 @@ if MOCK_AGENT_EVAL:
     _m1_agent_router.make_planner = _m1_mock_make_planner
 # --------------------------------------------------------------- END sprint5:M1
 
+# ------------------------------------------------------------- BEGIN sprint6:M3
+# STUDIO_MOCK_SUGGEST_DELAY (seconds, default 2; 0 turns it off): /analyze/suggest waits that long
+# (in 0.1 s steps that honor the cancel, like the real per-second check) before the REAL one-pass
+# ffmpeg analysis, so run-e2e can check that a user job never waits for a background analysis.
+_S6M3_DELAY_S = float(os.environ.get("STUDIO_MOCK_SUGGEST_DELAY", "2"))
+if _S6M3_DELAY_S > 0:
+    import time as _s6m3_time
+
+    from studio_workers.routers import analyze as _s6m3_router
+
+    _s6m3_real = _s6m3_router.analyze_for_suggestions
+
+    def _s6m3_slow(path, *, task=None, **kw):  # type: ignore[no-untyped-def]
+        end = _s6m3_time.monotonic() + _S6M3_DELAY_S
+        while _s6m3_time.monotonic() < end:
+            if task is not None:
+                task.check_canceled()
+            _s6m3_time.sleep(0.1)
+        return _s6m3_real(path, task=task, **kw)
+
+    _s6m3_router.analyze_for_suggestions = _s6m3_slow
+# --------------------------------------------------------------- END sprint6:M3
+
+# ------------------------------------------------------------- BEGIN sprint6:M1
+# STUDIO_MOCK_SCRIPT=0 turns it off. POST /transcribe/words (Guion) without faster-whisper: a fake
+# Whisper writes a FIXED script spread over the clip with 12 fillers (8 safe: «eh» ×3, «em», «mm»,
+# «mmm», «ehh» and the first «que» of «que que»; 4 probable: «o sea» (2 words), «digamos», «este,»)
+# and 35 % gaps between words (> 0.6 s on a 60 s clip: long pauses for fit_duration). Everything
+# after the transcription is the real stt.words code
+# (RMS envelope of the real WAV, noise floor, gaps). Plain /transcribe is untouched.
+MOCK_SCRIPT = os.environ.get("STUDIO_MOCK_SCRIPT", "1") != "0"
+if MOCK_SCRIPT:
+    import sys as _s6m1_sys
+
+    from studio_workers.routers import transcribe as _s6m1_router
+    from studio_workers.schemas import SubtitleSegment as _S6M1Seg
+    from studio_workers.schemas import SubtitleWord as _S6M1Word
+    from studio_workers.schemas import Transcript as _S6M1Transcript
+
+    S6M1_SCRIPT = (
+        "Hola eh bienvenidos em a mi canal. | O sea hoy eh les muestro mm cómo que que editar. | "
+        "Digamos un video eh rápido, este, mmm listo ehh chau."
+    )
+
+    class _S6M1Engine:
+        def transcribe(self, audio, *, clip=None, on_progress=None, **_kw):  # type: ignore[no-untyped-def]
+            import wave as _wave
+
+            with _wave.open(str(audio), "rb") as w:
+                dur = w.getnframes() / float(w.getframerate())
+            a, b = clip if clip else (0.0, dur)
+            sentences = [x.split() for x in S6M1_SCRIPT.split("|")]
+            n = sum(len(x) for x in sentences)
+            slot = (b - a) / (n + 1)
+            t = a + slot * 0.5
+            segments = []
+            for words in sentences:
+                out = []
+                for tok in words:
+                    out.append(
+                        _S6M1Word(start=round(t, 3), end=round(t + slot * 0.65, 3), word=tok, probability=0.9)
+                    )
+                    t += slot
+                segments.append(
+                    _S6M1Seg(start=out[0].start, end=out[-1].end, text=" ".join(words), words=out)
+                )
+                if on_progress:
+                    on_progress((out[-1].end - a) / max(1e-6, b - a), "Transcribiendo")
+            return _S6M1Transcript(language="es", duration_sec=dur, segments=segments, model="e2e-mock")
+
+    _s6m1_real_run = _s6m1_router.run_stt_words
+    _s6m1_router.run_stt_words = lambda task, req, _engine, settings: _s6m1_real_run(  # type: ignore[assignment]
+        task, req, _S6M1Engine(), settings
+    )
+    _s6m1_real_require = _s6m1_router.require_module
+
+    def _s6m1_require(module, package):  # type: ignore[no-untyped-def]
+        if module == "faster_whisper" and _s6m1_sys._getframe(1).f_code.co_name == "transcribe_words":
+            return None
+        return _s6m1_real_require(module, package)
+
+    _s6m1_router.require_module = _s6m1_require
+    _s6m1_real_engine = _s6m1_router.whisper_engine
+
+    def _s6m1_engine():  # type: ignore[no-untyped-def]
+        if _s6m1_sys._getframe(1).f_code.co_name == "transcribe_words":
+            return None  # the mock run_stt_words brings its own engine
+        return _s6m1_real_engine()
+
+    _s6m1_router.whisper_engine = _s6m1_engine
+# --------------------------------------------------------------- END sprint6:M1
+
 settings = get_settings()
 uvicorn.run(
     with_agent_mock(app) if MOCK_AGENT else app,

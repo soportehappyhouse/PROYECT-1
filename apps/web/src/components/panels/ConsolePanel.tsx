@@ -302,7 +302,7 @@ export function ConsolePanel() {
           <Button
             size="icon-sm"
             variant="ghost"
-            tooltip="Copiar selección"
+            tip="consoleCopy"
             aria-label="Copiar selección"
             onClick={() => void copy()}
           >
@@ -311,7 +311,7 @@ export function ConsolePanel() {
           <Button
             size="icon-sm"
             variant="ghost"
-            tooltip="Pegar"
+            tip="consolePaste"
             aria-label="Pegar"
             onClick={() => void paste()}
           >

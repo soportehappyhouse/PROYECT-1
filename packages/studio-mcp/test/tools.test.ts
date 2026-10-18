@@ -23,6 +23,8 @@ const CONTRACT_TOOLS = [
   "studio_wait_job",
   "studio_export",
   "studio_preview_frame",
+  // sprint 6 (integración)
+  "studio_design_check",
   "studio_style_analyze",
   "studio_style_save_preset",
   "studio_style_apply",
@@ -286,6 +288,69 @@ describe("studio-mcp tools", () => {
     const out = await run("studio_preview_frame", { projectId: "p1", t: 2.5 }, deps);
     expect(calls[0]!.url).toBe("/api/projects/p1/frame?t=2.5&format=json");
     expect(out.path).toMatch(/\.png$/);
+  });
+
+  it("studio_run_job script.transcribe puts the project in the path, not in the body", async () => {
+    const { deps, calls } = mockApi({
+      "POST /api/projects/p1/script/transcribe": () => ({ jobId: "j9" }),
+    });
+    const out = await run(
+      "studio_run_job",
+      { type: "script.transcribe", payload: { projectId: "p1", clipId: "c1" } },
+      deps,
+    );
+    expect(calls[0]).toMatchObject({ body: { clipId: "c1" } });
+    expect(out).toMatchObject({ jobId: "j9" });
+  });
+
+  it("studio_design_check posts the check (read only) and summarizes the 10 rules", async () => {
+    const rules = [
+      "caption.max_lines",
+      "caption.chars_per_line",
+      "caption.min_size",
+      "caption.outline_or_box",
+      "caption.contrast",
+      "caption.safe_zone",
+      "caption.timing",
+      "title.safe_zone",
+      "title.duration",
+      "brand.consistency",
+    ].map((id) => ({
+      id,
+      passed: id !== "caption.min_size",
+      issues: id === "caption.min_size" ? 1 : 0,
+    }));
+    const { deps, calls } = mockApi({
+      "POST /api/design/check": () => ({
+        aspect: "9:16",
+        rules,
+        passed: 9,
+        issues: [
+          {
+            rule: "caption.min_size",
+            severity: "hard",
+            target: { kind: "caption" },
+            message_es: "La letra mide 30 px; el mínimo es 49 px (4,5 % del lado corto).",
+            autofix: true,
+          },
+        ],
+        fixed: 1,
+        project: { big: true },
+        checkedAt: "2026-10-18T10:00:00.000Z",
+      }),
+    });
+    const out = await run(
+      "studio_design_check",
+      { projectId: "p1", aspect: "9:16", fix: true },
+      deps,
+    );
+    expect(calls[0]).toMatchObject({
+      method: "POST",
+      url: "/api/design/check",
+      body: { projectId: "p1", aspect: "9:16", fix: true },
+    });
+    expect(out).toMatchObject({ passed: "9/10", failed: ["caption.min_size"], wouldFix: 1 });
+    expect(out).not.toHaveProperty("project");
   });
 
   it("studio_style_analyze returns the absolute contact sheet", async () => {

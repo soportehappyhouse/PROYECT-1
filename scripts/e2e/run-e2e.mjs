@@ -4275,7 +4275,16 @@ await step("sprint5: projects summary + rename + duplicate", async () => {
 // Centro de trabajos y errores: agent.eval with real progress (mocked planner, 0.2 s per command,
 // scripts/e2e/workers-with-mocks.py STUDIO_MOCK_AGENT_EVAL), cancel down to the worker task, and
 // the Spanish WORKERS_UNAVAILABLE of an api whose workers are off.
-const S5_WORKERS = opt("workers", "http://127.0.0.1:8001").replace(/\/+$/, "");
+// Integration S6: the workers the api uses (GET /api/health workers.url), not a fixed :8001
+// (M3 ran its workers on :8101 and these steps failed); --workers still wins.
+const S5_WORKERS = (
+  opt("workers", "") ||
+  (await fetch(`${API}/api/health`)
+    .then((r) => r.json())
+    .then((h) => h?.workers?.url)
+    .catch(() => undefined)) ||
+  "http://127.0.0.1:8001"
+).replace(/\/+$/, "");
 
 async function s5WorkerTask(area, taskId) {
   const res = await fetch(`${S5_WORKERS}/${area}/tasks/${taskId}`);
@@ -4644,6 +4653,414 @@ await step("sprint5: plan Reels desde horizontal propone reframe", async () => {
 
 // ---------------------------------------------------------------- report
 sse.controller.abort();
+// ---------------------------------------------------------------- BEGIN sprint6:M3
+/** Background lane idle (no suggest.analyze queued/running), so a timing is not polluted. */
+async function s6BackgroundIdle(timeoutMs = 120_000) {
+  const end = Date.now() + timeoutMs;
+  for (;;) {
+    const { json: jobs } = await api("GET", `/api/jobs?limit=500&type=suggest.analyze`);
+    const busy = (jobs ?? []).filter(
+      (j) => j.type === "suggest.analyze" && (j.status === "queued" || j.status === "running"),
+    );
+    if (!busy.length) return;
+    if (Date.now() > end) throw new Fail(`background lane busy: ${busy.length} analyses`);
+    await sleep(300);
+  }
+}
+
+/**
+ * C5 clip: 12 s video + speech-like tone at −30 LUFS with 3 digital silences (1.5 + 1 + 1 s =
+ * 3.5 s). `lufs` changes the level (−26 → the low-voice card brings it to −14 LUFS).
+ */
+async function s6SuggestClip(name, lufs = -30) {
+  const file = path.join(WORK, name);
+  const seg = (k, d) =>
+    k === "t"
+      ? ["-f", "lavfi", "-i", `sine=frequency=220:sample_rate=48000:duration=${d}`]
+      : ["-f", "lavfi", "-i", `anullsrc=r=48000:cl=mono:d=${d}`];
+  const parts = [
+    ["t", 2],
+    ["s", 1.5],
+    ["t", 2],
+    ["s", 1],
+    ["t", 2],
+    ["s", 1],
+    ["t", 2.5],
+  ];
+  // −7.6 dB on this tone pattern = −30.0 LUFS (measured with ebur128).
+  const gain = -7.6 + (lufs + 30);
+  await run(FFMPEG, [
+    "-y",
+    "-v",
+    "error",
+    "-f",
+    "lavfi",
+    "-i",
+    "color=c=0x202020:s=320x180:r=25:d=12",
+    ...parts.flatMap(([k, d]) => seg(k, d)),
+    "-filter_complex",
+    `${parts.map((_, i) => `[${i + 1}:a]`).join("")}concat=n=${parts.length}:v=0:a=1,volume=${gain}dB[a]`,
+    "-map",
+    "0:v",
+    "-map",
+    "[a]",
+    "-c:v",
+    "libx264",
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-b:a",
+    "192k",
+    "-shortest",
+    file,
+  ]);
+  return file;
+}
+
+/** Project with the clip on the video track (12 s). */
+async function s6Project(name, asset) {
+  const p = await ok("POST", "/api/projects", { name }, [201]);
+  const V = p.tracks.find((t) => t.kind === "video");
+  V.clips = [{ id: id("c"), trackId: V.id, assetId: asset.id, start: 0, in: 0, out: 12 }];
+  return ok("PUT", `/api/projects/${p.id}`, p);
+}
+
+async function s6Suggestions(projectId) {
+  return ok("GET", `/api/projects/${projectId}/suggestions`);
+}
+
+await step("sprint6: importar → 2 sugerencias en < 15 s", async () => {
+  await s6BackgroundIdle();
+  const file = await s6SuggestClip("s6-clip.mp4");
+  const t0 = Date.now();
+  const asset = await upload(file, "video/mp4");
+  const project = await s6Project("Sprint 6 sugerencias", asset);
+  let res;
+  for (;;) {
+    res = await s6Suggestions(project.id);
+    const kinds = res.suggestions.filter((s) => s.status === "open").map((s) => s.kind);
+    if (kinds.includes("silences") && kinds.includes("low_voice")) break;
+    assert(Date.now() - t0 < 15_000, `sin 2 tarjetas en 15 s: ${JSON.stringify(res)}`);
+    await sleep(250);
+  }
+  const ms = Date.now() - t0;
+  const jobs = (await ok("GET", `/api/jobs?limit=500&type=suggest.analyze`)).filter(
+    (j) => j.payload?.assetId === asset.id,
+  );
+  assert(jobs.length === 1, `suggest.analyze jobs: ${jobs.length}`);
+  const sil = res.suggestions.find((s) => s.kind === "silences");
+  const low = res.suggestions.find((s) => s.kind === "low_voice");
+  assert(sil.impact.count === 3, `silencios: ${JSON.stringify(sil.impact)}`);
+  assert(Math.abs(sil.impact.seconds_saved - 3.5) <= 0.2, `s: ${sil.impact.seconds_saved}`);
+  assert(Math.abs(low.impact.lufs + 30) <= 1, `LUFS ${low.impact.lufs}`);
+  ctx.s6 = { asset, project, sil, low };
+  return { ms, cards: res.suggestions.map((s) => s.title_es), lufs: low.impact.lufs };
+});
+
+await step("sprint6: transcribir no espera al análisis de fondo", async () => {
+  await s6BackgroundIdle();
+  const file = await s6SuggestClip("s6-clip-2.mp4", -28);
+  const asset = await upload(file, "video/mp4");
+  // the automatic analysis (mock: +2 s) is running in the background lane
+  let analysis;
+  const end = Date.now() + 20_000;
+  for (;;) {
+    const jobs = await ok("GET", `/api/jobs?limit=500&type=suggest.analyze`);
+    analysis = jobs.find((j) => j.payload?.assetId === asset.id && j.status === "running");
+    if (analysis) break;
+    assert(Date.now() < end, "suggest.analyze no arrancó");
+    await sleep(100);
+  }
+  const { jobId } = await ok("POST", "/api/subtitles/transcribe", {
+    assetId: asset.id,
+    language: "es",
+  });
+  let user;
+  for (;;) {
+    user = await ok("GET", `/api/jobs/${jobId}`);
+    if (user.status !== "queued") break;
+    await sleep(50);
+  }
+  const waitMs = Date.parse(user.startedAt) - Date.parse(user.createdAt);
+  const bg = await ok("GET", `/api/jobs/${analysis.id}`);
+  assert(waitMs <= 1000, `subtitles.transcribe esperó ${waitMs} ms`);
+  await waitJob(jobId, { timeoutMs: 120_000 }).catch(() => undefined); // Whisper may be missing
+  const done = await waitJob(analysis.id);
+  assert(done.status === "succeeded", `análisis ${done.status}: ${done.error}`);
+  return {
+    waitMs,
+    analysisWhileUser: bg.status,
+    transcribe: (await ok("GET", `/api/jobs/${jobId}`)).status,
+  };
+});
+
+await step("sprint6: aplicar sugerencia de silencios → plan aplicado + deshacer", async () => {
+  assert(ctx.s6, "falta el paso «importar → 2 sugerencias»");
+  const { project, sil } = ctx.s6;
+  const record = await ok(
+    "POST",
+    `/api/projects/${project.id}/suggestions/${sil.id}/plan`,
+    {},
+    [201],
+  );
+  assert(
+    record.ok && record.status === "proposed",
+    `plan: ${JSON.stringify(record).slice(0, 300)}`,
+  );
+  assert(record.plan.ops[0].op === "cut_silences", `op ${record.plan.ops[0].op}`);
+  const { jobId } = await ok("POST", "/api/agent/apply", { planId: record.id }, [202]);
+  await waitOk(jobId);
+  const after = await ok("GET", `/api/projects/${project.id}`);
+  const dur = (p) =>
+    Math.max(
+      0,
+      ...p.tracks.flatMap((t) => t.clips.map((c) => c.start + (c.out - c.in) / (c.speed ?? 1))),
+    );
+  assert(dur(after) < 12 - 2, `duración tras cortar: ${dur(after)}`);
+  let cards = await s6Suggestions(project.id);
+  assert(
+    cards.suggestions.find((s) => s.id === sil.id)?.status === "applied",
+    `tarjeta: ${cards.suggestions.find((s) => s.id === sil.id)?.status}`,
+  );
+  await ok("POST", `/api/agent/plans/${record.id}/undo`, {});
+  const back = await ok("GET", `/api/projects/${project.id}`);
+  assert(Math.abs(dur(back) - 12) < 0.05, `deshacer: ${dur(back)}`);
+  cards = await s6Suggestions(project.id);
+  const again = cards.suggestions.find((s) => s.id === sil.id)?.status;
+  assert(again === "open", `tarjeta tras deshacer: ${again}`);
+  return { before: 12, after: Number(dur(after).toFixed(2)), undo: Number(dur(back).toFixed(2)) };
+});
+// ------------------------------------------------------------------ END sprint6:M3
+
+// ---------------------------------------------------------------- BEGIN sprint6:M1
+// Guion (M1): workers-with-mocks.py answers /transcribe/words with a fixed script (12 fillers:
+// 8 safe + 4 probable) spread over the clip; the rest (WAV, RMS envelope, gaps, api, ops) is real.
+async function s6m1Clip() {
+  const file = path.join(WORK, "s6m1-guion.mp4");
+  await run(FFMPEG, [
+    "-y",
+    "-v",
+    "error",
+    "-f",
+    "lavfi",
+    "-i",
+    "color=c=0x303030:s=160x90:r=10:d=60",
+    "-f",
+    "lavfi",
+    "-i",
+    "sine=frequency=220:sample_rate=48000:duration=60",
+    "-c:v",
+    "libx264",
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-shortest",
+    file,
+  ]);
+  return file;
+}
+
+await step("sprint6: script.transcribe (mock) → guion con 12 muletillas", async () => {
+  const asset = await upload(await s6m1Clip(), "video/mp4");
+  await waitAssetJobs(asset.id, ["media.probe"]);
+  const p = await ok("POST", "/api/projects", { name: "e2e guion" }, [201]);
+  const V = p.tracks.find((t) => t.kind === "video");
+  const clipId = id("c");
+  V.clips = [{ id: clipId, trackId: V.id, assetId: asset.id, start: 0, in: 0, out: 60 }];
+  await ok("PUT", `/api/projects/${p.id}`, p);
+  const { jobId } = await ok("POST", `/api/projects/${p.id}/script/transcribe`, { clipId }, [202]);
+  const job = await waitOk(jobId, { timeoutMs: 120_000 });
+  // Audit S6 E9: transcribing again over the subtitles asks for replace:true first.
+  const again = await api("POST", `/api/projects/${p.id}/script/transcribe`, { clipId });
+  assert(
+    again.status === 409 && again.json?.error?.code === "SCRIPT_REPLACE_REQUIRED",
+    `re-transcribir sin replace -> ${again.status} ${JSON.stringify(again.json)?.slice(0, 200)}`,
+  );
+  const script = await ok("GET", `/api/projects/${p.id}/script`);
+  const f = script.stats.fillers;
+  assert(f.safe === 8 && f.probable === 4, `muletillas ${JSON.stringify(f)}`);
+  assert(script.audio?.jobId === jobId, "falta el análisis de audio del guion");
+  assert(script.stale === false, "guion desactualizado");
+  ctx.s6m1 = { projectId: p.id, clipId };
+  return {
+    words: script.stats.words,
+    fillers: f,
+    longPauses: script.stats.long_pauses,
+    gaps: job.result.gaps,
+    noiseFloor: job.result.noise_floor_db,
+  };
+});
+
+await step("sprint6: fit_duration 45 s → plan válido", async () => {
+  assert(ctx.s6m1, "falta el paso «script.transcribe»");
+  const { projectId } = ctx.s6m1;
+  const fit = await ok("POST", `/api/projects/${projectId}/script/fit`, { target_s: 45 });
+  assert(fit.from_s === 60, `from ${fit.from_s}`);
+  // Integration S6: `to_s` is what applying the plan gives (same energy refinement); when the
+  // refinement leaves it just above the tolerance the preview says so (question) instead of
+  // promising 45,5 s and delivering 45,7 s.
+  assert(
+    fit.to_s >= 44.5 && fit.to_s <= 46 && (fit.reached || fit.question_es),
+    `to ${fit.to_s} (${fit.question_es})`,
+  );
+  const rec = await ok("POST", "/api/console/plans", {
+    projectId,
+    plan: fit.plan,
+    command: "dejalo en 45 s",
+  });
+  assert(rec.ok, `plan no válido: ${JSON.stringify(rec.unresolved ?? rec.errors)}`);
+  const confirmedIndexes = rec.resolved
+    .map((op, i) => (op?.confirm ? i : -1))
+    .filter((i) => i >= 0);
+  const { jobId } = await ok(
+    "POST",
+    "/api/agent/apply",
+    { planId: rec.id, confirmedIndexes },
+    [202],
+  );
+  await waitOk(jobId);
+  const applied = await ok("GET", `/api/projects/${projectId}`);
+  const end = Math.max(
+    ...applied.tracks.flatMap((t) => t.clips.map((c) => c.start + (c.out - c.in) / (c.speed || 1))),
+  );
+  assert(near(end, fit.to_s, 0.01), `vista previa ${fit.to_s} s, aplicado ${end.toFixed(3)} s`);
+  await ok("POST", `/api/agent/plans/${rec.id}/undo`, {});
+  return {
+    to: fit.to_s,
+    applied: +end.toFixed(3),
+    reached: fit.reached,
+    groups: fit.groups.map((g) => g.label_es),
+    ops: fit.plan.ops.length,
+  };
+});
+
+await step("sprint6: delete_words fillers safe → −X s y subtítulos corridos", async () => {
+  assert(ctx.s6m1, "falta el paso «script.transcribe»");
+  const { projectId } = ctx.s6m1;
+  const before = await ok("GET", `/api/projects/${projectId}`);
+  const lastBefore = before.subtitles.at(-1).words.at(-1);
+  const rec = await ok("POST", "/api/console/plans", {
+    projectId,
+    plan: {
+      version: 1,
+      summary_es: "Quitar muletillas",
+      ops: [{ op: "delete_words", fillers: "safe" }],
+    },
+    command: "sacá los eh",
+  });
+  assert(rec.ok, `plan: ${JSON.stringify(rec.unresolved)}`);
+  // Integration S6: a cut of more than 20 % comes back with confirm:true and the api refuses it
+  // without the separate confirmation (CONFIRM_REQUIRED), like a delete or an export.
+  const mustConfirm = rec.resolved.map((op, i) => (op?.confirm ? i : -1)).filter((i) => i >= 0);
+  if (mustConfirm.length) {
+    const refused = await api("POST", "/api/agent/apply", { planId: rec.id });
+    assert(refused.status === 409 && refused.json?.error?.code === "CONFIRM_REQUIRED", "sin 409");
+  }
+  const { jobId } = await ok(
+    "POST",
+    "/api/agent/apply",
+    { planId: rec.id, ...(mustConfirm.length && { confirmedIndexes: mustConfirm }) },
+    [202],
+  );
+  const job = await waitOk(jobId);
+  const removed = job.result.steps[0].result.removedSec;
+  const after = await ok("GET", `/api/projects/${projectId}`);
+  const words = after.subtitles.flatMap((s) => s.words ?? []);
+  assert(!words.some((w) => /^(eh|ehh|em|mm|mmm)$/i.test(w.word)), "quedan vocalizaciones");
+  const lastAfter = after.subtitles.at(-1).words.at(-1);
+  assert(near(lastBefore.start - lastAfter.start, removed, 0.01), "subtítulos sin correr");
+  const v = after.tracks.find((t) => t.kind === "video");
+  assert(v.clips.length === 9, `${v.clips.length} tramos`);
+  assert(v.clips[1].audioFade?.inMs === 12, "sin fundido de empalme");
+  const script = await ok("GET", `/api/projects/${projectId}/script`);
+  assert(script.stats.fillers.safe === 0 && script.stats.fillers.probable === 4, "muletillas");
+  const undo = await ok("POST", `/api/agent/plans/${rec.id}/undo`, {});
+  assert(undo.project.tracks.find((t) => t.kind === "video").clips.length === 1, "deshacer");
+  return { removedSec: removed, words: words.length, pieces: v.clips.length };
+});
+// ------------------------------------------------------------------ END sprint6:M1
+
+// ---------------------------------------------------------------- BEGIN sprint6:M2
+// Sistema de diseño (M2): fuentes sin red (C4), checklist 10/10 en 9:16 y 16:9 (C2), still < 5 s.
+await step("sprint6: fuentes sin red (title-card + animated-captions)", async () => {
+  const ofl = await fetch(`${API}/fonts/Inter/OFL.txt`);
+  assert(ofl.ok && /SIL OPEN FONT LICENSE/i.test(await ofl.text()), "GET /fonts/Inter/OFL.txt");
+  const ttf = await fetch(`${API}/fonts/${encodeURIComponent("Bebas Neue")}/BebasNeue-400.ttf`);
+  assert(ttf.ok && /immutable/.test(ttf.headers.get("cache-control") ?? ""), "fonts cache");
+  if (SKIP_MOTION) return "SKIP renders (--skip-motion): solo /fonts/*";
+  const still = async (template, props) => {
+    const res = await api(
+      "POST",
+      "/api/motion/still",
+      { template, props, width: 540, height: 960 },
+      { raw: true },
+    );
+    if (res.status !== 200)
+      throw new Fail(`still ${template} -> ${res.status} ${await res.text()}`);
+    return Buffer.from(await res.arrayBuffer());
+  };
+  const bangers = await still("title-card", { title: "Fuentes sin red", fontFamily: "Bangers" });
+  const anton = await still("title-card", { title: "Fuentes sin red", fontFamily: "Anton" });
+  assert(bangers.compare(anton) !== 0, "Bangers and Anton render the same (font not loaded)");
+  const caps = await still("animated-captions", { fontFamily: "Bebas Neue" });
+  assert(caps.length > 1000, "animated-captions still");
+  return { bangers: bangers.length, anton: anton.length, captions: caps.length };
+});
+
+await step("sprint6: still 1080×1920 < 5 s con caché", async () => {
+  if (SKIP_MOTION) return "SKIP (--skip-motion)";
+  const body = {
+    template: "lower-third",
+    props: { name: `E2E ${Date.now()}` },
+    width: 1080,
+    height: 1920,
+  };
+  const t1 = Date.now();
+  const first = await api("POST", "/api/motion/still", body, { raw: true });
+  const cold = Date.now() - t1;
+  assert(first.status === 200, `still -> ${first.status}`);
+  await first.arrayBuffer();
+  const t2 = Date.now();
+  const second = await api("POST", "/api/motion/still", body, { raw: true });
+  const warm = Date.now() - t2;
+  assert(second.headers.get("x-still-cache") === "hit", "2nd request not from the cache");
+  assert(warm < 5000, `cached still ${warm} ms`);
+  return { cold_ms: cold, cached_ms: warm };
+});
+
+await step("sprint6: design-check 9:16 y 16:9 = 10/10", async () => {
+  const out = path.join(WORK, "design-check.json");
+  const args = [
+    path.join(REPO, "scripts/e2e/design-check.mjs"),
+    "--api",
+    API,
+    "--work",
+    path.join(WORK, "design"),
+    "--out",
+    out,
+    "--ffmpeg",
+    FFMPEG,
+  ];
+  const r = await new Promise((resolve) => {
+    const p = spawn(process.execPath, args, { stdio: ["ignore", "pipe", "pipe"] });
+    let log = "";
+    p.stdout.on("data", (d) => (log += d));
+    p.stderr.on("data", (d) => (log += d));
+    p.on("close", (code) => resolve({ code, log }));
+  });
+  const report = JSON.parse(await readFile(out, "utf8").catch(() => "{}"));
+  assert(r.code === 0, `design-check exit ${r.code}: ${r.log.slice(-600)}`);
+  return Object.fromEntries(
+    (report.aspects ?? []).map((a) => [
+      a.aspect,
+      `${a.rules?.passed}/10, ${a.frames?.filter((f) => f.pass).length}/5 fotogramas`,
+    ]),
+  );
+});
+// ------------------------------------------------------------------ END sprint6:M2
+
 const required = results.filter((r) => r.kind === "required");
 const failed = required.filter((r) => r.status === "FAIL");
 const report = {

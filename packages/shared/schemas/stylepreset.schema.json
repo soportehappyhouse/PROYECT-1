@@ -237,6 +237,10 @@
       "minLength": 1,
       "description": "Id del preset de exportación: youtube-1080p (horizontal), youtube-4k, reels-tiktok (vertical 9:16 para Reels/TikTok), youtube-shorts (vertical), gif-480, webm-alpha, o un preset propio del usuario."
     },
+    "use_brand_kit": {
+      "description": "Usar tipografías, colores y zona segura del kit de marca del usuario (por defecto sí).",
+      "type": "boolean"
+    },
     "notes_es": {
       "type": "string",
       "maxLength": 1000,

@@ -1,4 +1,9 @@
-import type { CaptionStyle, SubtitleSegment, SubtitleWord } from "@studio/shared";
+import {
+  BUNDLED_FONT_FAMILIES,
+  type CaptionStyle,
+  type SubtitleSegment,
+  type SubtitleWord,
+} from "@studio/shared";
 
 function srtTime(sec: number): string {
   const ms = Math.round(Math.max(0, sec) * 1000);
@@ -30,19 +35,8 @@ export function subtitlesSpan(
   return end > start ? { start, end } : undefined;
 }
 
-/** Fonts bundled by @studio/remotion (packages/remotion/src/schemas/common.ts FONT_FAMILIES). */
-const REMOTION_FONTS = [
-  "Inter",
-  "Montserrat",
-  "Poppins",
-  "Roboto",
-  "Oswald",
-  "Playfair Display",
-  "Bebas Neue",
-  "Anton",
-  "Archivo Black",
-  "Bangers",
-];
+/** Fonts bundled by @studio/remotion (one list for Remotion, ASS and the web: shared design.ts). */
+const REMOTION_FONTS: readonly string[] = BUNDLED_FONT_FAMILIES;
 
 const ANIMATION_TO_TEMPLATE_STYLE: Record<CaptionStyle["animation"], string> = {
   none: "highlight",

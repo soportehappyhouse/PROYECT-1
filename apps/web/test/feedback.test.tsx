@@ -240,7 +240,7 @@ describe("feedback 6: TTS voice downloads", () => {
       files: [{ path: "piper/es_MX-claude-high.onnx", sizeBytes: 1, skipped: false }],
     });
     render(<VoicePanel />);
-    await screen.findByText("Claude (Mexico)");
+    await screen.findByText("Claude (México)");
     // 7 per-voice buttons + «Descargar las 7 que faltan (paquete voces-es)»
     expect(screen.getAllByRole("button", { name: /^Descargar$/ })).toHaveLength(7);
     expect(screen.getAllByText("No instalada")).toHaveLength(7);
@@ -249,7 +249,7 @@ describe("feedback 6: TTS voice downloads", () => {
     expect(usePacksStore.getState().request?.info.packId).toBe("voces-es");
     expect(usePacksStore.getState().retries["voces-es"]).toBeTypeOf("function");
     usePacksStore.getState().closeRequest();
-    const row = screen.getByText("Claude (Mexico)").closest("li")!;
+    const row = screen.getByText("Claude (México)").closest("li")!;
     fireEvent.click(row.querySelector("button")!);
     await waitFor(() =>
       expect(dl).toHaveBeenCalledWith({ kind: "piper", id: "es_MX-claude-high" }),

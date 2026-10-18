@@ -4,6 +4,7 @@ import {
   DESIGN_RULES,
   GLOSSARY_ES,
   MotionSpecSchema,
+  NEED_SPEECH_CLIP_ES,
   videoRectAt,
   WhisperModelSchema,
   type MotionSpecInput,
@@ -413,7 +414,7 @@ export function SubtitlesPanel() {
                     !ai.enabled
                       ? ai.reason_es
                       : !hasAudio(transcribeTarget)
-                        ? "Primero agregá un video o un audio con voz a la línea de tiempo"
+                        ? NEED_SPEECH_CLIP_ES
                         : undefined
                   }
                   tooltip="Transcribe con Whisper el clip elegido (o el primero con voz)"

@@ -2,6 +2,7 @@ import { readFileSync, statSync } from "node:fs";
 import {
   buildScript,
   fitDuration,
+  fitPlan,
   formatErrorEs,
   gapsToTimeline,
   planCutsInternal,
@@ -173,11 +174,38 @@ export function computeCuts(
   return { cuts, removed_s, skipped: response.skipped };
 }
 
-/** POST …/script/fit: fitDuration preview + plan (does not apply). */
+/**
+ * The cuts a fit preview really makes once applied: its ranges go through the same path as
+ * `delete_words {ranges}` (word runs at the gap middle + energy refinement). Integration S6: the
+ * preview used to skip the refinement and differed ~0,2 s from the apply.
+ */
+export function refinedFitCuts(
+  deps: ScriptDeps,
+  project: Project,
+  cuts: readonly { start: number; end: number }[],
+): ScriptCutsResponse | undefined {
+  if (cuts.length === 0 || !energyLookup(deps, project)) return undefined;
+  return computeCuts(
+    deps,
+    project,
+    { ranges: cuts.map(({ start, end }) => ({ start, end })), avoidHarsh: true },
+    { allowEmpty: true },
+  );
+}
+
+/** POST …/script/fit: fitDuration preview + plan (does not apply); `to_s` as the apply gives. */
 export function computeFit(
   deps: ScriptDeps,
   project: Project,
   req: Partial<FitDurationRequest> & Pick<FitDurationRequest, "target_s">,
 ): FitDurationPreview {
-  return fitDuration(requireScript(deps, project), req);
+  const preview = fitDuration(requireScript(deps, project), req);
+  if (preview.speed) return preview; // re-planned at apply time (fit_duration op)
+  const refined = refinedFitCuts(deps, project, preview.cuts);
+  if (!refined) return preview;
+  // `cuts` (and the plan ranges) stay the unrefined ones: the apply refines them once.
+  const to_s = Math.round((preview.from_s - refined.removed_s) * 1000) / 1000;
+  const next: FitDurationPreview = { ...preview, to_s };
+  const plan = fitPlan(next, req);
+  return { ...next, ...(plan && { plan }) };
 }

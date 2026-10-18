@@ -4,6 +4,7 @@ import {
   FILLER_LEVEL_ES,
   fmtS,
   isAcoustic,
+  NEED_SPEECH_CLIP_ES,
   replaceWordsText,
   SCRIPT_RULES,
   SCRIPT_PANEL_TEXTS_ES,
@@ -271,11 +272,7 @@ export function ScriptPanel() {
               data-testid="script-transcribe"
               disabled={!!st.transcribing || !ai.enabled || !target_clip}
               disabledReason={
-                !ai.enabled
-                  ? ai.reason_es
-                  : !target_clip
-                    ? "Primero agregá un video o un audio con voz a la línea de tiempo"
-                    : undefined
+                !ai.enabled ? ai.reason_es : !target_clip ? NEED_SPEECH_CLIP_ES : undefined
               }
               tip="scriptTranscribe"
               onClick={() => target_clip && void st.transcribe(target_clip.id)}

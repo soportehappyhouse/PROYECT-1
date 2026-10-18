@@ -61,6 +61,10 @@ export const GLOSSARY_ES = {
   },
 } as const;
 
+/** Transcribing (Subtítulos and Guion) needs a clip with speech on the timeline. */
+export const NEED_SPEECH_CLIP_ES =
+  "Primero agregá un video o un audio con voz a la línea de tiempo";
+
 /** Filler confidence levels as shown in the Guion panel. */
 export const FILLER_LEVEL_ES = {
   safe: "Segura",

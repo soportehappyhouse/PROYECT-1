@@ -1,6 +1,7 @@
 import {
   fmtS,
   planWordCuts,
+  SCRIPT_PANEL_TEXTS_ES,
   SCRIPT_TEXTS_ES,
   type FitDurationPreview,
   type ScriptCutsRequest,
@@ -195,7 +196,7 @@ export const useScriptStore = create<ScriptState>()((set, get) => ({
       } else res = planWordCuts(script, full);
       set({ harshSkipped: res.skipped.map((s) => s.wordId) });
       if (res.cuts.length === 0) {
-        toast.message("No hay nada para cortar con esa selección.");
+        toast.message(SCRIPT_PANEL_TEXTS_ES.nothingToCut);
         return { cuts: 0, removed_s: 0, skipped: res.skipped.length };
       }
       const store = useProjectStore.getState();

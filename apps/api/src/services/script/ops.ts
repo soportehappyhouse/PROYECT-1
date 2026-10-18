@@ -16,7 +16,14 @@ import {
   type ScriptCutsResponse,
   type SubtitleSegment,
 } from "@studio/shared";
-import { computeCuts, computeFit, getScript, scriptError, type ScriptDeps } from "./service.js";
+import {
+  computeCuts,
+  computeFit,
+  getScript,
+  refinedFitCuts,
+  scriptError,
+  type ScriptDeps,
+} from "./service.js";
 
 /**
  * Sprint 6 M1: the three script ops of the EditPlan (resolver preview + agent.apply). Deps are
@@ -133,8 +140,11 @@ export function applyFit(
   newId: () => string,
 ): { project: Project; from_s: number; to_s: number; speed?: number } {
   const preview = fitPreview(project, op);
+  // Integration S6: the same energy-refined cuts as `delete_words {ranges}` (and the preview).
+  const cuts =
+    (registered && refinedFitCuts(registered, project, preview.cuts)?.cuts) || preview.cuts;
   let next = project;
-  if (preview.cuts.length) next = applyScriptCuts(project, preview.cuts, newId).project;
+  if (cuts.length) next = applyScriptCuts(project, cuts, newId).project;
   if (preview.speed) next = speedUpTimeline(next, preview.speed);
   return {
     project: next,

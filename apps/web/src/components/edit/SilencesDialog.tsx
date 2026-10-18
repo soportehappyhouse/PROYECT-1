@@ -144,7 +144,7 @@ export function SilencesDialog() {
         description: !animated
           ? "Podés deshacerlo con Ctrl+Z."
           : server
-            ? "Los subtítulos animados quedaron «Sin renderizar»: volvé a renderizarlos en Motion graphics."
+            ? "Los subtítulos animados quedaron «Sin renderizar»: se renderizan solos al exportar."
             : "Volvé a renderizar los subtítulos animados: quedaron con los tiempos anteriores.",
       });
       close();

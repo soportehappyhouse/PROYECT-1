@@ -11,7 +11,9 @@ import {
   FitDurationPreviewSchema,
   ScriptCutsResponseSchema,
   ScriptSchema,
+  timelineDuration,
   validateEditPlan,
+  type AgentPlanRecord,
   type Job,
   type Project,
 } from "@studio/shared";
@@ -261,6 +263,48 @@ describe.skipIf(!hasFfmpeg)("Guion (script) api", () => {
     expect(fit.groups[0]!.level).toBe("pauses");
     const plan = validateEditPlan(fit.plan);
     expect(plan.ok).toBe(true);
+  });
+
+  it("fit: the preview duration is exactly what applying its plan gives (energy refined)", async () => {
+    const fit = FitDurationPreviewSchema.parse(
+      (
+        await app.inject({
+          method: "POST",
+          url: url(API_ROUTES.scriptFit),
+          payload: { target_s: 45 },
+        })
+      ).json(),
+    );
+    const rec = (
+      await app.inject({
+        method: "POST",
+        url: "/api/console/plans",
+        payload: { projectId, plan: fit.plan },
+      })
+    ).json() as AgentPlanRecord;
+    expect(rec.ok, JSON.stringify(rec.unresolved)).toBe(true);
+    const confirmedIndexes = rec.resolved.map((_, i) => i);
+    const apply = await app.inject({
+      method: "POST",
+      url: API_ROUTES.agentApply,
+      payload: { planId: rec.id, confirmedIndexes },
+    });
+    expect(apply.statusCode, apply.body).toBe(202);
+    const { jobId } = apply.json() as { jobId: string };
+    let job: Job | undefined;
+    await waitFor(async () => {
+      job = (await app.inject({ url: `/api/jobs/${jobId}` })).json() as Job;
+      return ["succeeded", "failed", "canceled"].includes(job.status);
+    });
+    expect(job!.status, job!.error ?? "").toBe("succeeded");
+    const after = timelineDuration(app.ctx.repos.projects.get(projectId)!);
+    expect(Math.abs(after - fit.to_s)).toBeLessThan(0.002);
+    await app.inject({
+      method: "POST",
+      url: buildRoute(API_ROUTES.agentPlanUndo, { id: rec.id }),
+      payload: { force: true },
+    });
+    expect(timelineDuration(app.ctx.repos.projects.get(projectId)!)).toBeCloseTo(DURATION, 3);
   });
 
   it("SCRIPT_STALE when the timeline no longer matches the words", async () => {

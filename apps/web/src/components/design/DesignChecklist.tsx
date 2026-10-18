@@ -12,7 +12,8 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge, Tabs } from "@/components/ui/misc";
-import { api, errorMessage } from "@/lib/api";
+import { saveProjectNow } from "@/hooks/use-project-sync";
+import { errorMessage } from "@/lib/api";
 import { designApi } from "@/lib/api-design";
 import { useProjectStore } from "@/stores/project-store";
 import { KIT_TEXTS_ES } from "./texts";
@@ -33,8 +34,9 @@ export function DesignChecklist({ compact = false }: { compact?: boolean }) {
   const run = async (fix = false) => {
     setBusy(true);
     try {
-      // The api checks the stored project: save the local one first (best effort).
-      await api.saveProject(useProjectStore.getState().project).catch(() => undefined);
+      // The api checks the stored project: save the local one first (best effort), with the same
+      // helper as Guion and Sugerencias (local copy + save state; integration S6).
+      await saveProjectNow().catch(() => undefined);
       const r = await designApi.check(projectId, { aspect, fix });
       if (fix && r.project) {
         const fixed = ProjectSchema.parse(r.project);

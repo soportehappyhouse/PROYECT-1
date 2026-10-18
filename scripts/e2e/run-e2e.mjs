@@ -4275,7 +4275,16 @@ await step("sprint5: projects summary + rename + duplicate", async () => {
 // Centro de trabajos y errores: agent.eval with real progress (mocked planner, 0.2 s per command,
 // scripts/e2e/workers-with-mocks.py STUDIO_MOCK_AGENT_EVAL), cancel down to the worker task, and
 // the Spanish WORKERS_UNAVAILABLE of an api whose workers are off.
-const S5_WORKERS = opt("workers", "http://127.0.0.1:8001").replace(/\/+$/, "");
+// Integration S6: the workers the api uses (GET /api/health workers.url), not a fixed :8001
+// (M3 ran its workers on :8101 and these steps failed); --workers still wins.
+const S5_WORKERS = (
+  opt("workers", "") ||
+  (await fetch(`${API}/api/health`)
+    .then((r) => r.json())
+    .then((h) => h?.workers?.url)
+    .catch(() => undefined)) ||
+  "http://127.0.0.1:8001"
+).replace(/\/+$/, "");
 
 async function s5WorkerTask(area, taskId) {
   const res = await fetch(`${S5_WORKERS}/${area}/tasks/${taskId}`);

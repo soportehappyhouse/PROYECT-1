@@ -373,7 +373,7 @@ export function MotionPropsSection({ clip }: { clip: Clip }) {
         <p className="text-[11px] text-muted-foreground">
           {clip.renderedAssetId || clip.assetId
             ? "Renderizado: listo para exportar."
-            : "Sin renderizar: la vista previa es un fotograma. Renderizalo antes de exportar."}
+            : "Sin renderizar: la vista previa es un fotograma. Se renderiza solo al exportar (o tocá «Renderizar ahora»)."}
         </p>
         {templates.status === "ready" && !template ? (
           <p className="text-xs text-destructive">No encontré la plantilla de este gráfico.</p>

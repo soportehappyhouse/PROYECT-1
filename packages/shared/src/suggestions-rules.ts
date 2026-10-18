@@ -47,9 +47,10 @@ export const SUGGESTION_UI_ES = {
   analyzingTip: "Trabajo de fondo: nunca demora lo que pedís vos",
 } as const;
 
-/** «3,5» (one decimal, comma). */
+/** «3,5» / «−30» (one decimal, comma, typographic minus like the rest of the UI). */
 export function fmtNumEs(n: number, digits = 1): string {
-  return n.toFixed(digits).replace(".", ",").replace(/,0+$/, "");
+  const text = n.toFixed(digits).replace(".", ",").replace(/,0+$/, "");
+  return text === "-0" ? "0" : text.replace(/^-/, "\u2212");
 }
 
 /** «2:05» for seconds ≥ 60, «45 s» below. */

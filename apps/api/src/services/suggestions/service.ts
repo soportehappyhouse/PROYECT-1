@@ -118,8 +118,15 @@ export class SuggestionsService {
     return (asset.durationSec ?? 0) <= SUGGESTION_THRESHOLDS.long_video_s;
   }
 
-  /** Queue the analysis of `assetId` (manual = POST /api/media/:id/analyze: no auto limits). */
-  enqueueAnalysis(assetId: string, opts: { projectId?: string; force?: boolean } = {}): Job {
+  /**
+   * Queue the analysis of `assetId`. `manual` (POST /api/media/:id/analyze, «Analizar»): no auto
+   * limits and priority 0, so it runs before the automatic ones (−10) — still in the background
+   * lane, never in front of a job of another lane.
+   */
+  enqueueAnalysis(
+    assetId: string,
+    opts: { projectId?: string; force?: boolean; manual?: boolean } = {},
+  ): Job {
     const active = this.app.queue.activeJob("suggest.analyze", (p) => p.assetId === assetId);
     if (active && !opts.force) return active;
     return this.app.queue.enqueue({
@@ -129,7 +136,7 @@ export class SuggestionsService {
         ...(opts.projectId && { projectId: opts.projectId }),
         force: opts.force ?? false,
       },
-      priority: SUGGESTION_THRESHOLDS.background_priority,
+      priority: opts.manual ? 0 : SUGGESTION_THRESHOLDS.background_priority,
     });
   }
 

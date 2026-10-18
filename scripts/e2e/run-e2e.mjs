@@ -4644,6 +4644,186 @@ await step("sprint5: plan Reels desde horizontal propone reframe", async () => {
 
 // ---------------------------------------------------------------- report
 sse.controller.abort();
+// ---------------------------------------------------------------- BEGIN sprint6:M3
+/** Background lane idle (no suggest.analyze queued/running), so a timing is not polluted. */
+async function s6BackgroundIdle(timeoutMs = 120_000) {
+  const end = Date.now() + timeoutMs;
+  for (;;) {
+    const { json: jobs } = await api("GET", `/api/jobs?limit=500&type=suggest.analyze`);
+    const busy = (jobs ?? []).filter(
+      (j) => j.type === "suggest.analyze" && (j.status === "queued" || j.status === "running"),
+    );
+    if (!busy.length) return;
+    if (Date.now() > end) throw new Fail(`background lane busy: ${busy.length} analyses`);
+    await sleep(300);
+  }
+}
+
+/**
+ * C5 clip: 12 s video + speech-like tone at −30 LUFS with 3 digital silences (1.5 + 1 + 1 s =
+ * 3.5 s). `lufs` changes the level (−26 → the low-voice card brings it to −14 LUFS).
+ */
+async function s6SuggestClip(name, lufs = -30) {
+  const file = path.join(WORK, name);
+  const seg = (k, d) =>
+    k === "t"
+      ? ["-f", "lavfi", "-i", `sine=frequency=220:sample_rate=48000:duration=${d}`]
+      : ["-f", "lavfi", "-i", `anullsrc=r=48000:cl=mono:d=${d}`];
+  const parts = [
+    ["t", 2],
+    ["s", 1.5],
+    ["t", 2],
+    ["s", 1],
+    ["t", 2],
+    ["s", 1],
+    ["t", 2.5],
+  ];
+  // −7.6 dB on this tone pattern = −30.0 LUFS (measured with ebur128).
+  const gain = -7.6 + (lufs + 30);
+  await run(FFMPEG, [
+    "-y",
+    "-v",
+    "error",
+    "-f",
+    "lavfi",
+    "-i",
+    "color=c=0x202020:s=320x180:r=25:d=12",
+    ...parts.flatMap(([k, d]) => seg(k, d)),
+    "-filter_complex",
+    `${parts.map((_, i) => `[${i + 1}:a]`).join("")}concat=n=${parts.length}:v=0:a=1,volume=${gain}dB[a]`,
+    "-map",
+    "0:v",
+    "-map",
+    "[a]",
+    "-c:v",
+    "libx264",
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-b:a",
+    "192k",
+    "-shortest",
+    file,
+  ]);
+  return file;
+}
+
+/** Project with the clip on the video track (12 s). */
+async function s6Project(name, asset) {
+  const p = await ok("POST", "/api/projects", { name }, [201]);
+  const V = p.tracks.find((t) => t.kind === "video");
+  V.clips = [{ id: id("c"), trackId: V.id, assetId: asset.id, start: 0, in: 0, out: 12 }];
+  return ok("PUT", `/api/projects/${p.id}`, p);
+}
+
+async function s6Suggestions(projectId) {
+  return ok("GET", `/api/projects/${projectId}/suggestions`);
+}
+
+await step("sprint6: importar → 2 sugerencias en < 15 s", async () => {
+  await s6BackgroundIdle();
+  const file = await s6SuggestClip("s6-clip.mp4");
+  const t0 = Date.now();
+  const asset = await upload(file, "video/mp4");
+  const project = await s6Project("Sprint 6 sugerencias", asset);
+  let res;
+  for (;;) {
+    res = await s6Suggestions(project.id);
+    const kinds = res.suggestions.filter((s) => s.status === "open").map((s) => s.kind);
+    if (kinds.includes("silences") && kinds.includes("low_voice")) break;
+    assert(Date.now() - t0 < 15_000, `sin 2 tarjetas en 15 s: ${JSON.stringify(res)}`);
+    await sleep(250);
+  }
+  const ms = Date.now() - t0;
+  const jobs = (await ok("GET", `/api/jobs?limit=500&type=suggest.analyze`)).filter(
+    (j) => j.payload?.assetId === asset.id,
+  );
+  assert(jobs.length === 1, `suggest.analyze jobs: ${jobs.length}`);
+  const sil = res.suggestions.find((s) => s.kind === "silences");
+  const low = res.suggestions.find((s) => s.kind === "low_voice");
+  assert(sil.impact.count === 3, `silencios: ${JSON.stringify(sil.impact)}`);
+  assert(Math.abs(sil.impact.seconds_saved - 3.5) <= 0.2, `s: ${sil.impact.seconds_saved}`);
+  assert(Math.abs(low.impact.lufs + 30) <= 1, `LUFS ${low.impact.lufs}`);
+  ctx.s6 = { asset, project, sil, low };
+  return { ms, cards: res.suggestions.map((s) => s.title_es), lufs: low.impact.lufs };
+});
+
+await step("sprint6: transcribir no espera al análisis de fondo", async () => {
+  await s6BackgroundIdle();
+  const file = await s6SuggestClip("s6-clip-2.mp4", -28);
+  const asset = await upload(file, "video/mp4");
+  // the automatic analysis (mock: +2 s) is running in the background lane
+  let analysis;
+  const end = Date.now() + 20_000;
+  for (;;) {
+    const jobs = await ok("GET", `/api/jobs?limit=500&type=suggest.analyze`);
+    analysis = jobs.find((j) => j.payload?.assetId === asset.id && j.status === "running");
+    if (analysis) break;
+    assert(Date.now() < end, "suggest.analyze no arrancó");
+    await sleep(100);
+  }
+  const { jobId } = await ok("POST", "/api/subtitles/transcribe", {
+    assetId: asset.id,
+    language: "es",
+  });
+  let user;
+  for (;;) {
+    user = await ok("GET", `/api/jobs/${jobId}`);
+    if (user.status !== "queued") break;
+    await sleep(50);
+  }
+  const waitMs = Date.parse(user.startedAt) - Date.parse(user.createdAt);
+  const bg = await ok("GET", `/api/jobs/${analysis.id}`);
+  assert(waitMs <= 1000, `subtitles.transcribe esperó ${waitMs} ms`);
+  await waitJob(jobId, { timeoutMs: 120_000 }).catch(() => undefined); // Whisper may be missing
+  const done = await waitJob(analysis.id);
+  assert(done.status === "succeeded", `análisis ${done.status}: ${done.error}`);
+  return {
+    waitMs,
+    analysisWhileUser: bg.status,
+    transcribe: (await ok("GET", `/api/jobs/${jobId}`)).status,
+  };
+});
+
+await step("sprint6: aplicar sugerencia de silencios → plan aplicado + deshacer", async () => {
+  assert(ctx.s6, "falta el paso «importar → 2 sugerencias»");
+  const { project, sil } = ctx.s6;
+  const record = await ok(
+    "POST",
+    `/api/projects/${project.id}/suggestions/${sil.id}/plan`,
+    {},
+    [201],
+  );
+  assert(
+    record.ok && record.status === "proposed",
+    `plan: ${JSON.stringify(record).slice(0, 300)}`,
+  );
+  assert(record.plan.ops[0].op === "cut_silences", `op ${record.plan.ops[0].op}`);
+  const { jobId } = await ok("POST", "/api/agent/apply", { planId: record.id }, [202]);
+  await waitOk(jobId);
+  const after = await ok("GET", `/api/projects/${project.id}`);
+  const dur = (p) =>
+    Math.max(
+      0,
+      ...p.tracks.flatMap((t) => t.clips.map((c) => c.start + (c.out - c.in) / (c.speed ?? 1))),
+    );
+  assert(dur(after) < 12 - 2, `duración tras cortar: ${dur(after)}`);
+  let cards = await s6Suggestions(project.id);
+  assert(
+    cards.suggestions.find((s) => s.id === sil.id)?.status === "applied",
+    `tarjeta: ${cards.suggestions.find((s) => s.id === sil.id)?.status}`,
+  );
+  await ok("POST", `/api/agent/plans/${record.id}/undo`, {});
+  const back = await ok("GET", `/api/projects/${project.id}`);
+  assert(Math.abs(dur(back) - 12) < 0.05, `deshacer: ${dur(back)}`);
+  cards = await s6Suggestions(project.id);
+  const again = cards.suggestions.find((s) => s.id === sil.id)?.status;
+  assert(again === "open", `tarjeta tras deshacer: ${again}`);
+  return { before: 12, after: Number(dur(after).toFixed(2)), undo: Number(dur(back).toFixed(2)) };
+});
+// ------------------------------------------------------------------ END sprint6:M3
+
 const required = results.filter((r) => r.kind === "required");
 const failed = required.filter((r) => r.status === "FAIL");
 const report = {

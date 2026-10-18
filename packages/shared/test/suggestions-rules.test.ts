@@ -138,7 +138,7 @@ describe("suggestionsFromAnalysis — loudness", () => {
     expect(s.impact.gain_db).toBe(9);
     expect(s.impact.true_peak_db).toBe(-1);
     expect(s.plan.ops).toEqual([{ op: "set_volume", clip: { id: "c0" }, volume_db: 9 }]);
-    expect(s.title_es).toBe("La voz está baja (-30 LUFS)");
+    expect(s.title_es).toBe("La voz está baja (\u221230 LUFS)");
     expect(() => complete(s)).not.toThrow();
   });
 
@@ -171,7 +171,7 @@ describe("suggestionsFromAnalysis — loudness", () => {
     const out = suggestionsFromAnalysis(analysis({ true_peak_db: -0.5 }), project([full]), asset);
     expect(out.map((s) => s.kind)).toEqual(["clipping"]);
     expect(out[0]!.plan.ops).toEqual([{ op: "set_volume", clip: { id: "c0" }, volume_db: -0.5 }]);
-    expect(out[0]!.title_es).toBe("El audio satura (pico de -0,5 dBTP)");
+    expect(out[0]!.title_es).toBe("El audio satura (pico de \u22120,5 dBTP)");
   });
 
   it("silent file (no LUFS) gives no loudness card", () => {

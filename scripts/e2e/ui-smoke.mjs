@@ -2541,6 +2541,70 @@ await step("Sprint 5: Revisión para redes muestra Sonoridad y Formato", async (
 });
 // ------------------------------------------------------------------ END sprint5:M3
 
+// ---------------------------------------------------------------- BEGIN sprint6:M3
+await step("Sprint 6: tarjeta de voz baja → Aplicar → −14 LUFS en el plan", async () => {
+  if (!page.url().startsWith(WEB)) {
+    await page.goto(WEB, { waitUntil: "domcontentloaded" });
+    await timelineReady();
+  }
+  // 220 Hz tone at ≈ −26 LUFS (no silences): the card raises it ≈ +12 dB to −14 LUFS.
+  const video = await lavfiUpload("ui-s6-voz-baja.mp4", "color=c=0x202020:s=320x180:r=25:d=6", [
+    "-f",
+    "lavfi",
+    "-i",
+    "sine=frequency=220:sample_rate=48000:duration=6",
+    "-af",
+    "volume=-3.6dB",
+    "-c:v",
+    "libx264",
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-b:a",
+    "192k",
+    "-shortest",
+  ]);
+  const p = await apiSend("POST", "/api/projects", { name: "UI S6 voz baja" });
+  const V = p.tracks.find((t) => t.kind === "video");
+  V.clips = [{ id: "s6m3c", trackId: V.id, assetId: video.id, start: 0, in: 0, out: 6 }];
+  await apiSend("PUT", `/api/projects/${p.id}`, p);
+  // The automatic analysis (background lane) may still be queued behind earlier imports.
+  let low;
+  for (let i = 0; i < 120 && !low; i++) {
+    const res = await apiJson(`/api/projects/${p.id}/suggestions`);
+    low = res.suggestions?.find((s) => s.kind === "low_voice" && s.status === "open");
+    if (!low) await sleep(500);
+  }
+  if (!low) throw new Error("no low_voice card after 60 s");
+  await openProject(p.id);
+  const panel = await openAssistant();
+  const card = panel.locator("[data-testid='suggestion-card'][data-kind='low_voice']");
+  await card.waitFor({ timeout: 15_000 });
+  const text = (await card.textContent()) ?? "";
+  if (!/La voz está baja/.test(text) || !/−14 LUFS/.test(text)) throw new Error(`card: ${text}`);
+  const tip = await card.getByTestId("suggestion-apply").getAttribute("aria-label");
+  await card.getByTestId("suggestion-apply").click();
+  const plan = panel.getByTestId("agent-plan");
+  await plan.waitFor({ timeout: 15_000 });
+  const planText = (await plan.textContent()) ?? "";
+  const plans = await apiJson(`/api/agent/plans?projectId=${p.id}`);
+  const rec = plans.find((r) => r.warnings?.includes(`suggestion:${low.id}`));
+  const op = rec?.plan?.ops?.[0];
+  // AAC moves the level a few tenths: the gain lands near +12 dB and the target on −14 LUFS.
+  if (op?.op !== "set_volume" || op.volume_db < 10 || op.volume_db > 12)
+    throw new Error(`plan op: ${JSON.stringify(op)}`);
+  if (Math.abs(low.impact.target_lufs + 14) > 0.15)
+    throw new Error(`target: ${low.impact.target_lufs}`);
+  return {
+    card: text.slice(0, 120),
+    tip,
+    plan: planText.slice(0, 120),
+    shot: await shot(page, "s6-sugerencia-voz-baja.png"),
+  };
+});
+// ------------------------------------------------------------------ END sprint6:M3
+
 await browser.close();
 console.log(
   `\nconsole errors (${consoleErrors.length}):`,

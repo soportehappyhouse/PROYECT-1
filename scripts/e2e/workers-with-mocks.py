@@ -417,6 +417,29 @@ if MOCK_AGENT_EVAL:
     _m1_agent_router.make_planner = _m1_mock_make_planner
 # --------------------------------------------------------------- END sprint5:M1
 
+# ------------------------------------------------------------- BEGIN sprint6:M3
+# STUDIO_MOCK_SUGGEST_DELAY (seconds, default 2; 0 turns it off): /analyze/suggest waits that long
+# (in 0.1 s steps that honor the cancel, like the real per-second check) before the REAL one-pass
+# ffmpeg analysis, so run-e2e can check that a user job never waits for a background analysis.
+_S6M3_DELAY_S = float(os.environ.get("STUDIO_MOCK_SUGGEST_DELAY", "2"))
+if _S6M3_DELAY_S > 0:
+    import time as _s6m3_time
+
+    from studio_workers.routers import analyze as _s6m3_router
+
+    _s6m3_real = _s6m3_router.analyze_for_suggestions
+
+    def _s6m3_slow(path, *, task=None, **kw):  # type: ignore[no-untyped-def]
+        end = _s6m3_time.monotonic() + _S6M3_DELAY_S
+        while _s6m3_time.monotonic() < end:
+            if task is not None:
+                task.check_canceled()
+            _s6m3_time.sleep(0.1)
+        return _s6m3_real(path, task=task, **kw)
+
+    _s6m3_router.analyze_for_suggestions = _s6m3_slow
+# --------------------------------------------------------------- END sprint6:M3
+
 settings = get_settings()
 uvicorn.run(
     with_agent_mock(app) if MOCK_AGENT else app,

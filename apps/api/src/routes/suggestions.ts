@@ -67,6 +67,7 @@ export const suggestionRoutes: FastifyPluginAsync = async (app) => {
     const job = svc.enqueueAnalysis(asset.id, {
       ...(body.projectId && { projectId: body.projectId }),
       force: body.force,
+      manual: true,
     });
     return reply.code(202).send({ jobId: job.id });
   });

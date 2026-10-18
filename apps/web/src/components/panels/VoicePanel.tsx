@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  GLOSSARY_ES,
   CHATTERBOX_MAX_TEXT,
   CHATTERBOX_PACK_ID,
   SELF_VOICE_PROMPT_ES,
@@ -45,7 +46,7 @@ import {
   type EditableEffectType,
 } from "@/lib/voice-effects";
 import { warnIfCpu } from "@/lib/gpu-preflight";
-import { formatMb, withPiperCatalog } from "@/lib/voices";
+import { formatMb, voiceDisplayName, withPiperCatalog } from "@/lib/voices";
 import { useJobsStore } from "@/stores/jobs-store";
 import { runWithPack, usePacksStore } from "@/stores/packs-store";
 import { useProjectStore } from "@/stores/project-store";
@@ -65,8 +66,6 @@ import {
   type CloneSource,
 } from "@/stores/voice-clone-store";
 import { Panel } from "./Panel";
-
-type Tab = "tts" | "effects" | "rvc";
 
 /** Model pack with the 7 extra Spanish Piper voices (models/packs.json). */
 const VOICES_PACK_ID = "voces-es";
@@ -452,7 +451,23 @@ function ChatterboxOptions({ text }: { text: string }) {
   );
 }
 
-function TtsForm() {
+/** Sprint 6 M2 (H20): one «¿Qué voz?» picker; the engine only shows inside the chosen option. */
+export type VoiceChoice = "mine" | "studio" | "convert";
+export const VOICE_CHOICES: readonly { value: VoiceChoice; label: string; help: string }[] = [
+  {
+    value: "mine",
+    label: "Mis voces",
+    help: "Tu voz o la de una Persona con consentimiento (clonación local).",
+  },
+  { value: "studio", label: "Voces de Studio", help: "Voces listas para leer un texto." },
+  {
+    value: "convert",
+    label: "Convertir mi grabación",
+    help: "Cambia la voz de un audio que ya grabaste.",
+  },
+];
+
+function TtsForm({ mode = "studio" }: { mode?: "mine" | "studio" }) {
   const config = useApiResource(() => api.config());
   const voices = useApiResource(() => api.ttsVoices());
   const providers = useVoiceCloneStore((s) => s.providers);
@@ -550,6 +565,16 @@ function TtsForm() {
     }
   };
 
+  // «Mis voces» always uses the local cloning engine.
+  useEffect(() => {
+    if (mode === "mine" && provider !== "chatterbox") {
+      useVoiceCloneStore.getState().setProvider("chatterbox");
+      void useVoiceCloneStore.getState().loadPersons();
+      void useVoiceCloneStore.getState().loadSelfRefs();
+    }
+  }, [mode, provider]);
+  const hiddenEngines = (["elevenlabs", "openai"] as const).filter((p) => !providerEnabled[p]);
+
   const tooLong = isChatterbox && textTooLong(text);
   const canSubmit = isChatterbox
     ? Boolean(chatterbox?.installed) && !tooLong
@@ -557,32 +582,43 @@ function TtsForm() {
 
   return (
     <div className="flex flex-col gap-2">
-      <Label>
-        Motor
-        <Select
-          aria-label="Motor"
-          value={provider}
-          onChange={(e) => {
-            const next = e.target.value as TtsProvider;
-            useVoiceCloneStore.getState().setProvider(next);
-            if (next === "chatterbox") {
-              void useVoiceCloneStore.getState().loadPersons();
-              void useVoiceCloneStore.getState().loadSelfRefs();
-            }
-          }}
-        >
-          <option value="piper">Piper (local, rápido)</option>
-          <option value="chatterbox">
-            Chatterbox (local, GPU){chatterbox?.installed ? "" : " — falta paquete"}
-          </option>
-          <option value="elevenlabs" disabled={!providerEnabled.elevenlabs}>
-            ElevenLabs{providerEnabled.elevenlabs ? "" : " (sin API key)"}
-          </option>
-          <option value="openai" disabled={!providerEnabled.openai}>
-            OpenAI{providerEnabled.openai ? "" : " (sin API key)"}
-          </option>
-        </Select>
-      </Label>
+      {mode === "studio" ? (
+        <Label>
+          Motor
+          <Select
+            aria-label="Motor"
+            value={provider}
+            onChange={(e) => {
+              const next = e.target.value as TtsProvider;
+              useVoiceCloneStore.getState().setProvider(next);
+              if (next === "chatterbox") {
+                void useVoiceCloneStore.getState().loadPersons();
+                void useVoiceCloneStore.getState().loadSelfRefs();
+              }
+            }}
+          >
+            <option value="piper">Rápida (local)</option>
+            <option value="chatterbox">
+              Natural (local, con placa de video){chatterbox?.installed ? "" : " — falta paquete"}
+            </option>
+            {/* Engines without a key are hidden (listed in «Avanzado»). */}
+            {providerEnabled.elevenlabs ? (
+              <option value="elevenlabs">ElevenLabs (en la nube)</option>
+            ) : null}
+            {providerEnabled.openai ? <option value="openai">OpenAI (en la nube)</option> : null}
+          </Select>
+        </Label>
+      ) : null}
+      {mode === "studio" && hiddenEngines.length > 0 ? (
+        <details className="studio-advanced" data-testid="voice-advanced">
+          <summary>{GLOSSARY_ES.actions.advanced}</summary>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Voces en la nube sin clave configurada:{" "}
+            {hiddenEngines.map((p) => (p === "elevenlabs" ? "ElevenLabs" : "OpenAI")).join(", ")}.
+            Se activan cuando agregás su clave al configurar Studio.
+          </p>
+        </details>
+      ) : null}
       {isChatterbox && !chatterbox?.installed ? (
         <div
           className="flex flex-col gap-1 rounded-md border p-2 text-xs"
@@ -624,7 +660,7 @@ function TtsForm() {
             {installed.length === 0 ? <option value="">Sin voces instaladas</option> : null}
             {installed.map((v) => (
               <option key={v.id} value={v.id}>
-                {v.name} · {v.language}
+                {voiceDisplayName(v.name)} · {v.language}
               </option>
             ))}
           </Select>
@@ -647,7 +683,7 @@ function TtsForm() {
           value={text}
           maxLength={20_000}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Escribe lo que quieres que diga la voz…"
+          placeholder="Escribí lo que querés que diga la voz…"
         />
       </Label>
       {isChatterbox ? (
@@ -1009,7 +1045,7 @@ function RvcForm() {
 
   return (
     <div className="flex flex-col gap-2">
-      <SelectedClipHint sel={sel} need="Selecciona un clip con voz en la línea de tiempo." />
+      <SelectedClipHint sel={sel} need="Elegí un clip con voz en la línea de tiempo." />
       {models.status === "not-implemented" ? (
         <NotImplementedNotice what="La lista de modelos RVC" />
       ) : null}
@@ -1039,36 +1075,41 @@ function RvcForm() {
           onChange={(e) => setPitchShift(Number(e.target.value))}
         />
       </Label>
-      <Label>
-        Índice de rasgos: {indexRate.toFixed(2)}
-        <Range
-          min={0}
-          max={1}
-          step={0.05}
-          value={indexRate}
-          onChange={(e) => setIndexRate(Number(e.target.value))}
-        />
-      </Label>
-      <Label>
-        Método F0
-        <Select
-          value={f0Method}
-          onChange={(e) => setF0Method(e.target.value as RvcRequest["f0Method"])}
-        >
-          <option value="rmvpe">rmvpe (recomendado)</option>
-          <option value="harvest">harvest</option>
-          <option value="pm">pm (rápido)</option>
-          <option value="crepe">crepe</option>
-        </Select>
-      </Label>
-      <label className="flex items-center gap-2 text-xs">
-        <Checkbox
-          checked={useCuda}
-          disabled={!config.data?.useCuda}
-          onChange={(e) => setUseCuda(e.target.checked)}
-        />
-        Usar GPU (CUDA){config.data?.useCuda ? "" : " — no disponible"}
-      </label>
+      <details className="studio-advanced" data-testid="rvc-advanced">
+        <summary>{GLOSSARY_ES.actions.advanced}</summary>
+        <div className="mt-2 flex flex-col gap-2">
+          <Label>
+            Índice de rasgos: {indexRate.toFixed(2)}
+            <Range
+              min={0}
+              max={1}
+              step={0.05}
+              value={indexRate}
+              onChange={(e) => setIndexRate(Number(e.target.value))}
+            />
+          </Label>
+          <Label>
+            Cómo detecta el tono
+            <Select
+              value={f0Method}
+              onChange={(e) => setF0Method(e.target.value as RvcRequest["f0Method"])}
+            >
+              <option value="rmvpe">rmvpe (recomendado)</option>
+              <option value="harvest">harvest</option>
+              <option value="pm">pm (rápido)</option>
+              <option value="crepe">crepe</option>
+            </Select>
+          </Label>
+          <label className="flex items-center gap-2 text-xs">
+            <Checkbox
+              checked={useCuda}
+              disabled={!config.data?.useCuda}
+              onChange={(e) => setUseCuda(e.target.checked)}
+            />
+            Usar la placa de video{config.data?.useCuda ? "" : " — no disponible"}
+          </label>
+        </div>
+      </details>
       <Button
         size="sm"
         disabled={busy || !hasAudio(sel) || !model || !ai.enabled}
@@ -1082,20 +1123,41 @@ function RvcForm() {
 }
 
 export function VoicePanel() {
-  const [tab, setTab] = useState<Tab>("tts");
+  const [tab, setTab] = useState<"voice" | "effects">("voice");
+  const [choice, setChoice] = useState<VoiceChoice>("studio");
+  const help = VOICE_CHOICES.find((c) => c.value === choice)?.help;
   return (
-    <Panel title="Voz y audio">
+    <Panel title={GLOSSARY_ES.panels.voice}>
       <div className="flex flex-col gap-3">
         <Tabs
           value={tab}
           onChange={setTab}
           items={[
-            { value: "tts", label: "Texto a voz" },
+            { value: "voice", label: "Voz" },
             { value: "effects", label: "Efectos" },
-            { value: "rvc", label: "RVC" },
           ]}
         />
-        {tab === "tts" ? <TtsForm /> : tab === "effects" ? <EffectsForm /> : <RvcForm />}
+        {tab === "voice" ? (
+          <>
+            <div
+              role="radiogroup"
+              aria-label="¿Qué voz?"
+              className="flex flex-col gap-1"
+              data-testid="voice-picker"
+            >
+              <span className="text-xs font-medium text-muted-foreground">¿Qué voz?</span>
+              <Tabs<VoiceChoice>
+                value={choice}
+                onChange={setChoice}
+                items={VOICE_CHOICES.map(({ value, label }) => ({ value, label }))}
+              />
+              {help ? <span className="text-[11px] text-muted-foreground">{help}</span> : null}
+            </div>
+            {choice === "convert" ? <RvcForm /> : <TtsForm key={choice} mode={choice} />}
+          </>
+        ) : (
+          <EffectsForm />
+        )}
       </div>
     </Panel>
   );

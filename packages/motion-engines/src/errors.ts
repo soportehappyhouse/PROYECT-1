@@ -13,7 +13,10 @@ export class MotionEngineError extends Error {
 export class MotionEngineNotImplementedError extends MotionEngineError {
   override readonly code = "NOT_IMPLEMENTED";
   constructor(engineId: string, what = "render") {
-    super(`Motion engine "${engineId}" does not implement ${what} yet`, engineId);
+    super(
+      `El motor de animación «${engineId}» todavía no permite ${what === "render" ? "renderizar" : what}.`,
+      engineId,
+    );
     this.name = "MotionEngineNotImplementedError";
   }
 }
@@ -21,7 +24,7 @@ export class MotionEngineNotImplementedError extends MotionEngineError {
 export class UnknownMotionEngineError extends MotionEngineError {
   override readonly code = "UNKNOWN_ENGINE";
   constructor(engineId: string) {
-    super(`Unknown motion engine "${engineId}"`, engineId);
+    super(`No conozco el motor de animación «${engineId}».`, engineId);
     this.name = "UnknownMotionEngineError";
   }
 }

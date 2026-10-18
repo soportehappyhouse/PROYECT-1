@@ -84,9 +84,10 @@ export class MotionEngineRegistry {
         id: engine.id,
         displayName: engine.displayName,
         capabilities: engine.capabilities(),
-        ...(await engine
-          .checkAvailable()
-          .catch((err: unknown) => ({ ok: false, reason: String(err) }))),
+        ...(await engine.checkAvailable().catch((err: unknown) => ({
+          ok: false,
+          reason: err instanceof Error ? err.message : String(err),
+        }))),
       })),
     );
   }

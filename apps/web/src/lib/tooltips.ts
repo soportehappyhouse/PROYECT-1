@@ -68,6 +68,21 @@ export const TIPS = {
   // Keyframes
   kfCopy: "Copiar los keyframes del clip",
   kfPaste: "Pegar los keyframes copiados a partir del cursor",
+  // Sprint 6 M2: kit de marca, diseño y gráficos
+  kitCalibrate: "Subí una captura de tu teléfono y ajustá la zona segura a los botones de la app",
+  kitResetToken: "Volver al valor del kit de marca (tipografía o color del canal)",
+  designCheck: "Revisar las 10 reglas de diseño de subtítulos y títulos del proyecto",
+  designFix: "Arreglar solas las reglas que se corrigen automáticamente (un paso de deshacer)",
+  motionRenderNow: "Hacer el video del gráfico ahora (hace falta para exportar)",
+  engineFix: "Ver qué hacer para que el motor de animación funcione",
+  // Sprint 6 M3 (pedido cruzado de modulo-sprint6-sugerencias.md)
+  suggestionApply:
+    "Armar el plan de esta sugerencia para revisarlo y aplicarlo (se puede deshacer)",
+  suggestionDismiss: "Ocultar esta sugerencia; el video no cambia",
+  suggestionMute: "No sugerir más este tipo de arreglo (se reactiva en Ajustes)",
+  suggestionStale: "El clip cambió desde el análisis: volvé a analizarlo para actualizarla",
+  suggestionEvidence: "Ver en la línea de tiempo dónde está lo que encontró el análisis",
+  mediaUnreadableRemove: "Quitar este medio: Studio no pudo leer el archivo",
 } as const satisfies Record<string, string>;
 
 export type TipKey = keyof typeof TIPS;

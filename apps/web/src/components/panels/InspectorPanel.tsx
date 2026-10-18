@@ -14,6 +14,7 @@ import { effectSummary } from "@/lib/voice-effects";
 import { useMediaStore } from "@/stores/media-store";
 import { useProjectStore } from "@/stores/project-store";
 import { assetMeta } from "./MediaPanel";
+import { MotionPropsSection, templateNameEs } from "@/components/design/MotionForm";
 import { Panel } from "./Panel";
 import { LayerSection } from "./LayerSection";
 import { KeyframesSection, MatteSection, ReframeSection, TrackingSection } from "./VisionSections";
@@ -404,7 +405,9 @@ export function InspectorPanel() {
         <div className="flex items-center gap-2">
           <Badge>{TRACK_KIND_LABELS[track.kind]}</Badge>
           <span className="truncate text-xs font-medium">
-            {asset?.name ?? clip.text ?? clip.motion?.template ?? "Clip"}
+            {asset?.name ??
+              clip.text ??
+              (clip.motion ? templateNameEs(clip.motion.template) : "Clip")}
           </span>
           <Button
             size="icon-sm"
@@ -421,6 +424,8 @@ export function InspectorPanel() {
             <Trash2 />
           </Button>
         </div>
+        {/* Sprint 6 M2 (H13): the template form lives here, with a still preview. */}
+        {track.kind === "motion" && clip.motion ? <MotionPropsSection clip={clip} /> : null}
         <Section title="Tiempo">
           <div className="grid grid-cols-2 gap-2">
             <NumberField
@@ -581,19 +586,6 @@ export function InspectorPanel() {
                 </Select>
               </Label>
             </div>
-          </Section>
-        ) : null}
-
-        {track.kind === "motion" && clip.motion ? (
-          <Section title="Motion">
-            <p className="text-xs">
-              {clip.motion.template} · {clip.motion.engine ?? "auto"} · {clip.motion.format}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {clip.renderedAssetId || clip.assetId
-                ? "Renderizado"
-                : "Sin renderizar — usa el panel Motion graphics"}
-            </p>
           </Section>
         ) : null}
 

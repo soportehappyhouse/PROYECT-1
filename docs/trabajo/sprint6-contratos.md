@@ -241,13 +241,14 @@ export const BrandKitSchema = z.object({ id: z.literal("default"), name: z.strin
   calibration: z.object({ aspect: DesignAspectSchema, screenshot_asset_id: IdSchema.optional(),
     calibrated_at: TimestampSchema }).strict().optional(),
   updated_at: TimestampSchema.optional() }).strict()
-export const BrandKitUpdateSchema = BrandKitSchema.omit({ id, updated_at }).partial().strict()   // PUT: reemplaza lo enviado
+export const BrandKitUpdateSchema = z.object({ name?, logo_asset_id?, logo_position?, logo_opacity?, logo_scale_pct?,
+  tokens?, calibration? }).strict()   // PUT: reemplaza solo lo enviado, sin defaults
 export const DEFAULT_BRAND_KIT: BrandKit   // name «Mi canal», sin logo, tokens por defecto
 export const DESIGN_RULE_IDS = ["caption.max_lines","caption.chars_per_line","caption.min_size",
   "caption.outline_or_box","caption.contrast","caption.safe_zone","caption.timing",
   "title.safe_zone","title.duration","brand.consistency"] as const;     // exactamente 10 (criterio C2)
 export const DesignRuleSeveritySchema = z.enum(["hard", "guide"])
-export const DESIGN_RULES: readonly { id; severity; label_es; help_es }[]   // 7 hard (caption.* + title.safe_zone), 3 guide
+export const DESIGN_RULES: readonly { id; severity; label_es; help_es }[]   // 8 hard (caption.* + title.safe_zone), 2 guide
 export const DesignIssueSchema = z.object({ rule: z.enum(DESIGN_RULE_IDS), severity,
   target: z.object({ kind: z.enum(["caption","motion","text"]), clipId: IdSchema.optional(),
     segmentIndex: z.number().int().nonnegative().optional(), t_s: SecondsSchema.optional() }).strict(),
@@ -305,7 +306,7 @@ export const ScriptCutsRequestSchema = z.object({ wordIds: z.array(z.string()).m
   fillers: FillerLevelSchema.or(z.literal("all")).optional(), shortenLongPauses: z.boolean().optional(),
   avoidHarsh: z.boolean().default(true) }).strict().refine(algo)       // al menos uno
 export const ScriptCutSchema = z.object({ start, end /* línea de tiempo */, fade_ms: int 0..30,
-  reason: z.enum(["words","filler","pause","sentence"]), skipped_harsh: z.boolean().optional() }).strict()
+  reason: z.enum(["words","filler","pause","sentence"]) }).strict()   // los omitidos van en `skipped`
 export const ScriptCutsResponseSchema = z.object({ cuts: z.array(ScriptCutSchema), removed_s: number,
   skipped: z.array(z.object({ wordId: z.string(), reason_es: z.string() })) })
 export const FitLevelSchema = z.enum(["pauses","fillers_safe","fillers_other","sentences","speed"])
@@ -353,6 +354,9 @@ export const SuggestionSettingsSchema = z.object({ enabled: z.boolean().default(
   mutedKinds: z.array(SuggestionKindSchema).default([]) }).strict()
 export const SuggestAnalyzePayloadSchema = z.object({ assetId: IdSchema, projectId: IdSchema.optional(),
   force: z.boolean().default(false) }).strict()
+export const MediaAnalyzeRequestSchema = SuggestAnalyzePayloadSchema.omit({ assetId })   // body de POST /api/media/:id/analyze
+export const WorkerSuggestAnalyzeResultSchema = z.object({ duration_s, noise_floor_db, silence_threshold_db,
+  silences: [number, number][] /* s de fuente */, lufs_i, lra, true_peak_db: number|null })
 export const WorkerSuggestAnalyzeRequestSchema = z.object({ input_path: z.string(), job_id: z.string().optional(),
   silence_min_ms: int = 500, silence_rel_db: number = 9, priority: z.number().int().default(5) }).strict()
 // (M3 implementa en suggestions-rules.ts:) suggestionsFromAnalysis(analysis, project, asset): ImportSuggestion[] (sin id/fechas)
@@ -419,8 +423,8 @@ FixTextOpSchema      { op:"fix_text", find: string 1..200, replace: string 0..20
 //   script.deleteWordsAlt Backspace «Igual que Supr»
 //   script.deselect     Escape     «Quita la selección de palabras»
 //   script.removeSafe   Shift+M    «Quita todas las muletillas seguras (un paso de deshacer)»
-//   script.nextFiller   N          «Salta a la siguiente muletilla o pausa larga»
-//   script.prevFiller   Shift+N    «Vuelve a la muletilla o pausa anterior»
+//   script.nextFiller   Period (.) «Salta a la siguiente muletilla o pausa larga»   (N ya es el imán)
+//   script.prevFiller   Comma (,)  «Vuelve a la muletilla o pausa larga anterior»
 //   script.fixWord      F2         «Corrige el texto de la palabra elegida sin mover los tiempos»
 // No se agregan a Ajustes → Atajos en este sprint (fijos; los documenta el panel y el manual).
 ```
@@ -503,7 +507,7 @@ clic = mover el cabezal; arrastre o Mayús+clic = rango; `Supr` = `POST cuts` �
 local (todas las pistas sin bloquear, subtítulos corridos, `audioFade` en los empalmes) en **un** paso de
 deshacer; resaltado: muletilla segura (fondo ámbar), probable (subrayado ámbar), dudosa (subrayado
 punteado gris), pausa larga (chip «0,9 s»), palabra corregida (borde punteado), corte brusco omitido (⚠);
-barra: «Quitar seguras (8)», «Revisar dudosas (4)» (N/Mayús+N), «Acortar pausas largas (9)», campo
+barra: «Quitar seguras (8)», «Revisar dudosas (4)» (`.` / `,`), «Acortar pausas largas (9)», campo
 «Dejalo en __ s» → vista previa (grupos destildables) → «Aplicar» (pasa por el Asistente como plan, queda
 en el historial y «Deshacer todo»). `F2`/doble clic: corregir palabra o frase (`fixWords`). Contador en
 vivo («23 pausas > 0,6 s»). Estado vacío: «Transcribí el video para editarlo como texto» + botón
@@ -737,7 +741,7 @@ ffmpeg en «debajo de lo normal» en el Administrador de tareas); piso de ruido 
 - `fontsdir=` en el filtro: ruta absoluta con `escape.ts` (los `:` de `C:\` y `\` rompen el parseo).
 - `BELOW_NORMAL_PRIORITY_CLASS` (`0x4000`) en `creationflags` del ffmpeg de fondo; matar el árbol con
   `taskkill /T /F` (gancho ya existente).
-- Atajos del Guion: `F2` y `Mayús+M` no los reserva Chrome/Edge; `Supr`/`Retroceso` se cortan en el
+- Atajos del Guion: `F2`, `Mayús+M`, `.` y `,` no los reserva Chrome/Edge; `Supr`/`Retroceso` se cortan en el
   panel (no navegan atrás).
 - Capturas de calibración: PNG/JPG del teléfono pasadas por USB/WhatsApp; se escalan al lienzo 9:16.
 
@@ -746,3 +750,23 @@ ffmpeg en «debajo de lo normal» en el Administrador de tareas); piso de ruido 
 - Sugerencias de escenas, reencuadre por cara y subtítulos; tarjeta «Quitar muletillas» → S7.
 - Lista de muletillas editable en Ajustes y por hablante; WhisperX si la medición de tiempos falla.
 - Exportación DTCG del kit a Figma/Tokens Studio (función opcional de M2).
+
+## Paso 0 — qué quedó en código (2026-10-18)
+
+- `packages/shared/src/{design,script,suggestions}.ts` (nuevos) y aditivos en `agent.ts` (3 ops,
+  `EDIT_OP_NAMES` = 26), `ai.ts` (`ApplyCutsRequest.mode/joinFadeMs`, áreas `transcribe`/`analyze`),
+  `api.ts` (15 rutas, `SPRINT6_ERRORS`, `SPRINT6_WARNINGS`, `SPRINT6_MODULES`), `job.ts`
+  (`script.transcribe`, `suggest.analyze`), `subtitles.ts`, `timeline.ts` (`Clip.audioFade`,
+  `PROJECT_CANVAS_MAX` = 8192), `style.ts` (`use_brand_kit`), `texts-es.ts`, `hotkeys.ts`
+  (`SCRIPT_HOTKEYS`, `SCRIPT_INTERCEPTED_KEYS`; `HOTKEYS` sigue con 32). JSON Schemas exportados.
+- api: carril `background` (límite 1) en `jobs/{types,queue,state}.ts`; `routes/{script,design,
+  suggestions}.ts` con 501 `NOT_IMPLEMENTED` (`lib/errors.ts` `sprint6NotImplemented`); `case` de
+  las 3 ops en `resolve.ts` (pregunta «Todavía no está disponible (M1 Guion)») y en
+  `handlers/agent.ts`; etiquetas de jobs y ops (api y web); `hotkeyPolicy` acepta el scope `script`.
+- workers: `task_schema.py` (`SttWordsRequest`, `ScriptAudio`, `SuggestAnalyzeRequest`,
+  `SuggestAnalyzeResult`, `TASK_PRIORITY_*`, `SPRINT6_TASKS`), `errors.py` (`not_implemented`, 501),
+  stubs `/transcribe/words|tasks/{id}|cancel` (bloque `sprint6:M1`) y `/analyze/suggest|tasks/{id}|cancel`
+  (bloque `sprint6:M3`); `scripts/agent/validate-dataset.py` con `PENDING_OPS` (M1 lo vacía).
+- Tests: shared `sprint6-contracts.test.ts` (13), api `sprint6-stubs.test.ts` (18) + 1 caso en
+  `agent-resolve.test.ts`, workers `test_task_schema_sprint6.py` (11).
+- Sin dependencias nuevas.

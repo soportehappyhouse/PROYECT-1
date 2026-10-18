@@ -41,6 +41,9 @@ export const OP_LABELS: Record<EditOpKind, string> = {
   export: "Exportar",
   report_bug: "Reportar error",
   face_swap: "Cambiar cara",
+  delete_words: "Borrar palabras del guion",
+  fit_duration: "Ajustar duración",
+  fix_text: "Corregir texto",
 };
 
 export function opLabel(op: Pick<EditOp, "op">): string {

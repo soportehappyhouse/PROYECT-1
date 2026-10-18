@@ -3,12 +3,12 @@ import threading
 from fastapi import APIRouter
 
 from ..config import get_settings
-from ..errors import NotFoundError, require_module
+from ..errors import NotFoundError, not_implemented, require_module
 from ..progress import registry
 from ..schemas import TranscribeRequest, Transcript, TranscriptFiles
 from ..services import whisper_engine
 from ..stt.formats import write_all
-from ..task_schema import TranscribeCancelRequest
+from ..task_schema import SPRINT6_MODULES, SttWordsRequest, TranscribeCancelRequest
 from ..tasks import TaskCanceled
 
 router = APIRouter(tags=["transcribe"])
@@ -85,3 +85,24 @@ def transcribe_cancel(req: TranscribeCancelRequest) -> dict[str, bool]:
         return {"stopped": False}
     event.set()
     return {"stopped": True}
+
+
+# BEGIN sprint6:M1 (Paso 0 stubs: M1 Guion replaces them with the stt.words task of the
+# ``transcribe`` TaskQueue area; docs/trabajo/sprint6-contratos.md)
+@router.post("/transcribe/words")
+def transcribe_words(req: SttWordsRequest) -> dict[str, str]:
+    """Word-level transcription without VAD + audio gaps -> ``{task_id}``."""
+    raise not_implemented(SPRINT6_MODULES["M1"])
+
+
+@router.get("/transcribe/tasks/{task_id}")
+def transcribe_task(task_id: str) -> dict[str, str]:
+    raise not_implemented(SPRINT6_MODULES["M1"])
+
+
+@router.post("/transcribe/tasks/{task_id}/cancel")
+def transcribe_task_cancel(task_id: str) -> dict[str, str]:
+    raise not_implemented(SPRINT6_MODULES["M1"])
+
+
+# END sprint6:M1

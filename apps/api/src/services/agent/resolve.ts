@@ -3,6 +3,8 @@ import {
   CAPTION_STYLE_PRESETS,
   FACE_SWAPPER_INFO,
   FEATURE_PACKS,
+  formatErrorEs,
+  SPRINT6_MODULES,
   VOICE_EFFECT_PRESETS,
   type BaseClipRef,
   type Clip,
@@ -680,6 +682,14 @@ function resolveInner(op: EditOp, ctx: Ctx): Out {
     }
     case "report_bug":
       return { op, preview: `Redactar reporte de error «${op.title.slice(0, 60)}»`, risks };
+    // BEGIN sprint6:M1 (Paso 0 stub: M1 Guion replaces these cases)
+    case "delete_words":
+    case "fit_duration":
+    case "fix_text":
+      throw new Unresolved(
+        `«${TITLES[op.op]}»: ${formatErrorEs("NOT_IMPLEMENTED", { modulo: SPRINT6_MODULES.M1 })}`,
+      );
+    // END sprint6:M1
     case "face_swap": {
       const l = resolveClip(op.clip, ctx, {
         what: "para cambiar la cara",
@@ -862,6 +872,9 @@ const TITLES: Record<EditOp["op"], string> = {
   export: "Exportar",
   report_bug: "Reportar error",
   face_swap: "Cambiar cara",
+  delete_words: "Borrar palabras",
+  fit_duration: "Ajustar duración",
+  fix_text: "Corregir texto",
 };
 
 export const opTitle = (op: Pick<EditOp, "op">) => TITLES[op.op] ?? op.op;

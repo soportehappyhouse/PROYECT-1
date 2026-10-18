@@ -144,6 +144,9 @@ export const WORKER_TASK_ROUTES = {
   perf: "/perf/tasks/:id",
   packs: "/packs/tasks/:id",
   face: "/face/tasks/:id",
+  // Sprint 6: M1 stt.words (/transcribe/words) and M3 suggest.analyze (/analyze/suggest).
+  transcribe: "/transcribe/tasks/:id",
+  analyze: "/analyze/tasks/:id",
 } as const;
 export type WorkerTaskArea = keyof typeof WORKER_TASK_ROUTES;
 export const workerTaskCancelRoute = (area: WorkerTaskArea) =>
@@ -352,6 +355,14 @@ export const ApplyCutsRequestSchema = z.object({
   projectId: IdSchema,
   clipId: IdSchema,
   cuts: z.array(CutRangeSchema).min(1),
+  /**
+   * Sprint 6 M1: "clip" (default) = cuts in source seconds of `clipId`; "timeline" = cuts in
+   * timeline seconds, rippled on every unlocked track (like rippleDelete with syncTrackId =
+   * the track of `clipId`) and the subtitles.
+   */
+  mode: z.enum(["clip", "timeline"]).default("clip"),
+  /** Sprint 6 M1: short audio fade at each join (Clip.audioFade), no overlap. */
+  joinFadeMs: z.int().min(0).max(30).optional(),
 });
 export type ApplyCutsRequest = z.infer<typeof ApplyCutsRequestSchema>;
 

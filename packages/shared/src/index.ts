@@ -32,3 +32,6 @@ export * from "./projects.js";
 export * from "./job-progress.js";
 export * from "./audio-mix.js";
 export * from "./aspect.js";
+export * from "./design.js";
+export * from "./script.js";
+export * from "./suggestions.js";

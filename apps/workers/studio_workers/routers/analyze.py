@@ -5,10 +5,11 @@ from fastapi import APIRouter
 
 from ..analyze import Word, detect_scenes, plan_cuts, run_silencedetect, words_from_transcript
 from ..config import Settings, get_settings
-from ..errors import NotFoundError
+from ..errors import NotFoundError, not_implemented
 from ..packs import module_present
 from ..schemas import ScenesRequest, SilencesRequest
 from ..services import whisper_engine
+from ..task_schema import SPRINT6_MODULES, SuggestAnalyzeRequest
 
 router = APIRouter(prefix="/analyze", tags=["analyze"])
 
@@ -62,3 +63,24 @@ def silences(req: SilencesRequest) -> dict[str, Any]:
     if warnings:
         result["warnings"] = list(dict.fromkeys(warnings))
     return result
+
+
+# BEGIN sprint6:M3 (Paso 0 stubs: M3 Sugerencias replaces them with the suggest.analyze task of
+# the ``analyze`` TaskQueue area, low priority; docs/trabajo/sprint6-contratos.md)
+@router.post("/suggest")
+def suggest(req: SuggestAnalyzeRequest) -> dict[str, str]:
+    """One FFmpeg pass silencedetect + ebur128 -> ``{task_id}``."""
+    raise not_implemented(SPRINT6_MODULES["M3"])
+
+
+@router.get("/tasks/{task_id}")
+def analyze_task(task_id: str) -> dict[str, str]:
+    raise not_implemented(SPRINT6_MODULES["M3"])
+
+
+@router.post("/tasks/{task_id}/cancel")
+def analyze_task_cancel(task_id: str) -> dict[str, str]:
+    raise not_implemented(SPRINT6_MODULES["M3"])
+
+
+# END sprint6:M3

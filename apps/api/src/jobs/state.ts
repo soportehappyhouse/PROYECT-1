@@ -69,6 +69,10 @@ export const DEFAULT_JOB_LANES: Record<JobType, JobLane> = {
   // Sprint 4: FaceFusion subprocess in the workers (preview frame / swapped clip).
   "face.preview": "workers",
   "face.swap": "workers",
+  // Sprint 6: M1 word-level transcription (workers); M3 import analysis in its own low-priority
+  // lane so it never delays a job the user asked for.
+  "script.transcribe": "workers",
+  "suggest.analyze": "background",
 };
 
 /** Raised by handlers (or the runner) when ctx.signal aborts. */

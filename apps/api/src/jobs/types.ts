@@ -62,8 +62,11 @@ export interface JobStore {
   recoverInterrupted(maxAttempts?: number): number;
 }
 
-/** Execution lanes; each lane has its own concurrency limit ("edit": quick project edits). */
-export type JobLane = "ffmpeg" | "motion" | "workers" | "edit";
+/**
+ * Execution lanes; each lane has its own concurrency limit ("edit": quick project edits;
+ * "background": Sprint 6 low-priority analysis that never delays a job the user asked for).
+ */
+export type JobLane = "ffmpeg" | "motion" | "workers" | "edit" | "background";
 
 export interface JobContext {
   jobId: string;

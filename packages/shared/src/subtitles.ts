@@ -27,6 +27,8 @@ export const SubtitleWordSchema = z.object({
   end: SecondsSchema,
   word: z.string(),
   probability: z.number().min(0).max(1).optional(),
+  /** Sprint 6 M1: timings estimated by a text correction (fixWords), not measured. */
+  corrected: z.boolean().optional(),
 });
 export type SubtitleWord = z.infer<typeof SubtitleWordSchema>;
 
@@ -61,6 +63,16 @@ export const CaptionStyleSchema = z.object({
   uppercase: z.boolean(),
   /** Animation hint for the `animated-captions` template. */
   animation: z.enum(["none", "pop", "karaoke", "fade"]),
+  // Sprint 6 M2 (design tokens): absent = taken from the brand kit / caption rules.
+  /** Outline color (absent = tokens.color.text_outline). */
+  outlineColor: z.string().optional(),
+  /** Outline width in project pixels relative to a 1080p frame height. */
+  outlineWidth: z.number().min(0).max(40).optional(),
+  /** Box behind the text instead of an outline. */
+  box: z.boolean().optional(),
+  maxLines: z.union([z.literal(1), z.literal(2)]).optional(),
+  /** Absent = true: the brand kit tokens fill whatever this style does not set. */
+  fromBrandKit: z.boolean().optional(),
 });
 export type CaptionStyle = z.infer<typeof CaptionStyleSchema>;
 

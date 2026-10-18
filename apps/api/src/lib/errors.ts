@@ -2,6 +2,8 @@ import {
   formatErrorEs,
   PACK_REQUIRED,
   SPRINT4_ERRORS,
+  SPRINT6_ERRORS,
+  type Sprint6Module,
   type ApiError,
   type PackRequiredBody,
   type Sprint4ErrorCode,
@@ -42,6 +44,18 @@ export function notImplemented(reply: FastifyReply, owner: string): FastifyReply
   return reply
     .code(501)
     .send(errorBody("NOT_IMPLEMENTED", `Endpoint pending implementation (${owner})`));
+}
+
+/**
+ * Sprint 6 Paso 0 stub answer: 501 NOT_IMPLEMENTED in Spanish with `details.module`, until the
+ * owner module (docs/trabajo/sprint6-contratos.md) replaces the route.
+ */
+export function sprint6NotImplemented(reply: FastifyReply, module: Sprint6Module): FastifyReply {
+  return reply.code(SPRINT6_ERRORS.NOT_IMPLEMENTED.status).send(
+    errorBody("NOT_IMPLEMENTED", formatErrorEs("NOT_IMPLEMENTED", { modulo: module }), {
+      module,
+    }),
+  );
 }
 
 /**

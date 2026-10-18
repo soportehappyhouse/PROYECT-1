@@ -7,10 +7,12 @@ import {
   CAPTION_STYLE_PRESETS,
   CreateReportRequestSchema,
   FEATURE_PACKS,
+  formatErrorEs,
   MotionSpecSchema,
   nextTrackOrder,
   PACK_REQUIRED,
   reframeWindow,
+  SPRINT6_MODULES,
   VOICE_EFFECT_PRESETS,
   type AgentApplyPayload,
   type AgentApplyResult,
@@ -878,6 +880,12 @@ export function createAgentApplyHandler(
         if (md?.markdown_es) await appendToReport(app.config.storageDir, report.id, md.markdown_es);
         return { reportId: report.id, zipPath: report.zipPath };
       }
+      // BEGIN sprint6:M1 (Paso 0 stub: the resolver never lets these through yet)
+      case "delete_words":
+      case "fit_duration":
+      case "fix_text":
+        throw new OpError(formatErrorEs("NOT_IMPLEMENTED", { modulo: SPRINT6_MODULES.M1 }));
+      // END sprint6:M1
       case "face_swap": {
         // Sprint 4 M1: sub-job face.swap on the clip (its own preflight: licence, pack, consent of
         // the Person, venv, limits). Only reached with the op index in confirmedIndexes.

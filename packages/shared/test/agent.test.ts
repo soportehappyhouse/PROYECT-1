@@ -65,6 +65,9 @@ const FULL: EditPlanInput = {
       strength: 1,
       confirm: true,
     },
+    { op: "delete_words", fillers: "safe", long_pauses: true },
+    { op: "fit_duration", target_s: 45, allow_speedup: false },
+    { op: "fix_text", find: "Martin", replace: "Martín", all: true },
   ],
 };
 
@@ -78,7 +81,7 @@ describe("EditPlan schema (Sprint 3)", () => {
     }
     expect(validateEditPlan(FULL).errors[0]).toMatch(/^ops: /);
     expect(new Set(FULL.ops.map((o) => o.op))).toEqual(new Set(EDIT_OP_NAMES));
-    expect(EDIT_OP_NAMES).toHaveLength(23); // sprint 4: face_swap
+    expect(EDIT_OP_NAMES).toHaveLength(26); // sprint 6: delete_words, fit_duration, fix_text
   });
 
   it("accepts a questions-only plan and rejects an empty one", () => {
@@ -163,7 +166,7 @@ describe("EditPlan schema (Sprint 3)", () => {
     ]);
     expect(schema.required).toEqual(["version", "summary_es", "ops"]);
     const variants = schema.properties.ops.items.oneOf;
-    expect(variants).toHaveLength(23);
+    expect(variants).toHaveLength(26);
     for (const v of variants)
       for (const [key, prop] of Object.entries(v.properties))
         expect(prop.description, `${key} sin descripción`).toMatch(/[a-záéíóúñ]/i);

@@ -17,7 +17,7 @@ import type { CreateJobInput, JobContext, JobHandler, JobLane, JobStore } from "
 export interface JobQueueOptions {
   store: JobStore;
   storageDir: string;
-  /** Max concurrent jobs per lane. Defaults: ffmpeg 2, motion 1, workers 1, edit 2. */
+  /** Max concurrent jobs per lane. Defaults: ffmpeg 2, motion 1, workers 1, edit 2, background 1. */
   lanes?: Partial<Record<JobLane, number>>;
   /** @deprecated use `lanes`; when set, applies to every lane without an explicit limit. */
   concurrency?: number;
@@ -66,8 +66,15 @@ interface RunningJob {
   shuttingDown: boolean;
 }
 
-const LANES: readonly JobLane[] = ["ffmpeg", "motion", "workers", "edit"];
-const DEFAULT_LANE_LIMITS: Record<JobLane, number> = { ffmpeg: 2, motion: 1, workers: 1, edit: 2 };
+const LANES: readonly JobLane[] = ["ffmpeg", "motion", "workers", "edit", "background"];
+const DEFAULT_LANE_LIMITS: Record<JobLane, number> = {
+  ffmpeg: 2,
+  motion: 1,
+  workers: 1,
+  edit: 2,
+  // Sprint 6 M3: import analysis (suggest.analyze, priority -10); one at a time.
+  background: 1,
+};
 
 /**
  * In-process job queue backed by the SQLite JobStore (source of truth).
@@ -79,7 +86,13 @@ export class JobQueue extends EventEmitter<{ job: [JobEvent] }> {
   readonly #running = new Map<string, RunningJob>();
   readonly #pools: Record<JobLane, PQueue>;
   readonly #limits: Record<JobLane, number>;
-  readonly #active: Record<JobLane, number> = { ffmpeg: 0, motion: 0, workers: 0, edit: 0 };
+  readonly #active: Record<JobLane, number> = {
+    ffmpeg: 0,
+    motion: 0,
+    workers: 0,
+    edit: 0,
+    background: 0,
+  };
   readonly #logs = new Map<string, string[]>();
   #started = false;
   #stopping = false;

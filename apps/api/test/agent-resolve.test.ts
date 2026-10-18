@@ -208,6 +208,21 @@ describe("agent resolver", () => {
     expect(r.risks.some((x) => x.includes("nunca sobrescribe"))).toBe(true);
   });
 
+  it("sprint 6 Paso 0: script ops become a «todavía no» question (M1 replaces it)", () => {
+    const r = resolvePlan(
+      plan([
+        { op: "delete_words", fillers: "safe" },
+        { op: "fit_duration", target_s: 45 },
+        { op: "fix_text", find: "a", replace: "b" },
+      ]),
+      ctx(),
+    );
+    expect(r.unresolved).toHaveLength(3);
+    expect(r.unresolved[0]).toBe(
+      "Operación 1: «Borrar palabras»: Todavía no está disponible (M1 Guion).",
+    );
+  });
+
   it("scenes on the timeline and deferred scenes after detect_scenes", () => {
     const p = project();
     expect(timelineScenes(p, media)).toEqual([0, 12, 30, 40]);

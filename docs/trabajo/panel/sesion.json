@@ -1,16 +1,16 @@
 {
  "version": 1,
- "actualizado": "2026-10-18T19:00:00Z",
+ "actualizado": "2026-10-18T21:30:00Z",
  "notas": "Fuente única del panel. Tokens en miles (k). 'medido': true = subagent_tokens de las notificaciones de la sesión; false = estimado por el coordinador. Fases del grupo: 0 coordinador, 1 investigación/contratos, 2 módulos en paralelo, 3 integración, 4 auditoría, 5 correcciones, 6 después del sprint (hotfix, CI, soporte).",
  "sesion": {
   "proyecto": "Studio",
   "repo": "PROYECT-1",
   "rama": "claude/funny-mccarthy-0bbdt6",
   "inicio": "2026-10-04T14:59:00Z",
-  "ultimo_commit": "24d7dbf",
+  "ultimo_commit": "503b126",
   "commits": 134,
   "prs_mergeados": 10,
-  "estado": "Sprint 6 (Guion y sistema de diseño) integrado: run-e2e 91/91, ui-smoke 63/63, C1–C6 en verde (Diseño 3,90/5 medido). Próximo: auditoría del Sprint 6 y PR; después Sprint 7 (lazo autónomo)",
+  "estado": "Sprint 6 (Guion y sistema de diseño) integrado, auditado (25 hallazgos, 23 corregidos) y con devolución; PR abierto esperando «hacé el merge». Próximo: Sprint 7 (lazo autónomo)",
   "proximo_sprint": "S6 (auditoría) → S7",
   "coordinador": {
    "modelo": "opus",

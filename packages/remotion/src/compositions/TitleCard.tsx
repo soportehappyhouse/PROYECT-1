@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { fontStack } from "../fonts.js";
 import { clamp01, inOut, secToFrames, unitScale } from "../lib/anim.js";
+import { designOf, safePadding } from "../lib/design.js";
 import type { TitleCardProps } from "../schemas/title-card.js";
 import { Backdrop } from "./common.js";
 
@@ -11,19 +12,24 @@ export function TitleCard(props: TitleCardProps) {
   const { fps, width, height, durationInFrames } = useVideoConfig();
   const u = unitScale(width, height);
   const font = fontStack(props.fontFamily);
-  const outFrames = props.exit ? Math.min(secToFrames(0.5, fps), durationInFrames / 3) : 0;
+  // Sprint 6 M2: entrance/exit durations and the safe zone come from the kit when present.
+  const design = designOf(props);
+  const enterSec = design ? Math.max(0.3, (design.motion.enter_ms / 1000) * 2) : 0.8;
+  const exitSec = design ? design.motion.exit_ms / 1000 : 0.5;
+  const pad = safePadding(design, width, height, { x: 80 * u, y: 0 });
+  const outFrames = props.exit ? Math.min(secToFrames(exitSec, fps), durationInFrames / 3) : 0;
   const { exit } = inOut(frame, durationInFrames, 1, outFrames);
   const enter = spring({
     frame,
     fps,
     config: { damping: 200 },
-    durationInFrames: secToFrames(0.8, fps),
+    durationInFrames: secToFrames(enterSec, fps),
   });
   const subEnter = spring({
     frame: frame - secToFrames(0.25, fps),
     fps,
     config: { damping: 200 },
-    durationInFrames: secToFrames(0.8, fps),
+    durationInFrames: secToFrames(enterSec, fps),
   });
 
   const titleStyle: CSSProperties = {
@@ -77,7 +83,7 @@ export function TitleCard(props: TitleCardProps) {
       style={{
         justifyContent: "center",
         alignItems: props.align === "center" ? "center" : "flex-start",
-        padding: `0 ${80 * u}px`,
+        padding: `${pad.top}px ${pad.right}px ${pad.bottom}px ${pad.left}px`,
       }}
     >
       <div

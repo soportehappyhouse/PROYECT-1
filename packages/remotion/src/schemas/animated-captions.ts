@@ -1,8 +1,12 @@
 import { z } from "zod";
 import {
+  ADVANCED_PROP,
+  choice,
   color,
-  fontFamily,
-  fontWeight,
+  type Filled,
+  FONT_WEIGHTS,
+  kitColor,
+  kitFontFamily,
   mediaSrc,
   SafeAreaSchema,
   background,
@@ -89,26 +93,30 @@ export const animatedCaptionsSchema = z.object({
     DEMO_TRANSCRIPT,
   ),
   /** Alternative input: Remotion Caption[]; takes precedence over `transcript` when non-empty. */
-  captions: z.array(CaptionSchema).meta({ title: "Captions (formato Remotion)" }).optional(),
-  style: z.enum(CAPTION_STYLES).meta({ title: "Estilo" }).default("highlight"),
-  position: z.enum(CAPTION_POSITIONS).meta({ title: "Posición" }).default("bottom"),
-  fontFamily: fontFamily("Montserrat"),
-  fontWeight: fontWeight("900"),
+  captions: z
+    .array(CaptionSchema)
+    .meta({ title: "Subtítulos (formato Remotion)", [ADVANCED_PROP]: true })
+    .optional(),
+  style: choice(CAPTION_STYLES, "Estilo").default("highlight"),
+  position: choice(CAPTION_POSITIONS, "Posición").default("bottom"),
+  /** Absent = kit `font.caption` (Montserrat without a kit). */
+  fontFamily: kitFontFamily("caption"),
+  fontWeight: choice(FONT_WEIGHTS, "Grosor").default("900"),
   fontSize: z.number().min(16).max(300).meta({ title: "Tamaño (px a 1080 de ancho)" }).default(88),
   uppercase: z.boolean().meta({ title: "Mayúsculas" }).default(true),
-  textColor: color("Color del texto").default("#ffffff"),
-  highlightColor: color("Color de resaltado").default("#ffd400"),
+  textColor: kitColor("Color del texto", "text"),
+  highlightColor: kitColor("Color de resaltado", "accent"),
   boxColor: color("Color de la caja").default("#e13238"),
-  strokeColor: color("Color del borde").default("#000000"),
+  strokeColor: kitColor("Color del borde", "text_outline"),
   strokeWidth: z.number().min(0).max(40).meta({ title: "Grosor del borde" }).default(10),
   combineWithinMs: z
     .number()
     .min(0)
     .max(5000)
-    .meta({ title: "Agrupar palabras dentro de (ms)" })
+    .meta({ title: "Agrupar palabras dentro de (ms)", [ADVANCED_PROP]: true })
     .default(900),
   /** When absent, computed from the aspect ratio (9:16 leaves room for TikTok/Reels UI). */
-  safeArea: SafeAreaSchema.optional(),
+  safeArea: SafeAreaSchema.meta({ title: "Zona segura (%)", [ADVANCED_PROP]: true }).optional(),
   /**
    * Rect of the video inside the canvas (% of the canvas). With a vertical clip pillarboxed in a
    * 16:9 project the captions are laid out, wrapped and sized inside it instead of the canvas.
@@ -119,4 +127,7 @@ export const animatedCaptionsSchema = z.object({
   /** Sprint 2: follow a track (each caption page is centered on the anchor point + offset). */
   ...trackProps,
 });
-export type AnimatedCaptionsProps = z.infer<typeof animatedCaptionsSchema>;
+export type AnimatedCaptionsProps = Filled<
+  z.infer<typeof animatedCaptionsSchema>,
+  "fontFamily" | "textColor" | "highlightColor" | "strokeColor"
+>;

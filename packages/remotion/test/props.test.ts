@@ -22,7 +22,7 @@ describe("MotionSpec -> inputProps", () => {
       __height: 1920,
       __fps: 25,
       __durationInFrames: 63,
-      __fontMode: "google",
+      __fontMode: "system",
     });
   });
 

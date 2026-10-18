@@ -37,3 +37,4 @@ export * from "./script.js";
 export * from "./suggestions.js";
 export * from "./suggestions-rules.js";
 export * from "./script-words.js";
+export * from "./design-rules.js";

@@ -1,51 +1,15 @@
-// Google Fonts for compositions (browser side only). Font metadata/URLs come from
-// @remotion/google-fonts (`getInfo()`); loading is done here so that a missing network
-// (offline PC) degrades to the system fallback font instead of failing the render.
-import * as Anton from "@remotion/google-fonts/Anton";
-import * as ArchivoBlack from "@remotion/google-fonts/ArchivoBlack";
-import * as Bangers from "@remotion/google-fonts/Bangers";
-import * as BebasNeue from "@remotion/google-fonts/BebasNeue";
-import * as Inter from "@remotion/google-fonts/Inter";
-import * as Montserrat from "@remotion/google-fonts/Montserrat";
-import * as Oswald from "@remotion/google-fonts/Oswald";
-import * as PlayfairDisplay from "@remotion/google-fonts/PlayfairDisplay";
-import * as Poppins from "@remotion/google-fonts/Poppins";
-import * as Roboto from "@remotion/google-fonts/Roboto";
-import { continueRender, delayRender, getInputProps } from "remotion";
-import type { FontFamily, RenderMetaProps } from "./schemas/common.js";
+// Fonts for compositions (browser side only). Sprint 6 M2 (decision 9): every family is bundled
+// as static OFL TTFs in public/fonts/<Family>/ and loaded with FontFace + staticFile(), so no
+// render ever touches the network (no Google Fonts). A face that fails to load degrades to the
+// system fallback instead of failing the render.
+import { continueRender, delayRender, staticFile } from "remotion";
+import { BUNDLED_FONT_FILES, bundledFontPath, type BundledWeight } from "./font-files.js";
+import type { FontFamily } from "./schemas/common.js";
 
-interface FontInfo {
-  fontFamily: string;
-  fonts: Record<string, Record<string, Record<string, string>>>;
-  unicodeRanges: Record<string, string>;
-}
-
-const INFO: Record<FontFamily, () => FontInfo> = {
-  Inter: Inter.getInfo,
-  Montserrat: Montserrat.getInfo,
-  Poppins: Poppins.getInfo,
-  Roboto: Roboto.getInfo,
-  Oswald: Oswald.getInfo,
-  "Playfair Display": PlayfairDisplay.getInfo,
-  "Bebas Neue": BebasNeue.getInfo,
-  Anton: Anton.getInfo,
-  "Archivo Black": ArchivoBlack.getInfo,
-  Bangers: Bangers.getInfo,
-};
-
-const WEIGHTS = ["400", "700", "900"];
-const SUBSETS = ["latin", "latin-ext"];
+const WEIGHTS: BundledWeight[] = ["400", "700", "900"];
 const FALLBACK = "'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
 const TIMEOUT_MS = 15_000;
 const stacks = new Map<FontFamily, string>();
-
-function fontMode(): "google" | "system" {
-  try {
-    return (getInputProps() as RenderMetaProps).__fontMode === "system" ? "system" : "google";
-  } catch {
-    return "google";
-  }
-}
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   return Promise.race([
@@ -54,46 +18,38 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
-function load(info: FontInfo): void {
-  const normal = info.fonts.normal ?? {};
-  const faces: FontFace[] = [];
-  for (const weight of WEIGHTS) {
-    for (const subset of SUBSETS) {
-      const url = normal[weight]?.[subset];
-      if (!url) continue;
-      const range = info.unicodeRanges[subset];
-      faces.push(
-        new FontFace(info.fontFamily, `url(${url}) format('woff2')`, {
+function load(family: FontFamily): void {
+  if (typeof FontFace === "undefined" || typeof document === "undefined") return;
+  const faces = WEIGHTS.map(
+    (weight) =>
+      new FontFace(
+        family,
+        `url(${staticFile(bundledFontPath(family, weight))}) format('truetype')`,
+        {
           weight,
           style: "normal",
-          ...(range && { unicodeRange: range }),
-        }),
-      );
-    }
-  }
-  if (faces.length === 0) return;
-  const handle = delayRender(`Cargando fuente ${info.fontFamily}`);
+        },
+      ),
+  );
+  const handle = delayRender(`Cargando fuente ${family}`);
   void Promise.allSettled(
     faces.map((face) =>
       withTimeout(face.load(), TIMEOUT_MS).then((loaded) => document.fonts.add(loaded)),
     ),
   ).then((results) => {
     if (results.some((r) => r.status === "rejected"))
-      console.warn(`Fuente ${info.fontFamily}: sin conexión, se usa la fuente del sistema`);
+      console.warn(`Fuente ${family}: no se pudo cargar, se usa la fuente del sistema`);
     continueRender(handle);
   });
 }
 
-/**
- * CSS font-family stack for `family`; downloads it from Google Fonts the first time.
- * With `__fontMode: "system"` nothing is downloaded. Failures fall back to system fonts.
- */
+/** CSS font-family stack for `family`; registers the bundled faces the first time. */
 export function fontStack(family: FontFamily): string {
   const cached = stacks.get(family);
   if (cached) return cached;
-  const info = INFO[family]();
-  const stack = `'${info.fontFamily}', ${FALLBACK}`;
+  const known = family in BUNDLED_FONT_FILES;
+  const stack = known ? `'${family}', ${FALLBACK}` : FALLBACK;
   stacks.set(family, stack);
-  if (fontMode() === "google" && typeof FontFace !== "undefined") load(info);
+  if (known) load(family);
   return stack;
 }

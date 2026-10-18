@@ -15,6 +15,7 @@ import { LowerThird } from "./compositions/LowerThird.js";
 import { ProgressBar } from "./compositions/ProgressBar.js";
 import { TitleCard } from "./compositions/TitleCard.js";
 import { Transition } from "./compositions/Transition.js";
+import { applyDesign } from "./lib/design.js";
 import type { RenderMetaProps } from "./schemas/common.js";
 
 const FPS = 30;
@@ -33,10 +34,17 @@ const COMPONENTS: Record<RemotionTemplateId, ComponentType<any>> = {
   "kinetic-typography": KineticTypography,
 };
 
-/** Wraps a template component so it always receives schema-parsed props (defaults applied). */
+/**
+ * Wraps a template component so it always receives schema-parsed props (defaults applied), the
+ * brand-kit tokens filled in (Sprint 6 M2) and the `__design` / `__pages` meta props kept.
+ */
 function withSchema(def: TemplateDef, Component: ComponentType<AnyProps>): ComponentType<AnyProps> {
   function Template(raw: AnyProps) {
-    const props = useMemo(() => def.schema.parse(raw) as AnyProps, [raw]);
+    const props = useMemo(() => {
+      const meta = raw as RenderMetaProps;
+      const parsed = applyDesign(def.id, def.schema.parse(raw) as AnyProps, meta.__design);
+      return { ...parsed, __design: meta.__design, __pages: meta.__pages };
+    }, [raw]);
     return <Component {...props} />;
   }
   Template.displayName = `Template(${def.id})`;

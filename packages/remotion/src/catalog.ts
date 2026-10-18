@@ -42,7 +42,7 @@ export const TEMPLATE_DEFS = [
     id: "title-card",
     name: "Título",
     description:
-      "Título y subtítulo animados con 5 estilos (fade, pop, slide, máquina de escribir, caja).",
+      "Título y subtítulo animados con 5 estilos (subir con fundido, rebote, deslizar, máquina de escribir, en caja).",
     category: "texto",
     schema: titleCardSchema,
     defaultDurationSec: 3,
@@ -52,7 +52,7 @@ export const TEMPLATE_DEFS = [
   },
   {
     id: "lower-third",
-    name: "Rótulo (lower third)",
+    name: "Rótulo",
     description: "Nombre y cargo con animaciones de entrada y salida configurables.",
     category: "texto",
     schema: lowerThirdSchema,
@@ -65,7 +65,7 @@ export const TEMPLATE_DEFS = [
     id: "animated-captions",
     name: "Subtítulos animados",
     description:
-      "Subtítulos estilo TikTok/CapCut desde la transcripción palabra a palabra: resaltado, karaoke, pop o caja.",
+      "Subtítulos estilo TikTok/CapCut desde la transcripción palabra a palabra: resaltado, karaoke, rebote o caja de color.",
     category: "subtitulos",
     schema: animatedCaptionsSchema,
     defaultDurationSec: 5,
@@ -76,7 +76,7 @@ export const TEMPLATE_DEFS = [
   {
     id: "transition",
     name: "Transición entre clips",
-    description: "Une dos clips (video o imagen) con fundido, deslizamiento, barrido o giro.",
+    description: "Une dos clips (video o imagen) con fundido, deslizamiento, barrido o volteo.",
     category: "transiciones",
     schema: transitionSchema,
     defaultDurationSec: 4,

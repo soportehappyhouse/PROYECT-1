@@ -58,6 +58,6 @@ describe("remotion template catalog", () => {
     const byId = Object.fromEntries(REMOTION_TEMPLATES.map((t) => [t.id, t.defaultProps]));
     expect(byId["title-card"]).toMatchObject({ title: "Mi título" });
     expect(byId["lower-third"]).toMatchObject({ name: "Nombre Apellido" });
-    expect(byId["end-screen"]).toMatchObject({ title: "¡Gracias por ver!", ctaText: "Suscríbete" });
+    expect(byId["end-screen"]).toMatchObject({ title: "¡Gracias por ver!", ctaText: "Suscribite" });
   });
 });

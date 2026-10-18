@@ -1,13 +1,14 @@
 import { z } from "zod";
-import { background, color, fontFamily, textarea } from "./common.js";
+import { background, choice, color, type Filled, kitFontFamily, textarea } from "./common.js";
 
 export const KINETIC_ANIMATIONS = ["slam", "slide-up", "rotate", "stagger"] as const;
 
 export const kineticTypographySchema = z.object({
   text: textarea("Texto").default("Crea. Edita. Comparte. Todo en tu PC."),
-  splitBy: z.enum(["word", "phrase"]).meta({ title: "Dividir por" }).default("word"),
-  animation: z.enum(KINETIC_ANIMATIONS).meta({ title: "Animación" }).default("slam"),
-  fontFamily: fontFamily("Bebas Neue"),
+  splitBy: choice(["word", "phrase"], "Dividir por").default("word"),
+  animation: choice(KINETIC_ANIMATIONS, "Animación").default("slam"),
+  /** Absent = kit `font.display` (Bebas Neue without a kit). */
+  fontFamily: kitFontFamily("display"),
   fontSize: z.number().min(24).max(600).meta({ title: "Tamaño (px a 1080p)" }).default(220),
   uppercase: z.boolean().meta({ title: "Mayúsculas" }).default(true),
   colors: z
@@ -18,4 +19,4 @@ export const kineticTypographySchema = z.object({
     .default(["#ffffff", "#ffd400", "#e13238"]),
   background: background("#111111"),
 });
-export type KineticTypographyProps = z.infer<typeof kineticTypographySchema>;
+export type KineticTypographyProps = Filled<z.infer<typeof kineticTypographySchema>, "fontFamily">;

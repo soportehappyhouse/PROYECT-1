@@ -2,6 +2,7 @@ import { rm } from "node:fs/promises";
 import {
   IdSchema,
   ScriptTranscribeRequestSchema,
+  subtitlesInRange,
   type ScriptTranscribeResult,
   WorkerSttWordsResultSchema,
   type Clip,
@@ -184,6 +185,8 @@ export function createScriptTranscribeHandler(
         })();
         const segments = segmentsToTimeline(result.transcript.segments, now);
         const range = { start: now.start, end: round(clipEnd(now)) };
+        // Audit S6 E9: the replaced subtitles travel in the result (to put them back).
+        const replaced = subtitlesInRange(fresh.subtitles, range);
         const saved = app.repos.projects.save(payload.projectId, {
           ...fresh,
           subtitles: replaceSubtitlesInRange(fresh.subtitles, range, segments),
@@ -211,6 +214,7 @@ export function createScriptTranscribeHandler(
           gaps: result.audio.gaps.length,
           voiced_gaps: result.audio.gaps.filter((g) => g.voiced).length,
           audioPath: `${outputBase}/script-audio.json`,
+          ...(replaced.length && { replaced }),
           ...(Array.isArray(warnings) && warnings.length && { warnings: warnings.map(String) }),
         };
       } finally {

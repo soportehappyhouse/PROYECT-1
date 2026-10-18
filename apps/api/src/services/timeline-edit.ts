@@ -1,6 +1,6 @@
 import { cutTimeline, nextTrackOrder } from "@studio/shared";
 import type { Clip, CutRange, Project, SubtitleSegment, Track } from "@studio/shared";
-import { HttpError } from "../lib/errors.js";
+import { HttpError, lockedCutToHttp } from "../lib/errors.js";
 
 /**
  * Server-side timeline edits (Sprint 1, job `timeline.apply-cuts`). Pure functions over a Project:
@@ -356,10 +356,12 @@ export function applyTimelineCuts(
   joinFadeMs?: number,
 ): ApplyCutsOutcome {
   const { track } = findClip(project, clipId);
-  const out = cutTimeline(project, cuts, {
-    newId,
-    ...(joinFadeMs !== undefined && { fadeMs: joinFadeMs }),
-  });
+  const out = lockedCutToHttp(() =>
+    cutTimeline(project, cuts, {
+      newId,
+      ...(joinFadeMs !== undefined && { fadeMs: joinFadeMs }),
+    }),
+  );
   if (out.removed_s < EPS) throw new HttpError(400, "NO_CUTS", "Los cortes no quitan nada");
   const pieceIds = (out.project.tracks.find((t) => t.id === track.id)?.clips ?? [])
     .filter((c) => c.id === clipId || out.newClipIds.includes(c.id))

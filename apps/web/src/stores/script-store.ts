@@ -1,8 +1,10 @@
 import {
+  CutLockedError,
   fmtS,
   planWordCuts,
   SCRIPT_PANEL_TEXTS_ES,
   SCRIPT_TEXTS_ES,
+  subtitlesInRange,
   type FitDurationPreview,
   type ScriptCutsRequest,
   type ScriptCutsResponse,
@@ -77,7 +79,8 @@ interface ScriptState {
   deleteSelection: () => Promise<CutOutcome | undefined>;
   removeSafe: () => Promise<CutOutcome | undefined>;
   shortenPauses: () => Promise<CutOutcome | undefined>;
-  transcribe: (clipId: string) => Promise<void>;
+  /** `replace`: the user confirmed replacing subtitles corrected by hand (audit S6 E9). */
+  transcribe: (clipId: string, replace?: boolean) => Promise<void>;
   previewFit: (target_s: number) => Promise<void>;
   toggleFit: (id: FitChoice, on: boolean) => void;
   closeFit: () => void;
@@ -200,7 +203,17 @@ export const useScriptStore = create<ScriptState>()((set, get) => ({
         return { cuts: 0, removed_s: 0, skipped: res.skipped.length };
       }
       const store = useProjectStore.getState();
-      const out = cutProject(store.project, res.cuts, () => createId("clip"));
+      let out: ReturnType<typeof cutProject>;
+      try {
+        out = cutProject(store.project, res.cuts, () => createId("clip"));
+      } catch (err) {
+        // Audit S6 E8: a locked track would be left behind (audio/subtitles out of sync).
+        if (err instanceof CutLockedError) {
+          toast.warning(err.message);
+          return undefined;
+        }
+        throw err;
+      }
       addBreadcrumb("clip", label, { cuts: res.cuts.length, removed: out.removed_s });
       store.applyServerEdit(out.project, label);
       set({ selected: [], anchor: undefined, editing: undefined });
@@ -224,14 +237,37 @@ export const useScriptStore = create<ScriptState>()((set, get) => ({
   removeSafe: () => get().cut({ fillers: "safe" }, "Quitó las muletillas seguras"),
   shortenPauses: () => get().cut({ shortenLongPauses: true }, "Acortó las pausas largas"),
 
-  transcribe: async (clipId) => {
+  transcribe: async (clipId, replace = false) => {
     if (get().transcribing) return;
+    // Audit S6 E9: words corrected by hand in the clip's range are lost: ask first. Plain
+    // transcriptions are replaced (the web keeps one undo step: setSubtitles).
+    const p = project();
+    const clip = p.tracks.flatMap((t) => t.clips).find((c) => c.id === clipId);
+    if (clip && !replace) {
+      const range = {
+        start: clip.start,
+        end: clip.start + (clip.out - clip.in) / (clip.speed || 1),
+      };
+      const corrected = subtitlesInRange(p.subtitles, range).reduce(
+        (n, s) => n + (s.words?.filter((w) => w.corrected).length ?? 0),
+        0,
+      );
+      if (corrected > 0) {
+        toast.warning(SCRIPT_TEXTS_ES.replaceCorrected.replace("{n}", String(corrected)), {
+          action: {
+            label: SCRIPT_TEXTS_ES.replaceCorrectedAction,
+            onClick: () => void get().transcribe(clipId, true),
+          },
+        });
+        return;
+      }
+    }
     if (!(await syncProject())) {
       toast.error("No se pudo guardar el proyecto antes de transcribir");
       return;
     }
     try {
-      const { jobId } = await scriptApi.transcribe(project().id, { clipId });
+      const { jobId } = await scriptApi.transcribe(project().id, { clipId, replace: true });
       set({ transcribing: jobId });
       toast.info("Transcribiendo palabras…");
       const job = await waitForJob(jobId, "script.transcribe");

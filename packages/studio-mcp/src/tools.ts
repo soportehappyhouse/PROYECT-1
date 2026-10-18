@@ -110,7 +110,7 @@ export const RUNNABLE_JOBS: Record<
     param: "projectId",
     paramInPath: true,
     note_es:
-      "Transcribir para el guion (palabra por palabra, sin quitar los «eh»). payload: {projectId, clipId}",
+      "Transcribir para el guion (palabra por palabra, sin quitar los «eh»). payload: {projectId, clipId, replace?}. Si el tramo ya tiene subtítulos devuelve SCRIPT_REPLACE_REQUIRED: preguntá al usuario y repetí con replace: true.",
   },
 };
 

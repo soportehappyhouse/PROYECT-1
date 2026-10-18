@@ -133,6 +133,54 @@ describe("ScriptPanel", () => {
     expect(video.clips).toHaveLength(9);
   });
 
+  it("a locked track with media after the cut: nothing is cut and it says why (audit S6 E8)", async () => {
+    mockApi();
+    const p = useProjectStore.getState().project;
+    const audio = p.tracks.find((t) => t.kind === "audio")!;
+    useProjectStore.setState({
+      project: {
+        ...p,
+        tracks: p.tracks.map((t) =>
+          t.id === audio.id
+            ? {
+                ...t,
+                name: "Música",
+                locked: true,
+                clips: [
+                  {
+                    ...p.tracks.find((x) => x.kind === "video")!.clips[0]!,
+                    id: "m1",
+                    trackId: t.id,
+                  },
+                ],
+              }
+            : t,
+        ),
+      },
+    });
+    const before = useProjectStore.getState().project;
+    const pastLen = useProjectStore.getState().past.length;
+    const res = await useScriptStore.getState().removeSafe();
+    expect(res).toBeUndefined();
+    expect(useProjectStore.getState().project).toBe(before);
+    expect(useProjectStore.getState().past.length).toBe(pastLen);
+  });
+
+  it("re-transcribing over words corrected by hand asks first (audit S6 E9)", async () => {
+    const calls: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      calls.push(new URL(typeof input === "string" ? input : (input as Request).url).pathname);
+      return new Response("{}", { status: 500 });
+    });
+    const p = useProjectStore.getState().project;
+    const subs = structuredClone(p.subtitles);
+    subs[0]!.words![0]!.corrected = true;
+    useProjectStore.setState({ project: { ...p, subtitles: subs } });
+    await useScriptStore.getState().transcribe("c1");
+    expect(calls.filter((c) => c.endsWith("/script/transcribe"))).toEqual([]);
+    expect(useProjectStore.getState().project.subtitles).toBe(subs);
+  });
+
   it("F2 corrects a word without moving its timings", async () => {
     mockApi();
     render(<ScriptPanel />);

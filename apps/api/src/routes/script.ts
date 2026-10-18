@@ -1,8 +1,10 @@
 import {
   API_ROUTES,
   FitDurationRequestSchema,
+  formatErrorEs,
   ScriptCutsRequestSchema,
   ScriptTranscribeRequestSchema,
+  subtitlesInRange,
 } from "@studio/shared";
 import type { FastifyPluginAsync } from "fastify";
 import { HttpError } from "../lib/errors.js";
@@ -42,6 +44,22 @@ export const scriptRoutes: FastifyPluginAsync = async (app) => {
     const asset = clip.assetId ? app.ctx.repos.media.get(clip.assetId) : undefined;
     if (!asset || (asset.kind !== "video" && asset.kind !== "audio") || asset.hasAudio === false)
       throw new HttpError(400, "BAD_REQUEST", "Ese clip no tiene audio para transcribir");
+    // Audit S6 E9: transcribing replaces the subtitles of the clip's range (maybe corrected by
+    // hand): only with an explicit `replace: true` (the web and the console ask first).
+    const end = clip.start + Math.max(0, (clip.out - clip.in) / (clip.speed || 1));
+    const existing = subtitlesInRange(p.subtitles, { start: clip.start, end });
+    if (existing.length && !body.replace) {
+      const corregidas = existing.reduce(
+        (n, s) => n + (s.words?.filter((w) => w.corrected).length ?? 0),
+        0,
+      );
+      throw new HttpError(
+        409,
+        "SCRIPT_REPLACE_REQUIRED",
+        formatErrorEs("SCRIPT_REPLACE_REQUIRED", { n: existing.length, corregidas }),
+        { segments: existing.length, corrected_words: corregidas },
+      );
+    }
     const job = app.ctx.queue.enqueue({
       type: "script.transcribe",
       payload: { ...body, projectId: p.id },

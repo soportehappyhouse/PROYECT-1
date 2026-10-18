@@ -93,3 +93,16 @@ export class PackRequiredError extends Error {
     return this.body;
   }
 }
+
+/** Audit S6 E8: a cut / speed-up refused because a locked track would be left behind → 409. */
+export function lockedCutToHttp<T>(fn: () => T): T {
+  try {
+    return fn();
+  } catch (err) {
+    if (err instanceof Error && err.name === "CutLockedError")
+      throw new HttpError(409, "TRACK_LOCKED", err.message, {
+        tracks: (err as Error & { trackNames?: readonly string[] }).trackNames,
+      });
+    throw err;
+  }
+}

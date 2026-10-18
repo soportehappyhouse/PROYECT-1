@@ -50,7 +50,8 @@ function project(): Project {
         muted: false,
         locked: true,
         hidden: false,
-        clips: [clip("k1", "l", 0, 10, { assetId: "a3" })],
+        // Ends before the cuts: a locked track that the ripple does not touch is fine.
+        clips: [clip("k1", "l", 0, 0.5, { assetId: "a3" })],
       },
       {
         id: "t",
@@ -93,12 +94,29 @@ describe("applyTimelineCuts (pure)", () => {
     expect(v!.clips[0]!.audioFade).toEqual({ inMs: 0, outMs: 12 });
     expect(v!.clips[1]!.audioFade).toEqual({ inMs: 12, outMs: 0 });
     expect(a!.clips).toHaveLength(2); // the music is cut too (sync)
-    expect(locked!.clips[0]).toMatchObject({ start: 0, in: 0, out: 10 }); // locked: untouched
+    expect(locked!.clips[0]).toMatchObject({ start: 0, in: 0, out: 0.5 }); // locked: untouched
     expect(t!.clips[0]!.start).toBeCloseTo(5.2, 6);
     const words = out.project.subtitles[0]!.words!;
     expect(words.map((w) => w.word)).toEqual(["hola", "qué", "tal"]);
     expect(words[1]!.start).toBeCloseTo(1.0, 6);
     expect(out.pieceIds).toEqual(["c1", "n1"]);
+  });
+});
+
+describe("locked tracks (audit S6 E8)", () => {
+  it("a locked track with media after the cut stops the cut (409 TRACK_LOCKED, nothing moves)", () => {
+    const p = project();
+    p.tracks[2]!.clips = [clip("k1", "l", 0, 10, { assetId: "a3" })];
+    let err: unknown;
+    try {
+      applyTimelineCuts(p, "c1", [{ start: 0.8, end: 1.6 }], () => "z", 12);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toMatchObject({ statusCode: 409, code: "TRACK_LOCKED" });
+    expect((err as Error).message).toBe(
+      "Desbloqueá la pista «Bloqueada» para cortar: si no, el audio y los subtítulos se desfasan.",
+    );
   });
 });
 

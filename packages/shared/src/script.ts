@@ -182,9 +182,22 @@ export const ScriptTranscribeRequestSchema = z
     language: z.string().default("es"),
     /** Keep «eh/em» (no VAD); the default for the script. */
     keepFillers: z.boolean().default(true),
+    /**
+     * Audit S6 E9: the clip's range already has subtitles → 409 SCRIPT_REPLACE_REQUIRED unless
+     * the user confirmed replacing them (the job result keeps the old ones in `replaced`).
+     */
+    replace: z.boolean().default(false),
   })
   .strict();
 export type ScriptTranscribeRequest = z.infer<typeof ScriptTranscribeRequestSchema>;
+
+/** Subtitles that overlap `range` (what script.transcribe replaces). */
+export function subtitlesInRange<S extends { start: number; end: number }>(
+  subtitles: readonly S[],
+  range: { start: number; end: number },
+): S[] {
+  return subtitles.filter((s) => !(s.end <= range.start + 1e-6 || s.start >= range.end - 1e-6));
+}
 
 /** POST /api/projects/:id/script/cuts: computes (does not apply) the cuts of a selection. */
 export const ScriptCutsRequestSchema = z
@@ -325,6 +338,8 @@ export const ScriptTranscribeResultSchema = z.object({
   gaps: z.int().nonnegative(),
   voiced_gaps: z.int().nonnegative(),
   audioPath: z.string(),
+  /** Subtitles of the range before transcribing (audit S6 E9: to restore them). */
+  replaced: z.array(SubtitleSegmentSchema).optional(),
   warnings: z.array(z.string()).optional(),
 });
 export type ScriptTranscribeResult = z.infer<typeof ScriptTranscribeResultSchema>;

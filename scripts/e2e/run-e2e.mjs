@@ -4872,6 +4872,12 @@ await step("sprint6: script.transcribe (mock) → guion con 12 muletillas", asyn
   await ok("PUT", `/api/projects/${p.id}`, p);
   const { jobId } = await ok("POST", `/api/projects/${p.id}/script/transcribe`, { clipId }, [202]);
   const job = await waitOk(jobId, { timeoutMs: 120_000 });
+  // Audit S6 E9: transcribing again over the subtitles asks for replace:true first.
+  const again = await api("POST", `/api/projects/${p.id}/script/transcribe`, { clipId });
+  assert(
+    again.status === 409 && again.json?.error?.code === "SCRIPT_REPLACE_REQUIRED",
+    `re-transcribir sin replace -> ${again.status} ${JSON.stringify(again.json)?.slice(0, 200)}`,
+  );
   const script = await ok("GET", `/api/projects/${p.id}/script`);
   const f = script.stats.fillers;
   assert(f.safe === 8 && f.probable === 4, `muletillas ${JSON.stringify(f)}`);

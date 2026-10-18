@@ -340,6 +340,13 @@ export const SPRINT6_ERRORS = {
       "El guion no coincide con la línea de tiempo (cambió después de transcribir). Volvé a " +
       "transcribir o deshacé el último cambio.",
   },
+  /** Placeholders: n (segments in the range), corregidas (words corrected by hand). */
+  SCRIPT_REPLACE_REQUIRED: {
+    status: 409,
+    message_es:
+      "Ese tramo ya tiene {n} subtítulos ({corregidas} palabras corregidas a mano) y transcribir " +
+      "los reemplaza. Confirmalo para seguir (replace: true).",
+  },
   SCRIPT_NOTHING_TO_CUT: {
     status: 422,
     message_es:

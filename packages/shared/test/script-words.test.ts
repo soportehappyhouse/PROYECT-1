@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   ACOUSTIC_WORD_BASE,
   buildScript,
+  CutLockedError,
   cutTimeline,
   detectFillers,
   fitDuration,
   fixSegmentText,
   fixWords,
   isAcoustic,
+  lockedTracksBlockingCut,
   normWord,
   planCutsInternal,
   planWordCuts,
@@ -15,6 +17,7 @@ import {
   scriptIsStale,
   ScriptSchema,
   SCRIPT_RULES,
+  speedUpTimeline,
   type Project,
   type SubtitleSegment,
   type SubtitleWord,
@@ -317,11 +320,18 @@ describe("cutTimeline", () => {
     expect(v2.start + (v2.out - v2.in)).toBeCloseTo(30 - 0.98, 6);
   });
 
-  it("locked tracks do not move", () => {
+  it("locked tracks: untouched if they end before the cut, otherwise the cut is refused (E8)", () => {
     const p = project([]);
-    p.tracks[1]!.locked = true;
-    const out = cutTimeline(p, [{ start: 1, end: 2 }], { newId: () => "z" });
-    expect(out.project.tracks[1]).toBe(p.tracks[1]);
+    p.tracks[1]!.locked = true; // text 10–12
+    const before = cutTimeline(p, [{ start: 20, end: 21 }], { newId: () => "z" });
+    expect(before.project.tracks[1]).toBe(p.tracks[1]);
+    expect(() => cutTimeline(p, [{ start: 1, end: 2 }], { newId: () => "z" })).toThrow(
+      CutLockedError,
+    );
+    expect(lockedTracksBlockingCut(p, [{ start: 1, end: 2 }]).map((t) => t.name)).toEqual([
+      "Texto 1",
+    ]);
+    expect(() => speedUpTimeline(p, 1.2)).toThrow(/Desbloqueá la pista «Texto 1»/);
   });
 });
 

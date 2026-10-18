@@ -101,11 +101,15 @@ al centro; `blur` = franjas borrosas).
 - **Revisar cómo se ve**: `studio_preview_frame {t}` en 2-3 momentos clave, abrí los PNG y comentá
   (texto ilegible, cara tapada, bordes del recorte).
 - **«Sacá los eh»**: plan con `delete_words {fillers: "safe"}` → `studio_validate_plan` → mostrá la
-  vista previa («Quitar 8 muletillas seguras (−3,4 s)») → `studio_apply_plan`. Si no hay guion, la
-  vista previa dice «Primero transcribí el video»: lanzá `studio_run_job` con
-  `type: "script.transcribe"` y `payload: {projectId, clipId}` → `studio_wait_job` y volvé a
-  validar. «Dejalo en 45 s» = `fit_duration {target_s: 45}` (si quita más del 20 %, preguntá antes
-  de pasar el índice).
+  vista previa («Quitar 8 muletillas seguras (−3,4 s)») y **esperá un «sí»** (es borrar) →
+  `studio_apply_plan`. Si no hay guion, la vista previa dice «Primero transcribí el video»: lanzá
+  `studio_run_job` con `type: "script.transcribe"` y `payload: {projectId, clipId}` →
+  `studio_wait_job` y volvé a validar. Si el tramo ya tiene subtítulos, la API contesta
+  `SCRIPT_REPLACE_REQUIRED`: transcribir los reemplaza (también lo corregido a mano), así que
+  preguntá y recién con un «sí» repetí con `replace: true` en el payload. «Dejalo en 45 s» =
+  `fit_duration {target_s: 45}` (mostrá la vista previa y pedí un «sí»; si quita más del 20 %, el
+  índice va en `confirmedIndexes`). Si una pista bloqueada quedaría atrás, el corte se frena con
+  `TRACK_LOCKED`: pedí que la desbloqueen.
 - **Revisar el diseño**: `studio_design_check {aspect: "9:16"}`; si falla algo que se arregla solo, la
   exportación lo corrige y avisa (`DESIGN_AUTOFIXED`). Los gráficos sin render se renderizan solos
   al exportar.

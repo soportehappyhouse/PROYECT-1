@@ -78,6 +78,10 @@ export const SCRIPT_TEXTS_ES = {
   stale:
     "El guion no coincide con la línea de tiempo. Volvé a transcribir o deshacé el último cambio.",
   longPauses: "{n} pausas de más de 0,6 s",
+  /** Audit S6 E9: transcribing again replaces words corrected by hand. */
+  replaceCorrected:
+    "Este tramo tiene {n} palabras corregidas a mano: transcribir de nuevo las reemplaza.",
+  replaceCorrectedAction: "Transcribir igual",
   removed: "Quité {n} muletillas (−{s} s).",
   harshSkipped: "Dejé {n} sin cortar para evitar cortes bruscos.",
   corrected: "Tiempo estimado por la corrección",

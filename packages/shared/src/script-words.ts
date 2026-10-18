@@ -703,12 +703,45 @@ export function cutMapping(ranges: readonly CutRange[]) {
 
 const MIN_PIECE_S = 0.04;
 
+/** «Desbloqueá la pista «X» para cortar…» (audit S6 E8). */
+export function cutLockedMessageEs(names: readonly string[]): string {
+  const list = names.map((n) => `«${n}»`);
+  const joined = list.length > 1 ? `${list.slice(0, -1).join(", ")} y ${list.at(-1)}` : list[0];
+  return list.length > 1
+    ? `Desbloqueá las pistas ${joined} para cortar: si no, el audio y los subtítulos se desfasan.`
+    : `Desbloqueá la pista ${joined} para cortar: si no, el audio y los subtítulos se desfasan.`;
+}
+
+/**
+ * The ripple of a cut would move everything after it except the locked tracks: video, audio and
+ * subtitles would go out of sync. Instead the cut is refused (code TRACK_LOCKED; the api answers
+ * 409, the web shows the message). Audit S6 E8.
+ */
+export class CutLockedError extends Error {
+  readonly code = "TRACK_LOCKED";
+  constructor(readonly trackNames: readonly string[]) {
+    super(cutLockedMessageEs(trackNames));
+    this.name = "CutLockedError";
+  }
+}
+
+/** Locked tracks with a clip that ends after the first cut (the ripple would leave them behind). */
+export function lockedTracksBlockingCut(
+  project: Pick<Project, "tracks">,
+  ranges: readonly CutRange[],
+): Track[] {
+  const first = Math.min(...ranges.filter((r) => r.end - r.start > EPS).map((r) => r.start));
+  if (!Number.isFinite(first)) return [];
+  return project.tracks.filter((t) => t.locked && t.clips.some((c) => clipEndOf(c) > first + EPS));
+}
+
 /**
  * Remove timeline `ranges` from every unlocked track (sync ripple, one undo step for the caller):
  * video/audio clips are split around each range (12 ms `audioFade` on the new joins, video stays a
  * hard cut), text/motion overlays shrink by the time removed under them (animated captions are
  * re-timed and lose their render), and subtitles (+ words) and reframe keyframes are re-timed.
- * Locked tracks do not move.
+ * Locked tracks that end before the first cut stay as they are; a locked track with anything after
+ * it throws CutLockedError (moving the rest would desync audio, video and subtitles).
  */
 export function cutTimeline<P extends Pick<Project, "tracks" | "subtitles"> & Partial<Project>>(
   project: P,
@@ -719,6 +752,8 @@ export function cutTimeline<P extends Pick<Project, "tracks" | "subtitles"> & Pa
   const fade = Math.max(0, Math.min(200, Math.round(opts.fadeMs ?? R.join_fade_ms)));
   const newClipIds: string[] = [];
   if (m.ranges.length === 0) return { project, removed_s: 0, newClipIds };
+  const blocking = lockedTracksBlockingCut(project, m.ranges);
+  if (blocking.length) throw new CutLockedError(blocking.map((t) => t.name));
   const tracks = project.tracks.map((t): Track => {
     if (t.locked) return t;
     const clips: Clip[] = [];
@@ -866,6 +901,8 @@ export function speedUpTimeline<P extends Pick<Project, "tracks" | "subtitles">>
   factor: number,
 ): P {
   if (!(factor > 1 + EPS)) return project;
+  const blocking = project.tracks.filter((t) => t.locked && t.clips.length > 0);
+  if (blocking.length) throw new CutLockedError(blocking.map((t) => t.name));
   const f = factor;
   const tracks = project.tracks.map((t) =>
     t.locked

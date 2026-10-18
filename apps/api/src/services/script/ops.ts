@@ -16,6 +16,7 @@ import {
   type ScriptCutsResponse,
   type SubtitleSegment,
 } from "@studio/shared";
+import { lockedCutToHttp } from "../../lib/errors.js";
 import {
   computeCuts,
   computeFit,
@@ -106,7 +107,9 @@ export function applyScriptCuts(
   cuts: readonly { start: number; end: number }[],
   newId: () => string,
 ): { project: Project; removed_s: number } {
-  const out = cutTimeline(project, cuts, { fadeMs: SCRIPT_RULES.join_fade_ms, newId });
+  const out = lockedCutToHttp(() =>
+    cutTimeline(project, cuts, { fadeMs: SCRIPT_RULES.join_fade_ms, newId }),
+  );
   return { project: out.project, removed_s: out.removed_s };
 }
 
@@ -145,7 +148,8 @@ export function applyFit(
     (registered && refinedFitCuts(registered, project, preview.cuts)?.cuts) || preview.cuts;
   let next = project;
   if (cuts.length) next = applyScriptCuts(project, cuts, newId).project;
-  if (preview.speed) next = speedUpTimeline(next, preview.speed);
+  const speed = preview.speed;
+  if (speed) next = lockedCutToHttp(() => speedUpTimeline(next, speed));
   return {
     project: next,
     from_s: preview.from_s,

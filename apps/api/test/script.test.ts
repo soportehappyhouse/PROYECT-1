@@ -220,6 +220,42 @@ describe.skipIf(!hasFfmpeg)("Guion (script) api", () => {
     expect(script.stale).toBe(false);
   });
 
+  it("transcribing over existing subtitles needs replace:true (409 first; audit S6 E9)", async () => {
+    const before = app.ctx.repos.projects.get(projectId)!;
+    const manual = structuredClone(before);
+    manual.subtitles[0] = {
+      ...manual.subtitles[0]!,
+      text: "MI CORRECCION MANUAL",
+      words: manual.subtitles[0]!.words!.map((w) => ({ ...w, corrected: true })),
+    };
+    app.ctx.repos.projects.save(projectId, manual);
+    const res = await app.inject({
+      method: "POST",
+      url: url(API_ROUTES.scriptTranscribe),
+      payload: { clipId: "c1" },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("SCRIPT_REPLACE_REQUIRED");
+    expect(res.json().error.message).toMatch(/^Ese tramo ya tiene 10 subtítulos \(3 palabras/);
+    expect(app.ctx.repos.projects.get(projectId)!.subtitles[0]!.text).toBe("MI CORRECCION MANUAL");
+    // Confirmed: replaced, and the old subtitles come back in the result.
+    const ok = await app.inject({
+      method: "POST",
+      url: url(API_ROUTES.scriptTranscribe),
+      payload: { clipId: "c1", replace: true },
+    });
+    expect(ok.statusCode).toBe(202);
+    const { jobId } = ok.json() as { jobId: string };
+    let job: Job | undefined;
+    await waitFor(async () => {
+      job = (await app.inject({ url: `/api/jobs/${jobId}` })).json() as Job;
+      return ["succeeded", "failed", "canceled"].includes(job.status);
+    }, 30_000);
+    expect(job!.status, job!.error ?? "").toBe("succeeded");
+    const replaced = (job!.result as { replaced: { text: string }[] }).replaced;
+    expect(replaced[0]!.text).toBe("MI CORRECCION MANUAL");
+  });
+
   it("cuts: the edge moves to the energy minimum (synthetic .f32)", async () => {
     const script = ScriptSchema.parse((await app.inject({ url: url(API_ROUTES.script) })).json());
     const eh = script.words.find((w) => w.text === "eh")!;

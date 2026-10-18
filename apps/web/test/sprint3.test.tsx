@@ -554,7 +554,7 @@ describe("Ajustes → Asistente local", () => {
     });
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /Evaluar modelos/ }));
+      fireEvent.click(screen.getByTestId("eval-quick"));
     });
     const table = await screen.findByTestId("agent-eval");
     expect(table.textContent).toContain("92 %");
@@ -565,6 +565,7 @@ describe("Ajustes → Asistente local", () => {
     expect(calls.find((c) => c.path === "/api/agent/eval" && c.method === "POST")?.body).toEqual({
       models: ["qwen3:8b", "llama3.1:8b"],
       dataset: "golden",
+      mode: "quick",
     });
 
     await act(async () => {

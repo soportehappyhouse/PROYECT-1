@@ -1,5 +1,6 @@
 "use client";
 
+import { PACKS_PATH_ES } from "@studio/shared";
 import { Download, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -72,6 +73,7 @@ export function PackRequiredDialog() {
             <li>Lo usan: {pack.required_by.map(featureLabel).join(", ")}</li>
           ) : null}
           <li>Se descarga una sola vez a la carpeta models/ y se verifica al terminar.</li>
+          <li>También podés descargarlo cuando quieras en {PACKS_PATH_ES}.</li>
         </ul>
         {active ? (
           <div className="flex flex-col gap-1" aria-live="polite">

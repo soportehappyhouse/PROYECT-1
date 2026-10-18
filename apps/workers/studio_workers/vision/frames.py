@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import shutil
 import struct
@@ -24,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from ..media import FfmpegNotFoundError, find_ffmpeg
+from ..tasks import kill_process_tree, on_cancel_kill
 
 _VP9_ARGS = [
     "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-b:v", "0", "-crf", "32",
@@ -196,6 +198,7 @@ class FrameReader:
         self._proc = subprocess.Popen(  # noqa: S603 - fixed argv
             self._cmd(), stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
+        on_cancel_kill(self._proc)  # a canceled task kills ffmpeg (the read then hits EOF)
         assert self._proc.stdout is not None
         index = self.start
         try:
@@ -219,7 +222,7 @@ class FrameReader:
         self._proc = None
         killed = not self._eof and proc.poll() is None
         if killed:
-            proc.kill()
+            kill_process_tree(proc)
         err = proc.stderr.read().decode("utf-8", "replace") if proc.stderr else ""
         proc.wait()
         if not killed and proc.returncode != 0:
@@ -251,6 +254,7 @@ class AlphaWriter:
         self._proc = subprocess.Popen(  # noqa: S603
             cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE
         )
+        on_cancel_kill(self._proc)
 
     def write(self, rgba: Any) -> None:
         assert self._proc.stdin is not None
@@ -266,9 +270,11 @@ class AlphaWriter:
         return self.out
 
     def abort(self) -> None:
-        if self._proc.poll() is None:
-            self._proc.kill()
-            self._proc.wait()
+        kill_process_tree(self._proc)
+        for pipe in (self._proc.stdin, self._proc.stderr):
+            if pipe is not None:
+                with contextlib.suppress(OSError):
+                    pipe.close()
 
 
 class ChunkedAlphaWriter:

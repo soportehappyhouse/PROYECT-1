@@ -1,6 +1,7 @@
 "use client";
 
-import { Download, FlaskConical, RefreshCw, ShieldCheck } from "lucide-react";
+import { formatEtaEs, type Job } from "@studio/shared";
+import { Download, FlaskConical, RefreshCw, ShieldCheck, X } from "lucide-react";
 import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Label, Range, Select } from "@/components/ui/input";
@@ -13,6 +14,7 @@ import {
   Section,
   Spinner,
 } from "@/components/ui/misc";
+import { useAiAvailability } from "@/hooks/use-ai-availability";
 import { formatLatency, formatRate } from "@/lib/agent";
 import {
   AGENT_PACK_ID,
@@ -60,6 +62,37 @@ function DownloadModel() {
   );
 }
 
+/** Running «Evaluar modelos»: «qwen3:8b · 17/20», bar, ETA and Cancelar (Sprint 5). */
+function EvalProgress({ job }: { job: Job }) {
+  const d = job.detail;
+  return (
+    <div className="flex flex-col gap-1 text-[11px]" data-testid="eval-progress" aria-live="polite">
+      <div className="flex items-center gap-2">
+        <Progress value={job.progress} />
+        <span className="w-9 text-right tabular-nums">{Math.round(job.progress * 100)}%</span>
+        <Button
+          size="xs"
+          variant="outline"
+          tip="jobCancel"
+          data-testid="eval-cancel"
+          onClick={() =>
+            void useJobsStore
+              .getState()
+              .cancel(job.id)
+              .catch(() => undefined)
+          }
+        >
+          <X /> Cancelar
+        </Button>
+      </div>
+      <span className="text-muted-foreground">
+        {d?.stage_es ?? job.message ?? "Preparando…"} · {formatEtaEs(d?.eta_s ?? null)}
+        {d?.stalled ? " · sin avance hace 2 min" : ""}
+      </span>
+    </div>
+  );
+}
+
 /** Ajustes → «Asistente local»: model, temperature, model download and the eval table. */
 export function AssistantTab() {
   const status = useAgentStore((s) => s.status);
@@ -68,6 +101,9 @@ export function AssistantTab() {
   const results = useAgentStore((s) => s.evalResults);
   const running = useAgentStore((s) => s.evalRunning);
   const evalError = useAgentStore((s) => s.evalError);
+  const evalJobId = useAgentStore((s) => s.evalJobId);
+  const evalJob = useJobsStore((s) => (evalJobId ? s.jobs[evalJobId] : undefined));
+  const evalAvailability = useAiAvailability("ollama");
   const { setModel, setTemperature, runEval, loadStatus } = useAgentStore.getState();
   const installed = status?.models_installed ?? [];
   const current = settings.model ?? status?.model ?? DEFAULT_AGENT_MODEL;
@@ -159,22 +195,43 @@ export function AssistantTab() {
       <Section
         title="Evaluar modelos"
         actions={
-          <Button
-            size="xs"
-            variant="outline"
-            disabled={running}
-            onClick={() => void runEval(installed.length ? installed : [current])}
-          >
-            {running ? <Spinner className="size-3" /> : <FlaskConical />}
-            {running ? "Evaluando…" : "Evaluar modelos"}
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              size="xs"
+              variant="outline"
+              data-testid="eval-quick"
+              disabled={running || !evalAvailability.enabled}
+              disabledReason={
+                running ? "Ya hay una evaluación en curso." : evalAvailability.reason_es
+              }
+              tooltip="Rápida: 20 comandos variados por modelo (unos minutos)"
+              onClick={() => void runEval(installed.length ? installed : [current], "quick")}
+            >
+              {running ? <Spinner className="size-3" /> : <FlaskConical />}
+              {running ? "Evaluando…" : "Rápida (20)"}
+            </Button>
+            <Button
+              size="xs"
+              variant="ghost"
+              data-testid="eval-full"
+              disabled={running || !evalAvailability.enabled}
+              disabledReason={
+                running ? "Ya hay una evaluación en curso." : evalAvailability.reason_es
+              }
+              tooltip="Completa: los 80 comandos de prueba por modelo (puede tardar 10–20 min)"
+              onClick={() => void runEval(installed.length ? installed : [current], "full")}
+            >
+              Completa (80)
+            </Button>
+          </div>
         }
       >
         <p className="text-[11px] text-muted-foreground">
-          Corre los 80 comandos de prueba con cada modelo instalado y mide si el plan es válido, si
-          es el correcto (también solo entre los pedidos que tienen operaciones) y cuánto tarda
-          (unos minutos).
+          Mide con cada modelo instalado si el plan es válido, si es el correcto (también solo entre
+          los pedidos que tienen operaciones) y cuánto tarda. La rápida usa 20 comandos variados; la
+          completa, los 80. Podés cancelarla cuando quieras: Ollama deja de generar al instante.
         </p>
+        {evalJob && !isTerminal(evalJob) ? <EvalProgress job={evalJob} /> : null}
         {evalError ? <ErrorNotice message={evalError} /> : null}
         {results.length > 0 ? (
           <table className="w-full text-left text-xs" data-testid="agent-eval">

@@ -9,6 +9,7 @@ import {
 import { create } from "zustand";
 import type { AnyJobType } from "@/lib/ai-types";
 import { api, errorMessage, isNotImplemented } from "@/lib/api";
+import { cancelJob } from "@/lib/api-jobs";
 import { addBreadcrumb } from "./breadcrumbs-store";
 
 /**
@@ -89,12 +90,89 @@ export type JobIntent =
 
 export type JobsConnection = "connecting" | "live" | "polling" | "not-implemented" | "offline";
 
+// ---- Sprint 5 (M1, H3): toasts once per job, also across reloads -------------------------------
+
+/** localStorage ring of job ids whose end was already notified (decision 6). */
+export const JOBS_SEEN_KEY = "studio.jobs.seen.v1";
+/** localStorage ring of job ids some tab saw queued/running (finished during a reload → notify). */
+export const JOBS_ACTIVE_KEY = "studio.jobs.active.v1";
+export const JOBS_SEEN_MAX = 500;
+
+function readRing(key: string): string[] {
+  try {
+    const raw = globalThis.localStorage?.getItem(key);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeRing(key: string, ids: string[]): void {
+  try {
+    globalThis.localStorage?.setItem(key, JSON.stringify(ids.slice(-JOBS_SEEN_MAX)));
+  } catch {
+    // blocked storage (policies, private mode): the in-memory state still works
+  }
+}
+
+function addToRing(key: string, ids: readonly string[]): void {
+  if (ids.length === 0) return;
+  const ring = readRing(key);
+  const set = new Set(ring);
+  let changed = false;
+  for (const id of ids)
+    if (!set.has(id)) {
+      ring.push(id);
+      set.add(id);
+      changed = true;
+    }
+  if (changed) writeRing(key, ring);
+}
+
+/** Ids already notified (any tab, survives reloads). */
+export function seenJobIds(): Set<string> {
+  return new Set(readRing(JOBS_SEEN_KEY));
+}
+
+export function markJobsSeen(ids: readonly string[]): void {
+  addToRing(JOBS_SEEN_KEY, ids);
+}
+
+/** Remember jobs this tab saw active, so a reload that misses their end still notifies once. */
+export function markJobsActive(ids: readonly string[]): void {
+  addToRing(JOBS_ACTIVE_KEY, ids);
+}
+
+export function activeJobIds(): Set<string> {
+  return new Set(readRing(JOBS_ACTIVE_KEY));
+}
+
+/**
+ * First load of /api/jobs: terminal jobs are «handled» (no toast) unless some tab saw them active
+ * and nobody notified their end yet (they finished while the page was reloading).
+ */
+export function initialHandled(jobs: readonly Job[]): { handled: string[]; pending: string[] } {
+  const seen = seenJobIds();
+  const active = activeJobIds();
+  const handled: string[] = [];
+  const pending: string[] = [];
+  for (const j of jobs) {
+    if (!isTerminal(j)) continue;
+    if (active.has(j.id) && !seen.has(j.id)) pending.push(j.id);
+    else handled.push(j.id);
+  }
+  return { handled, pending };
+}
+
 interface JobsState {
   jobs: Record<string, Job>;
   intents: Record<string, JobIntent>;
   connection: JobsConnection;
   /** Ids whose terminal state was already handled (follow-up run once). */
   handled: Record<string, true>;
+  /** Sprint 5: the first /api/jobs load already seeded `handled` (decision 6). */
+  loaded: boolean;
   refresh: () => Promise<void>;
   upsertJob: (job: Job) => void;
   applyEvent: (event: JobEvent) => void;
@@ -124,9 +202,23 @@ export const useJobsStore = create<JobsState>()((set, get) => ({
   intents: {},
   connection: "connecting",
   handled: {},
+  loaded: false,
   refresh: async () => {
     try {
       const list = await api.listJobs({ limit: 100 });
+      markJobsActive(list.filter((j) => !isTerminal(j)).map((j) => j.id));
+      if (!get().loaded) {
+        // Decision 6: seed before the jobs land in the store (the subscriber toasts on change).
+        const { handled } = initialHandled(list.filter((j) => !get().jobs[j.id]));
+        markJobsSeen(handled);
+        set((s) => ({
+          loaded: true,
+          handled: {
+            ...s.handled,
+            ...Object.fromEntries(handled.map((id) => [id, true as const])),
+          },
+        }));
+      }
       set((s) => {
         const jobs = { ...s.jobs };
         for (const j of list) jobs[j.id] = j;
@@ -152,6 +244,8 @@ export const useJobsStore = create<JobsState>()((set, get) => ({
         }`,
         { jobId: e.jobId, type: existing.type, status: e.status },
       );
+    if (e.status !== existing.status && !TERMINAL_JOB_STATUSES.includes(e.status))
+      markJobsActive([e.jobId]);
     set((s) => ({
       jobs: {
         ...s.jobs,
@@ -160,6 +254,9 @@ export const useJobsStore = create<JobsState>()((set, get) => ({
           status: e.status,
           progress: e.progress,
           message: e.message ?? existing.message,
+          ...(e.error !== undefined && { error: e.error }),
+          ...(e.errorCode !== undefined && { errorCode: e.errorCode }),
+          ...(e.detail !== undefined && { detail: e.detail }),
         },
       },
     }));
@@ -189,11 +286,15 @@ export const useJobsStore = create<JobsState>()((set, get) => ({
           },
       intents: intent ? { ...s.intents, [jobId]: intent } : s.intents,
     }));
+    markJobsActive([jobId]);
   },
-  markHandled: (jobId) => set((s) => ({ handled: { ...s.handled, [jobId]: true } })),
+  markHandled: (jobId) => {
+    markJobsSeen([jobId]);
+    set((s) => ({ handled: { ...s.handled, [jobId]: true } }));
+  },
   setConnection: (connection) => set({ connection }),
   cancel: async (jobId) => {
-    const job = await api.cancelJob(jobId);
+    const job = await cancelJob(jobId);
     get().upsertJob(job);
   },
   dismissFinished: () =>

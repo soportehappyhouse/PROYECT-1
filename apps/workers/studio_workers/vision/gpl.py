@@ -13,6 +13,7 @@ JSON lines (see vision_gpl/rvm.py). ``GPL_PYTHON`` in .env/tests overrides the i
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -28,6 +29,8 @@ from dataclasses import dataclass, field
 from importlib.util import find_spec
 from pathlib import Path
 from typing import Any
+
+from ..tasks import kill_process_tree, new_group_kwargs, on_cancel_kill
 
 log = logging.getLogger("studio_workers")
 
@@ -260,15 +263,21 @@ def run_rvm(
         errors="replace",
         cwd=str(WORKERS_DIR),
         env=env,
+        **new_group_kwargs(),
     )
+    # Cancel (TaskQueue.cancel) kills the GPL tree so its VRAM is freed right away.
+    on_cancel_kill(proc)
     if on_start:
         on_start(proc)
     tail: deque[str] = deque(maxlen=40)
 
     def drain() -> None:  # stderr must be read concurrently or a chatty torch could block
         assert proc.stderr is not None
-        for err_line in proc.stderr:
-            tail.append(err_line.rstrip())
+        try:
+            for err_line in proc.stderr:
+                tail.append(err_line.rstrip())
+        except (OSError, ValueError):  # pipe closed by the finally below
+            pass
 
     reader = threading.Thread(target=drain, daemon=True)
     reader.start()
@@ -276,30 +285,39 @@ def run_rvm(
     error: str | None = None
     warnings: list[str] = []
     assert proc.stdout is not None
-    for line in proc.stdout:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            event = json.loads(line)
-        except ValueError:
-            log.info("vision_gpl: %s", line)
-            continue
-        if not isinstance(event, dict):
-            continue
-        kind = event.get("event")
-        if kind == "start" and started is None:
-            started = time.perf_counter() - t_spawn
-        if kind == "done":
-            result = event
-        elif kind == "error":
-            error = str(event.get("message") or "error")
-        elif kind == "warning" and event.get("code"):
-            warnings.append(str(event["code"]))
-        if on_event:
-            on_event(event)
-    code = proc.wait(timeout=timeout)
-    reader.join(timeout=5)
+    try:
+        for line in proc.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except ValueError:
+                log.info("vision_gpl: %s", line)
+                continue
+            if not isinstance(event, dict):
+                continue
+            kind = event.get("event")
+            if kind == "start" and started is None:
+                started = time.perf_counter() - t_spawn
+            if kind == "done":
+                result = event
+            elif kind == "error":
+                error = str(event.get("message") or "error")
+            elif kind == "warning" and event.get("code"):
+                warnings.append(str(event["code"]))
+            if on_event:
+                on_event(event)  # may raise TaskCanceled (progress after a cancel)
+        code = proc.wait(timeout=timeout)
+    finally:
+        # Canceled (TaskCanceled from on_event), timeout or any error: never leave the GPL
+        # subprocess alive holding VRAM. No-op when it already exited.
+        kill_process_tree(proc)
+        reader.join(timeout=5)
+        for pipe in (proc.stdout, proc.stderr):
+            if pipe is not None:
+                with contextlib.suppress(OSError):
+                    pipe.close()
     stderr = "\n".join(tail)
     if code != 0 or result is None:
         detail = error or stderr.strip()[-500:] or f"codigo {code}"

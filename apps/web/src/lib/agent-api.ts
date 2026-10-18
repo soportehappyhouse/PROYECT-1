@@ -49,8 +49,15 @@ export function normalizePlanRecord(raw: unknown): AgentPlanRecord {
 /** Sprint 3 routes (docs/trabajo/sprint3-contratos.md, «API»). */
 export const agentApi = {
   status: () => apiFetch<AgentStatus>(AGENT_ROUTES.status),
-  plan: async (body: AgentPlanRequest) =>
-    normalizePlanRecord(await apiFetch<unknown>(AGENT_ROUTES.plan, { method: "POST", json: body })),
+  /** Sprint 5 (H18): `signal` = «Cancelar» while the model thinks (the api stops the workers). */
+  plan: async (body: AgentPlanRequest, signal?: AbortSignal) =>
+    normalizePlanRecord(
+      await apiFetch<unknown>(AGENT_ROUTES.plan, {
+        method: "POST",
+        json: body,
+        ...(signal && { signal }),
+      }),
+    ),
   /** Job agent.apply (lane edit); result {applied, failed?, undoSnapshotId}. */
   apply: (body: AgentApplyRequest) =>
     apiFetch<AgentApplyAccepted>(AGENT_ROUTES.apply, { method: "POST", json: body }),
@@ -71,8 +78,8 @@ export const agentApi = {
       params: { id },
       json: { ...(undoSnapshotId && { undoSnapshotId }), ...(force && { force: true }) },
     }),
-  /** Job agent.eval -> storage/run/agent-eval.json. */
-  evaluate: (body: AgentEvalRequest) =>
+  /** Job agent.eval -> storage/run/agent-eval.json (`mode` absent = quick, api default). */
+  evaluate: (body: Omit<AgentEvalRequest, "mode"> & { mode?: AgentEvalRequest["mode"] }) =>
     apiFetch<Accepted<unknown>>(AGENT_ROUTES.eval, { method: "POST", json: body }),
   /** Last eval results (404 when it never ran). */
   lastEval: () => apiFetch<unknown>(AGENT_ROUTES.eval),

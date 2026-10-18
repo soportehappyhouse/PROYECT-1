@@ -15,12 +15,12 @@ import {
   Volume2,
   VolumeX,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { MenuItem, MenuSeparator } from "@/components/ui/menu";
 import { useSceneMarkers } from "@/hooks/use-scene-markers";
 import { moveTrackBy, moveTrackTo, timelineRows } from "@/lib/layers";
-import { projectDuration } from "@/lib/timeline";
+import { clipsInRect, projectDuration, type PxRect } from "@/lib/timeline";
 import { cn } from "@/lib/utils";
 import { useMediaStore } from "@/stores/media-store";
 import { useProjectStore } from "@/stores/project-store";
@@ -29,6 +29,8 @@ import { Ruler } from "./Ruler";
 
 export const HEADER_WIDTH = 224;
 export const TRACK_HEIGHT = 56;
+/** Height of the ruler row (h-6). */
+export const RULER_HEIGHT = 24;
 
 /** Data attached to every track lane so drops from the media panel know where they land. */
 export interface TrackDropData {
@@ -176,7 +178,7 @@ function TrackHeader({ track, z, count }: { track: Track; z: number; count: numb
         aria-label="Orden de capa"
         aria-haspopup="menu"
         aria-expanded={!!menu}
-        tooltip="Orden de capa: mover arriba / abajo"
+        tip="trackOrder"
         onClick={(e) => {
           const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
           setMenu(menu ? undefined : { x: r.left, y: r.bottom + 2 });
@@ -192,6 +194,7 @@ function TrackHeader({ track, z, count }: { track: Track; z: number; count: numb
         size="icon-sm"
         aria-label={track.muted ? "Activar sonido" : "Silenciar"}
         aria-pressed={track.muted}
+        tip="trackMute"
         onClick={() => updateTrack(track.id, { muted: !track.muted })}
       >
         {track.muted ? <VolumeX /> : <Volume2 />}
@@ -201,6 +204,7 @@ function TrackHeader({ track, z, count }: { track: Track; z: number; count: numb
         size="icon-sm"
         aria-label={track.hidden ? "Mostrar pista" : "Ocultar pista"}
         aria-pressed={track.hidden}
+        tip="trackHide"
         onClick={() => updateTrack(track.id, { hidden: !track.hidden })}
       >
         {track.hidden ? <EyeOff /> : <Eye />}
@@ -210,6 +214,7 @@ function TrackHeader({ track, z, count }: { track: Track; z: number; count: numb
         size="icon-sm"
         aria-label={track.locked ? "Desbloquear pista" : "Bloquear pista"}
         aria-pressed={track.locked}
+        tip="trackLock"
         onClick={() => updateTrack(track.id, { locked: !track.locked })}
       >
         {track.locked ? <Lock /> : <Unlock />}
@@ -219,7 +224,8 @@ function TrackHeader({ track, z, count }: { track: Track; z: number; count: numb
         size="icon-sm"
         aria-label="Eliminar pista"
         disabled={track.clips.length > 0}
-        title={track.clips.length > 0 ? "Vacía la pista para eliminarla" : "Eliminar pista"}
+        tip="trackDelete"
+        disabledReason="Vaciá la pista para poder borrarla"
         onClick={() => removeTrack(track.id)}
       >
         <Trash2 />
@@ -233,13 +239,16 @@ function TrackLane({
   width,
   zoom,
   assets,
-  selectedClipId,
+  selected,
+  onLaneDown,
 }: {
   track: Track;
   width: number;
   zoom: number;
   assets: Record<string, MediaAsset>;
-  selectedClipId: string | undefined;
+  selected: ReadonlySet<string>;
+  /** Sprint 5: pointer down on the empty lane (seek / rectangle selection). */
+  onLaneDown: (e: React.PointerEvent<HTMLDivElement>) => void;
 }) {
   const laneRef = useRef<HTMLDivElement | null>(null);
   const timeAt = useCallback(
@@ -268,10 +277,7 @@ function TrackLane({
       )}
       style={{ width, height: TRACK_HEIGHT }}
       onPointerDown={(e) => {
-        if (e.target === e.currentTarget) {
-          useProjectStore.getState().selectClip(undefined);
-          useProjectStore.getState().setPlayhead(timeAt(e.clientX));
-        }
+        if (e.target === e.currentTarget) onLaneDown(e);
       }}
     >
       {track.clips.map((clip) => (
@@ -282,7 +288,7 @@ function TrackLane({
           asset={clip.assetId ? assets[clip.assetId] : undefined}
           zoom={zoom}
           height={TRACK_HEIGHT}
-          selected={clip.id === selectedClipId}
+          selected={selected.has(clip.id)}
         />
       ))}
     </div>
@@ -294,11 +300,16 @@ export function Timeline() {
   const zoom = useProjectStore((s) => s.zoom);
   const playhead = useProjectStore((s) => s.playhead);
   const playing = useProjectStore((s) => s.playing);
-  const selectedClipId = useProjectStore((s) => s.selectedClipId);
+  const selectedClipIds = useProjectStore((s) => s.selectedClipIds);
+  const inOut = useProjectStore((s) => s.inOut);
   const assets = useMediaStore((s) => s.assets);
   const markers = useSceneMarkers();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const [viewportWidth, setViewportWidth] = useState(800);
+  const [marquee, setMarquee] = useState<PxRect | undefined>(undefined);
+  const selected = useMemo(() => new Set(selectedClipIds), [selectedClipIds]);
+  const hasClips = project.tracks.some((t) => t.clips.length > 0);
 
   const duration = Math.max(projectDuration(project) + 30, (viewportWidth - HEADER_WIDTH) / zoom);
   // Sprint 3b: rows in z-order (first row = bottom layer), like the export and the preview.
@@ -340,19 +351,76 @@ export function Timeline() {
 
   const seek = useCallback((t: number) => useProjectStore.getState().setPlayhead(t), []);
 
+  /**
+   * Sprint 5 (H10): pointer down on an empty lane. A click seeks (and clears the selection unless
+   * Shift/Ctrl); a drag draws a rectangle that selects every clip it touches.
+   */
+  const onLaneDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    const content = contentRef.current;
+    const app = scrollRef.current;
+    if (!content || !app) return;
+    e.preventDefault();
+    // Keyboard focus to the timeline (H5): shortcuts work right after the click.
+    if (!app.contains(document.activeElement)) app.focus({ preventScroll: true });
+    const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+    const point = (ev: { clientX: number; clientY: number }) => {
+      const r = content.getBoundingClientRect();
+      return { x: ev.clientX - r.left - HEADER_WIDTH, y: ev.clientY - r.top - RULER_HEIGHT };
+    };
+    const from = point(e);
+    let moved = false;
+    const onMove = (ev: PointerEvent) => {
+      const to = point(ev);
+      if (!moved && Math.hypot(to.x - from.x, to.y - from.y) < 4) return;
+      moved = true;
+      setMarquee({ left: from.x, right: to.x, top: from.y, bottom: to.y });
+    };
+    const onUp = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      const store = useProjectStore.getState();
+      if (moved) {
+        const to = point(ev);
+        const rect = { left: from.x, right: to.x, top: from.y, bottom: to.y };
+        store.selectClips(
+          clipsInRect(timelineRows(store.project), rect, store.zoom, TRACK_HEIGHT),
+          additive,
+        );
+      } else {
+        if (!additive) store.selectClip(undefined);
+        store.setPlayhead(Math.max(0, from.x / store.zoom));
+      }
+      setMarquee(undefined);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }, []);
+
   return (
     <div
       ref={scrollRef}
-      className="relative min-h-0 flex-1 overflow-auto"
+      role="application"
+      aria-label="Línea de tiempo: clips y pistas"
+      aria-roledescription="editor de línea de tiempo"
+      tabIndex={0}
+      className="relative min-h-0 flex-1 overflow-auto outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
       data-testid="timeline-scroll"
     >
-      <div className="relative" style={{ width: HEADER_WIDTH + width }}>
+      <div ref={contentRef} className="relative" style={{ width: HEADER_WIDTH + width }}>
         <div className="sticky top-0 z-30 flex">
           <div
             className="sticky left-0 z-30 shrink-0 border-r border-b bg-card"
             style={{ width: HEADER_WIDTH }}
           />
-          <Ruler zoom={zoom} duration={duration} onSeek={seek} markers={markers} />
+          <Ruler
+            zoom={zoom}
+            duration={duration}
+            onSeek={seek}
+            markers={markers}
+            inOut={inOut}
+            playhead={playhead}
+          />
         </div>
         {rows.map((track, z) => (
           <div key={track.id} className="flex">
@@ -362,7 +430,8 @@ export function Timeline() {
               width={width}
               zoom={zoom}
               assets={assets}
-              selectedClipId={selectedClipId}
+              selected={selected}
+              onLaneDown={onLaneDown}
             />
           </div>
         ))}
@@ -381,9 +450,43 @@ export function Timeline() {
         >
           <div className="absolute -top-0 -left-1.5 size-3 rotate-45 bg-primary" />
         </div>
+        {inOut ? (
+          <div
+            aria-hidden
+            data-testid="inout-range"
+            className="pointer-events-none absolute bottom-0 z-[4] border-x border-primary/70 bg-primary/10"
+            style={{
+              top: RULER_HEIGHT,
+              left: HEADER_WIDTH + inOut.in * zoom,
+              width: Math.max(1, (inOut.out - inOut.in) * zoom),
+            }}
+          />
+        ) : null}
+        {marquee ? (
+          <div
+            aria-hidden
+            data-testid="timeline-marquee"
+            className="pointer-events-none absolute z-[26] border border-primary bg-primary/15"
+            style={{
+              left: HEADER_WIDTH + Math.min(marquee.left, marquee.right),
+              top: RULER_HEIGHT + Math.min(marquee.top, marquee.bottom),
+              width: Math.abs(marquee.right - marquee.left),
+              height: Math.abs(marquee.bottom - marquee.top),
+            }}
+          />
+        ) : null}
         {project.tracks.length === 0 ? (
           <p className="p-4 text-xs text-muted-foreground">
-            No hay pistas. Añade una con los botones de la barra.
+            No hay pistas. Agregá una con «+ Pista» en la barra de arriba.
+          </p>
+        ) : !hasClips ? (
+          <p
+            data-testid="timeline-empty"
+            className="pointer-events-none absolute z-[3] max-w-md rounded-md border border-dashed bg-card/90 px-3 py-2 text-xs text-muted-foreground"
+            style={{ left: HEADER_WIDTH + 16, top: RULER_HEIGHT + 12 }}
+          >
+            La línea de tiempo está vacía. Agregá un medio con el botón + del panel Media o
+            arrastrándolo hasta una pista.
           </p>
         ) : null}
       </div>

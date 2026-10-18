@@ -3,9 +3,30 @@
 import type { Project } from "@studio/shared";
 import { useEffect } from "react";
 import { api, ApiRequestError, isNotImplemented, isOffline } from "@/lib/api";
+import { flushProjectOnHide, KEEPALIVE_MAX_BYTES, serializeProject } from "@/lib/api-projects";
 import { loadLocalProject, persistLocalProject, useProjectStore } from "@/stores/project-store";
 
 const SAVE_DEBOUNCE_MS = 1500;
+/** Sprint 5 (H22): projects too big for a keepalive flush on `pagehide` save sooner. */
+const SAVE_DEBOUNCE_BIG_MS = 300;
+
+/** Debounce for the next autosave: short when `pagehide` could not flush this project. */
+export function saveDebounceMs(project: Project): number {
+  return serializeProject(project).bytes > KEEPALIVE_MAX_BYTES
+    ? SAVE_DEBOUNCE_BIG_MS
+    : SAVE_DEBOUNCE_MS;
+}
+
+/**
+ * H22: closing/reloading the tab right after an edit used to lose it (1.5 s debounce). On
+ * `pagehide` with unsaved changes the project goes out with `fetch(..., {keepalive: true})`.
+ */
+export function onPageHide(): boolean {
+  const { project, saveState } = useProjectStore.getState();
+  if (saveState !== "dirty" && saveState !== "saving") return false;
+  // (localStorage already has it: every change is persisted right away.)
+  return flushProjectOnHide(project);
+}
 
 /** 501 (module in development) and api down both mean "kept in this browser only". */
 function failureState(err: unknown): "local" | "error" {
@@ -85,10 +106,12 @@ export function useProjectSync(): void {
       if (state.project === prev.project) return;
       persistLocalProject(state.project);
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => void saveProjectNow(), SAVE_DEBOUNCE_MS);
+      timer = setTimeout(() => void saveProjectNow(), saveDebounceMs(state.project));
     });
+    window.addEventListener("pagehide", onPageHide);
     return () => {
       disposed = true;
+      window.removeEventListener("pagehide", onPageHide);
       unsubscribe();
       if (timer) clearTimeout(timer);
     };

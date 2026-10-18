@@ -1,17 +1,26 @@
 "use client";
 
 import type { Clip, MediaAsset, Track } from "@studio/shared";
-import { ScanFace, Undo2 } from "lucide-react";
+import { BetweenHorizontalStart, ScanFace, Trash2, Undo2 } from "lucide-react";
+import { toast } from "sonner";
 import { useEffect, useRef } from "react";
-import { MenuItem } from "@/components/ui/menu";
+import { MenuItem, MenuSeparator } from "@/components/ui/menu";
+import { displayKeys } from "@/lib/shortcuts";
+import { trackGaps } from "@/lib/timeline";
+import { useProjectStore } from "@/stores/project-store";
+import { useSettingsStore } from "@/stores/settings-store";
 import { canSwapFace, useFaceStore } from "@/stores/face-store";
 
 /**
- * Right-click menu of a timeline clip (sprint 4 M1: «Cambiar cara…» on video clips and «Deshacer
- * cambio de cara» on swapped ones). Returns null when nothing applies to the clip.
+ * Right-click menu of a timeline clip: Sprint 5 «Borrar», «Borrar y cerrar hueco» and «Cerrar
+ * huecos de la pista» (always), Sprint 4 «Cambiar cara…» / «Deshacer cambio de cara».
  */
-export function clipMenuHasItems(track: Track, clip: Clip, asset: MediaAsset | undefined): boolean {
-  return !!clip.faceSwap || canSwapFace(track, asset);
+export function clipMenuHasItems(
+  _track: Track,
+  _clip: Clip,
+  _asset: MediaAsset | undefined,
+): boolean {
+  return true;
 }
 
 export function ClipContextMenu({
@@ -46,6 +55,14 @@ export function ClipContextMenu({
     fn();
     onClose();
   };
+  const keys = useSettingsStore((s) => s.shortcuts);
+  const count = useProjectStore((s) =>
+    s.selectedClipIds.includes(clip.id) ? s.selectedClipIds.length : 1,
+  );
+  const hint = (id: "timeline.delete" | "timeline.rippleDelete" | "timeline.closeGaps") =>
+    keys[id] ? displayKeys(keys[id]) : undefined;
+  const gaps = trackGaps(track).length;
+  const n = count > 1 ? ` (${count} clips)` : "";
   return (
     <div
       ref={ref}
@@ -55,6 +72,40 @@ export function ClipContextMenu({
       style={{ left: at.x, top: at.y }}
       onPointerDown={(e) => e.stopPropagation()}
     >
+      <MenuItem
+        disabled={track.locked}
+        hint={hint("timeline.delete")}
+        onSelect={run(() => {
+          useProjectStore.getState().deleteSelected();
+        })}
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <Trash2 className="size-3.5" /> Borrar{n}
+        </span>
+      </MenuItem>
+      <MenuItem
+        disabled={track.locked}
+        hint={hint("timeline.rippleDelete")}
+        onSelect={run(() => {
+          useProjectStore.getState().deleteSelected({ ripple: true });
+        })}
+      >
+        Borrar y cerrar hueco{n}
+      </MenuItem>
+      <MenuItem
+        disabled={track.locked || gaps === 0}
+        hint={hint("timeline.closeGaps")}
+        onSelect={run(() => {
+          const secs = useProjectStore.getState().closeGaps(track.id);
+          if (secs > 0) toast.message(`Huecos cerrados (${secs.toFixed(2)} s)`);
+        })}
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <BetweenHorizontalStart className="size-3.5" /> Cerrar huecos de la pista
+          {gaps ? ` (${gaps})` : ""}
+        </span>
+      </MenuItem>
+      {canSwapFace(track, asset) || clip.faceSwap ? <MenuSeparator /> : null}
       {canSwapFace(track, asset) && !clip.faceSwap ? (
         <MenuItem onSelect={run(() => void useFaceStore.getState().openWizard(clip.id))}>
           <span className="inline-flex items-center gap-1.5">

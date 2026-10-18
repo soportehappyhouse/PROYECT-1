@@ -305,8 +305,82 @@ function ProjectSettings() {
   );
 }
 
+/** Sprint 5 (H10): several clips selected → speed and volume in batch («3 clips»). */
+function BatchInspector({ ids }: { ids: string[] }) {
+  const project = useProjectStore((s) => s.project);
+  const clips = project.tracks.flatMap((t) =>
+    t.clips.filter((c) => ids.includes(c.id)).map((c) => ({ clip: c, track: t })),
+  );
+  const audible = clips.filter((x) => x.track.kind === "audio" || x.track.kind === "video");
+  const first = clips[0]?.clip;
+  const apply = (patch: Partial<Omit<Clip, "id" | "trackId">>, only?: string[]) =>
+    useProjectStore.getState().updateClips(only ?? ids, patch);
+  return (
+    <Panel title="Propiedades">
+      <div className="flex flex-col gap-4" data-testid="batch-inspector">
+        <div className="flex items-center gap-2">
+          <Badge>{ids.length} clips</Badge>
+          <span className="text-xs text-muted-foreground">Los cambios se aplican a todos</span>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            className="ml-auto"
+            aria-label="Eliminar clips elegidos"
+            tip="delete"
+            onClick={(e) => useProjectStore.getState().deleteSelected({ ripple: e.shiftKey })}
+          >
+            <Trash2 />
+          </Button>
+        </div>
+        {first ? (
+          <Section title="Tiempo">
+            <Label>
+              Velocidad: {first.speed.toFixed(2)}×
+              <Range
+                aria-label="Velocidad de los clips elegidos"
+                min={0.1}
+                max={4}
+                step={0.05}
+                value={first.speed}
+                onChange={(e) => apply({ speed: Number(e.target.value) })}
+              />
+            </Label>
+          </Section>
+        ) : null}
+        {audible.length > 0 ? (
+          <Section title="Audio">
+            <Label>
+              Volumen: {Math.round(audible[0]!.clip.volume * 100)}%
+              {audible.length < clips.length ? ` (${audible.length} con sonido)` : ""}
+              <Range
+                aria-label="Volumen de los clips elegidos"
+                min={0}
+                max={4}
+                step={0.01}
+                value={audible[0]!.clip.volume}
+                onChange={(e) =>
+                  apply(
+                    { volume: Number(e.target.value) },
+                    audible.map((x) => x.clip.id),
+                  )
+                }
+              />
+            </Label>
+          </Section>
+        ) : null}
+        <p className="text-[11px] text-muted-foreground">
+          Mayús+clic suma un rango de la pista, Ctrl+clic agrega o quita un clip, Esc quita la
+          selección.
+        </p>
+      </div>
+    </Panel>
+  );
+}
+
 export function InspectorPanel() {
   const sel = useSelectedClip();
+  const selectedIds = useProjectStore((s) => s.selectedClipIds);
+  if (selectedIds.length > 1) return <BatchInspector ids={selectedIds} />;
   if (!sel) {
     return (
       <Panel title="Propiedades">
@@ -337,7 +411,12 @@ export function InspectorPanel() {
             variant="ghost"
             className="ml-auto"
             aria-label="Eliminar clip"
-            onClick={() => useProjectStore.getState().deleteClip(clip.id)}
+            tip="delete"
+            onClick={(e) =>
+              e.shiftKey
+                ? useProjectStore.getState().rippleDelete([clip.id])
+                : useProjectStore.getState().deleteClip(clip.id)
+            }
           >
             <Trash2 />
           </Button>

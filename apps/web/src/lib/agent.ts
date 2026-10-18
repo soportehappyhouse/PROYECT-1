@@ -50,25 +50,26 @@ export function opLabel(op: Pick<EditOp, "op">): string {
 /** Ops the contract always asks to confirm (destructive or that write a file). */
 export const ALWAYS_CONFIRM: ReadonlySet<EditOpKind> = new Set(ALWAYS_CONFIRM_OPS);
 
-/** Ops that run a local AI model (may need a pack download, use the GPU). */
+/** Ops that run a local AI model (may need a pack download, use the GPU): they can take minutes. */
 const AI_OPS: ReadonlySet<EditOpKind> = new Set([
-  "cut_silences",
-  "detect_scenes",
   "add_captions",
   "transcribe",
   "tts",
   "voice_effect",
   "denoise",
   "remove_background",
-  "reframe",
+  "face_swap",
 ]);
+
+/** Sprint 5 (H23): ops done by FFmpeg/OpenCV in seconds (no model, no GPU). */
+const FAST_OPS: ReadonlySet<EditOpKind> = new Set(["cut_silences", "detect_scenes", "reframe"]);
 
 export interface OpRisk {
   label: string;
-  tone: "danger" | "warning";
+  tone: "danger" | "warning" | "muted";
 }
 
-/** Badges of one op: red for destructive/irreversible, amber for slow AI jobs. */
+/** Badges of one op: red for destructive/irreversible, amber for slow AI jobs, grey for fast ones. */
 export function opRisks(op: EditOp): OpRisk[] {
   const out: OpRisk[] = [];
   if (op.op === "delete_clip") out.push({ label: "Borra un clip", tone: "danger" });
@@ -76,6 +77,7 @@ export function opRisks(op: EditOp): OpRisk[] {
   if (op.op === "trim" || op.op === "cut_silences")
     out.push({ label: "Quita partes del video", tone: "warning" });
   if (AI_OPS.has(op.op)) out.push({ label: "IA local (puede tardar)", tone: "warning" });
+  else if (FAST_OPS.has(op.op)) out.push({ label: "Rápido (FFmpeg)", tone: "muted" });
   return out;
 }
 

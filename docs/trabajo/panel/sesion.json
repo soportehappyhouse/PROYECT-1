@@ -1,0 +1,1499 @@
+{
+ "version": 1,
+ "actualizado": "2026-10-09T00:40:00Z",
+ "notas": "Fuente única del panel. Tokens en miles (k). 'medido': true = subagent_tokens de las notificaciones de la sesión; false = estimado por el coordinador. Fases del grupo: 0 coordinador, 1 investigación/contratos, 2 módulos en paralelo, 3 integración, 4 auditoría, 5 correcciones, 6 después del sprint (hotfix, CI, soporte).",
+ "sesion": {
+  "proyecto": "Studio",
+  "repo": "PROYECT-1",
+  "rama": "claude/funny-mccarthy-0bbdt6",
+  "inicio": "2026-10-04T14:59:00Z",
+  "ultimo_commit": "02b23c0",
+  "commits": 100,
+  "prs_mergeados": 10,
+  "estado": "Sprint 5 (Roces) auditado y corregido; PR #11 abierto y verde, esperando «hacé el merge». Próximo: Sprint 6 (guion y sistema de diseño)",
+  "proximo_sprint": "S6",
+  "coordinador": {
+   "modelo": "opus",
+   "turnos_estimados": 94,
+   "k_por_turno_estimado": 35,
+   "medido": false,
+   "nota": "El contexto exacto del coordinador no es visible. Estimado: turnos de orquestación por sprint × ~35k tokens procesados por turno (con caché)."
+  },
+  "limites_plan": {
+   "cuota_semanal_visible": false,
+   "nota": "La cuota semanal de la suscripción no es visible desde la sesión. El panel trabaja en tokens (unidades relativas) contra un presupuesto que cargás vos.",
+   "ventana_sesion_inferida_k": 4500,
+   "ventana_nota": "Inferida de los 2 cortes conocidos (no es un dato oficial)."
+  }
+ },
+ "cortes_limite": [
+  {
+   "cuando": "2026-10-06",
+   "sprint": "S3b",
+   "tipo": "límite de sesión (Opus)",
+   "reset_utc": "01:40",
+   "efecto": "5 agentes de módulo murieron y se relanzaron",
+   "fecha_inferida": true
+  },
+  {
+   "cuando": "2026-10-06",
+   "sprint": "S4",
+   "tipo": "límite de sesión (429)",
+   "reset_utc": "23:20",
+   "efecto": "murió el agente de correcciones (intento 1); después un reinicio del contenedor tiró el intento 2",
+   "fecha_inferida": true
+  }
+ ],
+ "tipos_agente": [
+  {
+   "id": "investigacion",
+   "nombre": "Investigación"
+  },
+  {
+   "id": "contratos",
+   "nombre": "Contratos y Paso 0"
+  },
+  {
+   "id": "modulo",
+   "nombre": "Módulos"
+  },
+  {
+   "id": "integracion",
+   "nombre": "Integración"
+  },
+  {
+   "id": "auditoria",
+   "nombre": "Auditoría"
+  },
+  {
+   "id": "correcciones",
+   "nombre": "Correcciones"
+  },
+  {
+   "id": "hotfix",
+   "nombre": "Hotfix y CI"
+  },
+  {
+   "id": "soporte",
+   "nombre": "Soporte (historial, logs)"
+  }
+ ],
+ "sprints": [
+  {
+   "id": "S0",
+   "nombre": "Base",
+   "fecha": "2026-10-04",
+   "plan": "00-PLAN-BASE",
+   "estado": "hecho",
+   "horas": 1.5,
+   "commits": 11,
+   "progreso": {
+    "funciones": 87.5,
+    "errores": 100,
+    "diseno": 35,
+    "diseno_medido": false
+   },
+   "criterios": {
+    "verdes": 3,
+    "amarillos": 1,
+    "total": 4
+   },
+   "hallazgos": {
+    "encontrados": 6,
+    "corregidos": 6,
+    "abiertos": 0,
+    "detalle": "1 bug en verificación + 5 riesgos de auditoría"
+   },
+   "tests": {
+    "e2e": null,
+    "smoke": null,
+    "node": null,
+    "python": null
+   },
+   "corto": {
+    "relanzados": 0,
+    "costuras": 0,
+    "hotfix_post": 0,
+    "seguimientos": 0,
+    "agentes_extra": 0,
+    "incidentes": 0,
+    "nota": "Sin registros de fallas de agentes."
+   },
+   "agentes": [
+    {
+     "id": "inv-motion",
+     "rol": "Investigación motion",
+     "tipo": "investigacion",
+     "modelo": "sonnet",
+     "fase": 1,
+     "k": 200,
+     "medido": false
+    },
+    {
+     "id": "inv-voz",
+     "rol": "Investigación voz/audio",
+     "tipo": "investigacion",
+     "modelo": "sonnet",
+     "fase": 1,
+     "k": 200,
+     "medido": false
+    },
+    {
+     "id": "inv-editor",
+     "rol": "Investigación editor/FFmpeg",
+     "tipo": "investigacion",
+     "modelo": "sonnet",
+     "fase": 1,
+     "k": 200,
+     "medido": false
+    },
+    {
+     "id": "arq",
+     "rol": "Arquitecto (esqueleto)",
+     "tipo": "contratos",
+     "modelo": "opus",
+     "fase": 1,
+     "k": 250,
+     "medido": false
+    },
+    {
+     "id": "m-a",
+     "rol": "Módulo A web",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 350,
+     "medido": false
+    },
+    {
+     "id": "m-b",
+     "rol": "Módulo B api",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 350,
+     "medido": false
+    },
+    {
+     "id": "m-c",
+     "rol": "Módulo C motion",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 350,
+     "medido": false
+    },
+    {
+     "id": "m-d",
+     "rol": "Módulo D workers",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 350,
+     "medido": false
+    },
+    {
+     "id": "int",
+     "rol": "Integración",
+     "tipo": "integracion",
+     "modelo": "opus",
+     "fase": 3,
+     "k": 300,
+     "medido": false
+    },
+    {
+     "id": "aud",
+     "rol": "Auditoría",
+     "tipo": "auditoria",
+     "modelo": "sonnet",
+     "fase": 4,
+     "k": 250,
+     "medido": false
+    },
+    {
+     "id": "fix",
+     "rol": "Correcciones",
+     "tipo": "correcciones",
+     "modelo": "opus",
+     "fase": 5,
+     "k": 250,
+     "medido": false
+    }
+   ]
+  },
+  {
+   "id": "R2",
+   "nombre": "Manual, QA y canal de errores",
+   "fecha": "2026-10-04",
+   "plan": "00-PLAN-BASE",
+   "estado": "hecho",
+   "horas": 5.4,
+   "commits": 8,
+   "progreso": {
+    "funciones": 100,
+    "errores": 56,
+    "diseno": 40,
+    "diseno_medido": false
+   },
+   "criterios": {
+    "verdes": 4,
+    "amarillos": 0,
+    "total": 4
+   },
+   "hallazgos": {
+    "encontrados": 18,
+    "corregidos": 10,
+    "abiertos": 8,
+    "detalle": "16 bugs de QA (8 corregidos, resto a MEJORAS.md) + 2 fallos de CI Windows"
+   },
+   "tests": {
+    "e2e": 23,
+    "smoke": 12,
+    "node": null,
+    "python": null
+   },
+   "corto": {
+    "relanzados": 0,
+    "costuras": 0,
+    "hotfix_post": 1,
+    "seguimientos": 0,
+    "agentes_extra": 0,
+    "incidentes": 0,
+    "nota": "2 fallos de CI en Windows corregidos en el commit siguiente."
+   },
+   "agentes": [
+    {
+     "id": "qa",
+     "rol": "QA de punta a punta",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 300,
+     "medido": false
+    },
+    {
+     "id": "err",
+     "rol": "Canal de errores",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 300,
+     "medido": false
+    },
+    {
+     "id": "man",
+     "rol": "Manual de usuario",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 300,
+     "medido": false
+    },
+    {
+     "id": "fix",
+     "rol": "Correcciones",
+     "tipo": "correcciones",
+     "modelo": "opus",
+     "fase": 5,
+     "k": 250,
+     "medido": false
+    }
+   ]
+  },
+  {
+   "id": "R2b",
+   "nombre": "Prueba real, instalador y PLAN v2",
+   "fecha": "2026-10-05",
+   "plan": "01-PLAN-BASE-v2",
+   "estado": "hecho",
+   "horas": 1.5,
+   "commits": 6,
+   "progreso": {
+    "funciones": 100,
+    "errores": 100,
+    "diseno": 45,
+    "diseno_medido": false
+   },
+   "criterios": {
+    "verdes": 1,
+    "amarillos": 0,
+    "total": 1
+   },
+   "hallazgos": {
+    "encontrados": 12,
+    "corregidos": 12,
+    "abiertos": 0,
+    "detalle": "12 bugs de la primera prueba en la PC (varios resueltos como funciones del Sprint 1)"
+   },
+   "tests": {
+    "e2e": null,
+    "smoke": null,
+    "node": null,
+    "python": null
+   },
+   "corto": {
+    "relanzados": 0,
+    "costuras": 0,
+    "hotfix_post": 0,
+    "seguimientos": 0,
+    "agentes_extra": 0,
+    "incidentes": 0,
+    "nota": "Agentes inferidos de los commits."
+   },
+   "agentes": [
+    {
+     "id": "inv-ia",
+     "rol": "Investigación IA local",
+     "tipo": "investigacion",
+     "modelo": "sonnet",
+     "fase": 1,
+     "k": 250,
+     "medido": false
+    },
+    {
+     "id": "inst",
+     "rol": "Instalador incremental",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 300,
+     "medido": false
+    },
+    {
+     "id": "fix",
+     "rol": "Arreglos de la prueba real",
+     "tipo": "correcciones",
+     "modelo": "opus",
+     "fase": 5,
+     "k": 300,
+     "medido": false
+    }
+   ]
+  },
+  {
+   "id": "S1",
+   "nombre": "Fase A: IA local determinista",
+   "fecha": "2026-10-05",
+   "plan": "01-PLAN-BASE-v2",
+   "estado": "hecho",
+   "horas": 2.7,
+   "commits": 10,
+   "progreso": {
+    "funciones": 66.7,
+    "errores": 100,
+    "diseno": 45,
+    "diseno_medido": false
+   },
+   "criterios": {
+    "verdes": 1,
+    "amarillos": 2,
+    "total": 3
+   },
+   "hallazgos": {
+    "encontrados": 14,
+    "corregidos": 14,
+    "abiertos": 0,
+    "detalle": "6 reconciliaciones de integración + 3 desvíos + 5 riesgos de auditoría"
+   },
+   "tests": {
+    "e2e": 33,
+    "smoke": 17,
+    "node": 332,
+    "python": 81
+   },
+   "corto": {
+    "relanzados": 0,
+    "costuras": 6,
+    "hotfix_post": 1,
+    "seguimientos": 0,
+    "agentes_extra": 1,
+    "incidentes": 0,
+    "nota": "Búsqueda extra (HyperFrames); fix de progreso después de la auditoría."
+   },
+   "agentes": [
+    {
+     "id": "con",
+     "rol": "Contratos",
+     "tipo": "contratos",
+     "modelo": "opus",
+     "fase": 1,
+     "k": 200,
+     "medido": false
+    },
+    {
+     "id": "inv-hf",
+     "rol": "Búsqueda HyperFrames",
+     "tipo": "investigacion",
+     "modelo": "sonnet",
+     "fase": 1,
+     "k": 150,
+     "medido": false
+    },
+    {
+     "id": "m-web",
+     "rol": "Módulo web",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 350,
+     "medido": false
+    },
+    {
+     "id": "m-api",
+     "rol": "Módulo api",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 350,
+     "medido": false
+    },
+    {
+     "id": "m-wrk",
+     "rol": "Módulo workers",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 350,
+     "medido": false
+    },
+    {
+     "id": "int",
+     "rol": "Integración",
+     "tipo": "integracion",
+     "modelo": "opus",
+     "fase": 3,
+     "k": 300,
+     "medido": false
+    },
+    {
+     "id": "aud",
+     "rol": "Auditoría",
+     "tipo": "auditoria",
+     "modelo": "sonnet",
+     "fase": 4,
+     "k": 250,
+     "medido": false
+    },
+    {
+     "id": "fix",
+     "rol": "Correcciones",
+     "tipo": "correcciones",
+     "modelo": "opus",
+     "fase": 5,
+     "k": 250,
+     "medido": false
+    }
+   ]
+  },
+  {
+   "id": "S2",
+   "nombre": "Fase B: visión y keyframes",
+   "fecha": "2026-10-05",
+   "plan": "01-PLAN-BASE-v2",
+   "estado": "hecho",
+   "horas": 2.5,
+   "commits": 8,
+   "progreso": {
+    "funciones": 87.5,
+    "errores": 100,
+    "diseno": 50,
+    "diseno_medido": false
+   },
+   "criterios": {
+    "verdes": 3,
+    "amarillos": 1,
+    "total": 4
+   },
+   "hallazgos": {
+    "encontrados": 15,
+    "corregidos": 15,
+    "abiertos": 0,
+    "detalle": "8 reconciliaciones de integración + 7 de auditoría"
+   },
+   "tests": {
+    "e2e": 41,
+    "smoke": 25,
+    "node": 420,
+    "python": 128
+   },
+   "corto": {
+    "relanzados": 0,
+    "costuras": 8,
+    "hotfix_post": 1,
+    "seguimientos": 0,
+    "agentes_extra": 0,
+    "incidentes": 0,
+    "nota": "Test de pip/uv dependiente del host corregido después."
+   },
+   "agentes": [
+    {
+     "id": "con",
+     "rol": "Contratos",
+     "tipo": "contratos",
+     "modelo": "opus",
+     "fase": 1,
+     "k": 200,
+     "medido": false
+    },
+    {
+     "id": "m-wrk",
+     "rol": "Módulo workers visión",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 400,
+     "medido": false
+    },
+    {
+     "id": "m-web",
+     "rol": "Módulo web multicapa",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 400,
+     "medido": false
+    },
+    {
+     "id": "m-api",
+     "rol": "Módulo api keyframes",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 400,
+     "medido": false
+    },
+    {
+     "id": "int",
+     "rol": "Integración",
+     "tipo": "integracion",
+     "modelo": "opus",
+     "fase": 3,
+     "k": 300,
+     "medido": false
+    },
+    {
+     "id": "aud",
+     "rol": "Auditoría",
+     "tipo": "auditoria",
+     "modelo": "sonnet",
+     "fase": 4,
+     "k": 250,
+     "medido": false
+    },
+    {
+     "id": "fix",
+     "rol": "Correcciones",
+     "tipo": "correcciones",
+     "modelo": "opus",
+     "fase": 5,
+     "k": 250,
+     "medido": false
+    }
+   ]
+  },
+  {
+   "id": "S3",
+   "nombre": "Fase D: agente local",
+   "fecha": "2026-10-05",
+   "plan": "01-PLAN-BASE-v2",
+   "estado": "hecho",
+   "horas": 2.2,
+   "commits": 10,
+   "progreso": {
+    "funciones": 50,
+    "errores": 100,
+    "diseno": 50,
+    "diseno_medido": false
+   },
+   "criterios": {
+    "verdes": 0,
+    "amarillos": 1,
+    "total": 1
+   },
+   "hallazgos": {
+    "encontrados": 15,
+    "corregidos": 15,
+    "abiertos": 0,
+    "detalle": "8 reconciliaciones de integración + 5 riesgos y 2 brechas de auditoría"
+   },
+   "tests": {
+    "e2e": 48,
+    "smoke": 29,
+    "node": 469,
+    "python": 290
+   },
+   "corto": {
+    "relanzados": 0,
+    "costuras": 8,
+    "hotfix_post": 0,
+    "seguimientos": 0,
+    "agentes_extra": 1,
+    "incidentes": 0,
+    "nota": "Agente extra de rendimiento del recorte (pedido aparte)."
+   },
+   "agentes": [
+    {
+     "id": "con",
+     "rol": "Contratos",
+     "tipo": "contratos",
+     "modelo": "opus",
+     "fase": 1,
+     "k": 200,
+     "medido": false
+    },
+    {
+     "id": "m-ds",
+     "rol": "Prompt y dataset",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 350,
+     "medido": false
+    },
+    {
+     "id": "m-wrk",
+     "rol": "Módulo workers agente",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 350,
+     "medido": false
+    },
+    {
+     "id": "m-web",
+     "rol": "Módulo web Asistente",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 350,
+     "medido": false
+    },
+    {
+     "id": "m-api",
+     "rol": "Módulo api EditPlan",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 350,
+     "medido": false
+    },
+    {
+     "id": "perf",
+     "rol": "Rendimiento RVM",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 250,
+     "medido": false
+    },
+    {
+     "id": "int",
+     "rol": "Integración",
+     "tipo": "integracion",
+     "modelo": "opus",
+     "fase": 3,
+     "k": 300,
+     "medido": false
+    },
+    {
+     "id": "aud",
+     "rol": "Auditoría",
+     "tipo": "auditoria",
+     "modelo": "sonnet",
+     "fase": 4,
+     "k": 250,
+     "medido": false
+    },
+    {
+     "id": "fix",
+     "rol": "Correcciones",
+     "tipo": "correcciones",
+     "modelo": "opus",
+     "fase": 5,
+     "k": 250,
+     "medido": false
+    }
+   ]
+  },
+  {
+   "id": "S3b",
+   "nombre": "Estilo, Consola Claude, stems, capas",
+   "fecha": "2026-10-06",
+   "plan": "01-PLAN-BASE-v2",
+   "estado": "hecho",
+   "horas": 15.2,
+   "commits": 10,
+   "progreso": {
+    "funciones": 75,
+    "errores": 100,
+    "diseno": 50,
+    "diseno_medido": false
+   },
+   "criterios": {
+    "verdes": 3,
+    "amarillos": 3,
+    "total": 6
+   },
+   "hallazgos": {
+    "encontrados": 17,
+    "corregidos": 17,
+    "abiertos": 0,
+    "detalle": "2 bugs entre módulos + 14 de auditoría + 1 fallo de CI Windows"
+   },
+   "tests": {
+    "e2e": 57,
+    "smoke": 33,
+    "node": 585,
+    "python": 331
+   },
+   "corto": {
+    "relanzados": 5,
+    "costuras": 2,
+    "hotfix_post": 1,
+    "seguimientos": 0,
+    "agentes_extra": 1,
+    "incidentes": 0,
+    "nota": "5 agentes murieron por el límite de sesión de Opus y se relanzaron; agente haiku extra para el test de Windows."
+   },
+   "agentes": [
+    {
+     "id": "con",
+     "rol": "Contratos",
+     "tipo": "contratos",
+     "modelo": "opus",
+     "fase": 1,
+     "k": 250,
+     "medido": false
+    },
+    {
+     "id": "m-con",
+     "rol": "Módulo consola",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 400,
+     "medido": false,
+     "murio": "límite de sesión",
+     "relanzado": 1
+    },
+    {
+     "id": "m-est",
+     "rol": "Módulo estilo",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 400,
+     "medido": false,
+     "murio": "límite de sesión",
+     "relanzado": 1
+    },
+    {
+     "id": "m-ste",
+     "rol": "Módulo stems",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 350,
+     "medido": false,
+     "murio": "límite de sesión",
+     "relanzado": 1
+    },
+    {
+     "id": "m-rec",
+     "rol": "Módulo recorte HQ",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 350,
+     "medido": false,
+     "murio": "límite de sesión",
+     "relanzado": 1
+    },
+    {
+     "id": "m-cap",
+     "rol": "Módulo capas",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 350,
+     "medido": false,
+     "murio": "límite de sesión",
+     "relanzado": 1
+    },
+    {
+     "id": "perdido",
+     "rol": "Trabajo perdido en los 5 cortes",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 600,
+     "medido": false,
+     "desperdicio": true
+    },
+    {
+     "id": "int",
+     "rol": "Integración",
+     "tipo": "integracion",
+     "modelo": "opus",
+     "fase": 3,
+     "k": 278,
+     "medido": true
+    },
+    {
+     "id": "aud",
+     "rol": "Auditoría",
+     "tipo": "auditoria",
+     "modelo": "sonnet",
+     "fase": 4,
+     "k": 269,
+     "medido": true
+    },
+    {
+     "id": "fix",
+     "rol": "Correcciones",
+     "tipo": "correcciones",
+     "modelo": "opus",
+     "fase": 5,
+     "k": 307,
+     "medido": true
+    },
+    {
+     "id": "win",
+     "rol": "Arreglo test Windows",
+     "tipo": "hotfix",
+     "modelo": "haiku",
+     "fase": 6,
+     "k": 54,
+     "medido": true
+    }
+   ]
+  },
+  {
+   "id": "S4",
+   "nombre": "Fase C: cara y voz",
+   "fecha": "2026-10-06",
+   "plan": "01-PLAN-BASE-v2",
+   "estado": "hecho",
+   "horas": 9,
+   "commits": 25,
+   "progreso": {
+    "funciones": 87.5,
+    "errores": 100,
+    "diseno": 50,
+    "diseno_medido": false
+   },
+   "criterios": {
+    "verdes": 3,
+    "amarillos": 1,
+    "total": 4
+   },
+   "hallazgos": {
+    "encontrados": 46,
+    "corregidos": 42,
+    "abiertos": 4,
+    "detalle": "9 bugs entre módulos + 24 hallazgos y 5 puntos abiertos de auditoría + 1 CI + 3 hotfix de la prueba del usuario; 4 en «Descubierto»"
+   },
+   "tests": {
+    "e2e": 74,
+    "smoke": 38,
+    "node": 713,
+    "python": 459
+   },
+   "corto": {
+    "relanzados": 2,
+    "costuras": 9,
+    "hotfix_post": 3,
+    "seguimientos": 1,
+    "agentes_extra": 6,
+    "incidentes": 1,
+    "nota": "Correcciones murió por 429 y después por reinicio del contenedor; incidente del índice git en M2; 3 hotfix tras la prueba (manifiesto, sello del instalador, URL del modelo); 1 mensaje extra a la auditoría (voices.json)."
+   },
+   "agentes": [
+    {
+     "id": "inv",
+     "rol": "Investigación",
+     "tipo": "investigacion",
+     "modelo": "sonnet",
+     "fase": 1,
+     "k": 319,
+     "medido": true
+    },
+    {
+     "id": "con",
+     "rol": "Contratos",
+     "tipo": "contratos",
+     "modelo": "opus",
+     "fase": 1,
+     "k": 390,
+     "medido": true
+    },
+    {
+     "id": "p0",
+     "rol": "Paso 0",
+     "tipo": "contratos",
+     "modelo": "opus",
+     "fase": 1,
+     "k": 270,
+     "medido": true
+    },
+    {
+     "id": "m1",
+     "rol": "M1 caras",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 700,
+     "medido": false,
+     "nota": "Informó 104k, probablemente truncado"
+    },
+    {
+     "id": "m2",
+     "rol": "M2 voz",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 615,
+     "medido": true,
+     "incidente": "índice git"
+    },
+    {
+     "id": "m3",
+     "rol": "M3 herramientas",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 774,
+     "medido": true
+    },
+    {
+     "id": "int",
+     "rol": "Integración",
+     "tipo": "integracion",
+     "modelo": "opus",
+     "fase": 3,
+     "k": 703,
+     "medido": true
+    },
+    {
+     "id": "aud",
+     "rol": "Auditoría",
+     "tipo": "auditoria",
+     "modelo": "sonnet",
+     "fase": 4,
+     "k": 440,
+     "medido": true,
+     "seguimiento": 1
+    },
+    {
+     "id": "fix1",
+     "rol": "Correcciones intento 1",
+     "tipo": "correcciones",
+     "modelo": "opus",
+     "fase": 5,
+     "k": 0,
+     "medido": false,
+     "murio": "429",
+     "desperdicio": true
+    },
+    {
+     "id": "fix2",
+     "rol": "Correcciones intento 2 (ALTO+MEDIO)",
+     "tipo": "correcciones",
+     "modelo": "opus",
+     "fase": 5,
+     "k": 400,
+     "medido": false,
+     "murio": "reinicio del contenedor"
+    },
+    {
+     "id": "fix3",
+     "rol": "Correcciones (reanudación)",
+     "tipo": "correcciones",
+     "modelo": "opus",
+     "fase": 5,
+     "k": 167,
+     "medido": true,
+     "relanzado": 2
+    },
+    {
+     "id": "ci",
+     "rol": "Arreglo CI Windows",
+     "tipo": "hotfix",
+     "modelo": "opus",
+     "fase": 6,
+     "k": 201,
+     "medido": true
+    },
+    {
+     "id": "hf-up1",
+     "rol": "Hotfix actualización (models_cli) 1",
+     "tipo": "hotfix",
+     "modelo": "opus",
+     "fase": 6,
+     "k": 188,
+     "medido": true
+    },
+    {
+     "id": "hf-up2",
+     "rol": "Hotfix actualización (models_cli) 2",
+     "tipo": "hotfix",
+     "modelo": "opus",
+     "fase": 6,
+     "k": 191,
+     "medido": true
+    },
+    {
+     "id": "hf-stamp",
+     "rol": "Hotfix sello del instalador",
+     "tipo": "hotfix",
+     "modelo": "opus",
+     "fase": 6,
+     "k": 84,
+     "medido": true
+    },
+    {
+     "id": "hf-fs",
+     "rol": "Hotfix faceswap-extra",
+     "tipo": "hotfix",
+     "modelo": "opus",
+     "fase": 6,
+     "k": 98,
+     "medido": true
+    },
+    {
+     "id": "hist",
+     "rol": "Escaneo de historial",
+     "tipo": "soporte",
+     "modelo": "sonnet",
+     "fase": 6,
+     "k": 92,
+     "medido": true
+    },
+    {
+     "id": "logs1",
+     "rol": "Extracción de logs 1",
+     "tipo": "soporte",
+     "modelo": "haiku",
+     "fase": 6,
+     "k": 53,
+     "medido": true
+    },
+    {
+     "id": "logs2",
+     "rol": "Extracción de logs 2",
+     "tipo": "soporte",
+     "modelo": "haiku",
+     "fase": 6,
+     "k": 53,
+     "medido": true
+    }
+   ]
+  },
+  {
+   "id": "FL",
+   "nombre": "Fluidez y PLAN v3",
+   "fecha": "2026-10-08",
+   "plan": "02-PLAN-BASE-v3",
+   "estado": "hecho",
+   "horas": 3,
+   "commits": 2,
+   "progreso": {
+    "funciones": null,
+    "errores": 0,
+    "diseno": 50.4,
+    "diseno_medido": true,
+    "diseno_nota": "Mapa de calor de la auditoría: promedio 2,52 de 5"
+   },
+   "criterios": {
+    "verdes": 0,
+    "amarillos": 0,
+    "total": 0
+   },
+   "hallazgos": {
+    "encontrados": 26,
+    "corregidos": 0,
+    "abiertos": 26,
+    "detalle": "Auditoría de fluidez: 6 altos, 16 medios, 4 bajos (van a los sprints 5 a 7)"
+   },
+   "tests": {
+    "e2e": null,
+    "smoke": null,
+    "node": null,
+    "python": null
+   },
+   "corto": {
+    "relanzados": 0,
+    "costuras": 0,
+    "hotfix_post": 0,
+    "seguimientos": 0,
+    "agentes_extra": 0,
+    "incidentes": 0,
+    "nota": ""
+   },
+   "agentes": [
+    {
+     "id": "ref",
+     "rol": "Referencias de editores",
+     "tipo": "investigacion",
+     "modelo": "sonnet",
+     "fase": 1,
+     "k": 141,
+     "medido": true
+    },
+    {
+     "id": "ux",
+     "rol": "Auditoría UX",
+     "tipo": "auditoria",
+     "modelo": "opus",
+     "fase": 4,
+     "k": 212,
+     "medido": true
+    }
+   ]
+  },
+  {
+   "id": "S5",
+   "nombre": "Roces",
+   "fecha": "2026-10-08",
+   "plan": "02-PLAN-BASE-v3",
+   "estado": "hecho",
+   "horas": 10,
+   "commits": 14,
+   "progreso": {
+    "funciones": 100,
+    "errores": 100,
+    "diseno": 50,
+    "diseno_medido": false
+   },
+   "criterios": {
+    "verdes": 4,
+    "amarillos": 0,
+    "total": 4
+   },
+   "hallazgos": {
+    "encontrados": 51,
+    "corregidos": 42,
+    "abiertos": 9,
+    "detalle": "Fluidez: 17 de 26 cerrados (2 parciales, 7 a Sprint 6) + 12 costuras de integración + 13 de auditoría (1 alto, 7 medios, 5 bajos), todos corregidos + 1 fallo de CI Windows"
+   },
+   "tests": {
+    "e2e": 82,
+    "smoke": 56,
+    "node": 881,
+    "python": 501
+   },
+   "corto": {
+    "relanzados": 0,
+    "costuras": 12,
+    "hotfix_post": 1,
+    "seguimientos": 0,
+    "agentes_extra": 0,
+    "incidentes": 0,
+    "pedidos_cruzados": 13,
+    "nota": "Ningún agente murió. 13 pedidos cruzados resueltos en la integración; 12 costuras; auditoría 13 hallazgos corregidos; 1 arreglo de CI Windows (fake Popen de test_cancel_kill se tragaba taskkill)."
+   },
+   "agentes": [
+    {
+     "id": "con",
+     "rol": "Contratos",
+     "tipo": "contratos",
+     "modelo": "opus",
+     "fase": 1,
+     "k": 215,
+     "medido": true
+    },
+    {
+     "id": "p0",
+     "rol": "Paso 0",
+     "tipo": "contratos",
+     "modelo": "opus",
+     "fase": 1,
+     "k": 184,
+     "medido": true
+    },
+    {
+     "id": "m1",
+     "rol": "M1 trabajos",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 502,
+     "medido": true
+    },
+    {
+     "id": "m2",
+     "rol": "M2 fluidez",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 426,
+     "medido": true
+    },
+    {
+     "id": "m3",
+     "rol": "M3 export",
+     "tipo": "modulo",
+     "modelo": "opus",
+     "fase": 2,
+     "k": 440,
+     "medido": true
+    },
+    {
+     "id": "int",
+     "rol": "Integración",
+     "tipo": "integracion",
+     "modelo": "opus",
+     "fase": 3,
+     "k": 500,
+     "medido": false,
+     "nota": "Estimado por el propio agente"
+    },
+    {
+     "id": "aud",
+     "rol": "Auditoría",
+     "tipo": "auditoria",
+     "modelo": "sonnet",
+     "fase": 4,
+     "k": 320,
+     "medido": false
+    },
+    {
+     "id": "fix",
+     "rol": "Correcciones (D1–D13)",
+     "tipo": "correcciones",
+     "modelo": "opus",
+     "fase": 5,
+     "k": 320,
+     "medido": false
+    },
+    {
+     "id": "ci",
+     "rol": "Arreglo CI Windows",
+     "tipo": "hotfix",
+     "modelo": "opus",
+     "fase": 6,
+     "k": 110,
+     "medido": false
+    }
+   ],
+   "pr": {
+    "numero": 11,
+    "estado": "abierto",
+    "ci": "verde",
+    "head": "02b23c0"
+   }
+  },
+  {
+   "id": "S6",
+   "nombre": "Guion y sistema de diseño",
+   "fecha": null,
+   "plan": "02-PLAN-BASE-v3",
+   "estado": "planeado",
+   "horas": null,
+   "commits": 0,
+   "progreso": {
+    "funciones": 0,
+    "errores": 0,
+    "diseno": 50,
+    "diseno_medido": false
+   },
+   "criterios": {
+    "verdes": 0,
+    "amarillos": 0,
+    "total": 2
+   },
+   "hallazgos": {
+    "encontrados": 0,
+    "corregidos": 0,
+    "abiertos": 0,
+    "detalle": ""
+   },
+   "tests": {},
+   "corto": null,
+   "agentes": []
+  },
+  {
+   "id": "S7",
+   "nombre": "Lazo autónomo",
+   "fecha": null,
+   "plan": "02-PLAN-BASE-v3",
+   "estado": "planeado",
+   "horas": null,
+   "commits": 0,
+   "progreso": {
+    "funciones": 0,
+    "errores": 0,
+    "diseno": 50,
+    "diseno_medido": false
+   },
+   "criterios": {
+    "verdes": 0,
+    "amarillos": 0,
+    "total": 1
+   },
+   "hallazgos": {
+    "encontrados": 0,
+    "corregidos": 0,
+    "abiertos": 0,
+    "detalle": ""
+   },
+   "tests": {},
+   "corto": null,
+   "agentes": []
+  }
+ ],
+ "abiertos": [
+  {
+   "origen": "Auditoría de fluidez",
+   "sev": "media",
+   "n": 7,
+   "texto": "Sprint 6: conservar words al corregir, Motion en español, editar motion en Propiedades, sistema de diseño, medios generados/duplicados, selector de voz único, deshacer de ajustes"
+  },
+  {
+   "origen": "Auditoría de fluidez",
+   "sev": "baja",
+   "n": 2,
+   "texto": "Parciales: reabrir el último plan tras recargar (H18); glosario y nombres de voces (H19)"
+  },
+  {
+   "origen": "Sprint 5 · Descubierto",
+   "sev": "baja",
+   "n": 1,
+   "texto": "Fila cancelada sin SSE tras recargar (ui-smoke, intermitente)"
+  },
+  {
+   "origen": "Sprint 4 · Descubierto",
+   "sev": "media",
+   "n": 4,
+   "texto": "PIN local, filtro NSFW de fotos de Persona, hashes de Hugging Face, texto real del rechazo NSFW"
+  },
+  {
+   "origen": "R2 · MEJORAS.md",
+   "sev": "baja",
+   "n": 8,
+   "texto": "Backlog de QA no reconciliado con los sprints (varios ya resueltos)"
+  }
+ ],
+ "pendiente_pc": [
+  "Recorte ≥ 15 fps 1080p (S2)",
+  "Evaluar modelos qwen3:8b ≥ 90 % (S3)",
+  "Consola con claude real (S3b)",
+  "Stems 1 min < 60 s en GPU y sha256 de Demucs (S3b)",
+  "Halos HQ en clip real (S3b)",
+  "FaceFusion fps, Chatterbox RTF, RVC < 15 s/min (S4)",
+  "Re-render con NVENC < 20 % (S1)",
+  "Evaluar modelos Rápida ≤ 3 min y Ollama corta al cancelar (S5)",
+  "Ctrl+O en Edge, 125 % en 1366 px (S5)",
+  "loudnorm 2 pasadas en 10 min y «Abrir carpeta» con tildes (S5)"
+ ],
+ "estimador": [
+  {
+   "id": "pregunta",
+   "nombre": "Pregunta o consulta",
+   "k": [
+    5,
+    40
+   ],
+   "agentes": [
+    0,
+    0
+   ],
+   "minutos": [
+    1,
+    5
+   ],
+   "base": "Solo el coordinador; sin agentes."
+  },
+  {
+   "id": "hotfix",
+   "nombre": "Hotfix",
+   "k": [
+    80,
+    380
+   ],
+   "agentes": [
+    1,
+    2
+   ],
+   "minutos": [
+    20,
+    60
+   ],
+   "base": "Medidos: 84k, 98k, 167k, 201k, 188k+191k"
+  },
+  {
+   "id": "investigacion",
+   "nombre": "Investigación",
+   "k": [
+    90,
+    320
+   ],
+   "agentes": [
+    1,
+    2
+   ],
+   "minutos": [
+    20,
+    60
+   ],
+   "base": "Medidos: 92k, 141k, 319k"
+  },
+  {
+   "id": "auditoria",
+   "nombre": "Auditoría",
+   "k": [
+    210,
+    440
+   ],
+   "agentes": [
+    1,
+    1
+   ],
+   "minutos": [
+    30,
+    90
+   ],
+   "base": "Medidos: 212k, 269k, 440k"
+  },
+  {
+   "id": "modulo",
+   "nombre": "Módulo mediano",
+   "k": [
+    600,
+    1100
+   ],
+   "agentes": [
+    1,
+    2
+   ],
+   "minutos": [
+    60,
+    150
+   ],
+   "base": "Módulos S4: 615k, 774k (+700k est.) más su parte de integración (≈ 230k)"
+  },
+  {
+   "id": "sprint",
+   "nombre": "Sprint completo",
+   "k": [
+    3500,
+    6200
+   ],
+   "agentes": [
+    9,
+    19
+   ],
+   "minutos": [
+    480,
+    960
+   ],
+   "base": "S4 ≈ 5,7M con hotfix (19 agentes); S3b ≈ 3,6M con 5 relanzamientos"
+  }
+ ],
+ "margen_relanzamiento": 0.12,
+ "regla_recomendacion": {
+  "relanzados_max": 1,
+  "costuras_max": 5,
+  "hotfix_max": 1
+ }
+}

@@ -1,5 +1,17 @@
 import { z } from "zod";
+import { AspectFitSchema } from "./agent.js";
 import { AspectRatioSchema, IdSchema } from "./common.js";
+
+/** Sprint 5: loudness target of a preset (EBU R128 loudnorm: LUFS, dBTP, LU). */
+export const LoudnessTargetSchema = z.object({
+  integrated: z.number().min(-30).max(-5),
+  truePeak: z.number().min(-9).max(0),
+  lra: z.number().min(1).max(20),
+});
+export type LoudnessTarget = z.infer<typeof LoudnessTargetSchema>;
+
+/** −14 LUFS / −1 dBTP / LRA 11: social networks and YouTube. */
+export const SOCIAL_LOUDNESS: LoudnessTarget = { integrated: -14, truePeak: -1, lra: 11 };
 
 export const ExportPresetSchema = z.object({
   id: IdSchema,
@@ -19,6 +31,8 @@ export const ExportPresetSchema = z.object({
   builtIn: z.boolean().default(false),
   /** Keep transparency (WebM VP9 yuva420p / ProRes 4444); empty timeline areas stay transparent. */
   alpha: z.boolean().default(false),
+  /** Sprint 5: loudness normalization of the mix (2-pass loudnorm); null = do not normalize. */
+  loudness: LoudnessTargetSchema.nullable().optional(),
 });
 export type ExportPreset = z.infer<typeof ExportPresetSchema>;
 export type ExportPresetInput = z.input<typeof ExportPresetSchema>;
@@ -38,6 +52,15 @@ export const ExportRequestSchema = z.object({
    * preset or the timeline cannot be split safely (see docs/ARQUITECTURA.md §5.1).
    */
   useSegmentCache: z.boolean().optional(),
+  /**
+   * Sprint 5: how to fit the canvas into a preset with another aspect. Required (409
+   * ASPECT_CHOICE_REQUIRED) when the aspects differ and the project has no reframe keyframes.
+   */
+  aspectFit: AspectFitSchema.optional(),
+  /** Sprint 5: absent = yes when the preset has `loudness`. */
+  normalizeLoudness: z.boolean().optional(),
+  /** Sprint 5: absent = project.audioMix.autoDuck ?? true. */
+  autoDuck: z.boolean().optional(),
 });
 export type ExportRequest = z.infer<typeof ExportRequestSchema>;
 
@@ -58,6 +81,21 @@ export const ExportJobResultSchema = z.object({
   segments: ExportSegmentStatsSchema.optional(),
   /** Why the segment cache was not used (Spanish), when it was requested. */
   fallbackReason: z.string().optional(),
+  /** Sprint 5 additions. */
+  durationS: z.number().optional(),
+  sizeBytes: z.number().int().optional(),
+  aspectFit: AspectFitSchema.optional(),
+  loudness: z
+    .object({
+      input_i: z.number(),
+      input_tp: z.number(),
+      output_i: z.number(),
+      output_tp: z.number(),
+    })
+    .optional(),
+  ducked: z.object({ voiceTracks: z.number().int(), musicTracks: z.number().int() }).optional(),
+  /** Warning codes, e.g. LOUDNESS_MEASURE_FAILED (the job still succeeds). */
+  warnings: z.array(z.string()).optional(),
 });
 export type ExportJobResult = z.infer<typeof ExportJobResultSchema>;
 
@@ -76,6 +114,7 @@ export const DEFAULT_EXPORT_PRESETS: readonly ExportPreset[] = [
     audioBitrateKbps: 192,
     builtIn: true,
     alpha: false,
+    loudness: SOCIAL_LOUDNESS,
   },
   {
     id: "youtube-4k",
@@ -91,6 +130,7 @@ export const DEFAULT_EXPORT_PRESETS: readonly ExportPreset[] = [
     audioBitrateKbps: 192,
     builtIn: true,
     alpha: false,
+    loudness: SOCIAL_LOUDNESS,
   },
   {
     id: "reels-tiktok",
@@ -106,6 +146,7 @@ export const DEFAULT_EXPORT_PRESETS: readonly ExportPreset[] = [
     audioBitrateKbps: 160,
     builtIn: true,
     alpha: false,
+    loudness: SOCIAL_LOUDNESS,
   },
   {
     id: "youtube-shorts",
@@ -121,6 +162,7 @@ export const DEFAULT_EXPORT_PRESETS: readonly ExportPreset[] = [
     audioBitrateKbps: 192,
     builtIn: true,
     alpha: false,
+    loudness: SOCIAL_LOUDNESS,
   },
 ];
 
@@ -139,6 +181,7 @@ export const EXTRA_EXPORT_PRESETS: readonly ExportPreset[] = [
     audioBitrateKbps: 128,
     builtIn: true,
     alpha: false,
+    loudness: null,
   },
   {
     id: "webm-alpha",
@@ -154,5 +197,6 @@ export const EXTRA_EXPORT_PRESETS: readonly ExportPreset[] = [
     audioBitrateKbps: 160,
     builtIn: true,
     alpha: true,
+    loudness: null,
   },
 ];

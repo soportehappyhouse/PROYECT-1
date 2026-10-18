@@ -31,6 +31,17 @@ const COMPONENTS = Object.fromEntries(
   }),
 ) as Record<WebPanelId, React.FunctionComponent<IDockviewPanelProps>>;
 
+/**
+ * Sprint 5 (H8): dockview's tab overflow button shows only a count («⌄ 5»); it now reads «Más
+ * paneles ⌄» (the dropdown lists the hidden panels by name).
+ */
+const OVERFLOW_CSS = `
+.studio-dock .dv-tabs-overflow-dropdown-default { display: inline-flex; align-items: center; gap: 2px; padding: 0 6px; font-size: 11px; white-space: nowrap; cursor: pointer; }
+.studio-dock .dv-tabs-overflow-dropdown-default > span { display: none; }
+.studio-dock .dv-tabs-overflow-dropdown-default::before { content: "Más paneles"; }
+.studio-dock .dv-tabs-overflow-dropdown-default > svg { transform: rotate(90deg); }
+`;
+
 function openPanelIds(): WebPanelId[] {
   return (getDockApi()?.panels ?? []).map((p) => p.id).filter(isWebPanelId);
 }
@@ -104,11 +115,14 @@ export function DockLayout({ resolvedTheme }: { resolvedTheme: "light" | "dark" 
   useEffect(() => () => setDockApi(undefined), []);
 
   return (
-    <DockviewReact
-      className="studio-dock h-full w-full"
-      components={COMPONENTS}
-      onReady={onReady}
-      theme={theme}
-    />
+    <>
+      <style>{OVERFLOW_CSS}</style>
+      <DockviewReact
+        className="studio-dock h-full w-full"
+        components={COMPONENTS}
+        onReady={onReady}
+        theme={theme}
+      />
+    </>
   );
 }

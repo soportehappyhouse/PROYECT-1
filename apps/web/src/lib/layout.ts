@@ -94,7 +94,11 @@ export interface LayoutBuilderApi {
   getPanel(id: string): unknown;
 }
 
-/** Default arrangement: where each panel goes relative to an anchor panel. */
+/**
+ * Default arrangement: where each panel goes relative to an anchor panel. Sprint 5 (H8): the right
+ * column is Propiedades · Asistente · Exportar (visible at 1366 px); Motion and Voz go to the left
+ * column and Subtítulos, Trabajos, Consola Claude and Perfil de estilo to the bottom, as tabs.
+ */
 const DEFAULT_PLACEMENT: Record<
   WebPanelId,
   {
@@ -105,19 +109,18 @@ const DEFAULT_PLACEMENT: Record<
 > = {
   media: {},
   library: { anchor: "media", direction: "within", inactive: true },
+  motion: { anchor: "media", direction: "within", inactive: true },
+  voice: { anchor: "media", direction: "within", inactive: true },
   preview: { anchor: "media", direction: "right" },
   inspector: { anchor: "preview", direction: "right" },
-  motion: { anchor: "inspector", direction: "within", inactive: true },
-  voice: { anchor: "inspector", direction: "within", inactive: true },
-  subtitles: { anchor: "inspector", direction: "within", inactive: true },
+  assistant: { anchor: "inspector", direction: "within", inactive: true },
   export: { anchor: "inspector", direction: "within", inactive: true },
   timeline: { direction: "below" },
+  subtitles: { anchor: "timeline", direction: "within", inactive: true },
   jobs: { anchor: "timeline", direction: "within", inactive: true },
-  assistant: { anchor: "inspector", direction: "within", inactive: true },
-  // Sprint 3b: tab next to the Asistente, inactive (hidden) until Ctrl+Shift+C / the palette.
-  console: { anchor: "assistant", direction: "within", inactive: true },
-  // Sprint 3b: «Perfil de estilo», another inactive tab of the right column.
-  style: { anchor: "assistant", direction: "within", inactive: true },
+  // Sprint 3b: Consola Claude and «Perfil de estilo», inactive until Ctrl+Shift+C / the palette.
+  console: { anchor: "timeline", direction: "within", inactive: true },
+  style: { anchor: "timeline", direction: "within", inactive: true },
 };
 
 /** Panels shown by the default layout (the shared defaults hide subtitles/jobs; we keep them as tabs). */
@@ -153,17 +156,17 @@ export function buildDefaultLayout(api: LayoutBuilderApi): void {
   const order: WebPanelId[] = [
     "media",
     "library",
-    "preview",
-    "inspector",
     "motion",
     "voice",
-    "subtitles",
-    "export",
+    "preview",
+    "inspector",
     "assistant",
+    "export",
+    "timeline",
+    "subtitles",
+    "jobs",
     "console",
     "style",
-    "timeline",
-    "jobs",
   ];
   for (const id of order) if (DEFAULT_VISIBLE_PANELS.includes(id)) addPanelWithDefaults(api, id);
 }

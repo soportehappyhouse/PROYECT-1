@@ -23,7 +23,7 @@ Operaciones
 - remove_background {clip, background:{type: color|image|video|blur, value?}}.
 - reframe {target: 9:16|1:1|4:5, subject?: face|center}. set_canvas {preset: 16:9|9:16|1:1|{w,h}}.
 - set_publish {for_social, flags?: {ai_face, ai_voice, ai_other, music, third_party}, ai_label?}.
-- export {preset, name?, burn_subtitles?}: reels-tiktok, youtube-shorts, youtube-1080p, youtube-4k, gif-480, webm-alpha.
+- export {preset, name?, burn_subtitles?}: reels-tiktok, youtube-shorts, youtube-1080p, youtube-4k, gif-480, webm-alpha. Sin destino claro: reels-tiktok (Studio agrega el reencuadre si hace falta).
 - report_bug {title, steps_es}: reportar un error.
 - face_swap {clip, person:{name}, t?, face_index?, model?, enhancer?, strength?}: poner la cara de una Persona registrada con consentimiento (solo esas; si no la nombra, preguntá).
 

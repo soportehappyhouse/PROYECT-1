@@ -109,6 +109,13 @@ describe.skipIf(!hasFfmpeg)("segment cache export (lavfi media)", { timeout: 300
   let preset: ExportPreset;
   let project: Project;
   const messages: string[] = [];
+  const details: {
+    done?: number;
+    total?: number;
+    unit?: string;
+    cached?: number;
+    eta_s?: number | null;
+  }[] = [];
 
   beforeAll(async () => {
     gen([
@@ -164,6 +171,7 @@ describe.skipIf(!hasFfmpeg)("segment cache export (lavfi media)", { timeout: 300
     ({ app, storage } = await makeApp({ FFMPEG_PATH: "ffmpeg", FFPROBE_PATH: "ffprobe" }));
     app.ctx.queue.on("job", (e) => {
       if (e.message) messages.push(e.message);
+      if (e.detail) details.push(e.detail);
     });
     const created = await app.inject({
       method: "POST",
@@ -305,15 +313,22 @@ describe.skipIf(!hasFfmpeg)("segment cache export (lavfi media)", { timeout: 300
     const total = first.result.segments!.total;
     expect(total).toBeGreaterThanOrEqual(2);
     expect(first.result.segments).toEqual({ total, cached: 0, rendered: total });
-    expect(messages.some((m) => /^\d+\/\d+ bloques \(\d+ en caché\)/.test(m))).toBe(true);
+    expect(messages.some((m) => /^(Video: )?\d+\/\d+ bloques \(\d+ en caché\)/.test(m))).toBe(true);
+    // Integration (M1 ↔ M3): the blocks are the job items (+1 audio/mux step) for the ETA.
+    expect(details.some((d) => d.unit === "blocks" && d.total === total + 1)).toBe(true);
     const cacheDir = path.join(storage, SEGMENT_CACHE_SUBDIR);
     expect(
       readdirSync(cacheDir).filter((n) => n.endsWith(".mp4") && !n.includes(".part")),
     ).toHaveLength(total);
 
     // 2nd export, nothing changed: every block comes from the cache.
+    details.length = 0;
     const second = await exportNow();
     expect(second.result.segments).toEqual({ total, cached: total, rendered: 0 });
+    // Audit D3: cached blocks are flagged and give no ETA («calculando…», not «faltan ~1 s»).
+    const allCached = details.filter((d) => d.unit === "blocks" && d.done === total);
+    expect(allCached.length).toBeGreaterThan(0);
+    expect(allCached.every((d) => d.cached === total && d.eta_s === null)).toBe(true);
     expect(messages.some((m) => m.includes(`bloques (${total} en caché)`))).toBe(true);
 
     // Change the text of the last clip: only the blocks under it are rendered again.

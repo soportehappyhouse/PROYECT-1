@@ -8,6 +8,21 @@ from studio_workers import services
 from studio_workers.main import create_app
 
 
+@pytest.fixture(autouse=True)
+def _fresh_planner_caches() -> Iterator[None]:
+    """The planner caches the few-shot pool (``few_shot_pool``) the first time it plans. A test that
+    points ``DATASET_DIR`` at a tiny temporary dataset (``/agent/eval`` in test_agent_eval.py) must
+    not leave that pool for the tests that run after it: clear the caches around every test."""
+    from studio_workers.agent import planner
+
+    caches = (planner.few_shot_pool, planner.fixed_examples, planner.system_prompt)
+    for fn in caches:
+        fn.cache_clear()
+    yield
+    for fn in caches:
+        fn.cache_clear()
+
+
 @pytest.fixture
 def dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
     storage = tmp_path / "storage"

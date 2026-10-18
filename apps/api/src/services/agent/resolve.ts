@@ -285,7 +285,7 @@ function packRisk(ctx: ResolveContext, packId: string): string | undefined {
   const pack = ctx.packs?.find((p) => p.id === packId);
   if (!pack || pack.installed) return undefined;
   const gb = (pack.size_bytes / 1e9).toFixed(2).replace(".", ",");
-  return `Falta el paquete de IA «${pack.name_es}» (${gb} GB): hay que descargarlo antes (Ajustes → Paquetes).`;
+  return `Falta el paquete de IA «${pack.name_es}» (${gb} GB): hay que descargarlo antes (Ajustes → Paquetes de IA).`;
 }
 
 const LONG_OP_SEC = 60;

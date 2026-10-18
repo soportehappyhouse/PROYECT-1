@@ -177,7 +177,7 @@ const groups = () =>
 
 await step("dashboard loads and core panels render", async () => {
   await page.goto(WEB, { waitUntil: "domcontentloaded" }); // SSE keeps the network busy
-  await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+  await timelineReady();
   await page.getByText("Guardado", { exact: true }).waitFor({ timeout: 15_000 });
   const t = await tabs();
   for (const name of [
@@ -385,13 +385,14 @@ await step("Export panel with presets", async () => {
 });
 
 // Feedback 2026-10-05 (items 8 and 9): tooltips with shortcuts, Space/J/K/L.
-await step("tooltip on the timeline scissors: «Cortar en el cursor (S)»", async () => {
+// Sprint 5 (M2): the tooltip explains the action (TIPS.split) instead of repeating the label.
+await step("tooltip on the timeline scissors: «Cortar el clip en el cursor (S)»", async () => {
   await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).click();
   await page.getByRole("button", { name: "Cortar en el cursor" }).hover();
   const tip = page.getByRole("tooltip");
   await tip.waitFor({ timeout: 3_000 });
   const text = (await tip.textContent())?.trim();
-  if (text !== "Cortar en el cursor (S)") throw new Error(`tooltip: ${text}`);
+  if (text !== "Cortar el clip en el cursor (S)") throw new Error(`tooltip: ${text}`);
   await page.mouse.move(0, 0);
   return { text };
 });
@@ -610,11 +611,23 @@ async function lavfiUpload(name, graph, extra = []) {
   return { ...asset, file };
 }
 /** Open a saved api project in the dashboard (local copy replaced, then reload). */
+/**
+ * Dashboard loaded and the timeline visible. Integration (sprint 5): the default layout puts the
+ * Consola Claude, Trabajos and Subtítulos in the timeline's group, and the layout is saved in the
+ * api, so after a step that opened one of them the timeline tab must be selected again.
+ */
+async function timelineReady(timeout = 60_000) {
+  await page.waitForSelector(".dv-tab", { timeout });
+  const timeline = page.locator("section[aria-label='Línea de tiempo']");
+  if (!(await timeline.count()))
+    await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).first().click();
+  await timeline.waitFor({ timeout: 15_000 });
+}
 async function openProject(id) {
   const proj = await apiJson(`/api/projects/${id}`);
   await page.evaluate((p) => localStorage.setItem("studio.project.v1", JSON.stringify(p)), proj);
   await page.reload({ waitUntil: "domcontentloaded" });
-  await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+  await timelineReady();
   await page.getByText("Guardado", { exact: true }).waitFor({ timeout: 15_000 });
   await page.locator(".dv-tab", { hasText: "Vista previa" }).click();
   await previewCanvas().waitFor({ timeout: 10_000 });
@@ -1219,7 +1232,7 @@ await step(
     if (!shared?.blendRgb) throw new Error("packages/shared/dist missing (pnpm build:packages)");
     if (!page.url().startsWith(WEB)) {
       await page.goto(WEB, { waitUntil: "domcontentloaded" });
-      await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+      await timelineReady();
     }
     const hex = (c) => c.map((v) => v.toString(16).padStart(2, "0")).join("");
     const vp9 = ["-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-crf", "8",
@@ -1305,7 +1318,7 @@ await step(
     if (!shared?.BLEND_MODES) throw new Error("packages/shared/dist missing (pnpm build:packages)");
     if (!page.url().startsWith(WEB)) {
       await page.goto(WEB, { waitUntil: "domcontentloaded" });
-      await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+      await timelineReady();
     }
     const modes = [...shared.BLEND_MODES];
     const n = modes.length + 1; // + ellipse
@@ -1432,7 +1445,7 @@ await step(
     await waitApiJob(jobId, 180_000);
     const status = await apiJson("/api/console/status?refresh=1");
     await page.goto(WEB, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+    await timelineReady();
     await page.locator(".dv-tab", { hasText: "Perfil de estilo" }).click();
     const panel = page.locator("section[aria-label='Perfil de estilo']");
     const select = panel.getByLabel("Video de referencia");
@@ -1636,7 +1649,7 @@ await step(
       throw new Error(`consent -> ${consent.status} ${await consent.text()}`);
 
     if (!page.url().startsWith(WEB)) await page.goto(WEB, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+    await timelineReady();
     await page.locator(".dv-tab", { hasText: "Voz y audio" }).click();
     const panel = page.locator("section[aria-label='Voz y audio']");
     await panel.getByRole("tab", { name: "Texto a voz" }).click();
@@ -1890,7 +1903,7 @@ await step(
   "Sprint 4: Revisión para redes detecta cara y voz IA; etiqueta al marcar redes",
   async () => {
     if (!page.url().startsWith(WEB)) await page.goto(WEB, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector("section[aria-label='Línea de tiempo']", { timeout: 60_000 });
+    await timelineReady();
     await sleep(2_000); // autosave of the previous steps
     let { kinds } = await m3UiProject();
     if (kinds.face + kinds.cloned + kinds.synthetic === 0) {
@@ -1972,6 +1985,561 @@ await step("Sprint 4: Paquetes de IA: faceswap pide aceptar la licencia", async 
   return { accepted: Boolean(accepted), tool: faceswap.tool ?? null, shot: s };
 });
 // ------------------------------------------------------------------ END sprint4:M3
+
+// ---------------------------------------------------------------- BEGIN sprint5:M2
+// Fluidez de la línea de tiempo: hotkeys after clicking the ruler, ripple, multi-selection, Q/W,
+// I/O, header at 1366 px / 125 %, tooltips that explain, projects list and the empty preview.
+const s5 = {};
+const s5Ruler = () => page.getByLabel("Regla de tiempo");
+const s5Clips = () =>
+  page.evaluate(() => {
+    const p = JSON.parse(localStorage.getItem("studio.project.v1"));
+    const v = p.tracks.find((t) => t.kind === "video");
+    return v.clips
+      .map((c) => ({ id: c.id, start: c.start, in: c.in, out: c.out }))
+      .sort((a, b) => a.start - b.start);
+  });
+const s5Playhead = async () => Number(await s5Ruler().getAttribute("aria-valuenow"));
+/** Api project with `n` back-to-back 2 s clips of one test video, opened in the dashboard. */
+async function s5Project(name, n) {
+  if (!page.url().startsWith(WEB)) {
+    await page.goto(WEB, { waitUntil: "domcontentloaded" });
+    await timelineReady();
+  }
+  s5.video ??= await lavfiUpload("ui-s5.mp4", "testsrc2=s=640x360:r=25:d=6", [
+    "-c:v",
+    "libx264",
+    "-pix_fmt",
+    "yuv420p",
+  ]);
+  const p = await apiSend("POST", "/api/projects", { name });
+  const V = p.tracks.find((t) => t.kind === "video");
+  V.clips = Array.from({ length: n }, (_, i) => ({
+    id: `s5c${i}`,
+    trackId: V.id,
+    assetId: s5.video.id,
+    start: i * 2,
+    in: i * 2,
+    out: i * 2 + 2,
+  }));
+  await apiSend("PUT", `/api/projects/${p.id}`, p);
+  await openProject(p.id);
+  await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).click();
+  await page.locator("[data-clip-id]").first().waitFor({ timeout: 10_000 });
+  return p;
+}
+/** Click the ruler at `sec` and check that it did not take the keyboard focus. */
+async function s5RulerClick(sec) {
+  await seek(page, sec);
+  const role = await page.evaluate(() => document.activeElement?.getAttribute("role"));
+  if (role === "slider") throw new Error("the ruler took the keyboard focus");
+  return role;
+}
+
+await step("Sprint 5: clic en la regla → S corta (1 → 2 clips)", async () => {
+  await s5Project("S5 regla S", 1);
+  const focus = await s5RulerClick(1);
+  await page.keyboard.press("s");
+  await sleep(300);
+  const n = await page.locator("[data-clip-id]").count();
+  if (n !== 2) throw new Error(`clips after S: ${n}`);
+  return { clips: n, focus };
+});
+
+await step("Sprint 5: clic en la regla → Espacio, J/K/L y Supr funcionan", async () => {
+  await s5Project("S5 regla transporte", 3);
+  const preview = page.locator("section[aria-label='Vista previa']");
+  await s5RulerClick(1);
+  await page.keyboard.press("Space");
+  await preview.getByRole("button", { name: "Pausar" }).waitFor({ timeout: 3_000 });
+  await page.keyboard.press("k");
+  await preview.getByRole("button", { name: "Reproducir" }).waitFor({ timeout: 3_000 });
+  const t0 = await s5Playhead();
+  await page.keyboard.press("l");
+  await sleep(800);
+  await page.keyboard.press("k");
+  const t1 = await s5Playhead();
+  if (!(t1 > t0)) throw new Error(`L did not advance: ${t0} -> ${t1}`);
+  await page.keyboard.press("j");
+  await sleep(500);
+  await page.keyboard.press("k");
+  const t2 = await s5Playhead();
+  if (!(t2 < t1)) throw new Error(`J did not go back: ${t1} -> ${t2}`);
+  // Select the middle clip, click the ruler, then Supr (no click on the clip after the ruler).
+  await page.locator("[data-clip-id='s5c1']").click();
+  await s5RulerClick(5);
+  await page.keyboard.press("Delete");
+  await sleep(300);
+  const ids = (await s5Clips()).map((c) => c.id);
+  if (ids.length !== 2 || ids.includes("s5c1")) throw new Error(`after Supr: ${ids}`);
+  return { t0, t1, t2, left: ids };
+});
+
+await step("Sprint 5: Shift+Supr cierra el hueco (0 px)", async () => {
+  await s5Project("S5 ripple", 3);
+  await page.locator("[data-clip-id='s5c1']").click();
+  await page.keyboard.press("Shift+Delete");
+  await sleep(300);
+  const a = await page.locator("[data-clip-id='s5c0']").boundingBox();
+  const c = await page.locator("[data-clip-id='s5c2']").boundingBox();
+  const gap = Math.round(c.x - (a.x + a.width));
+  if (Math.abs(gap) > 1) throw new Error(`gap after Shift+Supr: ${gap} px`);
+  const clips = await s5Clips();
+  if (clips.length !== 2 || clips[1].start !== 2) throw new Error(JSON.stringify(clips));
+  return { gapPx: gap };
+});
+
+await step("Sprint 5: Mayús+clic elige 2 y Supr borra 2", async () => {
+  await s5Project("S5 multi", 3);
+  await page.locator("[data-clip-id='s5c0']").click();
+  await page.locator("[data-clip-id='s5c1']").click({ modifiers: ["Shift"] });
+  await page.getByTestId("selection-count").filter({ hasText: "2 clips" }).waitFor();
+  await page.keyboard.press("Delete");
+  await sleep(300);
+  const ids = (await s5Clips()).map((c) => c.id);
+  if (ids.join() !== "s5c2") throw new Error(`after Supr: ${ids}`);
+  return { left: ids };
+});
+
+await step("Sprint 5: rectángulo elige 3", async () => {
+  await s5Project("S5 rectángulo", 3);
+  const lane = page.locator("[data-track-kind='audio']").first();
+  const box = await lane.boundingBox();
+  const last = await page.locator("[data-clip-id='s5c2']").boundingBox();
+  // from the empty audio lane (left) up to the video lane past the last clip
+  await page.mouse.move(box.x + 4, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(last.x + last.width / 2, last.y + 10, { steps: 8 });
+  await page.getByTestId("timeline-marquee").waitFor({ timeout: 2_000 });
+  await page.mouse.up();
+  const text = await page.getByTestId("selection-count").innerText();
+  if (!/3 clips/.test(text)) throw new Error(`selection: ${text}`);
+  return { selection: text };
+});
+
+await step("Sprint 5: Q/W recortan al cursor", async () => {
+  await s5Project("S5 QW", 3);
+  // The ruler click lands within a few ms of the target: compare against the real playhead.
+  const near = (a, b) => Math.abs(a - b) < 0.02;
+  await s5RulerClick(3);
+  const q = await s5Playhead();
+  await page.keyboard.press("q");
+  await sleep(300);
+  let clips = await s5Clips();
+  // b loses [2, q): starts at 2 with in = q, c follows its new end
+  if (!(clips[1].start === 2 && near(clips[1].in, q) && near(clips[2].start, 4 - (q - 2))))
+    throw new Error(`Q at ${q}: ${JSON.stringify(clips)}`);
+  await s5RulerClick(1);
+  const w = await s5Playhead();
+  await page.keyboard.press("w");
+  await sleep(300);
+  const before = clips;
+  clips = await s5Clips();
+  // a loses [w, 2): b and c move left by 2 − w
+  if (!(
+    near(clips[0].out, w) &&
+    near(clips[1].start, w) &&
+    near(clips[2].start, before[2].start - (2 - w))
+  ))
+    throw new Error(`W at ${w}: ${JSON.stringify(clips)}`);
+  return { starts: clips.map((c) => c.start) };
+});
+
+await step("Sprint 5: I/O marcan rango visible", async () => {
+  await s5Project("S5 IO", 3);
+  await s5RulerClick(1);
+  await page.keyboard.press("i");
+  await s5RulerClick(3);
+  await page.keyboard.press("o");
+  const range = await page.getByTestId("inout-range").boundingBox();
+  const ruler = await page.getByTestId("inout-ruler").boundingBox();
+  const label = await page.getByTestId("inout-label").innerText();
+  if (!range || range.width < 20) throw new Error(`I/O range ${JSON.stringify(range)}`);
+  await page.keyboard.press("Alt+x");
+  await sleep(200);
+  if (await page.getByTestId("inout-range").count()) throw new Error("Alt+X did not clear I/O");
+  return { widthPx: Math.round(range.width), ruler: Math.round(ruler.width), label };
+});
+
+await step("Sprint 5: 1366×768 y 1093×700: Asistente y Exportar visibles sin menú", async () => {
+  const out = {};
+  for (const [w, h] of [
+    [1366, 768],
+    [1093, 700],
+  ]) {
+    await page.setViewportSize({ width: w, height: h });
+    await sleep(500);
+    for (const id of ["header-assistant", "header-export"]) {
+      const b = await page.getByTestId(id).boundingBox();
+      if (!b || b.x < 0 || b.x + b.width > w || b.y + b.height > h)
+        throw new Error(`${id} not visible at ${w}×${h}: ${JSON.stringify(b)}`);
+    }
+    await page.getByTestId("header-export").click();
+    await page.locator("section[aria-label='Exportar']").waitFor({ timeout: 5_000 });
+    await page.getByTestId("header-assistant").click();
+    await page.locator("section[aria-label='Asistente']").waitFor({ timeout: 5_000 });
+    out[`${w}x${h}`] = await shot(page, `s5-cabecera-${w}.png`);
+  }
+  await page.setViewportSize({ width: 1366, height: 820 });
+  return out;
+});
+
+await step("Sprint 5: hover en Paneles muestra la explicación", async () => {
+  await page.mouse.move(5, 300);
+  await page.getByRole("button", { name: "Paneles" }).hover();
+  const tip = page.getByRole("tooltip");
+  await tip.waitFor({ timeout: 3_000 });
+  const text = await tip.innerText();
+  if (!/Mostrar u ocultar paneles/.test(text)) throw new Error(`tooltip: ${text}`);
+  return { text };
+});
+
+await step(
+  "Sprint 5: cada botón de ícono tiene una explicación (TIPS ≥ 20 caracteres)",
+  async () => {
+    const { readFile } = await import("node:fs/promises");
+    const src = await readFile(
+      new URL("../../apps/web/src/lib/tooltips.ts", import.meta.url),
+      "utf8",
+    );
+    const tipKeys = new Set([...src.matchAll(/^\s{2}(\w+): "/gm)].map((m) => m[1]));
+    if (tipKeys.size !== 51) throw new Error(`TIPS keys parsed: ${tipKeys.size}`);
+    await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).click();
+    await page.locator(".dv-tab", { hasText: "Vista previa" }).click();
+    await page.locator(".dv-tab", { hasText: "Media" }).first().click();
+    const rows = await page.$$eval(
+      "header button[aria-label], section[aria-label='Media'] button[aria-label], section[aria-label='Vista previa'] button[aria-label], section[aria-label='Línea de tiempo'] button[aria-label]",
+      (els) =>
+        els
+          .filter((b) => !b.textContent?.trim() && b.getClientRects().length > 0)
+          .map((b) => ({
+            label: b.getAttribute("aria-label"),
+            tip: b.dataset.tooltip ?? "",
+            key: b.dataset.tip ?? null,
+          })),
+    );
+    // M1 owns the GPU indicator tooltip (TIPS.gpu).
+    const mine = rows.filter((r) => !/^Estado de la IA local/.test(r.label));
+    const bad = mine.filter((r) => r.tip.length < 20 || r.tip === r.label);
+    if (bad.length) throw new Error(`without explanation: ${JSON.stringify(bad.slice(0, 5))}`);
+    const unknown = mine.filter((r) => r.key && !tipKeys.has(r.key));
+    if (unknown.length) throw new Error(`data-tip not in TIPS: ${JSON.stringify(unknown)}`);
+    return { buttons: mine.length, withTipsKey: mine.filter((r) => r.key).length };
+  },
+);
+
+await step(
+  "Sprint 5: Proyectos: crear 2, renombrar, abrir el otro, borrar con confirmación",
+  async () => {
+    const dialog = () => page.getByRole("dialog", { name: "Proyectos" });
+    // Integration: unique names, so a reused storage (projects of earlier runs) cannot match twice.
+    const tag = Date.now().toString(36).slice(-6);
+    const UNO = `S5 UI uno ${tag}`;
+    const DOS = `S5 UI dos ${tag}`;
+    const rename = async (to) => {
+      await page.getByTestId("projects-button").click();
+      const row = dialog().locator("[data-testid='project-row']", { hasText: "(abierto)" });
+      await row.getByRole("button", { name: /^Renombrar/ }).click();
+      const input = dialog().getByRole("textbox", { name: "Nuevo nombre del proyecto" });
+      await input.fill(to);
+      await input.press("Enter");
+      await page.getByTestId("project-name").filter({ hasText: to }).waitFor({ timeout: 5_000 });
+      await page.keyboard.press("Escape");
+    };
+    await page.mouse.click(700, 5);
+    await page.keyboard.press("Control+Alt+n");
+    await page.getByTestId("project-name").filter({ hasText: "Proyecto sin título" }).waitFor();
+    await sleep(1_000);
+    await rename(UNO);
+    await page.keyboard.press("Control+Alt+n");
+    await page.getByTestId("project-name").filter({ hasText: "Proyecto sin título" }).waitFor();
+    await sleep(1_000);
+    await rename(DOS);
+    // Ctrl+O opens the list; open the other one
+    await page.mouse.click(700, 5);
+    await page.keyboard.press("Control+o");
+    await dialog().waitFor({ timeout: 5_000 });
+    const uno = dialog().locator("[data-testid='project-row']", { hasText: UNO });
+    await uno.getByRole("button", { name: "Abrir", exact: true }).click();
+    await page.getByTestId("project-name").filter({ hasText: UNO }).waitFor();
+    const s = await shot(page, "s5-proyectos.png");
+    // delete «dos» with confirmation
+    await page.getByTestId("projects-button").click();
+    const dos = dialog().locator("[data-testid='project-row']", { hasText: DOS });
+    await dos.getByRole("button", { name: /^Borrar/ }).click();
+    await dos
+      .getByRole("alert")
+      .filter({ hasText: `¿Borrar «${DOS}»?` })
+      .waitFor();
+    await dos.getByRole("button", { name: "Sí, borrar" }).click();
+    await dos.waitFor({ state: "detached", timeout: 5_000 });
+    await page.keyboard.press("Escape");
+    const list = await apiJson("/api/projects?view=summary");
+    if (list.some((p) => p.name === DOS)) throw new Error(`«${DOS}» still in the api`);
+    if (!list.some((p) => p.name === UNO)) throw new Error(`«${UNO}» missing in the api`);
+    return { projects: list.length, shot: s };
+  },
+);
+
+await step("Sprint 5: estado vacío de la vista previa", async () => {
+  await page.mouse.click(700, 5);
+  await page.keyboard.press("Control+Alt+n");
+  await page.getByTestId("project-name").filter({ hasText: "Proyecto sin título" }).waitFor();
+  await page.locator(".dv-tab", { hasText: "Vista previa" }).click();
+  const empty = page.getByTestId("preview-empty");
+  await empty.waitFor({ timeout: 5_000 });
+  const text = await empty.innerText();
+  if (!/Arrastrá un video acá o tocá Importar/.test(text)) throw new Error(text);
+  await empty.getByRole("button", { name: "Importar" }).waitFor();
+  const timelineEmpty = await page.getByTestId("timeline-empty").innerText();
+  return { shot: await shot(page, "s5-vista-previa-vacia.png"), timelineEmpty };
+});
+// ------------------------------------------------------------------ END sprint5:M2
+
+// ---------------------------------------------------------------- BEGIN sprint5:M1
+// Centro de trabajos y errores: no repeated toasts after a reload, ONE banner when the workers are
+// off (AI actions disabled with the reason), and the jobs center with counts, ETA and Cancelar
+// (agent.eval with the mocked planner of workers-with-mocks.py, STUDIO_MOCK_AGENT_EVAL).
+const m1s5Toasts = () => page.locator("[data-sonner-toast]").count();
+/** Dashboard loaded; the timeline tab active again (the layout is saved in the api). */
+async function m1s5Ready() {
+  await page.waitForSelector(".dv-tab", { timeout: 60_000 });
+  const timeline = page.locator("section[aria-label='Línea de tiempo']");
+  if (!(await timeline.count()))
+    await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).first().click();
+  await timeline.waitFor({ timeout: 15_000 });
+}
+
+await step("Sprint 5: recargar no repite toasts", async () => {
+  await page.goto(WEB, { waitUntil: "domcontentloaded" });
+  await m1s5Ready();
+  // A finished job of this session (quick eval, ~4 s with the mock) plus whatever ran before.
+  const { jobId } = await apiSend("POST", "/api/agent/eval", {});
+  await waitApiJob(jobId, 120_000);
+  await sleep(1500);
+  for (let i = 0; i < 2; i++) {
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await m1s5Ready();
+    await sleep(3000);
+    const n = await m1s5Toasts();
+    if (n > 0) {
+      const texts = await page.locator("[data-sonner-toast]").allInnerTexts();
+      throw new Error(`reload ${i + 1}: ${n} toasts: ${texts.join(" | ").slice(0, 200)}`);
+    }
+  }
+  const seen = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("studio.jobs.seen.v1") ?? "[]"),
+  );
+  if (!seen.includes(jobId)) throw new Error("the finished job is not in studio.jobs.seen.v1");
+  return { seen: seen.length };
+});
+
+await step(
+  "Sprint 5: workers apagados → un banner y Transcribir deshabilitado con motivo",
+  async () => {
+    const off = (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: { "access-control-allow-origin": "*" },
+        body: JSON.stringify({
+          status: "degraded",
+          version: "0.1.0",
+          ffmpeg: { available: true },
+          workers: { reachable: false, url: "http://127.0.0.1:8001" },
+          checkedAt: new Date().toISOString(),
+        }),
+      });
+    await page.route("**/api/health", off);
+    try {
+      await page.goto(WEB, { waitUntil: "domcontentloaded" });
+      await m1s5Ready();
+      const banner = page.getByTestId("service-banner");
+      await banner.first().waitFor({ timeout: 15_000 });
+      const count = await banner.count();
+      if (count !== 1) throw new Error(`${count} banners`);
+      const text = await banner.innerText();
+      if (
+        !text.includes("scripts\\windows\\start.cmd") ||
+        /TypeError|ECONNREFUSED|start\.ps1/.test(text)
+      )
+        throw new Error(text);
+      await banner.getByRole("button", { name: /Cómo iniciarla/ }).click();
+      await page.getByTestId("service-help").waitFor();
+      // Assistant «Proponer» (M1) is disabled with the reason as tooltip.
+      const panel = await openAssistant();
+      await panel.getByRole("textbox", { name: "Comando para el asistente" }).fill("hola");
+      const proponer = panel.getByRole("button", { name: /Proponer/ });
+      if (!(await proponer.isDisabled())) throw new Error("Proponer enabled with the workers off");
+      const tip = (await proponer.getAttribute("data-tooltip")) ?? "";
+      if (!tip.includes("start.cmd")) throw new Error(`Proponer tooltip: ${tip}`);
+      // Transcribir (Subtítulos, M2 consumes useAiAvailability).
+      await page
+        .locator(".dv-tab", { hasText: "Subtítulos" })
+        .click()
+        .catch(() => undefined);
+      const tr = page.getByRole("button", { name: /Transcribir/ }).first();
+      await tr.waitFor({ timeout: 10_000 });
+      const transcribir = await tr.isDisabled();
+      if (!transcribir) throw new Error("Transcribir enabled with the workers off");
+      // Integration: the reason (start.cmd) is the tooltip, not only «elegí un clip».
+      const trTip = (await tr.getAttribute("data-tooltip")) ?? "";
+      if (!trTip.includes("start.cmd")) throw new Error(`Transcribir tooltip: ${trTip}`);
+      const s = await shot(page, "s5-workers-apagados.png");
+      return { banners: count, transcribirDisabled: transcribir, shot: s };
+    } finally {
+      await page.unroute("**/api/health", off);
+      await page.goto(WEB, { waitUntil: "domcontentloaded" });
+      await m1s5Ready();
+    }
+  },
+);
+
+await step("Sprint 5: Trabajos muestra 3/20, faltan ~X y Cancelar", async () => {
+  if (!page.url().startsWith(WEB)) {
+    await page.goto(WEB, { waitUntil: "domcontentloaded" });
+    await m1s5Ready();
+  }
+  await page.getByTestId("jobs-indicator").click();
+  const { jobId } = await apiSend("POST", "/api/agent/eval", { mode: "full" });
+  const row = page.locator("[data-testid='jobs-running'] [data-testid='job-row']").first();
+  await row.waitFor({ timeout: 15_000 });
+  await row
+    .getByTestId("job-count")
+    .filter({ hasText: /^([3-9]|[1-7]\d)\/80 comandos$/ })
+    .waitFor({
+      timeout: 20_000,
+    });
+  const count = await row.getByTestId("job-count").innerText();
+  const stage = await row.getByTestId("job-stage").innerText();
+  const eta = await row.getByTestId("job-eta").innerText();
+  if (!/^faltan ~\d+ (s|min)/.test(eta)) throw new Error(`eta «${eta}»`);
+  if (!/· \d+\/\d+$/.test(stage)) throw new Error(`stage «${stage}»`);
+  const indicator = await page.getByTestId("jobs-indicator").getAttribute("data-active");
+  const s = await shot(page, "s5-trabajos-eta.png");
+  await row.getByTestId("job-cancel").click();
+  let job;
+  for (let i = 0; i < 60; i++) {
+    job = await apiJson(`/api/jobs/${jobId}`);
+    if (["succeeded", "failed", "canceled"].includes(job.status)) break;
+    await sleep(500);
+  }
+  if (job?.status !== "canceled") throw new Error(`job ${job?.status}`);
+  const canceledRow = page
+    .locator("[data-testid='jobs-finished'] [data-testid='job-row'][data-status='canceled']")
+    .first();
+  // Integration: in the full run the SSE stream can be between reconnects (the previous step
+  // reloads the page); then the row comes with «Recargar trabajos». Report which one it was.
+  let via = "sse";
+  try {
+    await canceledRow.waitFor({ timeout: 10_000 });
+  } catch {
+    via = "reload";
+    await page.getByRole("button", { name: "Recargar trabajos" }).click();
+    await canceledRow.waitFor({ timeout: 10_000 });
+  }
+  // Trabajos shares the group of the timeline: give the tab back (the layout is saved in the api).
+  await page.locator(".dv-tab", { hasText: "Línea de tiempo" }).first().click();
+  return { count, stage, eta, indicator, via, shot: s };
+});
+// ------------------------------------------------------------------ END sprint5:M1
+
+// ---------------------------------------------------------------- BEGIN sprint5:M3
+const s5m3 = {};
+/** Horizontal 640×360 project (testsrc2 + 440 Hz tone, 3 s) opened in the dashboard, on Exportar. */
+async function s5m3Project() {
+  if (!page.url().startsWith(WEB)) {
+    await page.goto(WEB, { waitUntil: "domcontentloaded" });
+    await timelineReady();
+  }
+  s5m3.video ??= await lavfiUpload("ui-s5-m3.mp4", "testsrc2=s=640x360:r=25:d=3", [
+    "-f",
+    "lavfi",
+    "-i",
+    "sine=frequency=440:duration=3",
+    "-c:v",
+    "libx264",
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-shortest",
+  ]);
+  const p = await apiSend("POST", "/api/projects", { name: "UI S5 Reels horizontal" });
+  p.settings = { ...p.settings, width: 640, height: 360 };
+  const V = p.tracks.find((t) => t.kind === "video");
+  V.clips = [{ id: "s5m3c", trackId: V.id, assetId: s5m3.video.id, start: 0, in: 0, out: 3 }];
+  await apiSend("PUT", `/api/projects/${p.id}`, p);
+  await openProject(p.id);
+  await page.locator(".dv-tab", { hasText: "Exportar" }).click();
+  const panel = page.locator("section[aria-label='Exportar']");
+  await panel.waitFor();
+  return { p, panel };
+}
+
+await step("Sprint 5: Exportar → Reels con video horizontal pide elegir encuadre", async () => {
+  const { panel } = await s5m3Project();
+  s5m3.panel = panel;
+  const reels = panel.getByTestId("export-dest-reels-tiktok");
+  if ((await reels.getAttribute("aria-pressed")) !== "true")
+    throw new Error("Reels / TikTok is not the default destination");
+  const choice = panel.getByTestId("export-aspect-choice");
+  await choice.waitFor({ timeout: 5_000 });
+  const text = (await choice.textContent()) ?? "";
+  if (!/horizontal/.test(text) || !/Seguir la cara/.test(text) || !/franjas borrosas/.test(text))
+    throw new Error(`choice: ${text}`);
+  const exportBtn = panel.getByRole("button", { name: "Exportar", exact: true });
+  if (!(await exportBtn.isDisabled())) throw new Error("Exportar enabled without a framing choice");
+  await panel.getByLabel(/Recortar al centro/).check();
+  if (await exportBtn.isDisabled()) throw new Error("Exportar still disabled after «al centro»");
+  return { text: text.slice(0, 160), shot: await shot(page, "s5-export-encuadre.png") };
+});
+
+await step("Sprint 5: resultado con ruta, LUFS y Abrir carpeta", async () => {
+  const panel = s5m3.panel ?? (await s5m3Project()).panel;
+  if (!(await panel.getByLabel(/Recortar al centro/).isChecked()))
+    await panel.getByLabel(/Recortar al centro/).check();
+  const revealed = [];
+  await page.route(`${API}/api/system/reveal`, async (route) => {
+    revealed.push(route.request().postDataJSON());
+    await route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' });
+  });
+  await panel.getByRole("button", { name: "Exportar", exact: true }).click();
+  const card = panel.getByTestId("export-result");
+  await card.waitFor({ timeout: 300_000 });
+  const lufs = panel.getByTestId("export-result-lufs");
+  await lufs.waitFor({ timeout: 10_000 });
+  const lufsText = (await lufs.textContent())?.trim();
+  if (!/^−1[34],\d LUFS$/.test(lufsText ?? "")) throw new Error(`LUFS badge: ${lufsText}`);
+  const pathText = (await card.textContent()) ?? "";
+  if (!pathText.includes("exports/")) throw new Error(`result: ${pathText}`);
+  await card.getByRole("button", { name: /Abrir carpeta/ }).click();
+  for (let i = 0; i < 20 && revealed.length === 0; i++) await sleep(200);
+  await page.unroute(`${API}/api/system/reveal`);
+  if (!revealed[0]?.path?.startsWith("exports/"))
+    throw new Error(`reveal: ${JSON.stringify(revealed)}`);
+  return {
+    lufs: lufsText,
+    reveal: revealed[0].path,
+    shot: await shot(page, "s5-export-resultado.png"),
+  };
+});
+
+await step("Sprint 5: Revisión para redes muestra Sonoridad y Formato", async () => {
+  const panel = s5m3.panel ?? (await s5m3Project()).panel;
+  const loud = panel.getByTestId("social-check-loudness").first();
+  await loud.waitFor({ timeout: 10_000 });
+  const format = panel.getByTestId("social-check-format").first();
+  const out = {
+    loudness: [await loud.getAttribute("data-ok"), (await loud.textContent())?.trim()],
+    format: [await format.getAttribute("data-ok"), (await format.textContent())?.trim()],
+  };
+  if (out.loudness[0] !== "true") throw new Error(`Sonoridad: ${JSON.stringify(out.loudness)}`);
+  if (out.format[0] !== "true" || !/sin franjas/.test(out.format[1] ?? ""))
+    throw new Error(`Formato: ${JSON.stringify(out.format)}`);
+  return out;
+});
+// ------------------------------------------------------------------ END sprint5:M3
 
 await browser.close();
 console.log(

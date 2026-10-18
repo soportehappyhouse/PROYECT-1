@@ -395,3 +395,207 @@ export function trimLimits(
   }
   return { minStart, maxEnd };
 }
+
+// ---- Sprint 5 (M2): ripple, gaps, Q/W and rectangle selection ------------------------------------
+
+/** A time range on the timeline [start, end). */
+export interface TimeRange {
+  start: number;
+  end: number;
+}
+
+/** Union of ranges (sorted, overlapping/touching ones merged). */
+export function mergeRanges(ranges: readonly TimeRange[]): TimeRange[] {
+  const sorted = ranges.filter((r) => r.end - r.start > 1e-6).sort((a, b) => a.start - b.start);
+  const out: TimeRange[] = [];
+  for (const r of sorted) {
+    const last = out[out.length - 1];
+    if (last && r.start <= last.end + 1e-6) last.end = Math.max(last.end, r.end);
+    else out.push({ ...r });
+  }
+  return out;
+}
+
+/** Time `t` once `removed` (merged) ranges are cut out: t − the removed portion before t. */
+export function rippleTime(t: number, removed: readonly TimeRange[]): number {
+  let shift = 0;
+  for (const r of removed) {
+    if (r.start >= t) break;
+    shift += Math.min(r.end, t) - r.start;
+  }
+  return roundTime(Math.max(0, t - shift));
+}
+
+/** Shift every clip of a track left by the removed time before its start. */
+function rippleTrackClips(clips: readonly Clip[], removed: readonly TimeRange[]): Clip[] {
+  if (removed.length === 0) return [...clips];
+  return sortClips(clips.map((c) => ({ ...c, start: rippleTime(c.start, removed) })));
+}
+
+/**
+ * Cut `removed` (merged) time ranges out of a track that did not lose clips itself (sync lock):
+ * clips after a range shift left, a clip entirely inside one is dropped and a clip crossing one
+ * is trimmed (its head when it starts inside the range, else its tail: it never gets split).
+ */
+export function cutRangesFromClips(clips: readonly Clip[], removed: readonly TimeRange[]): Clip[] {
+  if (removed.length === 0) return [...clips];
+  const out: Clip[] = [];
+  for (const c of clips) {
+    const s = c.start;
+    const e = clipEnd(c);
+    let overlap = 0;
+    let head = 0;
+    for (const r of removed) {
+      const o = Math.min(e, r.end) - Math.max(s, r.start);
+      if (o <= 0) continue;
+      overlap += o;
+      if (r.start <= s + 1e-6) head = o;
+    }
+    if (overlap <= 1e-6) {
+      out.push({ ...c, start: rippleTime(s, removed) });
+      continue;
+    }
+    if (e - s - overlap < MIN_CLIP_DURATION) continue; // entirely inside the removed time
+    const speed = c.speed || 1;
+    out.push({
+      ...c,
+      start: rippleTime(s, removed),
+      in: roundTime(c.in + head * speed),
+      out: roundTime(c.out - (overlap - head) * speed),
+    });
+  }
+  return sortClips(out);
+}
+
+/**
+ * Shift+Supr: delete `ids` and close the hole they leave on *their* tracks (locked tracks stay
+ * put; clips of locked tracks are not deleted). With `syncTrackId` (the main video track) the
+ * time removed from that track is also cut out of every other unlocked track (sync lock: text,
+ * motion and audio stay in sync with the video; see `cutRangesFromClips`). Returns the new tracks
+ * and the removed ranges per track that lost clips.
+ */
+export function rippleDelete(
+  tracks: readonly Track[],
+  ids: readonly string[],
+  opts: { syncTrackId?: string } = {},
+): { tracks: Track[]; removed: Record<string, TimeRange[]> } {
+  const wanted = new Set(ids);
+  const removed: Record<string, TimeRange[]> = {};
+  let next = tracks.map((t) => {
+    if (t.locked || !t.clips.some((c) => wanted.has(c.id))) return t;
+    const gone = t.clips.filter((c) => wanted.has(c.id));
+    const ranges = mergeRanges(gone.map((c) => ({ start: c.start, end: clipEnd(c) })));
+    removed[t.id] = ranges;
+    const kept = t.clips.filter((c) => !wanted.has(c.id));
+    return { ...t, clips: rippleTrackClips(kept, ranges) };
+  });
+  const sync = opts.syncTrackId ? removed[opts.syncTrackId] : undefined;
+  if (sync?.length) {
+    next = next.map((t) => {
+      if (t.locked || t.id === opts.syncTrackId) return t;
+      // Ranges in this track's coordinates (after its own ripple, if it lost clips too).
+      const own = removed[t.id] ?? [];
+      const mapped = mergeRanges(
+        sync.map((r) => ({ start: rippleTime(r.start, own), end: rippleTime(r.end, own) })),
+      );
+      if (mapped.length === 0 || t.clips.length === 0) return t;
+      return { ...t, clips: cutRangesFromClips(t.clips, mapped) };
+    });
+  }
+  return { tracks: next, removed };
+}
+
+/** Empty ranges of a track between 0 and its last clip (union of clips = occupied). */
+export function trackGaps(track: Pick<Track, "clips">): TimeRange[] {
+  const busy = mergeRanges(track.clips.map((c) => ({ start: c.start, end: clipEnd(c) })));
+  const gaps: TimeRange[] = [];
+  let at = 0;
+  for (const b of busy) {
+    if (b.start - at > 1e-3) gaps.push({ start: at, end: b.start });
+    at = Math.max(at, b.end);
+  }
+  return gaps;
+}
+
+/** «Cerrar huecos de la pista»: pack the clips leftwards (overlaps between them are kept). */
+export function closeGaps(track: Track): { track: Track; removed: TimeRange[] } {
+  const removed = trackGaps(track);
+  if (track.locked || removed.length === 0) return { track, removed: [] };
+  return { track: { ...track, clips: rippleTrackClips(track.clips, removed) }, removed };
+}
+
+/**
+ * Q / W: trim the start (Q) or the end (W) of a clip to the cursor and close the gap on its track
+ * (ripple). Undefined when `t` is not strictly inside the clip or its track is locked.
+ */
+export function trimToCursor(
+  tracks: readonly Track[],
+  clipId: string,
+  t: number,
+  edge: "start" | "end",
+): { tracks: Track[]; removed: TimeRange; trackId: string } | undefined {
+  const found = findClip({ tracks: tracks as Track[] }, clipId);
+  if (!found || found.track.locked) return undefined;
+  const { clip, track } = found;
+  const end = clipEnd(clip);
+  if (t <= clip.start + MIN_CLIP_DURATION || t >= end - MIN_CLIP_DURATION) return undefined;
+  const removed: TimeRange =
+    edge === "start" ? { start: clip.start, end: roundTime(t) } : { start: roundTime(t), end };
+  const trimmed = edge === "start" ? trimClipStart(clip, t) : trimClipEnd(clip, t);
+  const others = track.clips.filter((c) => c.id !== clipId);
+  const shifted = rippleTrackClips(others, [removed]);
+  const self = edge === "start" ? { ...trimmed, start: clip.start } : trimmed;
+  return {
+    tracks: tracks.map((x) =>
+      x.id === track.id ? { ...x, clips: sortClips([...shifted, self]) } : x,
+    ),
+    removed,
+    trackId: track.id,
+  };
+}
+
+/** Rectangle in timeline pixels: x from time 0, y from the top of the first row. */
+export interface PxRect {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+/**
+ * Clips touched by a selection rectangle. `rows` are the tracks in display order (each row
+ * `trackHeight` px tall); clips of locked tracks are never selected.
+ */
+export function clipsInRect(
+  rows: readonly Track[],
+  rect: PxRect,
+  zoom: number,
+  trackHeight = 56,
+): string[] {
+  const left = Math.min(rect.left, rect.right);
+  const right = Math.max(rect.left, rect.right);
+  const top = Math.min(rect.top, rect.bottom);
+  const bottom = Math.max(rect.top, rect.bottom);
+  const out: string[] = [];
+  rows.forEach((track, i) => {
+    const y0 = i * trackHeight;
+    const y1 = y0 + trackHeight;
+    if (track.locked || bottom <= y0 || top >= y1) return;
+    for (const c of track.clips) {
+      const x0 = c.start * zoom;
+      const x1 = clipEnd(c) * zoom;
+      if (x1 > left && x0 < right) out.push(c.id);
+    }
+  });
+  return out;
+}
+
+/** Clips between two clips of the same track (by start, inclusive), for Shift+click. */
+export function clipRange(track: Pick<Track, "clips">, a: string, b: string): string[] {
+  const sorted = sortClips(track.clips);
+  const i = sorted.findIndex((c) => c.id === a);
+  const j = sorted.findIndex((c) => c.id === b);
+  if (i < 0 || j < 0) return [];
+  const [lo, hi] = i < j ? [i, j] : [j, i];
+  return sorted.slice(lo, hi + 1).map((c) => c.id);
+}

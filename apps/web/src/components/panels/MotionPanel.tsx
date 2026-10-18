@@ -310,6 +310,7 @@ export function MotionPanel() {
             size="icon-sm"
             className="ml-auto"
             aria-label="Recargar plantillas"
+            tip="motionReload"
             onClick={() => {
               engines.reload();
               templates.reload();

@@ -12,6 +12,7 @@ from typing import Any
 from ..config import Settings
 from ..gpu import GPU_FALLBACK_CPU, GpuBudget, whisper_vram_mb
 from ..schemas import SubtitleSegment, SubtitleWord, Transcript
+from ..tasks import TaskCanceled
 
 log = logging.getLogger("studio_workers")
 
@@ -191,6 +192,10 @@ class WhisperEngine:
                 transcript.compute_type = ctype
                 transcript.warnings = warnings or None
                 return transcript
+            except TaskCanceled:
+                # A cancel is not a CUDA failure: keep the model on the GPU and the budget as is
+                # (no false «usando CPU», no cold reload for the next transcription).
+                raise
             except Exception as exc:  # CUDA/cuDNN DLL problems surface here on Windows
                 if device == "cuda":
                     log.warning("whisper on CUDA failed (%s); falling back to CPU int8", exc)

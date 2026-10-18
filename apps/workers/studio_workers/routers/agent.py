@@ -3,14 +3,24 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from typing import Any, Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from .. import services
 from ..agent.bugreport import draft_report
-from ..agent.eval import evaluate, load_dataset, read_last, write_result
+from ..agent.eval import (
+    QUICK_N,
+    EvalCanceled,
+    dataset_ids,
+    evaluate,
+    load_dataset,
+    read_last,
+    select_quick,
+    write_result,
+)
 from ..agent.ollama_client import (
     ALT_MODEL,
     DEFAULT_MODEL,
@@ -23,7 +33,7 @@ from ..agent.planner import LLM_VRAM_MB, Example, Planner, PlannerUnavailableErr
 from ..config import get_settings
 from ..errors import NotFoundError
 from ..packs import AGENT_PACK_ID, PackRequiredError
-from ..tasks import Task
+from ..tasks import Task, TaskCanceled, cancel_or_404, task_not_found
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
@@ -47,6 +57,8 @@ class EvalRequest(BaseModel):
     dataset: Literal["golden", "all"] = "golden"
     use_router: bool = True
     limit: int | None = Field(default=None, ge=1)
+    # Sprint 5: quick = QUICK_N deterministic examples (select_quick), full = the whole dataset.
+    mode: Literal["quick", "full"] = "quick"
 
 
 class BugreportRequest(BaseModel):
@@ -124,15 +136,34 @@ async def status() -> dict[str, Any]:
 
 
 @router.post("/plan")
-async def plan(req: PlanRequest) -> dict[str, Any]:
+async def plan(req: PlanRequest, request: Request) -> dict[str, Any]:
     """Router first (no LLM); otherwise Ollama + schema + ≤ 3 attempts. 409 PACK_REQUIRED when
-    the command needs the LLM and Ollama or its model is missing."""
+    the command needs the LLM and Ollama or its model is missing. Sprint 5 (H18): the planner runs
+    as a task that is canceled when the client goes away (Cancelar in the web), which closes the
+    request to Ollama so it stops generating."""
     planner = make_planner(req.settings.model, req.settings.temperature)
+    work = asyncio.ensure_future(planner.plan(req.command, req.project_summary))
     try:
-        outcome = await planner.plan(req.command, req.project_summary)
+        while True:
+            done, _ = await asyncio.wait({work}, timeout=0.25)
+            if done:
+                break
+            if await request.is_disconnected():
+                work.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await work
+                raise ClientGoneError()
+        outcome = work.result()
     except PlannerUnavailableError as exc:
         raise await _pack_required(planner.model, exc) from exc
+    finally:
+        if not work.done():
+            work.cancel()
     return outcome.response()
+
+
+class ClientGoneError(RuntimeError):
+    """The api closed the /agent/plan request (user canceled): nothing to answer."""
 
 
 async def _pack_required(model: str, exc: PlannerUnavailableError) -> Exception:
@@ -152,21 +183,26 @@ async def _pack_required(model: str, exc: PlannerUnavailableError) -> Exception:
 
 @router.post("/eval")
 def run_eval(req: EvalRequest) -> dict[str, Any]:
-    """Queue an evaluation; result in storage/run/agent-eval.json (GET /agent/eval/last)."""
+    """Queue an evaluation; result in storage/run/agent-eval.json (GET /agent/eval/last).
+
+    Sprint 5: progress per command (``done/total``, ``stage_es`` «qwen3:8b · 17/20»), ``mode``
+    quick (20) | full, cancel (POST /agent/tasks/{id}/cancel) stops Ollama's generation; when no
+    model is available the task fails with code PACK_REQUIRED (agent-llm) and writes nothing."""
     settings = get_settings()
     models = req.models or [settings.agent_model]
     examples = load_dataset(req.dataset)
     if req.limit:
         examples = examples[: req.limit]
+    elif req.mode == "quick":
+        examples = select_quick(examples, QUICK_N, dataset_ids(req.dataset))
     if not examples:
         raise NotFoundError(
             f"No hay ejemplos en el dataset '{req.dataset}' (studio_workers/agent/dataset)"
         )
 
     def job(task: Task) -> dict[str, Any]:
-        def step(p: float, msg: str) -> None:
-            task.progress = min(0.99, p)
-            task.current_file = msg
+        def items(done: int, total: int, stage_es: str) -> None:
+            task.set_items(done, total, stage_es)
 
         def plan_fn_for(model: str):
             planner = make_planner(model)
@@ -181,13 +217,30 @@ def run_eval(req: EvalRequest) -> dict[str, Any]:
 
             return plan_fn
 
-        result = asyncio.run(
-            evaluate(models, examples, plan_fn_for, dataset=req.dataset, step=step)
-        )
+        task.set_items(0, len(models) * len(examples), f"{models[0]} · 0/{len(examples)}")
+        try:
+            result = asyncio.run(
+                evaluate(
+                    models,
+                    examples,
+                    plan_fn_for,
+                    dataset=req.dataset,
+                    cancel=task.cancel_event,
+                    items=items,
+                    mode="custom" if req.limit else req.mode,
+                )
+            )
+        except EvalCanceled as exc:
+            raise TaskCanceled(task.id) from exc
+        unavailable = [r for r in result["models"].values() if r.get("available") is False]
+        if unavailable and len(unavailable) == len(result["models"]):
+            raise PackRequiredError(AGENT_PACK_ID, str(unavailable[0].get("error") or "") or None)
         result["use_router"] = req.use_router
         path = write_result(settings.storage_root, result)
         return {
             "path": path.relative_to(settings.storage_root).as_posix(),
+            "mode": result["mode"],
+            "n": result["n"],
             "summary": {
                 m: {k: v for k, v in r.items() if k != "failures"}
                 for m, r in result["models"].items()
@@ -202,8 +255,14 @@ def run_eval(req: EvalRequest) -> dict[str, Any]:
 def task_status(task_id: str) -> dict[str, Any]:
     task = services.agent_queue().get(task_id)
     if task is None:
-        raise NotFoundError(f"Tarea desconocida: {task_id}")
+        raise task_not_found(task_id)
     return task.public()
+
+
+@router.post("/tasks/{task_id}/cancel")
+def task_cancel(task_id: str) -> dict[str, Any]:
+    """Sprint 5: cancel the evaluation (the running Ollama request is closed)."""
+    return cancel_or_404(services.agent_queue(), task_id)
 
 
 @router.get("/eval/last")

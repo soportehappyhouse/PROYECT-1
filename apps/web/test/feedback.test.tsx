@@ -269,7 +269,7 @@ describe("feedback 6: TTS voice downloads", () => {
       /403/,
     );
     expect(downloadErrorMessage(err("DOWNLOAD_CHECKSUM", "checksum"))).toMatch(/checksum/);
-    expect(downloadErrorMessage(err("WORKERS_UNAVAILABLE", "x", 503))).toMatch(/start\.ps1/);
+    expect(downloadErrorMessage(err("WORKERS_UNAVAILABLE", "x", 503))).toMatch(/start\.cmd/);
   });
 });
 

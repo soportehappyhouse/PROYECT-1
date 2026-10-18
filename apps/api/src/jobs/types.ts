@@ -1,4 +1,4 @@
-import type { Job, JobDiagnostics, JobStatus, JobType } from "@studio/shared";
+import type { Job, JobDiagnostics, JobProgressDetail, JobStatus, JobType } from "@studio/shared";
 
 export interface CreateJobInput {
   type: JobType;
@@ -14,6 +14,10 @@ export interface JobPatch {
   message?: string;
   result?: unknown;
   error?: string;
+  /** Sprint 5: machine code of the failure (stored in jobs.error_code). */
+  errorCode?: string;
+  /** Sprint 5: progress detail (stored as JSON in jobs.detail). */
+  detail?: JobProgressDetail;
   startedAt?: string;
   finishedAt?: string;
   logTail?: string;
@@ -64,8 +68,12 @@ export type JobLane = "ffmpeg" | "motion" | "workers" | "edit";
 export interface JobContext {
   jobId: string;
   signal: AbortSignal;
-  /** progress 0..1; message in Spanish for the Jobs panel. Throttled by the queue. */
-  reportProgress(progress: number, message?: string): void;
+  /**
+   * progress 0..1; message in Spanish for the Jobs panel. Throttled by the queue. Sprint 5:
+   * `detail` adds counts/stage (`{done,total,unit,stage_es,cancellable}`); the queue fills
+   * `progressAt`, `eta_s` and `stalled`. Fields not given keep their previous value.
+   */
+  reportProgress(progress: number, message?: string, detail?: Partial<JobProgressDetail>): void;
   /** Append a diagnostic line (kept as a rolling tail in the DB, shown on failure). */
   log(line: string): void;
   /** Absolute STORAGE_DIR. */

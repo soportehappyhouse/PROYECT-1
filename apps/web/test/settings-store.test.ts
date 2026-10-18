@@ -50,24 +50,30 @@ describe("layout validation", () => {
       getPanel: (id) => added.find((p) => p.id === id),
     };
     buildDefaultLayout(api);
+    // Sprint 5 (H8): right column Propiedades · Asistente · Exportar; Motion/Voz left; the rest
+    // as tabs of the bottom group.
     expect(added.map((p) => p.id)).toEqual([
       "media",
       "library",
-      "preview",
-      "inspector",
       "motion",
       "voice",
-      "subtitles",
-      "export",
+      "preview",
+      "inspector",
       "assistant",
+      "export",
+      "timeline",
+      "subtitles",
+      "jobs",
       "console",
       "style",
-      "timeline",
-      "jobs",
     ]);
     expect(added.find((p) => p.id === "console")).toMatchObject({
       inactive: true,
-      position: { referencePanel: "assistant", direction: "within" },
+      position: { referencePanel: "timeline", direction: "within" },
+    });
+    expect(added.find((p) => p.id === "export")?.position).toEqual({
+      referencePanel: "inspector",
+      direction: "within",
     });
     expect(added.find((p) => p.id === "assistant")?.position).toEqual({
       referencePanel: "inspector",

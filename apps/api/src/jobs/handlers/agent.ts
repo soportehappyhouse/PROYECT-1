@@ -45,6 +45,11 @@ import { registerAudioAsset } from "../../voice-ai/media-bridge.js";
 import { isAbortError, JobAbortedError } from "../state.js";
 import type { JobContext, JobHandler } from "../types.js";
 import { requirePack, viaPacks } from "./ai.js";
+import { pollWorkerTask, WorkerTaskError } from "./util.js";
+// BEGIN sprint5:M3
+import { ExportPresetSchema, libraryRole, type TrackRole } from "@studio/shared";
+import { resolveExportAspect } from "../../services/export/aspect-check.js";
+// END sprint5:M3
 
 /**
  * Sprint 3 job `agent.apply` (lane edit): run the confirmed ops of a stored AgentPlan in order on
@@ -688,6 +693,9 @@ export function createAgentApplyHandler(
       case "add_audio": {
         let assetId = op.asset?.id;
         let dur = assetId ? repos.media.get(assetId)?.durationSec : undefined;
+        // BEGIN sprint5:M3 (library sounds get a mix role: music/ambience duck under the voice)
+        let audioRole: TrackRole | undefined = op.duck ? "music" : undefined;
+        // END sprint5:M3
         if (!assetId) {
           const index = new LibraryIndex(app.db, app.config.storageDir, app.config.ffmpegPath);
           const found = await index.search({
@@ -699,6 +707,9 @@ export function createAgentApplyHandler(
           const item = found.items.find((i) => i.path);
           if (!item)
             throw new OpError(`No encontré audio para «${op.query}» en la biblioteca local`);
+          // BEGIN sprint5:M3
+          audioRole ??= libraryRole(item.kind);
+          // END sprint5:M3
           const id = nanoid();
           const rel = `media/${id}${path.extname(item.path!).toLowerCase()}`;
           const dest = resolveStoragePath(app.config.storageDir, rel);
@@ -719,6 +730,16 @@ export function createAgentApplyHandler(
           volume,
           out: round3(dur),
         });
+        // BEGIN sprint5:M3 (role of a new track only: never relabel a track the user set up)
+        if (audioRole) {
+          const project = env.load();
+          const track = project.tracks.find((t) => t.clips.some((c) => c.id === clip.id));
+          if (track && !track.role && track.clips.every((c) => c.id === clip.id)) {
+            track.role = audioRole;
+            env.save(project);
+          }
+        }
+        // END sprint5:M3
         return { assetId, clipId: clip.id, volume };
       }
       case "remove_background": {
@@ -807,6 +828,18 @@ export function createAgentApplyHandler(
           findExportBlockers(project, (id) => !!repos.media.get(id)),
         );
         if (blocked) throw new OpError(blocked);
+        // BEGIN sprint5:M3 (framing of another aspect: never blurred bars unless chosen)
+        const stored = repos.presets.get(op.preset);
+        let aspectFit = op.aspect_fit;
+        if (stored) {
+          try {
+            aspectFit = resolveExportAspect(project, ExportPresetSchema.parse(stored), aspectFit);
+          } catch (err) {
+            if (err instanceof HttpError) throw new OpError(err.message);
+            throw err;
+          }
+        }
+        // END sprint5:M3
         return env.subJob(
           "project.export",
           {
@@ -814,6 +847,9 @@ export function createAgentApplyHandler(
             presetId: op.preset,
             ...(op.name && { fileName: op.name }),
             ...(op.burn_subtitles !== undefined && { burnSubtitles: op.burn_subtitles }),
+            // BEGIN sprint5:M3
+            ...(aspectFit && { aspectFit }),
+            // END sprint5:M3
           },
           "Exportar",
         );
@@ -1011,33 +1047,82 @@ export async function readAgentEval(storageDir: string): Promise<unknown> {
   }
 }
 
-/** agent.eval: POST /agent/eval, then wait for storage/run/agent-eval.json to change. */
+/** Pack id of the local assistant model (Ollama). */
+const AGENT_LLM_PACK = "agent-llm";
+
+/** True when the eval ran but no model was available (no Ollama or no model): PACK_REQUIRED. */
+export function evalNoModelAvailable(result: unknown): boolean {
+  const models =
+    (result as { models?: unknown; summary?: unknown } | null | undefined)?.models ??
+    (result as { summary?: unknown } | null | undefined)?.summary;
+  if (!models || typeof models !== "object") return false;
+  const list = Object.values(models as Record<string, { available?: unknown }>);
+  return list.length > 0 && list.every((m) => m && m.available === false);
+}
+
+/** First Ollama error text of an eval result (`models[m].error`). */
+function evalErrorText(result: unknown): string | undefined {
+  const models = (result as { models?: Record<string, { error?: unknown }> } | null | undefined)
+    ?.models;
+  for (const m of Object.values(models ?? {})) if (typeof m?.error === "string") return m.error;
+  return undefined;
+}
+
+async function agentLlmPackRequired(app: AppContext, message?: string): Promise<PackRequiredError> {
+  const packs = await app.workers.packs().catch(() => undefined);
+  const pack = packs?.find((p) => p.id === AGENT_LLM_PACK);
+  const err = new PackRequiredError(
+    AGENT_LLM_PACK,
+    pack?.name_es ?? "Asistente local (Ollama)",
+    pack?.size_bytes ?? 5.2e9,
+  );
+  if (message) err.message = message;
+  return err;
+}
+
+/**
+ * agent.eval (Sprint 5): POST /agent/eval {dataset, models, mode} → poll /agent/tasks/{id} every
+ * second with the real progress («qwen3:8b · 17/20», unit commands); canceling the job cancels the
+ * worker task (Ollama stops generating). No model available → failed with PACK_REQUIRED agent-llm.
+ */
 export function createAgentEvalHandler(
   app: AppContext,
   o: { pollMs?: number; timeoutMs?: number } = {},
 ): JobHandler<AgentEvalRequest, unknown> {
-  const mtime = () =>
-    stat(resolveStoragePath(app.config.storageDir, AGENT_EVAL_RESULT_PATH))
-      .then((s) => s.mtimeMs)
-      .catch(() => 0);
   return {
     type: "agent.eval",
     parse: (p) => AgentEvalRequestSchema.parse(p ?? {}),
     async run(req, ctx) {
-      const before = await mtime();
-      ctx.reportProgress(0.02, "Evaluando modelos del asistente");
+      ctx.reportProgress(0.01, "Preparando la evaluación", {
+        stage_es: req.mode === "full" ? "Evaluación completa" : "Evaluación rápida",
+        unit: "commands",
+      });
       const { task_id } = await viaPacks(() =>
-        app.workers.agentEval({ dataset: req.dataset, ...(req.models && { models: req.models }) }),
+        app.workers.agentEval({
+          dataset: req.dataset,
+          mode: req.mode,
+          ...(req.models && { models: req.models }),
+        }),
       );
-      ctx.log(`Tarea de evaluación ${task_id}`);
-      const t0 = Date.now();
-      const timeout = o.timeoutMs ?? 4 * 3600_000;
-      while ((await mtime()) <= before) {
-        if (Date.now() - t0 > timeout) throw new Error("La evaluación no terminó a tiempo");
-        ctx.reportProgress(0.5, "Evaluando modelos del asistente");
-        await sleep(o.pollMs ?? 1000, ctx.signal);
+      ctx.log(`Tarea de evaluación ${task_id} (${req.mode})`);
+      let task;
+      try {
+        task = await pollWorkerTask(app.workers, "agent", task_id, ctx, {
+          pollMs: o.pollMs ?? 1000,
+          timeoutMs: o.timeoutMs ?? 4 * 3600_000,
+          from: 0.01,
+          to: 0.99,
+          unit: "commands",
+          message: (t) => t.stage_es ?? t.current_file ?? "Evaluando modelos del asistente",
+        });
+      } catch (err) {
+        if (err instanceof WorkerTaskError && err.code === PACK_REQUIRED)
+          throw await agentLlmPackRequired(app, err.message);
+        throw err;
       }
       const result = await readAgentEval(app.config.storageDir);
+      if (evalNoModelAvailable(result ?? task.result))
+        throw await agentLlmPackRequired(app, evalErrorText(result));
       if (!result)
         throw new Error("La evaluación terminó sin resultado (storage/run/agent-eval.json)");
       return result;

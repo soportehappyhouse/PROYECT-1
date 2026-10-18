@@ -18,6 +18,33 @@ export function writeJson(key: string, value: unknown): void {
   }
 }
 
+/** True for the browser's «storage full» errors (Chrome/Edge/Safari and Firefox names). */
+export function isQuotaError(err: unknown): boolean {
+  if (
+    !(err instanceof Error) &&
+    !(typeof DOMException !== "undefined" && err instanceof DOMException)
+  )
+    return false;
+  const e = err as { name?: string; code?: number };
+  return (
+    e.name === "QuotaExceededError" ||
+    e.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+    e.code === 22 ||
+    e.code === 1014
+  );
+}
+
+/** Store an already serialized value: "ok", "quota" (storage full) or "error" (blocked…). */
+export function writeRaw(key: string, raw: string): "ok" | "quota" | "error" {
+  try {
+    if (typeof window === "undefined") return "error";
+    window.localStorage.setItem(key, raw);
+    return "ok";
+  } catch (err) {
+    return isQuotaError(err) ? "quota" : "error";
+  }
+}
+
 export function removeKey(key: string): void {
   try {
     if (typeof window !== "undefined") window.localStorage.removeItem(key);

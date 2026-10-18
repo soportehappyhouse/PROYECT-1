@@ -3,14 +3,18 @@ import { randomBytes } from "node:crypto";
 import { access, mkdir, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import type {
-  VoiceEffect,
-  ExportPreset,
-  Project,
-  SpriteSheet,
-  VideoEncoderId,
-  WaveformPeaks,
-  TrackFile,
+import {
+  duckSidechainGain,
+  SOCIAL_LOUDNESS,
+  type AspectFit,
+  type LoudnessTarget,
+  type VoiceEffect,
+  type ExportPreset,
+  type Project,
+  type SpriteSheet,
+  type VideoEncoderId,
+  type WaveformPeaks,
+  type TrackFile,
 } from "@studio/shared";
 import {
   buildAudioFxGraph,
@@ -45,9 +49,17 @@ import {
   metadataArgs,
   resolveExportProject,
   timelineDuration,
+  type AudioMixPlan,
   type CompileExportOptions,
   type TimelineAsset,
 } from "./ffmpeg/timeline.js";
+import {
+  loudnormApplyFilter,
+  loudnormMeasureArgs,
+  parseLoudnormStats,
+  SILENCE_LUFS,
+  type LoudnormStats,
+} from "./export/loudness.js";
 
 export type { ProbeInfo } from "./ffmpeg/probe.js";
 export type { TimelineAsset } from "./ffmpeg/timeline.js";
@@ -57,8 +69,15 @@ const execFileAsync = promisify(execFile);
 
 export interface ProgressOptions {
   signal?: AbortSignal;
-  /** 0..1, plus a Spanish status line when the step changes (segment render: "N/M bloques"). */
-  onProgress?: (progress: number, message?: string) => void;
+  /**
+   * 0..1, plus a Spanish status line when the step changes (segment render: "N/M bloques") and,
+   * in the block render, the items done/total (blocks + 1 final audio/mux step) for the job ETA.
+   */
+  onProgress?: (
+    progress: number,
+    message?: string,
+    items?: { done: number; total: number; cached?: number },
+  ) => void;
   /** Receives stderr lines / notes for the job log. */
   log?: (line: string) => void;
 }
@@ -90,6 +109,12 @@ export interface ExportInput {
    * it does not change their hash).
    */
   metadataComment?: string;
+  /** Sprint 5: framing of a canvas of another aspect (see effectiveAspectFit). */
+  aspectFit?: AspectFit;
+  /** Sprint 5: loudness target of the mix (two-pass loudnorm); null/absent = not normalized. */
+  loudness?: LoudnessTarget | null;
+  /** Sprint 5: track roles + automatic ducking of the mix. */
+  audioMix?: AudioMixPlan;
 }
 
 export interface ExportOutcome {
@@ -102,6 +127,12 @@ export interface ExportOutcome {
   segments?: { total: number; cached: number; rendered: number };
   /** Why a requested segment render used the single pass (Spanish). */
   fallbackReason?: string;
+  /** Sprint 5: loudnorm measurement (input) and result (output) of the mix. */
+  loudness?: { input_i: number; input_tp: number; output_i: number; output_tp: number };
+  /** Sprint 5: tracks in the automatic ducking buses. */
+  ducked?: { voiceTracks: number; musicTracks: number };
+  /** Sprint 5: warning codes of the job result (LOUDNESS_MEASURE_FAILED). */
+  warningCodes?: string[];
 }
 
 export interface VersionInfo {
@@ -382,11 +413,25 @@ export function createFfmpegService(ffmpegPath: string, ffprobePath: string): Ff
         ...(input.fontFile && { fontFile: input.fontFile }),
         ...(input.burnSubtitles !== undefined && { burnSubtitles: input.burnSubtitles }),
         ...(input.metadataComment && { metadataComment: input.metadataComment }),
+        ...(input.aspectFit && { aspectFit: input.aspectFit }),
+        ...(input.audioMix && { audioMix: input.audioMix }),
       });
       const writeFiles = async (dir: string, files: { name: string; content: string }[]) => {
         await mkdir(dir, { recursive: true });
         for (const f of files) await writeFile(path.join(dir, f.name), f.content, "utf8");
       };
+      const report = (
+        r: number,
+        msg: string,
+        items?: { done: number; total: number; cached?: number },
+      ) => opts?.onProgress?.(Math.min(0.999, r), msg, items);
+
+      // Sprint 5: the audio mix is rendered apart (loudnorm two-pass, role ducking) and muxed
+      // with the video (-c:v copy). GIF has no audio and alpha keeps its one-pass render.
+      const probeEnc = presetEncoding(input.preset, "libx264");
+      const separateAudio = probeEnc.extension !== "gif" && !probeEnc.alpha;
+      /** Share of the progress bar for the video when the audio is processed apart. */
+      const VIDEO = separateAudio ? 0.85 : 1;
 
       // Segment plan (or the reason to render in one pass).
       let plan: { segments: SegmentWindow[]; start: number; end: number } | undefined;
@@ -404,16 +449,47 @@ export function createFfmpegService(ffmpegPath: string, ffprobePath: string): Ff
         if (fallbackReason) opts?.log?.(`Render por bloques desactivado: ${fallbackReason}`);
       }
 
-      const single = async (encoder: VideoEncoderId) => {
-        const compiled = compileExport(base(encoder));
+      interface VideoPass {
+        durationSec: number;
+        warnings: string[];
+        segments?: ExportOutcome["segments"];
+        /** Input argv of the rendered video for the final mux (absent = output already complete). */
+        videoInput?: string[];
+        ducked?: ExportOutcome["ducked"];
+        /** Prefix of the audio stage messages (block render: «3/3 bloques (3 en caché)»). */
+        label?: string;
+      }
+
+      const single = async (encoder: VideoEncoderId): Promise<VideoPass> => {
+        if (!separateAudio) {
+          const compiled = compileExport(base(encoder));
+          await writeFiles(input.workDir, compiled.files);
+          for (const w of compiled.warnings) opts?.log?.(`AVISO: ${w}`);
+          await run(compiled.args, { ...runOpts(opts, compiled.durationSec), cwd: input.workDir });
+          return { durationSec: compiled.durationSec, warnings: compiled.warnings };
+        }
+        const ext = presetEncoding(input.preset, encoder).extension;
+        const videoFile = path.join(input.workDir, `video.${ext}`);
+        const compiled = compileExport({ ...base(encoder), output: videoFile, videoOnly: true });
         await writeFiles(input.workDir, compiled.files);
         for (const w of compiled.warnings) opts?.log?.(`AVISO: ${w}`);
-        await run(compiled.args, { ...runOpts(opts, compiled.durationSec), cwd: input.workDir });
-        const segments: ExportOutcome["segments"] = undefined;
-        return { durationSec: compiled.durationSec, warnings: compiled.warnings, segments };
+        report(0, "Video");
+        await run(compiled.args, {
+          ...runOpts(opts, compiled.durationSec),
+          cwd: input.workDir,
+          onProgress: (r: number) => report(r * VIDEO, "Video"),
+        });
+        return {
+          durationSec: compiled.durationSec,
+          warnings: compiled.warnings,
+          videoInput: ["-i", videoFile],
+        };
       };
 
-      const segmented = async (encoder: VideoEncoderId, p: NonNullable<typeof plan>) => {
+      const segmented = async (
+        encoder: VideoEncoderId,
+        p: NonNullable<typeof plan>,
+      ): Promise<VideoPass> => {
         const cache = input.segmentCache!;
         await mkdir(cache.dir, { recursive: true });
         const fps = input.preset.fps;
@@ -435,6 +511,7 @@ export function createFfmpegService(ffmpegPath: string, ffprobePath: string): Ff
             ...(input.burnSubtitles !== undefined && { burnSubtitles: input.burnSubtitles }),
             ...(input.fontFile && { fontFile: input.fontFile }),
             ...(version?.line && { ffmpegVersion: version.line }),
+            ...(input.aspectFit && { aspectFit: input.aspectFit }),
           });
           return { w, hash, file: path.join(cache.dir, `${hash}.mp4`) };
         });
@@ -449,15 +526,19 @@ export function createFfmpegService(ffmpegPath: string, ffprobePath: string): Ff
         const cached = exists.filter(Boolean).length;
         const M = items.length;
         const totalDur = p.end - p.start;
-        const VIDEO = 0.86;
-        const report = (r: number, msg: string) => opts?.onProgress?.(Math.min(0.999, r), msg);
+        const videoMsg = (done: number) => `Video: ${segmentProgressMessage(done, M, cached)}`;
         const warnings = new Set<string>();
         let doneDur = 0;
         let done = 0;
-        report(0, segmentProgressMessage(0, M, cached));
+        let cachedDone = 0;
+        // Integration (M1 ↔ M3): blocks as items for the ETA; +1 = mix, loudness and mux.
+        // Audit D3: cached blocks are flagged so they do not count for the ETA rate.
+        const itemsOf = (n: number) => ({ done: n, total: M + 1, cached: cachedDone });
+        report(0, videoMsg(0), itemsOf(0));
         for (const [i, it] of items.entries()) {
           const segDur = it.w.end - it.w.start;
           if (exists[i]) {
+            cachedDone++;
             const now = new Date();
             await utimes(it.file, now, now).catch(() => undefined); // LRU: mark as used
           } else {
@@ -479,12 +560,13 @@ export function createFfmpegService(ffmpegPath: string, ffprobePath: string): Ff
             });
             await writeFiles(dir, compiled.files);
             for (const w of compiled.warnings) warnings.add(w);
-            const msg = segmentProgressMessage(done + 1, M, cached);
+            const msg = videoMsg(done + 1);
             try {
               await run(compiled.args, {
                 ...runOpts(opts, segDur),
                 cwd: dir,
-                onProgress: (r: number) => report(((doneDur + r * segDur) / totalDur) * VIDEO, msg),
+                onProgress: (r: number) =>
+                  report(((doneDur + r * segDur) / totalDur) * VIDEO, msg, itemsOf(done)),
               });
               await rename(part, it.file);
             } catch (err) {
@@ -494,90 +576,207 @@ export function createFfmpegService(ffmpegPath: string, ffprobePath: string): Ff
           }
           done++;
           doneDur += segDur;
-          report((doneDur / totalDur) * VIDEO, segmentProgressMessage(done, M, cached));
+          report((doneDur / totalDur) * VIDEO, videoMsg(done), itemsOf(done));
         }
         for (const w of warnings) opts?.log?.(`AVISO: ${w}`);
         opts?.log?.(
           `Render por bloques: ${M} bloques, ${cached} en caché, ${M - cached} renderizados`,
         );
-
-        // Audio mix of the whole range, once.
-        const enc = presetEncoding(input.preset, encoder);
-        const audioName = enc.audio.includes("aac") ? "audio.m4a" : "audio.mka";
-        const audio = compileExport({ ...base(encoder), output: audioName, audioOnly: true });
-        const audioDir = path.join(input.workDir, "audio");
-        await writeFiles(audioDir, audio.files);
-        const audioMsg = `${segmentProgressMessage(M, M, cached)} · mezclando audio`;
-        await run(audio.args, {
-          ...runOpts(opts, audio.durationSec),
-          cwd: audioDir,
-          onProgress: (r: number) => report(VIDEO + r * 0.12, audioMsg),
-        });
-
-        // Concat demuxer (-c copy) + mux.
+        // Concat demuxer (-c copy), muxed with the audio mix below.
         const list = [
           "ffconcat version 1.0",
           ...items.map((it) => `file '${it.file.replace(/\\/g, "/").replace(/'/g, "'\\''")}'`),
           "",
         ].join("\n");
         await writeFile(path.join(input.workDir, "segments.ffconcat"), list, "utf8");
-        report(0.98, `${segmentProgressMessage(M, M, cached)} · uniendo`);
-        await run(
+        return {
+          durationSec: totalDur,
+          warnings: [...warnings],
+          segments: { total: M, cached, rendered: M - cached },
+          videoInput: ["-f", "concat", "-safe", "0", "-i", "segments.ffconcat"],
+          label: segmentProgressMessage(M, M, cached),
+        };
+      };
+
+      /**
+       * Sprint 5: level of the voice bus (loudnorm measurement of the voice tracks alone) -> the
+       * sidechain gain that makes a quiet recording duck the music as much as a loud one. A failed
+       * measurement keeps the default gain (logged, never fails the export).
+       */
+      const calibrateDuck = async (
+        encoder: VideoEncoderId,
+        mix: AudioMixPlan,
+        msg: (stage: string) => string,
+      ): Promise<AudioMixPlan> => {
+        const voiceProject = {
+          ...input.project,
+          tracks: input.project.tracks.filter((t) => mix.roles.get(t.id) === "voice"),
+        };
+        const dir = path.join(input.workDir, "voice");
+        try {
+          const voice = compileExport({
+            ...base(encoder),
+            project: voiceProject,
+            output: "voice.wav",
+            audioOnly: true,
+            audioCodecArgs: ["-c:a", "pcm_f32le", "-ar", "48000"],
+          });
+          await writeFiles(dir, voice.files);
+          report(VIDEO, msg("Midiendo la voz"));
+          await run(voice.args, {
+            ...(opts?.signal && { signal: opts.signal }),
+            durationSec: voice.durationSec,
+            cwd: dir,
+          });
+          const measured = await run(
+            loudnormMeasureArgs(path.join(dir, "voice.wav"), SOCIAL_LOUDNESS),
+            { ...(opts?.signal && { signal: opts.signal }), logLevel: "info" },
+          );
+          const lufs = parseLoudnormStats(measured.stderr).input_i;
+          const levelSc = duckSidechainGain(lufs);
+          opts?.log?.(`Voz a ${lufs} LUFS: ganancia de la cadena lateral ×${levelSc}`);
+          return { ...mix, duck: { ...mix.duck!, levelSc } };
+        } catch (err) {
+          if (opts?.signal?.aborted) throw err;
+          opts?.log?.(`AVISO: no se pudo medir la voz para el ducking (${String(err)})`);
+          return mix;
+        } finally {
+          await rm(dir, { recursive: true, force: true });
+        }
+      };
+
+      /**
+       * Sprint 5: audio mix of the whole range -> mix.wav (float PCM 48 kHz: headroom before the
+       * normalization), loudnorm pass 1 on it, then pass 2 (linear) encoded straight into the
+       * final mux with the rendered video (-c:v copy).
+       */
+      const audioAndMux = async (
+        encoder: VideoEncoderId,
+        video: VideoPass,
+      ): Promise<Pick<ExportOutcome, "loudness" | "ducked" | "warningCodes">> => {
+        const enc = presetEncoding(input.preset, encoder);
+        const audioDir = path.join(input.workDir, "audio");
+        const msg = (stage: string) => (video.label ? `${video.label} · ${stage}` : stage);
+        const mixOf = (audioMix: AudioMixPlan | undefined) =>
+          compileExport({
+            ...base(encoder),
+            ...(audioMix && { audioMix }),
+            output: "mix.wav",
+            audioOnly: true,
+            audioCodecArgs: ["-c:a", "pcm_f32le", "-ar", "48000"],
+          });
+        let audio = mixOf(input.audioMix);
+        // The sidechain is only built with audible voice AND music: calibrate it then.
+        if (audio.ducked && input.audioMix?.duck)
+          audio = mixOf(await calibrateDuck(encoder, input.audioMix, msg));
+        await writeFiles(audioDir, audio.files);
+        for (const w of audio.warnings) if (!video.warnings.includes(w)) video.warnings.push(w);
+        if (audio.ducked)
+          opts?.log?.(
+            `Ducking automático: ${audio.ducked.musicTracks} pista(s) de música bajo ${audio.ducked.voiceTracks} de voz`,
+          );
+        report(VIDEO, msg("Mezclando audio"));
+        await run(audio.args, {
+          ...runOpts(opts, audio.durationSec),
+          cwd: audioDir,
+          onProgress: (r: number) => report(VIDEO + r * 0.05, msg("Mezclando audio")),
+        });
+        const mixFile = path.join(audioDir, "mix.wav");
+        const warningCodes: string[] = [];
+        let applyFilter: string | undefined;
+        let measured: LoudnormStats | undefined;
+        const target = input.loudness ?? undefined;
+        if (target) {
+          report(0.9, msg("Midiendo sonoridad"));
+          try {
+            const pass1 = await run(loudnormMeasureArgs(mixFile, target), {
+              ...(opts?.signal && { signal: opts.signal }),
+              durationSec: audio.durationSec,
+              logLevel: "info",
+              onProgress: (r: number) => report(0.9 + r * 0.04, msg("Midiendo sonoridad")),
+            });
+            measured = parseLoudnormStats(pass1.stderr);
+            opts?.log?.(
+              `Sonoridad medida: I=${measured.input_i} LUFS TP=${measured.input_tp} dBTP LRA=${measured.input_lra}`,
+            );
+            if (measured.input_i <= SILENCE_LUFS) {
+              opts?.log?.("Mezcla en silencio: no se normaliza");
+              measured = undefined;
+            } else applyFilter = loudnormApplyFilter(target, measured);
+          } catch (err) {
+            if (opts?.signal?.aborted) throw err;
+            const cause = err instanceof Error ? err.message : String(err);
+            opts?.log?.(`AVISO: LOUDNESS_MEASURE_FAILED: ${cause}`);
+            warningCodes.push("LOUDNESS_MEASURE_FAILED");
+          }
+        }
+        const stage = msg(applyFilter ? "Normalizando audio" : "Uniendo");
+        report(0.94, stage);
+        const mux = await run(
           [
-            "-f",
-            "concat",
-            "-safe",
-            "0",
+            ...video.videoInput!,
             "-i",
-            "segments.ffconcat",
-            "-i",
-            path.join("audio", audioName),
+            path.join("audio", "mix.wav"),
             "-map",
             "0:v:0",
             "-map",
             "1:a:0",
-            "-c",
+            "-c:v",
             "copy",
             ...(input.preset.videoCodec === "h265" ? ["-tag:v", "hvc1"] : []),
+            ...(applyFilter ? ["-af", applyFilter] : []),
+            "-ar",
+            "48000",
+            ...enc.audio,
             ...metadataArgs(input.metadataComment),
             ...enc.container,
             "-t",
-            sec(totalDur),
+            sec(video.durationSec),
             input.output,
           ],
           {
             ...(opts?.signal && { signal: opts.signal }),
-            ...(opts?.log && { onStderrLine: opts.log }),
+            durationSec: video.durationSec,
             cwd: input.workDir,
+            ...(applyFilter && { logLevel: "info" as const }),
+            onProgress: (r: number) => report(0.94 + r * 0.05, stage),
           },
         );
-        const pruned = await pruneSegmentCache(cache.dir, cache.maxBytes);
-        if (pruned) opts?.log?.(`Caché de bloques: ${pruned} bloques viejos borrados (LRU)`);
+        let loudness: ExportOutcome["loudness"];
+        if (applyFilter && measured) {
+          let out: LoudnormStats | undefined;
+          try {
+            out = parseLoudnormStats(mux.stderr);
+          } catch {
+            out = undefined;
+          }
+          loudness = {
+            input_i: measured.input_i,
+            input_tp: measured.input_tp,
+            output_i: out?.output_i ?? target!.integrated,
+            output_tp: out?.output_tp ?? Math.min(measured.input_tp, target!.truePeak),
+          };
+          opts?.log?.(
+            `Sonoridad final: I=${loudness.output_i} LUFS TP=${loudness.output_tp} dBTP${
+              out?.normalization_type ? ` (${out.normalization_type})` : ""
+            }`,
+          );
+        }
         return {
-          durationSec: totalDur,
-          warnings: [...warnings, ...audio.warnings],
-          segments: { total: M, cached, rendered: M - cached },
+          ...(loudness && { loudness }),
+          ...(audio.ducked && { ducked: audio.ducked }),
+          ...(warningCodes.length && { warningCodes }),
         };
       };
 
       const attempt = (encoder: VideoEncoderId) =>
         plan ? segmented(encoder, plan) : single(encoder);
-      const outcome = (
-        encoder: VideoEncoderId,
-        r: Awaited<ReturnType<typeof attempt>>,
-        fellBack: boolean,
-      ): ExportOutcome => ({
-        encoder,
-        durationSec: r.durationSec,
-        warnings: r.warnings,
-        fellBack,
-        mode: plan ? "segments" : "single",
-        ...(r.segments && { segments: r.segments }),
-        ...(fallbackReason && { fallbackReason }),
-      });
       const preferred = input.encoder ?? "libx264";
+      let encoder = preferred;
+      let fellBack = false;
+      let video: VideoPass;
       try {
-        return outcome(preferred, await attempt(preferred), false);
+        video = await attempt(preferred);
       } catch (err) {
         const hwFailed =
           preferred !== "libx264" &&
@@ -586,8 +785,25 @@ export function createFfmpegService(ffmpegPath: string, ffprobePath: string): Ff
         if (!hwFailed) throw err;
         opts?.log?.(`Encoder ${preferred} falló; reintentando con libx264`);
         await rm(input.output, { force: true });
-        return outcome("libx264", await attempt("libx264"), true);
+        encoder = "libx264";
+        fellBack = true;
+        video = await attempt("libx264");
       }
+      const extra = video.videoInput ? await audioAndMux(encoder, video) : {};
+      if (plan && input.segmentCache) {
+        const pruned = await pruneSegmentCache(input.segmentCache.dir, input.segmentCache.maxBytes);
+        if (pruned) opts?.log?.(`Caché de bloques: ${pruned} bloques viejos borrados (LRU)`);
+      }
+      return {
+        encoder,
+        durationSec: video.durationSec,
+        warnings: video.warnings,
+        fellBack,
+        mode: plan ? "segments" : "single",
+        ...(video.segments && { segments: video.segments }),
+        ...(fallbackReason && { fallbackReason }),
+        ...extra,
+      };
     },
     detectEncoders(force = false) {
       if (force || !encodersCache) encodersCache = detectHardwareEncoders(ffmpegPath);

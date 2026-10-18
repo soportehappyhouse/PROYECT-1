@@ -59,10 +59,34 @@ const PersistedSettingsSchema = z.object({
   layout: z.unknown().optional(),
   layoutPresets: z.array(LayoutPresetSchema),
   updatedAt: z.string(),
+  /** Sprint 5: timeline magnet (absent in copies saved before). */
+  snap: z
+    .object({
+      enabled: z.boolean(),
+      playhead: z.boolean(),
+      clipEdges: z.boolean(),
+      inOut: z.boolean(),
+    })
+    .optional(),
 });
 export type PersistedSettings = z.infer<typeof PersistedSettingsSchema>;
 
 export type SyncState = "idle" | "synced" | "local" | "error";
+
+/** Sprint 5 (M2): the timeline magnet and what it snaps to (persisted in `ui.snap`). */
+export interface SnapSettings {
+  enabled: boolean;
+  playhead: boolean;
+  clipEdges: boolean;
+  inOut: boolean;
+}
+
+export const DEFAULT_SNAP: SnapSettings = {
+  enabled: true,
+  playhead: true,
+  clipEdges: true,
+  inOut: true,
+};
 
 export interface SettingsState {
   theme: Theme;
@@ -82,6 +106,10 @@ export interface SettingsState {
   settingsOpen: boolean;
   /** Tab to show when the settings dialog opens (e.g. "ai-packs" from the GPU indicator). */
   settingsTab: SettingsTab | undefined;
+  /** Sprint 5: timeline magnet. */
+  snap: SnapSettings;
+  /** Sprint 5: the «Proyectos» dialog is open (editor shortcuts off). */
+  projectsOpen: boolean;
 
   setTheme: (theme: Theme) => void;
   setAccent: (accent: string) => void;
@@ -105,6 +133,8 @@ export interface SettingsState {
   setSyncState: (s: SyncState) => void;
   setCommandPaletteOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean, tab?: SettingsTab) => void;
+  setSnap: (patch: Partial<SnapSettings>) => void;
+  setProjectsOpen: (open: boolean) => void;
 }
 
 /** Sprint 4 M1: "persons" (Personas y consentimientos). */
@@ -125,6 +155,7 @@ export function defaultPersistedSettings(): PersistedSettings {
     layout: undefined,
     layoutPresets: [],
     updatedAt: new Date(0).toISOString(),
+    snap: { ...DEFAULT_SNAP },
   };
 }
 
@@ -150,6 +181,7 @@ export function pickPersisted(s: SettingsState): PersistedSettings {
     layout: s.layout,
     layoutPresets: s.layoutPresets,
     updatedAt: s.updatedAt,
+    snap: s.snap,
   };
 }
 
@@ -166,6 +198,7 @@ export function toApiSettings(s: SettingsState): DashboardSettings {
       layout: s.layout,
       layoutPresets: s.layoutPresets,
       updatedAt: s.updatedAt,
+      snap: s.snap,
     },
   };
 }
@@ -191,6 +224,8 @@ export const useSettingsStore = create<SettingsState>()((set, get) => {
     commandPaletteOpen: false,
     settingsOpen: false,
     settingsTab: undefined,
+    snap: { ...DEFAULT_SNAP, ...init.snap },
+    projectsOpen: false,
 
     setTheme: (theme) => {
       addBreadcrumb("settings", `Cambió el tema a ${theme}`, { theme });
@@ -269,6 +304,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => {
         layout,
         layoutPresets: ui.layoutPresets,
         updatedAt: ui.updatedAt,
+        ...(ui.snap ? { snap: { ...DEFAULT_SNAP, ...ui.snap } } : {}),
         layoutRevision: get().layoutRevision + 1,
       });
       return true;
@@ -276,6 +312,11 @@ export const useSettingsStore = create<SettingsState>()((set, get) => {
     setSyncState: (syncState) => set({ syncState }),
     setCommandPaletteOpen: (commandPaletteOpen) => set({ commandPaletteOpen }),
     setSettingsOpen: (settingsOpen, settingsTab) => set({ settingsOpen, settingsTab }),
+    setSnap: (patch) => {
+      addBreadcrumb("settings", "Cambió el imán de la línea de tiempo", { ...patch }, "snap");
+      set({ snap: { ...get().snap, ...patch }, ...touch() });
+    },
+    setProjectsOpen: (projectsOpen) => set({ projectsOpen }),
   };
 });
 

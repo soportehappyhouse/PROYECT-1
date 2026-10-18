@@ -3,6 +3,7 @@
 import type { TrackKind } from "@studio/shared";
 import {
   AudioWaveform,
+  ChevronDown,
   Film,
   Magnet,
   Plus,
@@ -23,6 +24,7 @@ import { Menu, MenuItem, MenuSeparator } from "@/components/ui/menu";
 import { formatTime } from "@/lib/format";
 import { findClip, projectDuration, TRACK_KIND_LABELS } from "@/lib/timeline";
 import { MAX_ZOOM, MIN_ZOOM, useProjectStore } from "@/stores/project-store";
+import { useSettingsStore } from "@/stores/settings-store";
 import { useScenesStore } from "@/stores/scenes-store";
 import { useSilencesStore } from "@/stores/silences-store";
 import { Panel } from "./Panel";
@@ -31,7 +33,9 @@ const KINDS: TrackKind[] = ["video", "audio", "text", "motion"];
 
 export function TimelinePanel() {
   const zoom = useProjectStore((s) => s.zoom);
-  const snapping = useProjectStore((s) => s.snapping);
+  const snap = useSettingsStore((s) => s.snap);
+  const selectedCount = useProjectStore((s) => s.selectedClipIds.length);
+  const inOut = useProjectStore((s) => s.inOut);
   const playhead = useProjectStore((s) => s.playhead);
   const canUndo = useProjectStore((s) => s.past.length > 0);
   const canRedo = useProjectStore((s) => s.future.length > 0);
@@ -86,7 +90,7 @@ export function TimelinePanel() {
         variant="ghost"
         size="icon-sm"
         aria-label="Deshacer"
-        shortcut="edit.undo"
+        tip="undo"
         disabled={!canUndo}
         onClick={() => store().undo()}
       >
@@ -96,7 +100,7 @@ export function TimelinePanel() {
         variant="ghost"
         size="icon-sm"
         aria-label="Rehacer"
-        shortcut="edit.redo"
+        tip="redo"
         disabled={!canRedo}
         onClick={() => store().redo()}
       >
@@ -106,7 +110,7 @@ export function TimelinePanel() {
         variant="ghost"
         size="icon-sm"
         aria-label="Cortar en el cursor"
-        shortcut="timeline.split"
+        tip="split"
         onClick={() => store().splitAt()}
       >
         <Scissors />
@@ -115,9 +119,10 @@ export function TimelinePanel() {
         variant="ghost"
         size="icon-sm"
         aria-label="Eliminar clip"
-        shortcut="timeline.delete"
+        tip="delete"
         disabled={!hasSelection}
-        onClick={() => store().deleteClip()}
+        disabledReason="Elegí un clip primero"
+        onClick={(e) => store().deleteSelected({ ripple: e.shiftKey })}
       >
         <Trash2 />
       </Button>
@@ -125,7 +130,9 @@ export function TimelinePanel() {
         variant="ghost"
         size="icon-sm"
         aria-label="Quitar silencios y muletillas"
+        tip="silences"
         disabled={!hasSelection}
+        disabledReason="Elegí un clip con voz primero"
         onClick={openSilences}
       >
         <AudioWaveform />
@@ -168,15 +175,73 @@ export function TimelinePanel() {
         )}
       </Menu>
       <Button
-        variant={snapping ? "secondary" : "ghost"}
+        variant={snap.enabled ? "secondary" : "ghost"}
         size="icon-sm"
         aria-label="Imán (snapping)"
-        shortcut="timeline.toggleSnap"
-        aria-pressed={snapping}
-        onClick={() => store().toggleSnapping()}
+        tip="snap"
+        aria-pressed={snap.enabled}
+        onClick={() => useSettingsStore.getState().setSnap({ enabled: !snap.enabled })}
       >
         <Magnet />
       </Button>
+      <Menu
+        label="Opciones del imán"
+        align="start"
+        trigger={(p) => (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="-ml-1 w-4"
+            aria-label="Opciones del imán"
+            tooltip="Elegir a qué se pega el imán: cursor, bordes de clips o marcas I/O"
+            {...p}
+          >
+            <ChevronDown />
+          </Button>
+        )}
+      >
+        {() => (
+          <>
+            <MenuItem
+              checked={snap.playhead}
+              onSelect={() => useSettingsStore.getState().setSnap({ playhead: !snap.playhead })}
+            >
+              Pegar al cursor
+            </MenuItem>
+            <MenuItem
+              checked={snap.clipEdges}
+              onSelect={() => useSettingsStore.getState().setSnap({ clipEdges: !snap.clipEdges })}
+            >
+              Pegar a los bordes de los clips
+            </MenuItem>
+            <MenuItem
+              checked={snap.inOut}
+              onSelect={() => useSettingsStore.getState().setSnap({ inOut: !snap.inOut })}
+            >
+              Pegar a las marcas de entrada y salida (I/O)
+            </MenuItem>
+          </>
+        )}
+      </Menu>
+      {selectedCount > 1 ? (
+        <span
+          data-testid="selection-count"
+          className="rounded bg-primary/15 px-1.5 text-[11px] font-medium text-primary"
+        >
+          {selectedCount} clips elegidos
+        </span>
+      ) : null}
+      {inOut ? (
+        <button
+          type="button"
+          data-testid="inout-label"
+          className="rounded bg-primary/15 px-1.5 text-[11px] text-primary hover:bg-primary/25"
+          title="Rango I–O (Exportar puede usar solo este tramo). Clic para quitarlo (Alt+X)"
+          onClick={() => store().clearInOut()}
+        >
+          I–O {formatTime(inOut.in)} → {formatTime(inOut.out)} ×
+        </button>
+      ) : null}
       <span className="ml-auto font-mono text-xs tabular-nums text-muted-foreground">
         {formatTime(playhead)} / {formatTime(duration)}
       </span>
@@ -184,7 +249,7 @@ export function TimelinePanel() {
         variant="ghost"
         size="icon-sm"
         aria-label="Alejar"
-        shortcut="timeline.zoomOut"
+        tip="zoomOut"
         onClick={() => store().zoomBy(1 / 1.25)}
       >
         <ZoomOut />
@@ -202,7 +267,7 @@ export function TimelinePanel() {
         variant="ghost"
         size="icon-sm"
         aria-label="Acercar"
-        shortcut="timeline.zoomIn"
+        tip="zoomIn"
         onClick={() => store().zoomBy(1.25)}
       >
         <ZoomIn />

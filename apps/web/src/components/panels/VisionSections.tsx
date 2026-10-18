@@ -164,6 +164,7 @@ function KeyframeRow({
           size="icon-sm"
           variant="ghost"
           aria-label="Ir al keyframe"
+          tooltip="Llevar el cursor a este keyframe para verlo en la vista previa"
           onClick={(e) => {
             e.stopPropagation();
             useProjectStore.getState().setPlayhead(base + kf.t);
@@ -171,7 +172,13 @@ function KeyframeRow({
         >
           <Diamond />
         </Button>
-        <Button size="icon-sm" variant="ghost" aria-label="Eliminar keyframe" onClick={onDelete}>
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          aria-label="Eliminar keyframe"
+          tooltip="Borrar este keyframe (el clip vuelve a interpolar sin él)"
+          onClick={onDelete}
+        >
           <Trash2 />
         </Button>
       </div>
@@ -199,6 +206,7 @@ export function KeyframesSection({ clip, track }: { clip: Clip; track: Track }) 
             size="icon-sm"
             variant="ghost"
             aria-label="Copiar keyframes"
+            tip="kfCopy"
             onClick={() =>
               kf().copy(clip.id)
                 ? toast.message("Keyframes copiados")
@@ -211,7 +219,11 @@ export function KeyframesSection({ clip, track }: { clip: Clip; track: Track }) 
             size="icon-sm"
             variant="ghost"
             aria-label="Pegar keyframes en el cursor"
+            tip="kfPaste"
             disabled={!hasBoard || track.locked}
+            disabledReason={
+              track.locked ? "La pista está bloqueada" : "Primero copiá keyframes de un clip"
+            }
             onClick={() => {
               if (!kf().paste(clip.id))
                 toast.message("No se pudo pegar: nada aplicable a este clip");

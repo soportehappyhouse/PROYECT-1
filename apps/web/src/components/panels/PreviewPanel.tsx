@@ -12,6 +12,7 @@ import {
   SkipForward,
   StepBack,
   StepForward,
+  Upload,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ClassicStage } from "@/components/preview/ClassicStage";
@@ -27,6 +28,9 @@ import { useMaskStore } from "@/stores/mask-store";
 import { usePreviewStore, type PreviewQuality } from "@/stores/preview-store";
 import { useProjectStore } from "@/stores/project-store";
 import { useVisionStore } from "@/stores/vision-store";
+import { useAiAvailability } from "@/hooks/use-ai-availability";
+import { cn } from "@/lib/utils";
+import { importAndPlace, pickMediaFiles } from "./MediaPanel";
 import { Panel } from "./Panel";
 
 const QUALITY_LABELS: Record<PreviewQuality, string> = {
@@ -57,7 +61,13 @@ function OptionsMenu() {
     <Menu
       label="Opciones de la vista previa"
       trigger={(p) => (
-        <Button variant="ghost" size="icon-sm" aria-label="Opciones de la vista previa" {...p}>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Opciones de la vista previa"
+          tip="previewOpts"
+          {...p}
+        >
           <Settings2 />
         </Button>
       )}
@@ -125,6 +135,10 @@ export function PreviewPanel() {
   const tool = usePreviewStore((s) => s.tool);
   const reframeOpen = usePreviewStore((s) => s.reframeOpen);
   const matteBusy = useVisionStore((s) => !!s.busy.matte);
+  const matte = useAiAvailability("matting");
+  const sam = useAiAvailability("sam2");
+  const isEmpty = project.tracks.every((t) => t.clips.length === 0);
+  const [dropOver, setDropOver] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 640, h: 360 });
   const { width, height, fps } = project.settings;
@@ -161,7 +175,7 @@ export function PreviewPanel() {
         variant="ghost"
         size="icon-sm"
         aria-label="Ir al inicio"
-        shortcut="playback.toStart"
+        tip="toStart"
         onClick={() => store().setPlayhead(0)}
       >
         <SkipBack />
@@ -170,7 +184,7 @@ export function PreviewPanel() {
         variant="ghost"
         size="icon-sm"
         aria-label="Fotograma anterior"
-        shortcut="playback.frameBack"
+        tip="frameBack"
         onClick={() => store().setPlayhead(stepFrame(playhead, fps, -1))}
       >
         <StepBack />
@@ -178,7 +192,7 @@ export function PreviewPanel() {
       <Button
         size="icon-sm"
         aria-label={playing ? "Pausar" : "Reproducir"}
-        shortcut="playback.toggle"
+        tip="play"
         onClick={() => store().togglePlaying()}
       >
         {playing ? <Pause /> : <Play />}
@@ -187,7 +201,7 @@ export function PreviewPanel() {
         variant="ghost"
         size="icon-sm"
         aria-label="Fotograma siguiente"
-        shortcut="playback.frameForward"
+        tip="frameFwd"
         onClick={() => store().setPlayhead(stepFrame(playhead, fps, 1))}
       >
         <StepForward />
@@ -196,7 +210,7 @@ export function PreviewPanel() {
         variant="ghost"
         size="icon-sm"
         aria-label="Ir al final"
-        shortcut="playback.toEnd"
+        tip="toEnd"
         onClick={() => {
           store().setPlaying(false);
           store().setPlayhead(duration);
@@ -217,7 +231,9 @@ export function PreviewPanel() {
             size="icon-sm"
             aria-label="Máscara (SAM 2)"
             aria-pressed={tool === "mask"}
-            tooltip="Máscara: clic + / − sobre el objeto del cuadro actual"
+            tip="sam"
+            disabled={!sam.enabled && tool !== "mask"}
+            disabledReason={sam.reason_es}
             onClick={() => {
               if (tool === "mask") {
                 void useMaskStore.getState().close();
@@ -231,11 +247,14 @@ export function PreviewPanel() {
             variant="ghost"
             size="icon-sm"
             aria-label="Quitar fondo"
-            disabled={!selected || selected.track.kind !== "video" || matteBusy}
-            tooltip={
-              selected?.track.kind === "video"
-                ? "Quitar fondo del clip elegido"
-                : "Elegí un clip de video o imagen"
+            disabled={!selected || selected.track.kind !== "video" || matteBusy || !matte.enabled}
+            tip="removeBg"
+            disabledReason={
+              !matte.enabled
+                ? matte.reason_es
+                : matteBusy
+                  ? "Ya se está quitando el fondo de un clip"
+                  : "Elegí un clip de video o imagen"
             }
             onClick={() =>
               selected && useVisionStore.getState().openMatte({ clipId: selected.clip.id })
@@ -248,7 +267,7 @@ export function PreviewPanel() {
             size="icon-sm"
             aria-label="Seguir objeto"
             aria-pressed={tool === "track-box"}
-            tooltip="Seguir objeto: dibujá una caja sobre el video"
+            tip="track"
             onClick={() =>
               tool === "track-box"
                 ? usePreviewStore.getState().setTool("none")
@@ -262,7 +281,7 @@ export function PreviewPanel() {
             size="icon-sm"
             aria-label="Reencuadrar"
             aria-pressed={reframeOpen}
-            tooltip="Reencuadrar a 9:16 / 1:1 / 4:5"
+            tip="reframe"
             onClick={() => usePreviewStore.getState().setReframeOpen(!reframeOpen)}
           >
             <Crop />
@@ -280,7 +299,24 @@ export function PreviewPanel() {
     <Panel title="Vista previa" toolbar={toolbar} bare>
       {!classic && tool === "mask" ? <MaskToolbar /> : null}
       {!classic && tool === "track-box" ? <TrackBoxBanner /> : null}
-      <div className="relative min-h-0 flex-1 bg-neutral-950 p-2">
+      <div
+        className={cn(
+          "relative min-h-0 flex-1 bg-neutral-950 p-2",
+          dropOver && "outline-2 -outline-offset-4 outline-dashed outline-primary",
+        )}
+        onDragOver={(e) => {
+          if (!e.dataTransfer.types.includes("Files")) return;
+          e.preventDefault();
+          setDropOver(true);
+        }}
+        onDragLeave={() => setDropOver(false)}
+        onDrop={(e) => {
+          if (!e.dataTransfer.files.length) return;
+          e.preventDefault();
+          setDropOver(false);
+          void importAndPlace(e.dataTransfer.files);
+        }}
+      >
         <div ref={boxRef} className="flex size-full items-center justify-center">
           <div
             data-testid="preview-stage"
@@ -300,6 +336,21 @@ export function PreviewPanel() {
           </div>
         </div>
         {!classic && reframeOpen ? <ReframePanel /> : null}
+        {isEmpty ? (
+          <div
+            data-testid="preview-empty"
+            className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-4 text-center text-sm text-neutral-300"
+          >
+            <Upload className="size-8 text-neutral-500" aria-hidden />
+            <p>Arrastrá un video acá o tocá Importar</p>
+            <Button size="sm" onClick={() => pickMediaFiles((files) => void importAndPlace(files))}>
+              <Upload /> Importar
+            </Button>
+            <p className="max-w-xs text-[11px] text-neutral-500">
+              El primer video ajusta el lienzo y le pone nombre al proyecto (podés deshacerlo).
+            </p>
+          </div>
+        ) : null}
       </div>
     </Panel>
   );

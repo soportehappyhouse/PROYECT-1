@@ -2,7 +2,7 @@ import { WORKER_FACE_ROUTES, buildRoute, type FaceDetectResult } from "@studio/s
 import { z } from "zod";
 import { currentDiagnostics } from "../../jobs/diagnostics.js";
 import { HttpError, PackRequiredError } from "../../lib/errors.js";
-import { packRequiredFromBody } from "../workers-client.js";
+import { packRequiredFromBody, workersDownMessage } from "../workers-client.js";
 
 /**
  * Client of the workers face routes (WORKER_FACE_ROUTES, snake_case, studio_workers/face): kept
@@ -126,11 +126,12 @@ export function createFaceWorkers(baseUrl: string): FaceWorkers {
     } catch (err) {
       record?.end(null, String(err));
       if (signal?.aborted) throw err;
-      throw new HttpError(
-        503,
-        "WORKERS_UNAVAILABLE",
-        `Workers Python no disponibles en ${baseUrl} (¿está corriendo start.ps1?): ${String(err)}`,
+      currentDiagnostics()?.stderrLine(
+        `[workers] ${method} ${route}: sin conexión (${String(err)})`,
       );
+      throw new HttpError(503, "WORKERS_UNAVAILABLE", workersDownMessage(baseUrl), {
+        url: baseUrl,
+      });
     }
     const text = await res.text();
     let json: unknown;

@@ -51,6 +51,7 @@ import { requireMaskAsset, requireMediaAsset } from "../../voice-ai/media-bridge
 import { JobAbortedError } from "../state.js";
 import type { JobContext, JobHandler } from "../types.js";
 import { toPackRequired, viaPacks, type AiDeps, type AiHandlerOptions } from "./ai.js";
+import { cancelWorkerTaskOnAbort, looseTaskDetail } from "./util.js";
 
 /**
  * Sprint 2 vision jobs (docs/trabajo/sprint2-contratos.md): vision.matte, vision.mask (SAM 2
@@ -80,6 +81,21 @@ export async function pollVisionTask<T>(
   schema: z.ZodType<T>,
   o: AiHandlerOptions & { label: string; from?: number; to?: number },
 ): Promise<{ result: T; warnings: string[] }> {
+  const dispose = cancelWorkerTaskOnAbort(deps.workers, "vision", taskId, ctx);
+  try {
+    return await pollVisionLoop(deps, taskId, ctx, schema, o);
+  } finally {
+    dispose();
+  }
+}
+
+async function pollVisionLoop<T>(
+  deps: AiDeps,
+  taskId: string,
+  ctx: JobContext,
+  schema: z.ZodType<T>,
+  o: AiHandlerOptions & { label: string; from?: number; to?: number },
+): Promise<{ result: T; warnings: string[] }> {
   const t0 = Date.now();
   const timeoutMs = o.timeoutMs ?? 3 * 3600_000;
   const from = o.from ?? 0.05;
@@ -101,7 +117,9 @@ export async function pollVisionTask<T>(
       ctx.reportProgress(
         from + task.progress * (to - from),
         `${o.label} ${pct} %${task.message ? ` · ${task.message}` : ""}`,
+        looseTaskDetail(task),
       );
+      if ((task.status as string) === "canceled") throw new JobAbortedError();
       if (task.status === "error")
         throw new Error(`${o.label}: ${task.error ?? "error desconocido en los workers"}`);
       if (task.status === "done") {

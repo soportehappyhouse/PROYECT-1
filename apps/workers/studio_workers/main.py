@@ -7,7 +7,8 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from . import __version__
 from .config import get_settings
@@ -31,6 +32,7 @@ from .routers import (
     vision,
 )
 from .system_probe import register_cuda_dll_dirs, start_background_probe
+from .tasks import TaskCanceled
 
 log = logging.getLogger("studio_workers")
 
@@ -68,9 +70,22 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     yield
 
 
+# Audit D10: a canceled synchronous call (POST /transcribe after /transcribe/cancel) answers
+# 499 «Cancelado» as JSON instead of a 500 with a traceback in the log.
+TASK_CANCELED_STATUS = 499
+
+
+def task_canceled(_req: Request, exc: Exception) -> JSONResponse:
+    log.info("request canceled (%s)", exc)
+    return JSONResponse(
+        status_code=TASK_CANCELED_STATUS, content={"detail": "Cancelado", "code": "TASK_CANCELED"}
+    )
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Studio Workers", version=__version__, lifespan=lifespan)
     register_error_handlers(app)
+    app.add_exception_handler(TaskCanceled, task_canceled)
     app.include_router(health.router)
     app.include_router(jobs.router)
     app.include_router(transcribe.router)

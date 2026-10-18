@@ -55,11 +55,48 @@ import {
   type WorkerChatterboxFields,
   WorkerTtsResultSchema,
   type WorkerTtsResult,
+  START_CMD_ES,
+  WORKER_TASK_ROUTES,
+  WORKER_TRANSCRIBE_CANCEL,
+  WorkerTaskCancelSchema,
+  WorkerTaskSchema,
+  WorkerTaskStatusSchema,
+  workerTaskCancelRoute,
+  type WorkerTask,
+  type WorkerTaskArea,
+  type WorkerTaskCancel,
 } from "@studio/shared";
 import http from "node:http";
 import { z } from "zod";
 import { currentDiagnostics } from "../jobs/diagnostics.js";
 import { hideConsentPaths } from "../lib/consent-paths.js";
+
+/**
+ * Sprint 5 (H4): Spanish text of WORKERS_UNAVAILABLE. The raw cause (`TypeError: fetch failed`,
+ * `ECONNREFUSED`) goes only to the job log/diagnostics, never to the user.
+ */
+export function workersDownMessage(baseUrl: string): string {
+  let host = baseUrl;
+  try {
+    host = new URL(baseUrl).host;
+  } catch {
+    // keep the raw value
+  }
+  return `La IA local está apagada (no responde en ${host}). Cerrá Studio y abrilo con ${START_CMD_ES}.`;
+}
+
+/**
+ * VisionTask keeping the Sprint 5 fields (done/total/stage_es/cancellable) and accepting the
+ * `canceled` status (pollers treat it as an abort).
+ */
+const LooseVisionTaskSchema = VisionTaskSchema.extend({ status: WorkerTaskStatusSchema })
+  .loose()
+  .transform((t) => t as unknown as VisionTask);
+
+/** PackTask keeping the Sprint 5 fields (see LooseVisionTaskSchema). */
+const LoosePackTaskSchema = PackTaskSchema.extend({ status: WorkerTaskStatusSchema })
+  .loose()
+  .transform((t) => t as unknown as PackTask);
 
 /** Options for long synchronous worker calls. */
 export interface WorkerCallOptions {
@@ -214,7 +251,18 @@ export interface WorkersClient {
   /** LLM call: no timeout besides `signal` (a cold 8B model can take a minute to load). */
   agentPlan(req: WorkerAgentPlanRequest, signal?: AbortSignal): Promise<WorkerAgentPlanResponse>;
   agentBugreport(req: WorkerBugreportRequest, signal?: AbortSignal): Promise<BugreportResponse>;
-  agentEval(req: { models?: string[]; dataset?: string }): Promise<WorkerTaskAccepted>;
+  agentEval(req: {
+    models?: string[];
+    dataset?: string;
+    mode?: "quick" | "full";
+  }): Promise<WorkerTaskAccepted>;
+  // ---- Sprint 5 (M1): generic task polling and cancellation ----
+  /** GET /<area>/tasks/{id} parsed as WorkerTask (done/total/stage_es/eta_s). */
+  workerTask(area: WorkerTaskArea, taskId: string, signal?: AbortSignal): Promise<WorkerTask>;
+  /** POST /<area>/tasks/{id}/cancel (timeout 3 s); undefined when it failed (ignored). */
+  cancelWorkerTask(area: WorkerTaskArea, taskId: string): Promise<WorkerTaskCancel | undefined>;
+  /** POST /transcribe/cancel {job_id} -> {stopped} (timeout 3 s; false when it failed). */
+  transcribeCancel(jobId: string): Promise<boolean>;
   // ---- Sprint 3b (WORKER_STEMS_ROUTES) ----
   /** POST /audio/stems (Demucs htdemucs, pack stems) -> {task_id}; 409 PACK_REQUIRED first. */
   audioStems(req: WorkerStemsRequest): Promise<WorkerTaskAccepted>;
@@ -374,11 +422,9 @@ export function createWorkersClient(baseUrl: string): WorkersClient {
       record?.end(null, String(err));
       if (signal?.aborted) throw err;
       diag?.stderrLine(`[workers] ${method} ${route}: sin conexión (${String(err)})`);
-      throw new WorkersError(
-        `Workers Python no disponibles en ${baseUrl} (¿está corriendo start.ps1?): ${String(err)}`,
-        503,
-        "WORKERS_UNAVAILABLE",
-      );
+      throw new WorkersError(workersDownMessage(baseUrl), 503, "WORKERS_UNAVAILABLE", undefined, {
+        url: baseUrl,
+      });
     }
     let json: unknown = undefined;
     try {
@@ -441,7 +487,7 @@ export function createWorkersClient(baseUrl: string): WorkersClient {
   const client: WorkersClient = {
     async health() {
       try {
-        const res = await fetch(url(WORKER_ROUTES.health), { signal: AbortSignal.timeout(2000) });
+        const res = await fetch(url(WORKER_ROUTES.health), { signal: AbortSignal.timeout(1500) });
         return res.ok ? WorkerHealthSchema.parse(await res.json()) : undefined;
       } catch {
         return undefined;
@@ -501,7 +547,7 @@ export function createWorkersClient(baseUrl: string): WorkersClient {
       call(
         "GET",
         buildRoute(WORKER_AI_ROUTES.packTask, { id: taskId }),
-        PackTaskSchema,
+        LoosePackTaskSchema,
         undefined,
         signal ? AbortSignal.any([signal, AbortSignal.timeout(SHORT_TIMEOUT_MS)]) : undefined,
       ),
@@ -509,7 +555,7 @@ export function createWorkersClient(baseUrl: string): WorkersClient {
       call(
         "GET",
         buildRoute(WORKER_AI_ROUTES.perfTask, { id: taskId }),
-        PackTaskSchema,
+        LoosePackTaskSchema,
         undefined,
         signal ? AbortSignal.any([signal, AbortSignal.timeout(SHORT_TIMEOUT_MS)]) : undefined,
       ),
@@ -535,7 +581,7 @@ export function createWorkersClient(baseUrl: string): WorkersClient {
       call(
         "GET",
         buildRoute(WORKER_AI_ROUTES.visionTask, { id: taskId }),
-        VisionTaskSchema,
+        LooseVisionTaskSchema,
         undefined,
         signal ? AbortSignal.any([signal, AbortSignal.timeout(SHORT_TIMEOUT_MS)]) : undefined,
       ),
@@ -572,13 +618,48 @@ export function createWorkersClient(baseUrl: string): WorkersClient {
       call("POST", WORKER_AGENT_ROUTES.bugreport, BugreportResponseSchema, req, signal, true),
     agentEval: (req) =>
       call("POST", WORKER_AGENT_ROUTES.evaluate, WorkerTaskAcceptedSchema, req, undefined, true),
+    workerTask: (area, taskId, signal) =>
+      call(
+        "GET",
+        buildRoute(WORKER_TASK_ROUTES[area], { id: taskId }),
+        WorkerTaskSchema,
+        undefined,
+        signal ? AbortSignal.any([signal, AbortSignal.timeout(SHORT_TIMEOUT_MS)]) : undefined,
+      ),
+    async cancelWorkerTask(area, taskId) {
+      try {
+        return await call(
+          "POST",
+          buildRoute(workerTaskCancelRoute(area), { id: taskId }),
+          WorkerTaskCancelSchema,
+          {},
+          AbortSignal.timeout(3000),
+        );
+      } catch {
+        return undefined;
+      }
+    },
+    async transcribeCancel(jobId) {
+      try {
+        const r = await call(
+          "POST",
+          WORKER_TRANSCRIBE_CANCEL,
+          z.object({ stopped: z.boolean() }),
+          { job_id: jobId },
+          AbortSignal.timeout(3000),
+        );
+        return r.stopped;
+      } catch {
+        return false;
+      }
+    },
     audioStems: (req) =>
       call("POST", WORKER_STEMS_ROUTES.stems, WorkerTaskAcceptedSchema, req, undefined, true),
     audioTask: (taskId, signal) =>
       call(
         "GET",
         buildRoute(WORKER_STEMS_ROUTES.task, { id: taskId }),
-        VisionTaskSchema,
+        LooseVisionTaskSchema,
         undefined,
         signal ? AbortSignal.any([signal, AbortSignal.timeout(SHORT_TIMEOUT_MS)]) : undefined,
       ),

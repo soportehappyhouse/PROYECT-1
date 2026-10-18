@@ -174,6 +174,14 @@ export function parseLoudnormJson(stderr: string): LoudnormMeasurement {
 
 type Ducking = Extract<VoiceEffect, { type: "ducking" }>;
 
+/** Sprint 5 (automatic ducking at export) extras of duckingFragment. */
+export interface DuckingOptions {
+  /** Pad the sidechain with `apad=whole_dur=<s>` instead of an endless `apad`. */
+  padWholeDur?: number;
+  /** sidechaincompress `level_sc` (sidechain gain). */
+  levelSc?: number;
+}
+
 /**
  * Ducking (fuentes-audio §4.9): music ducked by the voice via sidechaincompress, then mixed.
  * `[voice]` and `[music]` are input labels.
@@ -184,14 +192,22 @@ export function duckingFragment(
   musicLabel: string,
   outLabel: string,
   prefix: string,
+  opts: DuckingOptions = {},
 ): string {
   const vol = e.musicVolume !== 1 ? `volume=${+e.musicVolume.toFixed(3)},` : "";
+  // Sprint 5: bounded pad (whole_dur) inside the export mix: an endless apad can stall FFmpeg
+  // once every input ended (see the final amix of compileExport).
+  const pad = opts.padWholeDur !== undefined ? `apad=whole_dur=${sec(opts.padWholeDur)}` : "apad";
+  const levelSc =
+    opts.levelSc !== undefined && Math.abs(opts.levelSc - 1) > 1e-9
+      ? `:level_sc=${opts.levelSc}`
+      : "";
   return (
     // apad on the sidechain keeps the music running after the voice ends.
-    `[${voiceLabel}]asplit=2[${prefix}sc][${prefix}vo];[${prefix}sc]apad[${prefix}scp];` +
+    `[${voiceLabel}]asplit=2[${prefix}sc][${prefix}vo];[${prefix}sc]${pad}[${prefix}scp];` +
     `[${musicLabel}]${vol}aresample=48000[${prefix}m];` +
     `[${prefix}m][${prefix}scp]sidechaincompress=threshold=${e.threshold}:ratio=${e.ratio}` +
-    `:attack=${e.attackMs}:release=${e.releaseMs}:makeup=1[${prefix}duck];` +
+    `:attack=${e.attackMs}:release=${e.releaseMs}:makeup=1${levelSc}[${prefix}duck];` +
     `[${prefix}duck][${prefix}vo]amix=inputs=2:duration=longest:normalize=0[${outLabel}]`
   );
 }

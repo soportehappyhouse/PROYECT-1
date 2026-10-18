@@ -17,6 +17,34 @@ const FEATURE_TEXT: Record<GpuFeature, string> = {
   chatterbox: "Texto a voz (Chatterbox)",
 };
 
+/** sessionStorage key of the CPU warnings already shown in this session (H24). */
+export const CPU_WARNED_KEY = "studio.cpuWarned.v1";
+const cpuWarnedMemory = new Set<string>();
+
+/**
+ * True the first time `key` is asked in this browser session (then false): the CPU warnings are
+ * shown once per session and feature; afterwards the job row shows a «CPU» badge.
+ */
+export function firstCpuWarning(key: string): boolean {
+  if (cpuWarnedMemory.has(key)) return false;
+  cpuWarnedMemory.add(key);
+  try {
+    const raw = globalThis.sessionStorage?.getItem(CPU_WARNED_KEY);
+    const list: unknown = raw ? JSON.parse(raw) : [];
+    const keys = Array.isArray(list) ? list.filter((k): k is string => typeof k === "string") : [];
+    if (keys.includes(key)) return false;
+    globalThis.sessionStorage?.setItem(CPU_WARNED_KEY, JSON.stringify([...keys, key]));
+  } catch {
+    // blocked storage: the in-memory set still dedupes within this page
+  }
+  return true;
+}
+
+/** Tests: forget the in-memory warnings. */
+export function resetCpuWarnings(): void {
+  cpuWarnedMemory.clear();
+}
+
 /**
  * Ask GET /api/ai/gpu before launching `feature`; when it will run on the CPU (CPU mode or less free
  * VRAM than FEATURE_VRAM_MB) show a warning toast. Never blocks for long nor fails the action: no
@@ -32,6 +60,7 @@ export async function warnIfCpu(feature: GpuFeature, timeoutMs = 1500): Promise<
   ]);
   clearTimeout(timer);
   if (!willRunOnCpu(status, feature)) return false;
+  if (!firstCpuWarning(`preflight:${feature}`)) return true;
   toast.warning(CPU_PREFLIGHT_MESSAGE, {
     description: `${FEATURE_TEXT[feature]}: ${
       status?.mode === "cpu"

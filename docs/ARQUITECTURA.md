@@ -94,6 +94,9 @@ pone sus cabeceras CORS a mano (`lib/cors.ts`, `reply.hijack()`).
 | GET / PUT            | `/api/settings`                                        | `DashboardSettings` completo (incluye `ui`: layout, acento, presets)                                                                                                                                                                                                                                                                                                                                                   | b        |
 | GET / POST           | `/api/projects`                                        | `CreateProject` → `Project`                                                                                                                                                                                                                                                                                                                                                                                            | b        |
 | GET / PUT / DELETE   | `/api/projects/:id`                                    | `Project`                                                                                                                                                                                                                                                                                                                                                                                                              | b        |
+| GET                  | `/api/projects?view=summary`                           | → `ProjectSummary[]` (Sprint 5: más nuevo primero, sin `tracks`; miniatura del 1.er clip de video)                                                                                                                                                                                                                                                                                                                     | s5       |
+| PATCH                | `/api/projects/:id`                                    | `ProjectPatch {name}` (estricto) → `ProjectSummary`; 400 / 404 `PROJECT_NOT_FOUND`                                                                                                                                                                                                                                                                                                                                     | s5       |
+| POST                 | `/api/projects/:id/duplicate`                          | `ProjectDuplicate {name?}` → 201 `Project` (ids nuevos de pistas y clips, mismos medios, «… (copia)»)                                                                                                                                                                                                                                                                                                                  | s5       |
 | GET / PUT            | `/api/projects/:id/autosave`                           | snapshot `Project` → `ProjectAutosaveInfo`                                                                                                                                                                                                                                                                                                                                                                             | b        |
 | POST                 | `/api/projects/:id/export`                             | `ExportRequest` (`presetId`, `range?`, `fileName?`, `burnSubtitles?`, `useSegmentCache?` = true) → `JobAccepted` (result `ExportJobResult`: `mode`, `segments`); 409 `EXPORT_BLOCKED` con `details.problems` si hay motion sin renderizar o medios borrados                                                                                                                                                            | b        |
 | GET / POST           | `/api/media`                                           | multipart → `MediaAsset`                                                                                                                                                                                                                                                                                                                                                                                               | b        |
@@ -105,10 +108,12 @@ pone sus cabeceras CORS a mano (`lib/cors.ts`, `reply.hijack()`).
 | GET                  | `/api/jobs/:id/log`                                    | → `{ lines: string[] }`                                                                                                                                                                                                                                                                                                                                                                                                | b        |
 | GET                  | `/api/jobs/:id/diagnostics`                            | → `JobDiagnostics` (comandos ffmpeg/ffprobe/procesos/workers, código, duración, cola de stderr)                                                                                                                                                                                                                                                                                                                        | reportes |
 | POST                 | `/api/jobs/:id/cancel`                                 | → `Job`                                                                                                                                                                                                                                                                                                                                                                                                                | b        |
+| —                    | `(cancelar)`                                           | Sprint 5: 409 `JOB_NOT_CANCELLABLE` para `timeline.apply-cuts`, `media.probe` o `detail.cancellable:false`; el resto cancela también la tarea del worker                                                                                                                                                                                                                                                               | s5       |
 | GET                  | `/api/jobs/events?jobId=`                              | SSE de `JobEvent`                                                                                                                                                                                                                                                                                                                                                                                                      | b        |
 | GET / POST           | `/api/export-presets`                                  | `ExportPreset`                                                                                                                                                                                                                                                                                                                                                                                                         | b        |
 | PUT / DELETE         | `/api/export-presets/:id`                              | `ExportPreset` (built-ins no se borran: 409)                                                                                                                                                                                                                                                                                                                                                                           | b        |
 | GET                  | `/api/system/encoders`                                 | → `EncoderInfo`                                                                                                                                                                                                                                                                                                                                                                                                        | b        |
+| POST                 | `/api/system/reveal`                                   | `{path}` (relativa, solo bajo `storage/exports/`, sin `..` ni links que salgan) → `{ok}`; 400 `REVEAL_OUTSIDE_EXPORTS`, 404 si no existe. Windows `explorer.exe /select,<abs>` como un solo argv (sin shell)                                                                                                                                                                                                           | s5       |
 | GET                  | `/api/motion/engines`                                  | → `MotionEngineInfo[]` (`id`, `displayName`, `ok`, `reason?`, `capabilities`)                                                                                                                                                                                                                                                                                                                                          | c        |
 | GET                  | `/api/motion/templates`                                | → `MotionTemplateInfo[]`                                                                                                                                                                                                                                                                                                                                                                                               | c        |
 | POST                 | `/api/motion/render`                                   | `MotionRenderRequest` (`MotionSpec` + `target?`) → `JobAccepted`                                                                                                                                                                                                                                                                                                                                                       | c        |
@@ -152,8 +157,9 @@ pone sus cabeceras CORS a mano (`lib/cors.ts`, `reply.hijack()`).
 | GET                  | `/api/agent/plans`                                     | `?projectId=&limit=` → `AgentPlanRecord[]` (más nuevo primero)                                                                                                                                                                                                                                                                                                                                                         | s3       |
 | POST                 | `/api/agent/plans/:id/reject`                          | → `AgentPlanRecord` (`status: rejected`); 409 si ya se aplicó                                                                                                                                                                                                                                                                                                                                                          | s3       |
 | POST                 | `/api/agent/plans/:id/undo`                            | `{undoSnapshotId?}` → `{project, plan}`: restaura la instantánea previa a `agent.apply`                                                                                                                                                                                                                                                                                                                                | s3       |
+| POST                 | `/api/agent/plans/:id/choose`                          | `AgentPlanChooseRequest {choiceId, optionId}` → `AgentPlanRecord` (aplica `patch`/`insert` de la opción, vuelve a expandir y resolver)                                                                                                                                                                                                                                                                                 | s5       |
 | GET                  | `/api/agent/status`                                    | → `AgentStatus` (`workers`, `ollama`, `model`, `models_installed`, `ready`, `pack`, `hint_es`)                                                                                                                                                                                                                                                                                                                         | s3       |
-| POST / GET           | `/api/agent/eval`                                      | `AgentEvalRequest` (`models?`, `dataset` golden/all) → `JobAccepted` (`agent.eval`) / último `storage/run/agent-eval.json` (404 si nunca corrió)                                                                                                                                                                                                                                                                       | s3       |
+| POST / GET           | `/api/agent/eval`                                      | `AgentEvalRequest` (`models?`, `dataset` golden/all, Sprint 5 `mode` quick (20) / full (80)) → `JobAccepted` (`agent.eval`) / último `storage/run/agent-eval.json` (404 si nunca corrió)                                                                                                                                                                                                                               | s3       |
 | POST                 | `/api/agent/bugreport`                                 | `AgentBugreportRequest` (`title?`, `steps_text`, `breadcrumbs`, `errors`, `reportId?`) → `{markdown_es, source: llm/template, reportId?}`; con `reportId` lo agrega a `reports/<id>/reporte.md`                                                                                                                                                                                                                        | s3       |
 | GET                  | `/api/console/status`                                  | `?refresh=1` → `{claudeInstalled, version, loggedIn, authMethod, bin, mcpReady, storageDir, installCommand, loginCommand}` (solo loopback)                                                                                                                                                                                                                                                                             | s3b      |
 | POST                 | `/api/console/session`                                 | `{cols?, rows?}` → 201 `{token, cwd, storageDir, …status}`; token de un solo uso (vence a 2 min)                                                                                                                                                                                                                                                                                                                       | s3b      |
@@ -215,6 +221,21 @@ llegar a la api. Es una defensa razonable, no seguridad fuerte; la solución rea
 `CONTENT_BLOCKED`, `NO_FACE`, `RVC_MODEL_INCOMPATIBLE` (422), `CLIP_TOO_LONG`,
 `VOICE_SAMPLE_INVALID` (400), `PERSON_NOT_FOUND` (404); detalle en
 `docs/trabajo/sprint4-contratos.md`.
+
+**Sprint 5.** `Job.detail` (`JobProgressDetail {done, total, unit, eta_s, stage_es, cancellable,
+stalled, progressAt}`) y `Job.errorCode` viajan en `GET /api/jobs` y en cada `JobEvent` (con
+`error`). `GET /api/health` agrega `checkedAt` y `workers.cuda/version` (timeout 1,5 s): lo sondea
+el `service-status-store` de la web (5 s con algo caído, 15 s si todo anda). `WORKERS_UNAVAILABLE`
+(503) dice «La IA local está apagada (no responde en 127.0.0.1:8001). Cerrá Studio y abrilo con
+scripts\windows\start.cmd.» y la causa cruda va solo al log. `POST /api/projects/:id/export` acepta
+`aspectFit` (`reframe|center|blur`), `normalizeLoudness` y `autoDuck`; con aspecto del preset ≠
+lienzo, sin reencuadre con keyframes y sin `aspectFit` → 409 `ASPECT_CHOICE_REQUIRED`
+(`details {canvas, preset, options, reframeReady}`); `reframe` sin keyframes → 409
+`REFRAME_REQUIRED`. Los planes (`/api/agent/plan`, plan editado, Consola, Perfil de estilo) se
+expanden antes de resolverse (`services/agent/aspect.ts`): `added` (p. ej. `reframe {subject:"face"}`
+antes de un export 9:16 desde 16:9 con el paquete `reframe`) y `choices` (`PlanChoice` con 3
+opciones, export en `unresolved` hasta elegir con `…/choose`). Detalle en
+`docs/trabajo/sprint5-contratos.md`.
 
 ## 3. Contrato de `apps/workers` (interno, solo lo llama la api)
 
@@ -296,6 +317,18 @@ frío), `facefusion_fps`, `facefusion_enh_fps`, `facefusion_startup_s`, `facefus
 `facefusion_model` (por el `FaceEngine`, solo con la licencia aceptada y una Persona con rostro
 vigente) y `tools` (estado de los entornos aislados).
 
+Sprint 5 (tareas cancelables): `GET /<agent|vision|audio|style|perf|packs>/tasks/{id}` → `TaskPublic`
+(`status queued|running|done|error|canceled`, `progress`, `done/total/stage_es/eta_s/cancellable`,
+`code`); `POST /<área>/tasks/{id}/cancel` → `TaskCancelResponse {task_id, canceled, was}` (404
+`TASK_NOT_FOUND`); `POST /transcribe/cancel {job_id}` → `{stopped}` (`/transcribe` sigue síncrona,
+registra el evento de cancelar antes de validar la entrada y lo revisa entre segmentos; cortada
+contesta **499** `{detail: "Cancelado", code: "TASK_CANCELED"}`, sin traceback; el avance va por
+`GET /jobs/{jobId}`). `POST /agent/eval {dataset, models, mode}` (`select_quick`:
+20 ejemplos deterministas, ronda por la primera op ordenada por id) corre cada plan como
+`asyncio.Task` con un vigía de 100 ms: al cancelar se corta el pedido HTTP y Ollama deja de generar;
+sin modelos disponibles la tarea falla con `code PACK_REQUIRED`. `POST /agent/plan` cancela el
+planner si el cliente se desconecta.
+
 ## 4. Ciclo de vida de un job
 
 ```mermaid
@@ -364,6 +397,37 @@ a `packages/shared/schemas/` y `apps/workers/studio_workers/agent/editplan.schem
   y `storageDir`.
 - Progreso y estado se emiten como `JobEvent` por SSE (`/api/jobs/events`); la web nunca hace
   polling agresivo.
+- **Progreso (Sprint 5).** `ctx.reportProgress(p, msg?, detail?)`; `detail` parcial
+  `{done,total,unit,stage_es,cancellable}`. La cola completa `progressAt` (cambia con `p` o `done`),
+  `eta_s = estimateEtaS()` (`packages/shared/src/job-progress.ts`; con ítems: transcurrido desde el
+  primer ítem / (hechos − `cached`) × restantes, sin ETA mientras todos los hechos vinieron de la
+  caché; sin ítems: transcurrido × (1 − p) / p tras 10 s y p ≥ 0,02) y
+  `stalled` (≥ 120 s sin cambio; un reloj de 15 s por job reemite si cambia). Se guarda en
+  `jobs.detail` (JSON) y viaja en cada `JobEvent` con `error` y `errorCode` (código de
+  `HttpError`/`WorkersError`/`PackRequiredError`/`WorkerTaskError`). `project.export` reporta los
+  bloques como ítems (`unit:"blocks"`, total = bloques + 1 paso final de audio y unión, `cached` =
+  bloques salteados por estar en la caché) y
+  `stage_es` («Video: 3/12 bloques», «Midiendo sonoridad», «Normalizando audio», «Uniendo»).
+- **Cancelar (Sprint 5).** `POST /api/jobs/:id/cancel` → `AbortSignal`; los handlers que esperan
+  una tarea del worker usan `pollWorkerTask` / `cancelWorkerTaskOnAbort` (`jobs/handlers/util.ts`)
+  → `POST /<área>/tasks/{id}/cancel` (3 s, error ignorado). En el worker, `TaskQueue.cancel`: queued
+  → `canceled` sin correr; running → `cancel_event` + ganchos `on_cancel` (matar el árbol del
+  subproceso con `taskkill /T /F` en Windows); la tarea termina con `TaskCanceled` (en
+  `check_canceled()` o en la próxima actualización de progreso desde su hilo) → `canceled`. Los
+  subprocesos de GPU (RVM en `.venv-gpl`, ffmpeg de SAM y de `frames.py`) se registran con
+  `on_cancel_kill(proc)` y además se matan en un `finally` (`kill_process_tree`: `taskkill /T /F`
+  o `killpg` de su propio grupo; nunca el grupo de los workers). `TaskCanceled` no cuenta como
+  falla de CUDA (Whisper y htdemucs no reintentan en CPU ni sueltan la GPU). La cola emite
+  «Cancelando…» por SSE al pedir el cancelar; si el handler igual termina, el job queda
+  `succeeded` (su archivo está completo). La web reconecta el SSE a los 2 s (hasta 10 s).
+  `/transcribe` (síncrona) se corta con `POST /transcribe/cancel {job_id}` entre segmentos. Un
+  motion recién creado para un render cancelado se quita de la línea de tiempo (un paso de
+  deshacer).
+- **Avisos en la web (Sprint 5).** Un job terminal solo genera toast si esta pestaña lo vio activo o
+  terminó después de abrirla y no está en `localStorage["studio.jobs.seen.v1"]` (anillo de 500);
+  la descripción es `job.error` real; `WORKERS_UNAVAILABLE` marca los workers caídos en el
+  `service-status-store` → **una** franja (`ServiceBanner`) y `useAiAvailability(feature)`
+  deshabilita los botones de IA con el motivo como tooltip.
 - Resultado estándar de jobs que generan archivo: `FileJobResult { assetId?, path }`.
 
 ## 5. Almacenamiento
@@ -442,6 +506,20 @@ ventanas prohibidas son `(inicio, inicio+2d)` y `(fin−2d, fin)` para fundidos,
 B.inicio+2d)` para un xfade A|B (el xfade cae entero en un bloque, con al menos 2d de cada clip). Un corte
 forzado se corre a la izquierda fuera de la ventana; si el bloque queda de menos de 0,5 s, se usa la
 pasada única. Si el encoder por hardware falla en un bloque, todo se repite con libx264.
+
+**Sprint 5 — audio aparte.** `exportProject` renderiza el video sin audio (`videoOnly`) o por
+bloques, la mezcla a `audio/mix.wav` (`audioOnly`, `pcm_f32le`, 48 kHz, también en modo `single`) y la
+normaliza en el mux final: pasada 1 `loudnorm` JSON sobre el WAV (`parseLoudnormStats`: último
+bloque `{…}`, tolera CRLF y `-inf`), pasada 2 lineal (`measured_*`, `offset`) codificada con el códec
+del preset y `-c:v copy`. `ExportJobResult` += `durationS`, `sizeBytes`, `aspectFit`, `loudness
+{input_i, input_tp, output_i, output_tp}`, `ducked`, `warnings` (`LOUDNESS_MEASURE_FAILED`: sale sin
+normalizar). El ducking automático arma buses por rol (`AudioMixPlan`: `Track.role` o
+`inferTrackRole`, video → voz, TTS/clon → voz, lo dudoso → otro) con `sidechaincompress`
+(`AUTO_DUCK`, `duckingFragment` con `apad=whole_dur` y `level_sc` calibrado midiendo la voz sola).
+`effectiveAspectFit` decide el encuadre (reframe/center/blur) y entra al hash de bloques solo cuando
+difiere del comportamiento viejo. `services/export/aspect-check.ts` (409 `ASPECT_CHOICE_REQUIRED` /
+`REFRAME_REQUIRED`) corre en la ruta, en `agent.apply` y en el job. GIF y alfa siguen en una sola
+pasada sin normalizar.
 
 ### 5.2 Keyframes, seguimiento, recorte y reencuadre en la exportación (Sprint 2)
 
@@ -525,6 +603,37 @@ subtítulos; igual en la pasada única y en los bloques.
   origen). `detectAiContent` (shared) mira los clips que llegan a la exportación y alimenta «Revisión
   para redes» (cara y voz clonada marcadas y bloqueadas) y el metadato `comment` de cada export
   (siempre que haya IA, sin ids ni nombres; va en el concat final y no cambia el hash de bloques).
+
+### 5.5 Web: línea de tiempo, atajos y proyectos (Sprint 5)
+
+- **Atajos**: registro único `packages/shared/src/hotkeys.ts` (`HOTKEYS`, 32 entradas con `scope`
+  `global|editor`, `onSlider`, `inTextFields`, `help_es`); la web deriva `SHORTCUT_ACTIONS` y las
+  teclas del usuario (`settings-store.shortcuts`) pisan los defaults. `Hotkeys.tsx` monta
+  `HotkeysProvider` con los dos scopes; `EditorScopeGate` apaga `editor` con paleta/Ajustes/Proyectos
+  y `hotkeyPolicy()` decide `enableOnFormTags` / `ignoreEventWhen` (texto editable, diálogo modal).
+  La línea de tiempo es `role="application"` enfocable; la regla (`role="slider"`) nunca toma foco.
+- **Selección**: `project-store.selectedClipIds` (orden de elección; el último = primario =
+  `selectedClipId`, que siguen usando los paneles de un clip). Gestos en `ClipView` (modificadores,
+  arrastre en grupo con `moveSelected`) y en `Timeline` (rectángulo → `clipsInRect`).
+- **Ripple**: funciones puras en `lib/timeline.ts` (`rippleDelete`, `closeGaps`, `trimToCursor`,
+  `rippleTime`); el store las aplica en un `commit` (1 deshacer) y remapea subtítulos con
+  `rippleSubtitles` solo en la pista de video principal. `S` corta lo elegido bajo el cursor (o todo
+  lo que está bajo el cursor); `Supr` borra toda la selección.
+- **I/O e imán**: `project-store.inOut` (efímero, lo lee Exportar); `settings-store.snap {enabled,
+playhead, clipEdges, inOut}` (persistido en `ui.snap`).
+- **Proyectos**: `GET /api/projects?view=summary` usa `projectSummary()` de shared; duplicar crea con
+  `repos.projects.create` y guarda la copia con ids nuevos (`withNewIds`). Web: `lib/api-projects.ts`
+  y `ProjectsMenu.tsx`; cambiar de proyecto = `saveProjectNow()` + `loadProject()` +
+  `persistLocalProject()`. El primer video renombra «Proyecto sin título» y ajusta el lienzo en el
+  mismo paso de deshacer (`Snapshot` lleva `name`/`settings` solo en esos pasos).
+- **Autoguardado**: debounce 1,5 s (300 ms si el proyecto supera 64 KB) + `pagehide` con
+  `fetch(…, {keepalive:true})`.
+- **Mezcla**: `project-store.setAudioMix` guarda «Bajar la música cuando hay voz» en
+  `project.audioMix`; un sonido de la Biblioteca va a una pista con `role` (`libraryRole`: música y
+  ambiente → `music`, el resto → `sfx`) en el mismo paso de deshacer.
+- **Servicios**: `service-status-store` (poll de `/api/health` + migas de `WORKERS_UNAVAILABLE`) →
+  `ServiceBanner` y `useAiAvailability(feature)`; `Button` muestra `tip` (`lib/tooltips.ts`, 51
+  claves) y `disabledReason` (también en botones de texto sin tooltip propio).
 
 ## 6. Motores de motion graphics
 

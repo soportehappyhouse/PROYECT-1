@@ -139,7 +139,7 @@ export interface SettingsState {
 
 /** Sprint 4 M1: "persons" (Personas y consentimientos). */
 export type SettingsTab =
-  "appearance" | "shortcuts" | "layouts" | "ai-packs" | "assistant" | "persons";
+  "appearance" | "brand-kit" | "shortcuts" | "layouts" | "ai-packs" | "assistant" | "persons";
 
 function nowIso(): string {
   return new Date().toISOString();

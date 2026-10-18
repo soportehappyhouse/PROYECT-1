@@ -184,6 +184,8 @@ describe("sprint 6: script (M1)", () => {
       SubtitleWordSchema.parse({ start: 0, end: 1, word: "x", corrected: true }).corrected,
     ).toBe(true);
     expect(FILLER_LEXICON_ES.filter((f) => f.level === "safe").length).toBeGreaterThanOrEqual(5);
+    // Audit S6 E3: «ah» can be an answer («Ah, entendí»): never safe.
+    expect(FILLER_LEXICON_ES.find((f) => f.text === "ah")?.level).toBe("probable");
     for (const f of FILLER_LEXICON_ES) expect(f.text).toBe(f.text.toLowerCase());
   });
 

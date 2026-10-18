@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { showPanel } from "@/components/dashboard/dock-controller";
 import { errorMessage } from "@/lib/api";
 import { designApi } from "@/lib/api-design";
+import { useDesignTokensStore } from "@/stores/design-tokens-store";
 import { useProjectStore } from "@/stores/project-store";
 
 /** Debounce of the still preview (contract: 400 ms). */
@@ -29,7 +30,12 @@ export function useBrandKit(): BrandKitState {
     let alive = true;
     designApi
       .brandKit()
-      .then((k) => alive && (setKit(k), setError(undefined)))
+      .then((k) => {
+        if (!alive) return;
+        setKit(k);
+        setError(undefined);
+        useDesignTokensStore.getState().setTokens(k.tokens);
+      })
       .catch((err: unknown) => alive && setError(errorMessage(err)));
     return () => {
       alive = false;
@@ -40,6 +46,7 @@ export function useBrandKit(): BrandKitState {
     try {
       const next = await designApi.saveBrandKit(patch);
       setKit(next);
+      useDesignTokensStore.getState().setTokens(next.tokens);
       setError(undefined);
       return next;
     } catch (err) {

@@ -139,7 +139,13 @@ export const FILLER_LEXICON_ES: readonly FillerLexiconEntry[] = [
   { text: "ehh", category: "vocalization", level: "safe", reason_es: "Vocalización" },
   { text: "em", category: "vocalization", level: "safe", reason_es: "Vocalización" },
   { text: "mm", category: "vocalization", level: "safe", reason_es: "Vocalización" },
-  { text: "ah", category: "vocalization", level: "safe", reason_es: "Vocalización" },
+  { text: "mmm", category: "vocalization", level: "safe", reason_es: "Vocalización" },
+  {
+    text: "ah",
+    category: "vocalization",
+    level: "probable",
+    reason_es: "«Ah» (puede ser una respuesta)",
+  },
   { text: "o sea", category: "empty_connector", level: "probable", reason_es: "Conector vacío" },
   { text: "digamos", category: "empty_connector", level: "probable", reason_es: "Conector vacío" },
   {

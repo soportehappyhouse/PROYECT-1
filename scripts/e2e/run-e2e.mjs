@@ -4962,7 +4962,7 @@ await step("sprint6: delete_words fillers safe → −X s y subtítulos corridos
   const removed = job.result.steps[0].result.removedSec;
   const after = await ok("GET", `/api/projects/${projectId}`);
   const words = after.subtitles.flatMap((s) => s.words ?? []);
-  assert(!words.some((w) => /^(eh|ehh|em|mm|ah)$/i.test(w.word)), "quedan vocalizaciones");
+  assert(!words.some((w) => /^(eh|ehh|em|mm|mmm)$/i.test(w.word)), "quedan vocalizaciones");
   const lastAfter = after.subtitles.at(-1).words.at(-1);
   assert(near(lastBefore.start - lastAfter.start, removed, 0.01), "subtítulos sin correr");
   const v = after.tracks.find((t) => t.kind === "video");

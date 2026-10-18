@@ -2695,7 +2695,7 @@ await step("Sprint 6: 10 muletillas en < 1 min (Guion: «Quitar seguras» + 2 ×
   await page.getByText("Guardado", { exact: true }).waitFor({ timeout: 15_000 });
   const saved = await apiJson(`/api/projects/${projectId}`);
   const subs = saved.subtitles.flatMap((s) => s.words ?? []).map((w) => w.word);
-  if (subs.some((w) => /^(eh|ehh|em|mm|ah)$/i.test(w)))
+  if (subs.some((w) => /^(eh|ehh|em|mm|mmm)$/i.test(w)))
     throw new Error(`quedan: ${subs.join(" ")}`);
   return {
     ms,

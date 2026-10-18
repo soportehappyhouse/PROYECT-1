@@ -320,7 +320,7 @@ describe("timeline compiler", () => {
     // Canvas-sized PlayRes, numpad alignment 8 (top) in a real [V4+ Styles] block.
     expect(ass).toContain("PlayResX: 1920\nPlayResY: 1080");
     expect(ass).toMatch(/Style: Default,Inter,72,&H000AD6FF,.*,1,\d+,0,8,\d+,\d+,\d+,1/);
-    expect(ass).toContain(",,HOLA");
+    expect(ass).toMatch(/,,(\{\\b900\})?HOLA/);
   });
 
   it("fits burned subtitles to a pillarboxed vertical clip (feedback 4)", () => {
@@ -369,8 +369,12 @@ describe("timeline compiler", () => {
     // ...but the ones outside them are.
     p.subtitles.push({ start: 6, end: 7, text: "Fuera" });
     const forced = compileExport({ ...base, burnSubtitles: true });
-    expect(forced.files.find((f) => f.name === "subs.ass")!.content).toContain(",,Fuera");
-    expect(forced.files.find((f) => f.name === "subs.ass")!.content).not.toContain(",,Hola");
+    expect(forced.files.find((f) => f.name === "subs.ass")!.content).toMatch(
+      /,,(\{\\b900\})?Fuera/,
+    );
+    expect(forced.files.find((f) => f.name === "subs.ass")!.content).not.toMatch(
+      /,,(\{\\b900\})?Hola/,
+    );
     // Project-level choice (Export panel checkbox) is the default for the request.
     p.burnSubtitles = true;
     expect(compileExport(base).graph).toContain("subtitles=subs.ass");

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  bundledFontWeight,
+  captionFontWeight,
   autofixCaptionStyle,
   balanceLines,
   BrandKitSchema,
@@ -12,6 +14,7 @@ import {
   contrastRatio,
   DEFAULT_BRAND_KIT,
   DEFAULT_DESIGN_TOKENS,
+  DesignTokensSchema,
   DESIGN_RULE_IDS,
   DesignCheckResultSchema,
   paginateCaptions,
@@ -379,5 +382,30 @@ describe("toDtcg", () => {
   it("exports colors and fonts", () => {
     const d = toDtcg(DEFAULT_DESIGN_TOKENS) as { color: { accent: { $value: string } } };
     expect(d.color.accent.$value).toBe("#FFD400");
+  });
+});
+
+describe("caption font weight (audit S6 E1)", () => {
+  const withCaption = (family: string, weight: 400 | 700 | 900) =>
+    DesignTokensSchema.parse({
+      ...DEFAULT_DESIGN_TOKENS,
+      font: { ...DEFAULT_DESIGN_TOKENS.font, caption: { family, weight } },
+    });
+  it("maps a weight to a face that exists (no synthetic bold)", () => {
+    expect(bundledFontWeight("Inter", 900)).toBe(900);
+    expect(bundledFontWeight("Oswald", 900)).toBe(700);
+    expect(bundledFontWeight("Bangers", 900)).toBe(400);
+    expect(bundledFontWeight("Anton", 700)).toBe(400);
+    expect(bundledFontWeight("Arial", 900)).toBe(900);
+  });
+  it("kit style → kit weight; own style (fromBrandKit:false) → bold of its family", () => {
+    expect(captionFontWeight(withCaption("Inter", 900))).toBe(900);
+    expect(captionFontWeight(withCaption("Inter", 400))).toBe(400);
+    expect(captionFontWeight(withCaption("Bebas Neue", 900))).toBe(400);
+    const own = { ...CAPTION_STYLE_PRESETS[0]!, fontFamily: "Bangers", fromBrandKit: false };
+    expect(captionFontWeight(withCaption("Inter", 900), own)).toBe(400);
+    expect(captionFontWeight(withCaption("Inter", 900), { ...own, fontFamily: "Roboto" })).toBe(
+      700,
+    );
   });
 });

@@ -37,6 +37,45 @@ export const BUNDLED_FONT_FAMILIES = [
 ] as const;
 export type BundledFontFamily = (typeof BUNDLED_FONT_FAMILIES)[number];
 export const BUNDLED_FONT_WEIGHTS = [400, 700, 900] as const;
+export type BundledFontWeight = (typeof BUNDLED_FONT_WEIGHTS)[number];
+
+/**
+ * Weights that really exist as a TTF of each bundled family (audit S6 E1). Display families have
+ * one face (400): asking them for 700/900 must reuse that face, never a synthetic bold (libass
+ * emboldens when the requested weight is ≥ 150 above the face; browsers do the same). Oswald's
+ * variable axis stops at 700. Kept equal to the files and manifest.json by a test in remotion.
+ */
+export const BUNDLED_FONT_FACES: Record<BundledFontFamily, readonly BundledFontWeight[]> = {
+  Inter: [400, 700, 900],
+  Montserrat: [400, 700, 900],
+  Poppins: [400, 700, 900],
+  Roboto: [400, 700, 900],
+  Oswald: [400, 700],
+  "Playfair Display": [400, 700, 900],
+  "Bebas Neue": [400],
+  Anton: [400],
+  "Archivo Black": [400],
+  Bangers: [400],
+};
+
+export function isBundledFontFamily(family: string): family is BundledFontFamily {
+  return (BUNDLED_FONT_FAMILIES as readonly string[]).includes(family);
+}
+
+/**
+ * Weight that is actually drawn for `family` at `weight`: the heaviest bundled face ≤ the request
+ * (the lightest one when none is), so no renderer fakes a bold. Non-bundled families keep it.
+ */
+export function bundledFontWeight(family: string, weight: number): number {
+  if (!isBundledFontFamily(family)) return weight;
+  const faces = BUNDLED_FONT_FACES[family];
+  return [...faces].reverse().find((w) => w <= weight) ?? faces[0]!;
+}
+
+/** TTF file name of the face drawn for `family` at `weight` (`<Family sin espacios>-<peso>.ttf`). */
+export function bundledFontFileName(family: BundledFontFamily, weight: number): string {
+  return `${family.replace(/ /g, "")}-${bundledFontWeight(family, weight)}.ttf`;
+}
 /** Folder of the bundled fonts, relative to the repo root (served by GET /fonts/*, libass fontsdir). */
 export const FONTS_DIR_REL = "packages/remotion/public/fonts";
 

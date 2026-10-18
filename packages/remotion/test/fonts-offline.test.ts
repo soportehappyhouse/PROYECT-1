@@ -2,8 +2,10 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  BUNDLED_FONT_FACES,
   BUNDLED_FONT_FAMILIES,
   BUNDLED_FONT_WEIGHTS,
+  bundledFontFileName,
   DEFAULT_BRAND_KIT,
   FONTS_DIR_REL,
 } from "@studio/shared";
@@ -61,10 +63,30 @@ describe("bundled fonts, offline", () => {
       for (const w of BUNDLED_FONT_WEIGHTS) {
         const file = BUNDLED_FONT_FILES[family][String(w) as "400"];
         expect(manifest[family].weights[String(w)], `${family} ${w}`).toBe(file);
+        // Audit S6 E1/E24: the shared face table (ASS weights, web @font-face) says the same.
+        expect(bundledFontFileName(family, w), `${family} ${w}`).toBe(file);
         const abs = path.join(dir, file);
         expect(existsSync(abs), abs).toBe(true);
         // TrueType magic 0x00010000.
         expect(readFileSync(abs).readUInt32BE(0)).toBe(0x00010000);
+      }
+    }
+  });
+
+  it("BUNDLED_FONT_FACES lists exactly the TTFs of each family, with their OS/2 weight", () => {
+    for (const family of BUNDLED_FONT_FAMILIES) {
+      const dir = path.join(BUNDLED_FONTS_DIR, family);
+      const ttfs = readdirSync(dir).filter((f) => f.endsWith(".ttf"));
+      const weights = ttfs.map((f) => Number(/-(\d+)\.ttf$/.exec(f)![1])).sort((a, b) => a - b);
+      expect(weights, family).toEqual([...BUNDLED_FONT_FACES[family]]);
+      for (const f of ttfs) {
+        const buf = readFileSync(path.join(dir, f));
+        const n = buf.readUInt16BE(4);
+        let os2 = -1;
+        for (let i = 0; i < n; i++)
+          if (buf.toString("latin1", 12 + 16 * i, 16 + 16 * i) === "OS/2")
+            os2 = buf.readUInt32BE(12 + 16 * i + 8);
+        expect(buf.readUInt16BE(os2 + 4), f).toBe(Number(/-(\d+)\.ttf$/.exec(f)![1]));
       }
     }
   });

@@ -60,7 +60,25 @@ export function normWord(text: string): string {
     .trim();
 }
 
-const VOCALIZATION_RE = /^(e+h+|e{2,}|e+m+|m{2,}|h+m+|a+h+|e+h+m+)$/;
+const VOCALIZATION_RE = /^(e+h+|e{2,}|e+m+|m{2,}|h+m+|e+h+m+)$/;
+/** «ah» is a vocalization but also a real answer («Ah, entendí»): probable, never safe (E3). */
+const AH_RE = /^a+h+$/;
+/**
+ * One-word repeats are safe only for short function words («el el», «que que», «de de»: a
+ * stutter). Content words repeated are usually emphasis («muy muy», «nunca nunca»): probable
+ * (audit S6 E3).
+ */
+const STUTTER_WORDS = new Set(
+  "a al con de del el en es la las le lo los me mi para por que se su te tu un una uno y o".split(
+    " ",
+  ),
+);
+/** Repeats that contain a number are counts («uno dos tres uno dos tres»): probable (E3). */
+const NUMBER_WORDS = new Set(
+  "cero uno una dos tres cuatro cinco seis siete ocho nueve diez once doce veinte cien mil".split(
+    " ",
+  ),
+);
 const SENTENCE_END_RE = /[.?!…]["'”»)\]]*$/;
 
 // ------------------------------------------------------------------------------------------------
@@ -299,19 +317,21 @@ export function detectFillers(
       // left to the closing-tag rule.
       if (same && len === 1 && ["no", "si"].includes(out[i]!.norm)) same = false;
       if (!same) continue;
-      for (let k = 0; k < len; k++)
-        set(
-          i + k,
-          filler(
+      const gram = out.slice(i, i + len);
+      const phrase = gram.map((w) => w.text).join(" ");
+      const counting = gram.some((w) => NUMBER_WORDS.has(w.norm) || /\d/.test(w.norm));
+      const stutter = len > 1 ? !counting : STUTTER_WORDS.has(out[i]!.norm);
+      const f = stutter
+        ? filler("repetition", "safe", `Repetición: «${phrase}» dos veces`, 0.85)
+        : filler(
             "repetition",
-            "safe",
-            `Repetición: «${out
-              .slice(i, i + len)
-              .map((w) => w.text)
-              .join(" ")}» dos veces`,
-            0.85,
-          ),
-        );
+            "probable",
+            counting
+              ? `Repetición: «${phrase}» dos veces (¿una cuenta?)`
+              : `Repetición: «${phrase}» dos veces (¿énfasis?)`,
+            0.6,
+          );
+      for (let k = 0; k < len; k++) set(i + k, f);
       break;
     }
   }
@@ -322,6 +342,10 @@ export function detectFillers(
     const key = w.norm;
     const prev = real(i - 1) ? out[i - 1]!.norm : "";
     const next = real(i + 1) ? out[i + 1]!.norm : "";
+    if (AH_RE.test(key)) {
+      set(i, filler("vocalization", "probable", "«Ah» (puede ser una respuesta: «Ah, entendí»)"));
+      continue;
+    }
     if (VOCALIZATION_RE.test(key) || lexicon.get(key)?.category === "vocalization") {
       set(i, filler("vocalization", "safe", "Vocalización («eh», «em»)"));
       continue;
@@ -826,7 +850,8 @@ function retimeSegment(
   const words = s.words
     .filter((w) => !m.inside((w.start + w.end) / 2))
     .map((w) => ({ ...w, start: m.map(w.start), end: m.map(w.end) }))
-    .filter((w) => w.end - w.start > 0.005);
+    // Corrected words are user text: kept even if short (audit S6 E2).
+    .filter((w) => w.end - w.start > 0.005 || w.corrected);
   if (words.length === 0) return undefined;
   const text = words.length === s.words.length ? s.text : words.map((w) => w.word).join(" ");
   return { ...s, start: a, end: b, text, words };
@@ -1232,17 +1257,23 @@ export function wordOpcodes(a: readonly string[], b: readonly string[]): WordOpc
   return ops;
 }
 
+/** Shortest interval an inserted word gets (audit S6 E2: never zero length). */
+const INSERT_MIN_S = 0.04;
+
 /**
  * Text correction keeping timings (fuentes §1.6): `equal` keeps start/end/probability (new
  * spelling), `replace` spreads the old interval over the new words by letters (≥ 80 ms each),
- * `insert` takes ≤ 60 % of the gap between its neighbours (zero length glued to the neighbour when
- * there is none), `delete` drops the word and leaves its time as a gap (no cut). Touched words get
+ * `insert` takes ≤ 60 % of the gap between its neighbours (or between the edge word and
+ * `bounds`, the segment, when it is long enough) and otherwise borrows half of the longer
+ * neighbour (audit S6 E2: Whisper words are glued, a zero-length word was lost on the next cut),
+ * `delete` drops the word and leaves its time as a gap (no cut). Touched words get
  * `corrected: true`. `oldText` is only used when `words` is empty (nothing to keep).
  */
 export function fixWords(
   words: readonly SubtitleWord[],
   oldText: string,
   newText: string,
+  bounds?: { start: number; end: number },
 ): SubtitleWord[] {
   const tokens = newText.split(/\s+/).filter(Boolean);
   if (words.length === 0) {
@@ -1252,6 +1283,8 @@ export function fixWords(
   const a = words.map((w) => normWord(w.word));
   const b = tokens.map((t) => normWord(t));
   const out: SubtitleWord[] = [];
+  /** Runs of inserted words [i, j) in `out`, timed after the loop (they need both neighbours). */
+  const runs: [number, number][] = [];
   for (const op of wordOpcodes(a, b)) {
     if (op.tag === "equal") {
       for (let k = 0; k < op.i2 - op.i1; k++) {
@@ -1264,20 +1297,46 @@ export function fixWords(
       for (const w of spreadByLetters(tokens.slice(op.j1, op.j2), s, e))
         out.push({ ...w, corrected: true });
     } else if (op.tag === "insert") {
-      const prev = words[op.i1 - 1];
-      const next = words[op.i1];
-      const list = tokens.slice(op.j1, op.j2);
-      if (prev && next && next.start - prev.end > EPS) {
-        const gap = next.start - prev.end;
-        const span = gap * R.insert_max_gap_ratio;
-        const s = prev.end + (gap - span) / 2;
-        for (const w of spreadByLetters(list, s, s + span)) out.push({ ...w, corrected: true });
-      } else {
-        const at = prev ? prev.end : (next?.start ?? 0);
-        for (const t of list) out.push({ word: t, start: at, end: at, corrected: true });
-      }
+      const at = words[op.i1 - 1]?.end ?? words[op.i1]?.start ?? 0;
+      runs.push([out.length, out.length + op.j2 - op.j1]);
+      for (const t of tokens.slice(op.j1, op.j2))
+        out.push({ word: t, start: at, end: at, corrected: true });
     }
     // delete: dropped; its time stays as a gap.
+  }
+  for (const [i, j] of runs) {
+    const prev = out[i - 1];
+    const next = out[j];
+    const n = j - i;
+    const left = prev?.end ?? Math.min(bounds?.start ?? next!.start, next!.start);
+    const right = next?.start ?? Math.max(bounds?.end ?? prev!.end, prev!.end);
+    const gap = right - left;
+    let s: number;
+    let e: number;
+    if (gap * R.insert_max_gap_ratio >= INSERT_MIN_S * n) {
+      const span = gap * R.insert_max_gap_ratio;
+      s = left + (gap - span) / 2;
+      e = s + span;
+    } else {
+      // No room: take half of the longer neighbour (plus the tiny gap) and shorten it.
+      const dPrev = prev ? prev.end - prev.start : -1;
+      const dNext = next ? next.end - next.start : -1;
+      if (dPrev >= dNext && prev) {
+        s = round3(prev.start + dPrev / 2);
+        e = right;
+        out[i - 1] = { ...prev, end: s };
+      } else {
+        s = left;
+        e = round3(next!.start + dNext / 2);
+        out[j] = { ...next!, start: e };
+      }
+    }
+    const timed = spreadByLetters(
+      out.slice(i, j).map((w) => w.word),
+      s,
+      e,
+    );
+    timed.forEach((w, k) => (out[i + k] = { ...w, corrected: true }));
   }
   return out;
 }
@@ -1288,7 +1347,7 @@ export function fixWords(
 export function fixSegmentText(seg: SubtitleSegment, newText: string): SubtitleSegment {
   const text = newText;
   if (!seg.words?.length) return { ...seg, text };
-  return { ...seg, text, words: fixWords(seg.words, seg.text, newText) };
+  return { ...seg, text, words: fixWords(seg.words, seg.text, newText, seg) };
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -1339,7 +1398,7 @@ export function replaceWordsText(
     ];
     const text = tokens.join(" ");
     return seg.words?.length
-      ? { ...seg, text, words: fixWords(seg.words, seg.text, text) }
+      ? { ...seg, text, words: fixWords(seg.words, seg.text, text, seg) }
       : { ...seg, text };
   });
 }

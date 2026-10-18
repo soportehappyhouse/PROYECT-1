@@ -17,6 +17,7 @@ import { MediaPool, type MediaUrls } from "@/lib/media-pool";
 import { findClip } from "@/lib/timeline";
 import { cachedTrack, loadTrack } from "@/lib/vision-api";
 import { useCaptionStyleStore } from "@/stores/caption-style-store";
+import { useDesignTokensStore } from "@/stores/design-tokens-store";
 import { useMediaStore } from "@/stores/media-store";
 import { shouldDropToProxy, usePreviewStore, wantsProxy } from "@/stores/preview-store";
 import { useProjectStore } from "@/stores/project-store";
@@ -59,6 +60,8 @@ export function CompositorStage({ width, height }: { width: number; height: numb
   sizeRef.current = { width, height };
   /** Ask the loop for a redraw (set by the effect). */
   const nudgeRef = useRef<() => void>(() => undefined);
+
+  useEffect(() => useDesignTokensStore.getState().ensureLoaded(), []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -165,6 +168,7 @@ export function CompositorStage({ width, height }: { width: number; height: numb
           lookup,
           { width: W, height: H },
           st.project.captionStyle ?? useCaptionStyleStore.getState().style,
+          { tokens: useDesignTokensStore.getState().tokens },
         );
       }
       const spent = performance.now() - t0;
@@ -233,6 +237,7 @@ export function CompositorStage({ width, height }: { width: number; height: numb
     const unsubs = [
       useProjectStore.subscribe(markDirty),
       useMediaStore.subscribe(markDirty),
+      useDesignTokensStore.subscribe(markDirty),
       usePreviewStore.subscribe((s, prev) => {
         if (s.quality !== prev.quality || s.autoProxy !== prev.autoProxy) dirty = true;
       }),

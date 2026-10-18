@@ -5,6 +5,8 @@
 import {
   API_ROUTES,
   BUNDLED_FONT_FAMILIES,
+  BUNDLED_FONT_WEIGHTS,
+  bundledFontFileName,
   type BrandKit,
   type BrandKitUpdate,
   type DesignAspect,
@@ -63,13 +65,12 @@ export function fontFileUrl(family: string, file: string): string {
   return `${API_URL}/fonts/${encodeURIComponent(family)}/${encodeURIComponent(file)}`;
 }
 
+/** Weight → file of each bundled family (shared table, the same faces as Remotion and libass). */
 const FONT_FILES: Record<string, Record<string, string>> = Object.fromEntries(
-  BUNDLED_FONT_FAMILIES.map((f) => {
-    const stem = f.replace(/ /g, "");
-    const single = ["Bebas Neue", "Anton", "Archivo Black", "Bangers"].includes(f);
-    const w = (n: number) => `${stem}-${single ? 400 : f === "Oswald" && n === 900 ? 700 : n}.ttf`;
-    return [f, { "400": w(400), "700": w(700), "900": w(900) }];
-  }),
+  BUNDLED_FONT_FAMILIES.map((f) => [
+    f,
+    Object.fromEntries(BUNDLED_FONT_WEIGHTS.map((w) => [String(w), bundledFontFileName(f, w)])),
+  ]),
 );
 
 let fontsInjected = false;

@@ -5,6 +5,7 @@ import {
   cutTimeline,
   detectFillers,
   fitDuration,
+  fixSegmentText,
   fixWords,
   isAcoustic,
   normWord,
@@ -132,6 +133,33 @@ describe("detectFillers (léxico rioplatense)", () => {
     const marked = s.words.filter((w) => w.filler?.category === "repetition").map((w) => w.id);
     expect(marked).toEqual(["0:0", "0:1"]);
     expect(s.words[0]!.filler?.level).toBe("safe");
+  });
+
+  it("emphasis, counts and «ah» are not «safe» (audit S6 E3)", () => {
+    const level = (spec: string, text: string) =>
+      W(buildScript(project([seg(spec)])).words, text).filler?.level;
+    expect(level("es@0-0.2 muy@0.25-0.4 muy@0.42-0.6 importante@0.65-1.2", "muy")).toBe("probable");
+    expect(level("nunca@0-0.3 nunca@0.32-0.6 jamás@0.65-1", "nunca")).toBe("probable");
+    const count = buildScript(
+      project([
+        seg(
+          "uno@0-0.2 dos@0.25-0.4 tres@0.45-0.6 uno@0.7-0.9 dos@0.95-1.1 tres@1.15-1.3 listo@1.4-1.8",
+        ),
+      ]),
+    );
+    expect(count.words.filter((w) => w.filler?.level === "safe")).toEqual([]);
+    expect(level("ah@0-0.2 entendí@0.25-0.6 lo@0.62-0.7 que@0.72-0.8 decís@0.82-1.2", "ah")).toBe(
+      "probable",
+    );
+    // A stutter on a short function word is still safe.
+    expect(level("y@0-0.1 que@0.12-0.2 que@0.22-0.3 hacemos@0.35-0.8", "que")).toBe("safe");
+    // None of them is preselected by «Quitar seguras».
+    const s = buildScript(
+      project([
+        seg("es@0-0.2 muy@0.25-0.4 muy@0.42-0.6 importante@0.65-1.2 ah@1.3-1.5 bien@1.6-2"),
+      ]),
+    );
+    expect(planWordCuts(s, { fillers: "safe", avoidHarsh: true }).cuts).toEqual([]);
   });
 
   it("vocalizations «eh», «mmm» are safe", () => {
@@ -332,6 +360,37 @@ describe("fixWords", () => {
     const del = fixWords(words, "hola como estas", "hola estas");
     expect(del.map((w) => w.word)).toEqual(["hola", "estas"]);
     expect(del[1]!.start).toBe(0.9);
+  });
+
+  // Audit S6 E2: Whisper words are usually glued (no gap) and text is often added at the end.
+  const glued = seg("hoy@0-0.3 vamos@0.3-0.7 a@0.7-0.8 editar@0.8-1.3 un@1.3-1.5 video@1.5-2");
+  const project1 = (s: SubtitleSegment) => {
+    const p = project([s]);
+    p.subtitles = [s];
+    return p;
+  };
+
+  it("insert without a gap borrows time from the longer neighbour (never zero length)", () => {
+    const fixed = fixSegmentText(glued, "hoy vamos a editar un muy buen video");
+    const w = fixed.words!;
+    expect(w.map((x) => x.word)).toEqual("hoy vamos a editar un muy buen video".split(" "));
+    for (const x of w) expect(x.end - x.start, x.word).toBeGreaterThanOrEqual(0.04 - 1e-9);
+    for (let k = 1; k < w.length; k++)
+      expect(w[k]!.start).toBeGreaterThanOrEqual(w[k - 1]!.end - 1e-9);
+    // Appended at the end of the segment, too.
+    const end = fixSegmentText(glued, "hoy vamos a editar un video ahora").words!;
+    expect(end.at(-1)!.word).toBe("ahora");
+    expect(end.at(-1)!.end - end.at(-1)!.start).toBeGreaterThanOrEqual(0.04);
+    expect(end.at(-1)!.end).toBeLessThanOrEqual(glued.end + 1e-9);
+  });
+
+  it("text added by a correction survives a later cut", () => {
+    const fixed = fixSegmentText(glued, "hoy vamos a editar un muy buen video");
+    const out = cutTimeline(project1(fixed), [{ start: 0, end: 0.1 }], { newId: () => "z" });
+    expect(out.project.subtitles[0]!.text).toContain("muy buen video");
+    const tail = fixSegmentText(glued, "hoy vamos a editar un video ahora");
+    const out2 = cutTimeline(project1(tail), [{ start: 0.3, end: 0.7 }], { newId: () => "y" });
+    expect(out2.project.subtitles[0]!.text).toBe("hoy a editar un video ahora");
   });
 });
 

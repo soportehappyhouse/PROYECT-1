@@ -40,14 +40,19 @@ describe("ASS from the design tokens (Sprint 6 M2)", () => {
     const s = styleLine(ass);
     expect(s[1]).toBe("Inter");
     expect(Number(s[2])).toBe(65);
-    expect(s[7]).toBe("900");
+    // Audit S6 E1: libass reads `Bold` as a boolean (-1 = 700); the Black face goes as \b900.
+    expect(s[7]).toBe("-1");
+    for (const e of events(ass)) expect(e).toContain("{\\b900}");
     expect(Number(s[16])).toBe(5);
     // Margins = safe zone (119/119/672 px) + the outline (5 px): the whole glyph stays inside.
     expect(s.slice(19, 22).map(Number)).toEqual([124, 124, 677]);
     expect(ass).toContain("WrapStyle: 2");
     expect(ass).toContain("ScaledBorderAndShadow: yes");
     for (const e of events(ass)) {
-      const text = e.split(",,").at(-1)!;
+      const text = e
+        .split(",,")
+        .at(-1)!
+        .replace(/\{[^}]*\}/g, "");
       const lines = text.split("\\N");
       expect(lines.length).toBeLessThanOrEqual(2);
       for (const l of lines) expect(l.length).toBeLessThanOrEqual(30);
@@ -67,7 +72,12 @@ describe("ASS from the design tokens (Sprint 6 M2)", () => {
     // Box style (clásico): BorderStyle 3.
     expect(s[15]).toBe("3");
     for (const e of events(ass))
-      for (const l of e.split(",,").at(-1)!.split("\\N")) expect(l.length).toBeLessThanOrEqual(42);
+      for (const l of e
+        .split(",,")
+        .at(-1)!
+        .replace(/\{[^}]*\}/g, "")
+        .split("\\N"))
+        expect(l.length).toBeLessThanOrEqual(42);
   });
 
   it("«Mayúsculas» applies to the paginated lines (word timings keep their case)", () => {
@@ -110,8 +120,32 @@ describe("ASS from the design tokens (Sprint 6 M2)", () => {
     setAssDesign({ tokens: () => tokens });
     const s = styleLine(buildAss(SPEECH, { canvas: { width: 1080, height: 1920 } }));
     expect(s[1]).toBe("Poppins");
-    expect(s[7]).toBe("700");
+    expect(s[7]).toBe("-1");
+    expect(buildAss(SPEECH, { canvas: { width: 1080, height: 1920 } })).not.toContain("\\b");
     expect(Number(s[2])).toBe(76);
+  });
+
+  it("weights map to real faces: Regular = Bold 0, single-weight families never get a fake bold", () => {
+    const withCaption = (family: string, weight: 400 | 700 | 900) =>
+      buildAss(SPEECH, {
+        canvas: { width: 1080, height: 1920 },
+        tokens: DesignTokensSchema.parse({
+          ...DEFAULT_DESIGN_TOKENS,
+          font: { ...DEFAULT_DESIGN_TOKENS.font, caption: { family, weight } },
+        }),
+      });
+    const inter400 = withCaption("Inter", 400);
+    expect(styleLine(inter400)[7]).toBe("0");
+    expect(inter400).not.toContain("\\b");
+    for (const w of [400, 700, 900] as const) {
+      const bangers = withCaption("Bangers", w);
+      expect(styleLine(bangers)[7], `Bangers ${w}`).toBe("0");
+      expect(bangers).not.toContain("\\b");
+    }
+    // Oswald has no 900 face: Bold (700), without asking libass for 900.
+    const oswald = withCaption("Oswald", 900);
+    expect(styleLine(oswald)[7]).toBe("-1");
+    expect(oswald).not.toContain("\\b");
   });
 
   it("subtitles filter carries fontsdir with an escaped absolute path (spaces, tildes, C:)", () => {
@@ -168,12 +202,12 @@ describe("ASS from the design tokens (Sprint 6 M2)", () => {
   it.skipIf(!hasFfmpeg)("libass draws the bundled family from fontsdir (no system font)", () => {
     const work = tempStorage("studio-ass-");
     const fontsDir = ensureAssFontsDir(work)!;
-    const render = (family: string, withDir: boolean) => {
-      const d = path.join(work, `${family.replace(/ /g, "")}-${withDir}`);
+    const render = (family: string, withDir: boolean, weight: 400 | 700 | 900 = 400) => {
+      const d = path.join(work, `${family.replace(/ /g, "")}-${withDir}-${weight}`);
       mkdirSync(d, { recursive: true });
       const tokens = DesignTokensSchema.parse({
         ...DEFAULT_DESIGN_TOKENS,
-        font: { ...DEFAULT_DESIGN_TOKENS.font, caption: { family, weight: 400 } },
+        font: { ...DEFAULT_DESIGN_TOKENS.font, caption: { family, weight } },
       });
       writeFileSync(
         path.join(d, "subs.ass"),
@@ -213,6 +247,12 @@ describe("ASS from the design tokens (Sprint 6 M2)", () => {
     expect(diff(render("Bangers", true), render("Bangers", false))).toBeGreaterThan(200);
     // Two bundled families differ from each other through fontsdir.
     expect(diff(render("Bangers", true), render("Playfair Display", true))).toBeGreaterThan(200);
+    // Audit S6 E1: the kit weight reaches the burn-in (Regular, Bold and Black are 3 faces)…
+    const [i4, i7, i9] = [400, 700, 900].map((w) => render("Inter", true, w as 400));
+    expect(diff(i4!, i7!)).toBeGreaterThan(200);
+    expect(diff(i7!, i9!)).toBeGreaterThan(200);
+    // …and a single-weight family looks the same at 400 and 900 (no synthetic bold).
+    expect(diff(render("Bangers", true, 400), render("Bangers", true, 900))).toBe(0);
     expect(BUNDLED_FONTS_DIR).toMatch(/public[\\/]fonts$/);
   });
 });

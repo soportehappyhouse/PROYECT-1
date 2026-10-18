@@ -1,5 +1,6 @@
 import {
   autofixCaptionStyle,
+  captionFontWeight,
   captionLayout,
   captionMaxChars,
   captionStyleFromTokens,
@@ -185,8 +186,12 @@ export function buildAss(segments: readonly SubtitleSegment[], o: BuildAssOption
     ? Math.max(2, Math.round(fontSize * 0.18))
     : Math.max(1, Math.round((st.outlineWidth ?? 0) * unit));
   const font = (st.fontFamily || tokens.font.caption.family).replace(/,/g, " ");
-  // Kit weight (900 = Black) when the family comes from the kit; bold otherwise.
-  const bold = st.fromBrandKit !== false ? tokens.font.caption.weight : -1;
+  // Audit S6 E1: libass reads the style `Bold` as a boolean (-1 = 700, 0 = 400), so the kit
+  // weight mapped to a face that exists (Black only where there is a 900 TTF; single-weight
+  // families stay at their face, no synthetic bold) goes as `\b<peso>` when it is not 400/700.
+  const weight = captionFontWeight(tokens, st);
+  const bold = weight >= 700 ? -1 : 0;
+  const weightTag = weight === 400 || weight === 700 ? "" : `\\b${weight}`;
   // Layout in the video rect's own pixels (pillarbox/letterbox), with the canvas safe zone.
   const rectDesign = (rect: Rect) => {
     const r = resolveDesign(
@@ -256,7 +261,8 @@ export function buildAss(segments: readonly SubtitleSegment[], o: BuildAssOption
     });
     for (const p of pages) {
       const mm = marginsFor(rect, p.lines.length);
-      const align = mm.align === m0.align ? "" : `{\\an${mm.align}}`;
+      const tags = (mm.align === m0.align ? "" : `\\an${mm.align}`) + weightTag;
+      const align = tags ? `{${tags}}` : "";
       // Word timings keep the original case: «Mayúsculas» applies to the drawn lines.
       const lines = st.uppercase ? p.lines.map((l) => l.toLocaleUpperCase("es")) : p.lines;
       const text = lines.map(assText).join("\\N");

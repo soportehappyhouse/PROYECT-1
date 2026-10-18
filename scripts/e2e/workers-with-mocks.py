@@ -443,7 +443,7 @@ if _S6M3_DELAY_S > 0:
 # ------------------------------------------------------------- BEGIN sprint6:M1
 # STUDIO_MOCK_SCRIPT=0 turns it off. POST /transcribe/words (Guion) without faster-whisper: a fake
 # Whisper writes a FIXED script spread over the clip with 12 fillers (8 safe: «eh» ×3, «em», «mm»,
-# «ah», «ehh» and the first «que» of «que que»; 4 probable: «o sea» (2 words), «digamos», «este,»)
+# «mmm», «ehh» and the first «que» of «que que»; 4 probable: «o sea» (2 words), «digamos», «este,»)
 # and 35 % gaps between words (> 0.6 s on a 60 s clip: long pauses for fit_duration). Everything
 # after the transcription is the real stt.words code
 # (RMS envelope of the real WAV, noise floor, gaps). Plain /transcribe is untouched.
@@ -458,7 +458,7 @@ if MOCK_SCRIPT:
 
     S6M1_SCRIPT = (
         "Hola eh bienvenidos em a mi canal. | O sea hoy eh les muestro mm cómo que que editar. | "
-        "Digamos un video eh rápido, este, ah listo ehh chau."
+        "Digamos un video eh rápido, este, mmm listo ehh chau."
     )
 
     class _S6M1Engine:

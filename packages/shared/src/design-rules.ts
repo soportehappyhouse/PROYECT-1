@@ -1,5 +1,6 @@
 import {
   BUNDLED_FONT_FAMILIES,
+  bundledFontWeight,
   DESIGN_RULE_IDS,
   DESIGN_RULES,
   type BrandKit,
@@ -219,6 +220,17 @@ export function captionStyleFromTokens(tokens: DesignTokens, preset?: CaptionSty
       1 | 2,
     fromBrandKit: kit,
   };
+}
+
+/**
+ * Font weight of the burned / previewed captions (audit S6 E1): the kit caption weight when the
+ * style follows the kit, bold (700) otherwise — mapped to a face that exists (bundledFontWeight).
+ * The ASS burn-in, the player preview and the kit preview all use this number.
+ */
+export function captionFontWeight(tokens: DesignTokens, style?: CaptionStyle): number {
+  const eff = captionStyleFromTokens(tokens, style);
+  const requested = eff.fromBrandKit !== false ? tokens.font.caption.weight : 700;
+  return bundledFontWeight(eff.fontFamily, requested);
 }
 
 /** Average glyph width in em (estimate for line fitting; heavy weights, Latin text). */

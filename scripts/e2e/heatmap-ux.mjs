@@ -854,7 +854,8 @@ await flow("8", async (o) => {
   // Ajustes tabs
   await page.getByRole("button", { name: "Ajustes" }).click();
   const dlg = page.locator("[role=dialog]").first();
-  o.settingsTabs = await dlg.getByRole("tab").allTextContents();
+  // Only the dialog sections (the first tablist): Apariencia also has tabs for theme and density.
+  o.settingsTabs = await dlg.getByRole("tablist").first().getByRole("tab").allTextContents();
   o.englishSettings = {};
   for (const t of o.settingsTabs) {
     await dlg.getByRole("tab", { name: t }).click();

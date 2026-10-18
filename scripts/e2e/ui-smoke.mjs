@@ -16,7 +16,7 @@ import { readdir, stat } from "node:fs/promises";
 import { copyFileSync, existsSync, mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const argv = process.argv.slice(2);
@@ -107,7 +107,21 @@ const REUSED = await fetch(`${API}/api/media?limit=1`)
   .catch(() => false);
 const RUN = REUSED ? `-r${Date.now().toString(36)}` : "";
 const uname = (name) => (RUN ? name.replace(/(\.[^.]+)?$/, (ext) => `${RUN}${ext}`) : name);
-if (REUSED) console.log(`storage ya usado: los archivos de esta corrida llevan «${RUN}»`);
+if (REUSED) {
+  console.log(`storage ya usado: los archivos de esta corrida llevan «${RUN}»`);
+  // The dock layout is saved in the api: a previous run leaves panels hidden or moved. Start
+  // from the defaults a fresh storage answers (packages/shared, built by `pnpm build`).
+  const shared = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../packages/shared/dist/index.js",
+  );
+  const { DEFAULT_DASHBOARD_SETTINGS } = await import(pathToFileURL(shared).href);
+  await fetch(`${API}/api/settings`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(DEFAULT_DASHBOARD_SETTINGS),
+  });
+}
 const files = await readdir(MEDIA);
 const runDir = REUSED ? mkdtempSync(path.join(os.tmpdir(), "studio-ui-run-")) : undefined;
 const pick = (re) => {

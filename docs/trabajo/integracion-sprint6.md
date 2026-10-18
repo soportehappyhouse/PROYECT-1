@@ -128,8 +128,8 @@ archivo con dos `makeApp` gana el último (anotado en «Descubierto»).
 | # | Criterio | Medida (sandbox) | Meta | Estado |
 | - | -------- | ---------------- | ---- | ------ |
 | C1 | 10 muletillas desde el guion | ui-smoke «Sprint 6: 10 muletillas»: **0,43 s** desde abrir el Guion hasta el 10.º corte («Quitar seguras» = 8 cortes + 2 × Supr), subtítulos corridos, un Ctrl+Z deshace un solo gesto | < 60 s | 🟢 (Whisper real: PC) |
-| C2 | Subtítulos y títulos pasan las reglas sin tocar nada | `design-check.mjs`: **10/10** en 9:16 y **10/10** en 16:9; píxeles 5/5 adentro de la zona segura | 10/10 en los dos | 🟢 |
-| C3 | Diseño (panel) | checklist C2 10/10 + mapa de calor **3,90 / 5** (flujos 2 = 3,8, 5 = 4,0, 6 = 3,6, 8 = 4,0) + `--ux-metrics` `pass:true` (0 inglés, 0 íconos sin tooltip, 2 familias, 5 clics) | ≥ 3,5 y 2/5/6/8 ≥ 3,5 | 🟢 → **panel Diseño 78 %** (3,90 / 5) |
+| C2 | Subtítulos y títulos pasan las reglas sin tocar nada | `design-check.mjs`: **10/10** en 9:16 y **10/10** en 16:9; píxeles 5/5 adentro de la zona segura. Tras la auditoría (E4): también **10/10 a 3 palabras/s**; a 3,5 palabras/s 9/10 (ver «Correcciones de auditoría») | 10/10 en los dos | 🟢 (habla ≤ 3 palabras/s) |
+| C3 | Diseño (panel) | checklist C2 10/10 + mapa de calor **3,90 / 5** (observaciones reproducibles con `scripts/e2e/heatmap-ux.mjs` desde la auditoría) (flujos 2 = 3,8, 5 = 4,0, 6 = 3,6, 8 = 4,0) + `--ux-metrics` `pass:true` (0 inglés, 0 íconos sin tooltip, 2 familias, 5 clics) | ≥ 3,5 y 2/5/6/8 ≥ 3,5 | 🟢 → **panel Diseño 78 %** (3,90 / 5) |
 | C4 | Ningún render depende de la red | run-e2e «fuentes sin red» PASS (title-card + animated-captions con la familia pedida), test que prohíbe URLs en `packages/remotion/src`, `@remotion/google-fonts` fuera | 0 pedidos de red | 🟢 |
 | C5 | Sugerencias al importar | run-e2e: 2 tarjetas en 7,4 s; un `subtitles.transcribe` arranca sin esperar al análisis; aplicar + deshacer | 2 tarjetas < 15 s | 🟢 |
 | C6 | Deuda de funciones | 10 ítems cerrados en el sandbox (abajo) | 5 firmes + P2/P3 | 🟢 |
@@ -248,4 +248,69 @@ tras la auditoría: el panel solo suma sprints «hecho»).
   como «planeado» todo sprint que no esté «hecho». Arreglarlo es tocar el HTML (fuera de esta
   integración): `findLast` y aceptar «integrado».
 - El script de Playwright de los 9 flujos del mapa de calor quedó en el scratchpad de la
-  integración; para que la auditoría lo repita igual conviene llevarlo a `scripts/e2e/` (S7).
+  integración; desde las correcciones de auditoría está en `scripts/e2e/heatmap-ux.mjs`.
+- **Logo del kit** (auditoría E13): se guarda pero ningún render ni exportación lo dibuja (S7); el
+  Kit y el manual ya lo dicen.
+
+## Correcciones de auditoría
+
+Auditoría independiente posterior a la integración (`auditoria-sprint6.md`, 25 hallazgos: 2 altos,
+11 medios, 12 bajos). Cinco commits por grupo: `cc25200` (E1–E3), `b2074fb` (E4–E7), `1e06984`
+(E8–E9), `80d21b8` (E10–E13, E20) y `4d78df4` (bajos). Cada hallazgo se reprodujo primero con
+una prueba que fallaba (o se corrigió la prueba que fijaba el valor equivocado) y después se
+arregló. **Corregidos: 2/2 altos, 11/11 medios y 10/12 bajos**; diferidos E16 y E24 (abajo).
+
+Verificación tras las correcciones (sandbox, mismo procedimiento): `pnpm -r lint`, `pnpm lint`,
+`prettier --check .`, `pnpm -r typecheck`, `pnpm -r build` OK; `pnpm -r test` **1150 + 2 omitidas**
+(shared 266 · web 340 · motion-engines 24 · studio-mcp 21 · remotion 94 con Chrome · api 405 + 2);
+`studio-mcp smoke` 19 herramientas; workers `ruff` OK y `pytest` **524 passed, 9 skipped** normal y
+en orden `shuf`; `validate-dataset` OK; `run-e2e.mjs` (sin `--skip-motion`, storage nuevo) **91/91
+obligatorios** (559 s; mismos 3 SKIP y 2 expected-fail); `design-check.mjs` **10/10 en 9:16 y en
+16:9 a 2,6 y a 3 palabras/s**, cajas 5/5 en zona segura; `ui-smoke.mjs --vp9-preview --ux-metrics`
+(storage nuevo, `STUDIO_MOCK_DENOISE=0`) **63/63** (`UX_METRICS pass:true`) y, sobre el mismo storage
+ya usado, los 4 primeros pasos 4/4; `heatmap-ux.mjs` (storage nuevo) corre los 9 flujos (el 8 se
+corrigió en el script: tomaba las pestañas de tema/densidad como secciones de Ajustes; repetido
+solo, OK).
+
+| # | Sev. | Estado | Cambio | Commit | Prueba |
+| - | ---- | ------ | ------ | ------ | ------ |
+| E1 | alta | corregido | libass lee `Bold` como booleano: `Bold` = −1/0 y el peso real como `{\b900}`; el peso se mapea a la cara que existe (`BUNDLED_FONT_FACES` / `bundledFontWeight` / `captionFontWeight` en shared): las familias de una sola cara (Bangers, Anton, Bebas Neue, Archivo Black) nunca reciben negrita falsa y Oswald 900 usa su 700. La vista previa del reproductor (canvas y clásica) dibuja los subtítulos con la familia y el peso del kit (`design-tokens-store`) y la web declara las `@font-face` desde la misma tabla | `cc25200` | `ass-tokens.test.ts` (render real: Inter 400 ≠ 700 ≠ 900, Bangers 400 = 900 píxel a píxel; reemplaza el `s[7] === "900"`), `design-rules.test.ts`, `fonts-offline.test.ts` (tabla = TTF = peso OS/2), `caption-weight.test.tsx` |
+| E2 | alta | corregido | `fixWords` nunca inserta palabras de largo cero: usa el hueco hasta el borde del segmento si alcanza o toma la mitad de la vecina más larga; `retimeSegment` no descarta palabras `corrected` | `cc25200` | `script-words.test.ts` (palabras pegadas tipo Whisper, agregado al final, el texto sobrevive a un corte posterior) |
+| E3 | media | corregido | Repeticiones de una palabra con contenido («muy muy», «nunca nunca») y las que contienen números (cuentas) pasan a **probable**; tartamudeos de palabras funcionales («que que», «en el en el») siguen seguros; «ah» probable (puede ser respuesta). El mock de Whisper usa «mmm» en lugar de «ah» (siguen 8 seguras para C1) | `cc25200` | `script-words.test.ts` («Quitar seguras» no toca énfasis, cuentas ni «Ah, entendí»), `sprint6-contracts.test.ts` |
+| E4 | media | corregido | `paginateCaptions` reparte el tiempo entre páginas vecinas cuando no hay hueco: cada página puede aparecer hasta 0,5 s antes o 0,3 s después de su primera palabra, sin solaparse (también contra la última página del segmento anterior). `design-check.mjs` mide además a 3 palabras/s (`--rates 2.6,3`, ambos deben dar 10/10) | `b2074fb` | `design-rules.test.ts` (40 s a 2,6 y 3 palabras/s sin `caption.timing`; páginas sin solaparse y cerca de sus palabras), design-check |
+| E5 | media | corregido | `lufs_i`/`lra`/`true_peak_db` aceptan ausente (lo que deja `stripNulls`) y se normalizan a `null`; un resultado inválido falla con un motivo en español | `b2074fb` | `suggestions.test.ts` (silencio digital por el cliente HTTP real) |
+| E6 | media | corregido | `StillService`: 2 renders a la vez, cola; el cierre de la conexión (la web aborta la vista previa anterior) descarta lo que todavía no empezó; `renderTemplateStill` reusa un solo Chrome Headless Shell para `selectComposition` + `renderStill` (antes abría dos por still) y lo cierra a los 60 s sin uso | `b2074fb` | `motion-still.test.ts` (8 pedidos → pico 2; abortados en cola no renderizan), `t13` de la auditoría: 8 stills distintos en paralelo → pico de **7** procesos `headless_shell` (antes 70), 3,8 s |
+| E7 | media | corregido | «La voz está baja» solo si todas las pistas del medio tienen rol voz (`inferTrackRole`: video o Voz explícito); «Silencios» no se ofrece en pistas de música ni efectos; «Saturación» sigue para cualquier sonido | `b2074fb` | `suggestions-rules.test.ts` (música −30 LUFS sin tarjetas) |
+| E8 | media | corregido | Se eligió respetar el bloqueo: si una pista bloqueada tiene algo después del primer corte, `cutTimeline`/`speedUpTimeline` no cortan nada (`CutLockedError` → 409 `TRACK_LOCKED` «Desbloqueá la pista «X» para cortar…»; el Guion lo avisa y no toca el proyecto). Una pista bloqueada que termina antes del corte no molesta | `1e06984` | `script-words.test.ts`, `apply-cuts-timeline.test.ts`, `script-panel.test.tsx` |
+| E9 | media | corregido | `script.transcribe` con subtítulos en el tramo pide `replace: true` (409 `SCRIPT_REPLACE_REQUIRED` con cuántas palabras corregidas a mano); el resultado trae `replaced` (los subtítulos pisados). La web pregunta («Transcribir igual») solo si hay palabras corregidas (si no, deshace con Ctrl+Z). `CLAUDE.md` y la nota de `studio_run_job`: pedir un «sí» antes de `delete_words`/`fit_duration` y antes de `replace: true` | `1e06984` | `script.test.ts`, `script-panel.test.tsx`, run-e2e (re-transcribir → 409) |
+| E10 | media | corregido | La exportación copia las TTF de la familia de los subtítulos a `<trabajo>/fonts/` y usa `fontsdir=fonts` relativo (como `subs.ass`, `cwd` = carpeta del trabajo): ninguna ruta del perfil con tildes llega al filtro. Sin tipografías avisa «Subtítulos con las fuentes del sistema…» y la api lo loguea al arrancar. Falta el chequeo en `verificar-pc.ps1` (Windows, sin poder probarlo acá) | `80d21b8` | `ass-tokens.test.ts` (grafo con `fontsdir=fonts`, copias, aviso; render real desde una carpeta «Ñandú con espacios» = render con ruta absoluta) |
+| E11 | media | corregido | Palabras más largas que la línea (URL, número) se parten con guion en la paginación (check y ASS iguales); la exportación cuenta las reglas duras sin arreglo (`designUnfixed`, aviso `DESIGN_UNFIXED` en el resultado y en Exportar) | `80d21b8` | `design-rules.test.ts`, `export-design-summary.test.ts` |
+| E12 | media | corregido | Título y pantalla final usan el grosor de «Títulos», la tipografía cinética el de «Destacados», el cargo del rótulo el de «Texto» y los subtítulos animados el de «Subtítulos» (`fontWeight` pasa a «Del kit»; sin kit, los de antes). El Kit bloquea el grosor de las familias de una sola cara | `80d21b8` | `fonts-render.test.ts` (render real: título Inter 400 ≠ 900, Bangers 400 = 900, subtítulos animados 400 ≠ 900), `brand-kit-tab.test.tsx` |
+| E13 | media | corregido | El Kit dice «El logo todavía no se dibuja en los videos…» (manual §29.1 también); subir otro logo borra el anterior. El dibujo del logo queda en S7 (en «Descubierto») | `80d21b8` | `brand-kit.test.ts`, `brand-kit-tab.test.tsx` |
+| E14 | baja | corregido | «Acelerar» solo existe con todos los grupos: destildar otro lo destilda y tildarlo vuelve a tildar todo; el total mostrado sigue a las casillas | `4d78df4` | `script-fit-choices.test.ts` |
+| E15 | baja | corregido | Una sola duración (`exportDuration`/`timelineDuration` en shared, la del export: saltea pistas ocultas salvo audio y suma subtítulos); la api la importa | `4d78df4` | `script-words.test.ts` |
+| E16 | baja | **diferido (S7)** | Clave `(project, asset, clip)` de `script_audio` y limpieza de `renders/<job>`: cambia el esquema SQLite y la lectura de huecos de M1; sin riesgo de datos, solo pierde «eh» acústicas al transcribir dos mitades del mismo medio | — | — |
+| E17 | baja | corregido | Al partir un clip (cortes del Guion y `splitClip` de la web) los keyframes se reubican en cada pieza con el valor interpolado en los bordes; `faceSwap` queda solo en la primera pieza | `4d78df4` | `script-words.test.ts` |
+| E18 | baja | corregido (parcial) | `numpy>=1.26` declarado en `pyproject.toml` y `requirements.txt` (ya venía por faster-whisper; no se instala nada nuevo). Leer el WAV por bloques y extraer solo el tramo del clip: S7 | `4d78df4` | `test_declared_deps.py` |
+| E19 | baja | corregido | El hash del bundle de Remotion incluye `public/` (fuentes) | `4d78df4` | `render.test.ts` |
+| E20 | baja | corregido (parcial) | Logo validado por firma (PNG/JPEG) y SVG sin `<script>`, eventos, `javascript:` ni enlaces externos. Sin cabecera CSP propia para `/files/*.svg` (rechazar el contenido alcanza) | `80d21b8` | `brand-kit.test.ts` |
+| E21 | baja | corregido | `mediaSrc` (Lottie, video/audio de fondo, transiciones) solo acepta archivos de Studio: relativos, `data:`/`blob:` o http(s) a loopback o red privada | `4d78df4` | `schemas.test.ts` |
+| E22 | baja | corregido | Reescritas la 2.ª prueba de la cola (el trabajo de fondo queda retenido hasta que corre el del usuario) y `sprint6-stubs` (404/400/409 por contrato); `ass-tokens` en E1. `scripts/e2e/heatmap-ux.mjs`: los 9 flujos del mapa de calor en el repo (genera sus medios). `ui-smoke` acepta un storage ya usado (los archivos de la corrida llevan sufijo). Queda para S7: PNG de referencia por familia/peso en `design-check` | `4d78df4` | las mismas pruebas; ui-smoke sobre storage usado (4/4 tras restablecer el layout guardado en la api; la primera prueba falló por los paneles movidos por la corrida anterior, no por los nombres) |
+| E23 | baja | corregido | `probeError` guarda un motivo corto en español («El archivo está dañado o incompleto.») sin rutas; el texto crudo va al log del trabajo con la ruta relativa a storage | `4d78df4` | `media-probe-error.test.ts` |
+| E24 | baja | **diferido (licencia)** | Renombrar Playfair Display («Reserved Font Name») implica regenerar las TTF con otro nombre interno y migrar los kits guardados; se decide con el usuario. Parte resuelta: la tabla archivo↔peso de la web sale de `bundledFontFileName` (shared) y se prueba contra `manifest.json` | `cc25200` (tabla) | `fonts-offline.test.ts` |
+| E25 | baja | corregido | `checkDesign` devuelve `applicable: false` sin subtítulos quemados, títulos ni textos («No hay … para revisar») y `fixedCount` cuenta arreglos distintos (un ajuste del estilo arregla varias reglas) | `4d78df4` | `design-rules.test.ts`, `design-check.test.ts` |
+
+Criterios después de las correcciones:
+
+| # | Antes | Después |
+| - | ----- | ------- |
+| C1 | 0,43 s | **0,46 s** (ui-smoke; 8 seguras + 2 × Supr; el mock usa «mmm» en lugar de «ah», que ya no es segura) |
+| C2 | 10/10 solo con habla a 2,6 palabras/s (9/10 a 3) | **10/10 en 9:16 y 16:9 a 2,6 y a 3 palabras/s** (`design-check --rates 2.6,3`). Medido con `checkDesignWithFix` sobre 40 s de habla: 3,5 palabras/s (18,6 caracteres/s de habla) **9/10, 11 incidencias** (antes 14); 4 palabras/s (20,9 c/s) 9/10, 22; 4,5 palabras/s 9/10, 23. Ahí la regla de 17 c/s no se puede cumplir sin condensar el texto: la exportación lo avisa (`DESIGN_UNFIXED`); bajar la regla a guía queda para S7 |
+| C3 | 3,90 / 5 autoevaluado, sin script | **3,90 / 5** (sin cambios en las notas); las observaciones ahora se reproducen con `scripts/e2e/heatmap-ux.mjs` (9/9 flujos) y la corrida de verificación dio lo mismo que la integración (0 inglés salvo `rmvpe`, 0 íconos sin tooltip, 2 familias, foco visible 11/12, latencias de la línea de tiempo 36–184 ms). Las notas 1–5 las sigue poniendo una persona |
+| C5 | 7,4 s | 6,8 s (2 tarjetas) |
+
+Documentación: `CLAUDE.md` (confirmar `delete_words`/`fit_duration`, `replace: true`,
+`TRACK_LOCKED`) y `MANUAL-USUARIO.md` §28 (muletillas seguras/probables, pista bloqueada,
+re-transcribir), §28.3 (palabras agregadas), §29.1 (grosor por familia, logo pendiente) y §29.2
+(páginas rápidas, URL con guion, `DESIGN_UNFIXED`). El `index.html` y el PDF del manual **no** se
+regeneraron en esta pasada (quedan para la próxima regeneración del manual).

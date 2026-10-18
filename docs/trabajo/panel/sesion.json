@@ -1,6 +1,6 @@
 {
  "version": 1,
- "actualizado": "2026-10-18T16:45:00Z",
+ "actualizado": "2026-10-18T19:00:00Z",
  "notas": "Fuente única del panel. Tokens en miles (k). 'medido': true = subagent_tokens de las notificaciones de la sesión; false = estimado por el coordinador. Fases del grupo: 0 coordinador, 1 investigación/contratos, 2 módulos en paralelo, 3 integración, 4 auditoría, 5 correcciones, 6 después del sprint (hotfix, CI, soporte).",
  "sesion": {
   "proyecto": "Studio",
@@ -1291,13 +1291,13 @@
    "plan": "02-PLAN-BASE-v3",
    "estado": "integrado",
    "horas": 4.5,
-   "commits": 30,
+   "commits": 37,
    "progreso": {
     "funciones": 100,
     "errores": 100,
     "diseno": 78,
     "diseno_medido": true,
-    "diseno_nota": "Mapa de calor de la integración (protocolo-mapa-calor.md): 3,90 de 5 (+1,38 contra 2,52); checklist C2 10/10 en 9:16 y 16:9"
+    "diseno_nota": "Mapa de calor de la integración (protocolo-mapa-calor.md): 3,90 de 5 (+1,38 contra 2,52), observaciones reproducibles con scripts/e2e/heatmap-ux.mjs (auditoría); checklist C2 10/10 en 9:16 y 16:9 a 2,6 y a 3 palabras/s (a 3,5 palabras/s 9/10)"
    },
    "criterios": {
     "verdes": 6,
@@ -1313,8 +1313,8 @@
    "tests": {
     "e2e": 91,
     "smoke": 63,
-    "node": 1113,
-    "python": 523
+    "node": 1150,
+    "python": 524
    },
    "corto": {
     "relanzados": 0,
@@ -1381,8 +1381,36 @@
      "k": 680,
      "medido": false,
      "nota": "Estimado por el propio agente (contexto procesado en la sesión)"
+    },
+    {
+     "id": "aud",
+     "rol": "Auditoría",
+     "tipo": "auditoria",
+     "modelo": "sonnet",
+     "fase": 4,
+     "k": 475,
+     "medido": true
+    },
+    {
+     "id": "fix",
+     "rol": "Correcciones (E1–E25)",
+     "tipo": "correcciones",
+     "modelo": "opus",
+     "fase": 5,
+     "k": 540,
+     "medido": false,
+     "nota": "Estimado por el propio agente (contador de tokens de su sesión)"
     }
-   ]
+   ],
+   "auditoria": {
+    "hallazgos": 25,
+    "altos": 2,
+    "medios": 11,
+    "bajos": 12,
+    "corregidos": 23,
+    "diferidos": 2,
+    "nota": "Corregidos 2/2 altos, 11/11 medios y 10/12 bajos; diferidos E16 (clave de script_audio, S7) y E24 (renombrar Playfair Display, licencia)"
+   }
   },
   {
    "id": "S7",

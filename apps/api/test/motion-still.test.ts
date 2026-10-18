@@ -127,4 +127,41 @@ describe("motion still (Sprint 6 M2)", () => {
     const total = files.filter(existsSync).reduce((n, f) => n + statSync(f).size, 0);
     expect(total).toBeLessThanOrEqual(2500);
   });
+
+  it("at most 2 renders at a time; a request aborted while queued never renders (audit S6 E6)", async () => {
+    const storage = tempStorage();
+    let active = 0;
+    let peak = 0;
+    const rendered: string[] = [];
+    const svc = new StillService({
+      storageDir: storage,
+      ffmpegPath: "ffmpeg",
+      render: async (a) => {
+        active++;
+        peak = Math.max(peak, active);
+        await new Promise((r) => setTimeout(r, 40));
+        rendered.push(String((a.props as { name: string }).name));
+        mkdirSync(path.dirname(a.output), { recursive: true });
+        writeFileSync(a.output, PNG_1PX);
+        active--;
+      },
+    });
+    const all = await Promise.all(
+      Array.from({ length: 8 }, (_, i) => svc.get(req({ name: `n${i}` }), null)),
+    );
+    expect(all.every((r) => existsSync(r.file))).toBe(true);
+    expect(peak).toBe(2);
+    expect(svc.renders).toBe(8);
+    // Dragging a control: older requests are aborted by the client before their turn.
+    rendered.length = 0;
+    const ctrls = Array.from({ length: 5 }, () => new AbortController());
+    const pending = ctrls.map((c, i) => svc.get(req({ name: `d${i}` }), null, c.signal));
+    await new Promise((r) => setTimeout(r, 10)); // d0 and d1 rendering, d2–d4 queued
+    ctrls.slice(0, 4).forEach((c) => c.abort());
+    const settled = await Promise.allSettled(pending);
+    expect(settled.at(-1)!.status).toBe("fulfilled");
+    for (const r of settled.slice(2, 4)) expect(r.status).toBe("rejected");
+    // The first two had already started (2 slots); the aborted queued ones did not render.
+    expect(rendered.sort()).toEqual(["d0", "d1", "d4"]);
+  });
 });

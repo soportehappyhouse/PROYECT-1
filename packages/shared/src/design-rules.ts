@@ -194,6 +194,7 @@ export function kitCaptionStyle(tokens: DesignTokens): CaptionStyle {
 }
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
+const round3 = (n: number) => Math.round(n * 1000) / 1000;
 
 /**
  * Effective caption style = what ASS and Remotion draw. With the kit (`fromBrandKit` absent or
@@ -366,6 +367,8 @@ export interface PaginateOptions {
   karaoke?: boolean;
   /** Pages never extend past this time (next segment start, clip end). */
   limitEnd?: number;
+  /** Pages never start before this time (end of the previous segment's last page; audit E4). */
+  limitStart?: number;
 }
 
 /**
@@ -514,7 +517,50 @@ export function paginateCaptions(
     want = Math.min(want, p.start + rules.max_duration_s);
     p.end = Math.max(p.end, Math.min(want, limit));
   }
+  if (!opts.karaoke)
+    rebalancePages(pages, rules, opts.limitStart ?? -Infinity, opts.limitEnd ?? Infinity);
   return pages;
+}
+
+/** How much earlier / later than its first word a page may appear (audit S6 E4). */
+export const CAPTION_PAGE_LEAD_S = 0.5;
+export const CAPTION_PAGE_LAG_S = 0.3;
+
+/**
+ * Pages still too fast after stretching (fast speech leaves no gap after them) take time from
+ * their neighbours: each page may appear up to CAPTION_PAGE_LEAD_S before its first word or
+ * CAPTION_PAGE_LAG_S after it, within [lo, hi], and every page keeps what it needs (min duration
+ * and max_cps). Earliest/latest feasible starts are computed both ways and the starts are moved
+ * as little as possible; when the speech itself is faster than max_cps the pages keep their
+ * natural starts (no solution) and the checklist reports them. Audit S6 E4.
+ */
+function rebalancePages(pages: CaptionPage[], rules: CaptionRules, lo: number, hi: number): void {
+  const n = pages.length;
+  if (n === 0) return;
+  const need = pages.map((p) =>
+    Math.min(rules.max_duration_s, Math.max(rules.min_duration_s, p.text.length / rules.max_cps)),
+  );
+  if (pages.every((p, i) => p.end - p.start >= need[i]! - 1e-4)) return;
+  const w = pages.map((p) => p.words[0]!.start);
+  const top = Number.isFinite(hi) ? hi : pages[n - 1]!.start + need[n - 1]! + CAPTION_PAGE_LAG_S;
+  const E: number[] = [];
+  for (let i = 0; i < n; i++)
+    E[i] = Math.max(w[i]! - CAPTION_PAGE_LEAD_S, i ? E[i - 1]! + need[i - 1]! : Math.max(0, lo));
+  const L: number[] = [];
+  for (let i = n - 1; i >= 0; i--)
+    L[i] = Math.min(w[i]! + CAPTION_PAGE_LAG_S, (i < n - 1 ? L[i + 1]! : top) - need[i]!);
+  if (E.some((e, i) => e > L[i]! + 1e-6)) return; // too fast to fix by timing alone
+  const starts: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const low = Math.max(E[i]!, i ? starts[i - 1]! + need[i - 1]! : E[i]!);
+    starts[i] = Math.min(Math.max(pages[i]!.start, low), L[i]!);
+  }
+  for (let i = 0; i < n; i++) {
+    const p = pages[i]!;
+    const nextStart = i < n - 1 ? starts[i + 1]! : top;
+    p.start = round3(starts[i]!);
+    p.end = round3(Math.min(nextStart, Math.max(p.end, starts[i]! + need[i]!)));
+  }
 }
 
 /** Words of a segment (measured, or spread over the segment by length when absent). */
@@ -533,23 +579,31 @@ export function segmentWords(seg: SubtitleSegment): PaginateWord[] {
   });
 }
 
-/** Pages for every subtitle segment (each segment paginated alone, bounded by the next one). */
+/**
+ * Pages for every subtitle segment (each segment paginated alone, bounded by the next segment's
+ * start and by the previous segment's last page).
+ */
 export function paginateSegments(
   segments: readonly SubtitleSegment[],
   rules: CaptionRules,
   aspect: DesignAspect,
-  opts: Omit<PaginateOptions, "limitEnd"> & { limitEnd?: number } = {},
+  opts: Omit<PaginateOptions, "limitEnd" | "limitStart"> & { limitEnd?: number } = {},
 ): CaptionPage[] {
   const live = segments
     .filter((s) => s.end > s.start && s.text.trim() !== "")
     .slice()
     .sort((a, b) => a.start - b.start);
-  return live.flatMap((s, i) =>
-    paginateCaptions(segmentWords(s), rules, aspect, {
-      ...opts,
-      limitEnd: Math.min(live[i + 1]?.start ?? Infinity, opts.limitEnd ?? Infinity),
-    }),
-  );
+  const out: CaptionPage[] = [];
+  live.forEach((s, i) => {
+    out.push(
+      ...paginateCaptions(segmentWords(s), rules, aspect, {
+        ...opts,
+        limitEnd: Math.min(live[i + 1]?.start ?? Infinity, opts.limitEnd ?? Infinity),
+        limitStart: out.at(-1)?.end ?? -Infinity,
+      }),
+    );
+  });
+  return out;
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -7,6 +7,7 @@ import {
   BUNDLED_FONTS_DIR,
   computeSourceHash,
   RemotionBrowserMissingError,
+  closeStillBrowser,
   renderTemplateStill,
   setDesignTokensProvider,
 } from "@studio/remotion";
@@ -90,6 +91,7 @@ export const designRoutes: FastifyPluginAsync = async (app) => {
       mediaBaseUrl: motionMediaBaseUrl(ctx.config),
     });
   };
+  app.addHook("onClose", async () => closeStillBrowser());
   const stills = new StillService({
     storageDir: ctx.config.storageDir,
     render,
@@ -185,8 +187,13 @@ export const designRoutes: FastifyPluginAsync = async (app) => {
       throw new HttpError(400, "VALIDATION_ERROR", "Parámetros de la plantilla inválidos", {
         errors: validation.errors,
       });
+    // The web aborts the previous preview when a control changes: drop it if still queued (E6).
+    const ctrl = new AbortController();
+    reply.raw.on("close", () => {
+      if (!reply.raw.writableFinished) ctrl.abort();
+    });
     try {
-      const res = await stills.get(body, kits.get().tokens);
+      const res = await stills.get(body, kits.get().tokens, ctrl.signal);
       const { readFile } = await import("node:fs/promises");
       return reply
         .header("content-type", res.contentType)
@@ -195,6 +202,8 @@ export const designRoutes: FastifyPluginAsync = async (app) => {
         .header("x-still-ms", String(res.ms))
         .send(await readFile(res.file));
     } catch (err) {
+      if ((err as Error).name === "AbortError" && ctrl.signal.aborted)
+        return reply.code(499).send(errorBody("STILL_CANCELED", "Vista previa cancelada"));
       const reason = stillReason(err);
       return reply.code(SPRINT6_ERRORS.STILL_UNAVAILABLE.status).send(
         errorBody("STILL_UNAVAILABLE", formatErrorEs("STILL_UNAVAILABLE", { motivo: reason }), {

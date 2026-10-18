@@ -409,3 +409,71 @@ describe("caption font weight (audit S6 E1)", () => {
     );
   });
 });
+
+describe("caption timing at conversational speed (audit S6 E4)", () => {
+  const lex = (
+    "hola hoy vamos a ver cómo se hace esto porque la verdad es que mucha gente me pregunta " +
+    "todos los días cómo editar un video sin perder tiempo y entonces decidí mostrarlo paso por " +
+    "paso con un ejemplo real"
+  ).split(" ");
+  /** 40 s of speech at `wps` words/s, sentences of 12 words, 0,35 s pauses. */
+  function speech(wps: number) {
+    let t = 0.3;
+    let i = 0;
+    const segs: SubtitleSegment[] = [];
+    while (t < 40) {
+      const words = [];
+      for (let k = 0; k < 12; k++) {
+        const w = lex[i++ % lex.length]!;
+        const d = (1 / wps) * Math.max(0.6, Math.min(1.6, w.length / 5));
+        words.push({
+          word: w + (k === 11 ? "." : ""),
+          start: +t.toFixed(3),
+          end: +(t + d * 0.9).toFixed(3),
+        });
+        t += d;
+      }
+      segs.push({
+        start: words[0]!.start,
+        end: words.at(-1)!.end,
+        text: words.map((w) => w.word).join(" "),
+        words,
+      });
+      t += 0.35;
+    }
+    return segs;
+  }
+  const projectWith = (subtitles: SubtitleSegment[]) =>
+    ({
+      id: "p",
+      name: "x",
+      settings: { width: 1080, height: 1920, fps: 30 },
+      tracks: [],
+      subtitles,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    }) as unknown as Project;
+
+  it("3 words/s passes caption.timing (pages borrow time from their neighbours)", () => {
+    for (const wps of [2.6, 3]) {
+      const c = checkDesignWithFix(projectWith(speech(wps)), DEFAULT_BRAND_KIT, "9:16");
+      expect(
+        c.result.issues.filter((x) => x.rule === "caption.timing"),
+        `${wps}`,
+      ).toEqual([]);
+    }
+  });
+
+  it("rebalanced pages never overlap and stay near their words", () => {
+    const pages = paginateSegments(speech(3), DEFAULT_DESIGN_TOKENS.caption, "9:16", {
+      maxChars: 22,
+    });
+    for (let k = 0; k < pages.length; k++) {
+      const p = pages[k]!;
+      if (k) expect(p.start).toBeGreaterThanOrEqual(pages[k - 1]!.end - 1e-6);
+      expect(p.start).toBeGreaterThanOrEqual(p.words[0]!.start - 0.5 - 1e-6);
+      expect(p.start).toBeLessThanOrEqual(p.words[0]!.start + 0.3 + 1e-6);
+      expect(p.text.length / (p.end - p.start)).toBeLessThanOrEqual(17.05);
+    }
+  });
+});

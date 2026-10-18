@@ -1,5 +1,6 @@
 import type { EditOp, EditPlan } from "./agent.js";
 import type { CutRange } from "./ai.js";
+import { inferTrackRole } from "./audio-mix.js";
 import type { MediaAsset } from "./media.js";
 import {
   SUGGESTION_THRESHOLDS,
@@ -8,7 +9,7 @@ import {
   type SuggestionKind,
 } from "./suggestions.js";
 import { SUGGESTION_TEXTS_ES, SUGGESTION_UI_ES } from "./texts-es.js";
-import type { Clip, Project } from "./timeline.js";
+import type { Clip, Project, TrackRole } from "./timeline.js";
 
 /**
  * Sprint 6 M3 (docs/trabajo/sprint6-contratos.md, M3 P1.3): turn one ImportAnalysis (source
@@ -57,6 +58,21 @@ export function clipsOfAsset(project: Project, assetId: string): Clip[] {
   return out.sort((a, b) => a.start - b.start);
 }
 
+type RulesAsset = Pick<MediaAsset, "id" | "name"> &
+  Partial<Pick<MediaAsset, "kind" | "aiProvenance">>;
+
+/** Mix role of the track of every clip of `asset` (inferTrackRole; audit S6 E7). */
+function clipRoles(project: Project, asset: RulesAsset): Map<string, TrackRole> {
+  const assetOf = (id: string) =>
+    id === asset.id ? { ...asset, kind: asset.kind ?? ("video" as const) } : undefined;
+  const out = new Map<string, TrackRole>();
+  for (const track of project.tracks) {
+    const role = inferTrackRole(track, assetOf);
+    for (const clip of track.clips) out.set(clip.id, role);
+  }
+  return out;
+}
+
 /**
  * Stable signature of the clips of a suggestion (source range, speed, volume): when it changes
  * after the analysis the suggestion becomes `stale` (SUGGESTION_STALE on «Aplicar»).
@@ -103,7 +119,8 @@ export function suggestionScore(s: Pick<SuggestionDraft, "kind" | "impact">): nu
 /**
  * The suggestions of `project` for this analysis of `asset` (open cards, at most one per kind).
  * - silences: removable ≥ 8 % of the clips' duration, or ≥ 5 s in ≥ 3 silences → cut_silences.
- * - low_voice: integrated loudness (+ the clip volume) < −24 LUFS → set_volume up to −14 LUFS,
+ * - low_voice (only voice tracks: video, or the Voz role): integrated loudness (+ the clip
+ *   volume) < −24 LUFS → set_volume up to −14 LUFS,
  *   never past −1 dBTP (and never above +12 dB, the op limit).
  * - clipping: true peak (+ the clip volume) > −1 dBTP → set_volume down to −1 dBTP.
  * `muted` kinds («No sugerir más») are left out.
@@ -111,12 +128,18 @@ export function suggestionScore(s: Pick<SuggestionDraft, "kind" | "impact">): nu
 export function suggestionsFromAnalysis(
   analysis: ImportAnalysis,
   project: Project,
-  asset: Pick<MediaAsset, "id" | "name">,
+  asset: RulesAsset,
   muted: readonly SuggestionKind[] = [],
 ): SuggestionDraft[] {
   const T = SUGGESTION_THRESHOLDS;
-  const clips = clipsOfAsset(project, asset.id);
-  if (!clips.length) return [];
+  const all = clipsOfAsset(project, asset.id);
+  if (!all.length) return [];
+  // Audit S6 E7: music and effects are not speech: no «Silencios» (cutting music breaks it)
+  // and no «La voz está baja» (quiet background music is right). Clipping is for any sound.
+  const roles = clipRoles(project, asset);
+  const speechish = all.filter((c) => !["music", "sfx"].includes(roles.get(c.id) ?? "other"));
+  const voice = all.filter((c) => roles.get(c.id) === "voice");
+  const clips = speechish;
   const base = {
     projectId: project.id,
     assetId: asset.id,
@@ -166,14 +189,14 @@ export function suggestionsFromAnalysis(
   }
 
   // ---- loudness (one of low_voice / clipping per clip group, same current volume assumed)
-  const currentDb = volumeToDb(clips[0]!.volume);
+  const currentDb = volumeToDb(all[0]!.volume);
   const lufs = analysis.lufs_i === null ? null : analysis.lufs_i + currentDb;
   const tp = analysis.true_peak_db === null ? null : analysis.true_peak_db + currentDb;
-  const sameVolume = clips.every((c) => Math.abs(volumeToDb(c.volume) - currentDb) < 0.05);
+  const sameVolume = all.every((c) => Math.abs(volumeToDb(c.volume) - currentDb) < 0.05);
   if (sameVolume && lufs !== null && analysis.lufs_i !== null) {
     const srcLufs = analysis.lufs_i;
     const srcTp = analysis.true_peak_db;
-    if (!muted.includes("low_voice") && lufs < T.low_voice_lufs) {
+    if (!muted.includes("low_voice") && voice.length === all.length && lufs < T.low_voice_lufs) {
       const byLufs = T.target_lufs - srcLufs;
       const byPeak = srcTp === null ? Infinity : T.target_true_peak_db - srcTp;
       const target = Math.min(byLufs, byPeak, 12);
@@ -181,7 +204,7 @@ export function suggestionsFromAnalysis(
       if (gain - currentDb >= 1) {
         out.push({
           ...base,
-          clipIds: clips.map((c) => c.id),
+          clipIds: all.map((c) => c.id),
           kind: "low_voice",
           title_es: fillTemplate(SUGGESTION_UI_ES.lowVoiceTitle, { lufs: fmtNumEs(lufs) }),
           detail_es: fillTemplate(SUGGESTION_UI_ES.lowVoiceDetail, {
@@ -196,7 +219,7 @@ export function suggestionsFromAnalysis(
           },
           plan: plan(
             fillTemplate(SUGGESTION_TEXTS_ES.lowVoice, { lufs: fmtNumEs(lufs) }),
-            clips.map((c) => ({ op: "set_volume", clip: { id: c.id }, volume_db: gain })),
+            all.map((c) => ({ op: "set_volume", clip: { id: c.id }, volume_db: gain })),
           ),
         });
       }
@@ -211,7 +234,7 @@ export function suggestionsFromAnalysis(
       if (gain < currentDb) {
         out.push({
           ...base,
-          clipIds: clips.map((c) => c.id),
+          clipIds: all.map((c) => c.id),
           kind: "clipping",
           title_es: fillTemplate(SUGGESTION_UI_ES.clippingTitle, { tp: fmtNumEs(tp) }),
           detail_es: fillTemplate(SUGGESTION_UI_ES.clippingDetail, {
@@ -225,7 +248,7 @@ export function suggestionsFromAnalysis(
           },
           plan: plan(
             fillTemplate(SUGGESTION_TEXTS_ES.clipping, { tp: fmtNumEs(tp) }),
-            clips.map((c) => ({ op: "set_volume", clip: { id: c.id }, volume_db: gain })),
+            all.map((c) => ({ op: "set_volume", clip: { id: c.id }, volume_db: gain })),
           ),
         });
       }

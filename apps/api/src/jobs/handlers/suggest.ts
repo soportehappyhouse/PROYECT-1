@@ -83,7 +83,14 @@ export function createSuggestAnalyzeHandler(
         to: 0.98,
       });
       checkAborted(ctx);
-      const res = WorkerSuggestAnalyzeResultSchema.parse(task.result);
+      const parsed = WorkerSuggestAnalyzeResultSchema.safeParse(task.result);
+      if (!parsed.success) {
+        ctx.log(`resultado inválido de /analyze/suggest: ${parsed.error.message.slice(0, 500)}`);
+        throw new Error(
+          `No se pudo leer el análisis de «${asset.name}» (respuesta inesperada de la IA local)`,
+        );
+      }
+      const res = parsed.data;
       const analysis: ImportAnalysis = {
         assetId: asset.id,
         params_version: T.params_version,

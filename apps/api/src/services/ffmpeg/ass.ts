@@ -250,6 +250,7 @@ export function buildAss(segments: readonly SubtitleSegment[], o: BuildAssOption
   const events: string[] = [];
   const karaoke = st.animation === "karaoke";
   const sorted = live.slice().sort((a, b) => a.start - b.start);
+  let lastEnd = -Infinity;
   sorted.forEach((s, i) => {
     const rect = rectAt((s.start + s.end) / 2);
     const rd = rectDesign(rect);
@@ -258,7 +259,9 @@ export function buildAss(segments: readonly SubtitleSegment[], o: BuildAssOption
       maxChars,
       karaoke,
       limitEnd: sorted[i + 1]?.start ?? Infinity,
+      limitStart: lastEnd,
     });
+    lastEnd = pages.at(-1)?.end ?? lastEnd;
     for (const p of pages) {
       const mm = marginsFor(rect, p.lines.length);
       const tags = (mm.align === m0.align ? "" : `\\an${mm.align}`) + weightTag;

@@ -198,6 +198,20 @@ describe("sprint 6 M3 suggestions api", () => {
     expect(fake.submitted.at(-1)).toMatchObject({ input_path: asset.path, priority: 5 });
   });
 
+  it("digital silence (lufs_i / lra / true_peak_db null from the worker) still saves the analysis (audit S6 E5)", async () => {
+    // Through the real workers client (stripNulls drops the nulls of the JSON).
+    fake.result = analysisResult({ lufs_i: null, lra: null, true_peak_db: null });
+    const { asset, project } = setup();
+    const job = await analyze(asset.id);
+    expect(job.error).toBeUndefined();
+    expect(job.status).toBe("succeeded");
+    const saved = (job.result as { analysis: { lufs_i: unknown; true_peak_db: unknown } }).analysis;
+    expect(saved.lufs_i).toBeNull();
+    expect(saved.true_peak_db).toBeNull();
+    const body = await getSuggestions(project.id);
+    expect(body.suggestions.map((s) => s.kind)).not.toContain("low_voice");
+  });
+
   it("analysis → 2 cards (silencios, voz baja) with valid plans; progress has stage_es", async () => {
     const { asset, project } = setup();
     const job = await analyze(asset.id);

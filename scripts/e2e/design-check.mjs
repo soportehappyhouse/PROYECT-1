@@ -10,12 +10,15 @@
 //   1. POST /api/design/check  -> must be 10/10 rules (DESIGN_RULES), 0 manual fixes;
 //   2. exports it twice (with / without burned subtitles) and, on 5 frames, takes the bounding box
 //      of the pixels that differ (= the captions): inside the kit safe zone and ≤ 2 lines tall;
-//   3. checks the ASS burn-in used the bundled fonts (fontsdir in the export log, when exposed).
+//   3. checks the ASS burn-in used the bundled fonts (fontsdir in the export log, when exposed);
+//   4. (audit S6 E4) repeats the checklist with faster speech (--rates, default 2.6 and 3 words/s:
+//      the pixel checks use the first rate) and reports the rules per rate.
 // Motion clips are rendered with Remotion when the engine is available; otherwise they are only
 // checked by the rules (step 1) and the export drops them (reported as SKIP, Chrome missing).
 //
 // Options: --api <url> · --work <dir> · --out <file.json> · --ffmpeg/--ffprobe <bin> ·
-//          --aspect 9:16|16:9 (one only) · --timeout <s> (per job, default 600)
+//          --aspect 9:16|16:9 (one only) · --timeout <s> (per job, default 600) ·
+//          --rates 2.6,3 (words per second of the synthetic speech; all must give 10/10)
 // Exit code 0 = both aspects 10/10 and every pixel check passed.
 
 import { spawn } from "node:child_process";
@@ -34,6 +37,10 @@ const OUT = path.resolve(opt("out", path.join(WORK, "design-check.json")));
 const FFMPEG = opt("ffmpeg", "ffmpeg");
 const TIMEOUT = Number(opt("timeout", "600")) * 1000;
 const ONLY = opt("aspect");
+const RATES = opt("rates", "2.6,3")
+  .split(",")
+  .map(Number)
+  .filter((r) => r > 0);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 class Fail extends Error {}
@@ -100,8 +107,8 @@ async function download(rel, dest) {
   return dest;
 }
 
-/** Natural Spanish speech (~2,6 words/s, pauses between sentences) as subtitle segments. */
-function speech(total) {
+/** Natural Spanish speech (`wps` words/s, 0,45 s pauses between sentences) as subtitle segments. */
+function speech(total, wps = RATES[0] ?? 2.6) {
   const sentences = [
     "Hola, hoy te muestro cómo editar un video para redes sin perder tiempo.",
     "Primero cortamos los silencios largos del principio.",
@@ -112,7 +119,7 @@ function speech(total) {
   const segs = [];
   for (const s of sentences) {
     const words = s.split(" ").map((w) => {
-      const d = 0.385 * Math.max(0.6, Math.min(1.6, w.length / 5));
+      const d = (1 / wps) * Math.max(0.6, Math.min(1.6, w.length / 5));
       const x = { word: w, start: +t.toFixed(3), end: +(t + d * 0.9).toFixed(3) };
       t += d;
       return x;
@@ -170,7 +177,7 @@ async function makeClip(aspect) {
   }
 }
 
-async function buildProject(aspect, asset, presets, motionOk) {
+async function buildProject(aspect, asset, presets, motionOk, wps = RATES[0]) {
   const a = ASPECTS[aspect];
   const created = await ok("POST", "/api/projects", {
     name: `Diseño ${aspect}`,
@@ -220,7 +227,7 @@ async function buildProject(aspect, asset, presets, motionOk) {
         ],
       },
     ],
-    subtitles: speech(DURATION),
+    subtitles: speech(DURATION, wps),
   };
   // `add_captions {style}` = the CAPTION_STYLE_PRESETS object (the web Subtítulos panel does the same)
   project.captionStyle = CAPTION_STYLES[a.caption];
@@ -401,7 +408,23 @@ async function checkAspect(aspect, presets, motionOk) {
       `    t=${frame.t}s caja=${box ? `${box.x},${box.y} ${box.w}×${box.h}` : "—"} zona segura=${frame.insideSafeZone ? "sí" : "NO"} líneas≈${lines}`,
     );
   }
-  out.pass = check.passed === 10 && out.frames.length === 5 && out.frames.every((f) => f.pass);
+  // 4. checklist at the other speech rates (same project, other subtitles; no export).
+  out.rates = [{ wps: RATES[0], passed: check.passed, failed: out.rules.failed }];
+  for (const wps of RATES.slice(1)) {
+    const p = await ok("GET", `/api/projects/${project.id}`);
+    await ok("PUT", `/api/projects/${project.id}`, { ...p, subtitles: speech(DURATION, wps) });
+    const c = await ok("POST", "/api/design/check", { projectId: project.id, aspect });
+    const failed = c.rules.filter((r) => !r.passed).map((r) => r.id);
+    const n = c.issues.length;
+    out.rates.push({ wps, passed: c.passed, failed, issues: n });
+    console.log(
+      `  ${aspect} a ${wps} palabras/s: ${c.passed}/10 reglas${failed.length ? ` — fallan: ${failed.join(", ")} (${n} incidencias)` : ""}`,
+    );
+  }
+  out.pass =
+    out.rates.every((r) => r.passed === 10) &&
+    out.frames.length === 5 &&
+    out.frames.every((f) => f.pass);
   return out;
 }
 

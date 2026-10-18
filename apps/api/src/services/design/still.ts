@@ -35,6 +35,24 @@ export interface StillServiceOptions {
   /** Changes when the templates change (bundle hash), so old stills are not reused. */
   version?: () => Promise<string> | string;
   maxBytes?: number;
+  /** Renders at the same time (audit S6 E6: each one is a Chrome tab; default 2). */
+  maxConcurrent?: number;
+}
+
+/** Default number of stills rendered at once (the rest wait in a queue). */
+export const STILL_MAX_CONCURRENT = 2;
+
+function abortError(): Error {
+  const err = new Error("Vista previa cancelada");
+  err.name = "AbortError";
+  return err;
+}
+
+interface InFlight {
+  promise: Promise<StillResult>;
+  /** Requests still waiting for it; when all abort before it starts, it is dropped. */
+  waiters: number;
+  ctrl: AbortController;
 }
 
 export interface StillResult {
@@ -48,7 +66,9 @@ export interface StillResult {
 export class StillService {
   /** Renders actually run (tests: the 2nd identical request must not render). */
   renders = 0;
-  private readonly inFlight = new Map<string, Promise<StillResult>>();
+  private readonly inFlight = new Map<string, InFlight>();
+  private active = 0;
+  private readonly waiting: (() => void)[] = [];
 
   constructor(private readonly o: StillServiceOptions) {}
 
@@ -64,7 +84,18 @@ export class StillService {
       .slice(0, 32);
   }
 
-  async get(req: MotionStillRequest, tokens: DesignTokens | null): Promise<StillResult> {
+  /**
+   * The still for `req` (cache, shared in-flight render, or a new render). At most
+   * `maxConcurrent` renders run at once; `signal` (the HTTP request closing: the web aborts the
+   * previous preview when a control changes) drops the request, and a queued render nobody waits
+   * for any more never starts — dragging a slider keeps only the last value (audit S6 E6).
+   */
+  async get(
+    req: MotionStillRequest,
+    tokens: DesignTokens | null,
+    signal?: AbortSignal,
+  ): Promise<StillResult> {
+    if (signal?.aborted) throw abortError();
     const key = await this.key(req, tokens);
     const ext = req.format === "jpeg" ? "jpg" : "png";
     const file = path.join(this.dir(), `${key}.${ext}`);
@@ -74,11 +105,72 @@ export class StillService {
       await utimes(file, now, now).catch(() => undefined);
       return { file, cached: true, ms: 0, contentType };
     }
-    const pending = this.inFlight.get(key);
-    if (pending) return pending;
-    const p = this.produce(req, tokens, file, contentType).finally(() => this.inFlight.delete(key));
-    this.inFlight.set(key, p);
-    return p;
+    if (signal?.aborted) throw abortError();
+    let entry = this.inFlight.get(key);
+    if (!entry) {
+      const ctrl = new AbortController();
+      const created: InFlight = {
+        ctrl,
+        waiters: 0,
+        promise: this.slot(ctrl.signal, () => this.produce(req, tokens, file, contentType)),
+      };
+      created.promise.then(
+        () => this.inFlight.delete(key),
+        () => this.inFlight.delete(key),
+      );
+      this.inFlight.set(key, created);
+      entry = created;
+    }
+    const e = entry;
+    e.waiters++;
+    if (!signal) return e.promise.finally(() => e.waiters--);
+    return new Promise<StillResult>((resolve, reject) => {
+      const onAbort = () => {
+        e.waiters--;
+        if (e.waiters <= 0) e.ctrl.abort();
+        reject(abortError());
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+      e.promise.then(
+        (r) => {
+          signal.removeEventListener("abort", onAbort);
+          e.waiters--;
+          resolve(r);
+        },
+        (err: unknown) => {
+          signal.removeEventListener("abort", onAbort);
+          e.waiters--;
+          reject(err instanceof Error ? err : new Error(String(err)));
+        },
+      );
+    });
+  }
+
+  /** Run `work` when a render slot is free; rejects without running if `signal` aborts first. */
+  private async slot<T>(signal: AbortSignal, work: () => Promise<T>): Promise<T> {
+    const max = Math.max(1, this.o.maxConcurrent ?? STILL_MAX_CONCURRENT);
+    if (this.active >= max)
+      await new Promise<void>((resolve, reject) => {
+        const go = () => {
+          signal.removeEventListener("abort", drop);
+          resolve();
+        };
+        const drop = () => {
+          const i = this.waiting.indexOf(go);
+          if (i >= 0) this.waiting.splice(i, 1);
+          reject(abortError());
+        };
+        this.waiting.push(go);
+        signal.addEventListener("abort", drop, { once: true });
+      });
+    else if (signal.aborted) throw abortError();
+    this.active++;
+    try {
+      return await work();
+    } finally {
+      this.active--;
+      this.waiting.shift()?.();
+    }
   }
 
   private async produce(

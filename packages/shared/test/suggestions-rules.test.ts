@@ -235,3 +235,51 @@ describe("stale signature and visible cards", () => {
     expect(fmtDurEs(185)).toBe("3:05");
   });
 });
+
+describe("suggestionsFromAnalysis — roles (audit S6 E7)", () => {
+  const quiet = analysis({
+    lufs_i: -30,
+    true_peak_db: -12,
+    silences: [
+      { start: 2, end: 3.5 },
+      { start: 5.5, end: 6.5 },
+      { start: 8.5, end: 9.5 },
+    ],
+  });
+  const onTrack = (track: Record<string, unknown>) =>
+    ProjectSchema.parse({
+      id: "p1",
+      name: "Proyecto",
+      settings: { width: 1080, height: 1920, fps: 30 },
+      createdAt: now,
+      updatedAt: now,
+      tracks: [{ id: "m", clips: [{ id: "c0", trackId: "m", assetId: "a1", ...full }], ...track }],
+    });
+
+  it("background music at −30 LUFS gets no «La voz está baja» nor «Silencios»", () => {
+    for (const track of [
+      { kind: "audio", name: "Audio 1", role: "music" },
+      { kind: "audio", name: "Música de fondo" },
+      { kind: "audio", name: "Efectos", role: "sfx" },
+    ]) {
+      const kinds = suggestionsFromAnalysis(quiet, onTrack(track), asset).map((s) => s.kind);
+      expect(kinds, JSON.stringify(track)).not.toContain("low_voice");
+      expect(kinds, JSON.stringify(track)).not.toContain("silences");
+    }
+  });
+
+  it("only voice tracks get the low-voice card (video = voice; an explicit Voz role too)", () => {
+    const kinds = (track: Record<string, unknown>) =>
+      suggestionsFromAnalysis(quiet, onTrack(track), asset).map((s) => s.kind);
+    expect(kinds({ kind: "video", name: "Video" })).toContain("low_voice");
+    expect(kinds({ kind: "audio", name: "Audio 1", role: "voice" })).toContain("low_voice");
+    expect(kinds({ kind: "audio", name: "Audio 1" })).not.toContain("low_voice");
+    // Clipping is a problem for any sound: still offered on music.
+    const loud = analysis({ lufs_i: -10, true_peak_db: 0.5 });
+    expect(
+      suggestionsFromAnalysis(loud, onTrack({ kind: "audio", name: "Música" }), asset).map(
+        (s) => s.kind,
+      ),
+    ).toContain("clipping");
+  });
+});

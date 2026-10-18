@@ -139,14 +139,22 @@ export const WorkerSuggestAnalyzeRequestSchema = z
   .strict();
 export type WorkerSuggestAnalyzeRequest = z.input<typeof WorkerSuggestAnalyzeRequestSchema>;
 
+const nullableNumber = () =>
+  z
+    .number()
+    .nullish()
+    .transform((v) => v ?? null);
+
 /** `result` of the suggest.analyze worker task (source seconds). */
 export const WorkerSuggestAnalyzeResultSchema = z.object({
   duration_s: z.number().nonnegative(),
   noise_floor_db: z.number(),
   silence_threshold_db: z.number(),
   silences: z.array(z.tuple([z.number(), z.number()])),
-  lufs_i: z.number().nullable(),
-  lra: z.number().nullable(),
-  true_peak_db: z.number().nullable(),
+  // Null on digital silence (LUFS −inf). The api client drops JSON nulls (stripNulls), so absent
+  // is accepted too and normalized to null (audit S6 E5).
+  lufs_i: nullableNumber(),
+  lra: nullableNumber(),
+  true_peak_db: nullableNumber(),
 });
 export type WorkerSuggestAnalyzeResult = z.infer<typeof WorkerSuggestAnalyzeResultSchema>;

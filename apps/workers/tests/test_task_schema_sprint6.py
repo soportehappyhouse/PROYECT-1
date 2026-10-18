@@ -87,21 +87,8 @@ def test_not_implemented_error() -> None:
     }
 
 
-@pytest.mark.parametrize(
-    ("method", "url", "body", "module"),
-    [
-        ("post", "/transcribe/words", {"input_path": "a.mp4", "output_base": "r/j"}, "M1 Guion"),
-        ("get", "/transcribe/tasks/t1", None, "M1 Guion"),
-        ("post", "/transcribe/tasks/t1/cancel", None, "M1 Guion"),
-    ],
-)
-def test_stub_routes_answer_501(
-    client: TestClient, method: str, url: str, body: dict | None, module: str
-) -> None:
-    res = client.request(method.upper(), url, json=body)
-    assert res.status_code == 501
-    assert res.json() == {
-        "detail": f"Todavía no está disponible ({module}).",
-        "code": "NOT_IMPLEMENTED",
-        "details": {"module": module},
-    }
+def test_m1_routes_are_live(client: TestClient) -> None:
+    """M1 replaced its Paso 0 stubs (test_stt_words.py covers them): unknown task -> 404."""
+    assert client.get("/transcribe/tasks/t1").json()["code"] == "TASK_NOT_FOUND"
+    res = client.post("/transcribe/words", json={"input_path": "a.wav", "output_base": "r/j"})
+    assert res.status_code == 404

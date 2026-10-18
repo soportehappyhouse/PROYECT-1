@@ -141,7 +141,12 @@ class WhisperEngine:
         compute_type: str | None = None,
         on_progress: ProgressFn | None = None,
         force_device: str | None = None,
+        extra: dict[str, Any] | None = None,
+        clip: tuple[float, float] | None = None,
     ) -> Transcript:
+        """``extra``: more faster-whisper kwargs (Sprint 6: ``hallucination_silence_threshold``).
+        ``clip``: only transcribe [in, out] seconds (``clip_timestamps``; times stay absolute and
+        progress is relative to the clip)."""
         auto = not model
         name = model or self.default_model()
         if name not in WHISPER_MODELS:
@@ -187,6 +192,8 @@ class WhisperEngine:
                     vad,
                     beam_size,
                     on_progress,
+                    extra,
+                    clip,
                 )
                 transcript.model_used = run_name
                 transcript.compute_type = ctype
@@ -222,6 +229,8 @@ class WhisperEngine:
         vad: bool,
         beam_size: int,
         on_progress: ProgressFn | None,
+        extra: dict[str, Any] | None = None,
+        clip: tuple[float, float] | None = None,
     ) -> Transcript:
         lang = None if language in ("", "auto") else language
         kwargs: dict[str, Any] = {
@@ -233,8 +242,17 @@ class WhisperEngine:
         }
         if vad:
             kwargs["vad_parameters"] = {"min_silence_duration_ms": 500}
+        if extra:
+            kwargs.update(extra)
+        if clip is not None:
+            kwargs["clip_timestamps"] = [float(clip[0]), float(clip[1])]
         segments_iter, info = instance.transcribe(str(audio), **kwargs)
         duration = float(getattr(info, "duration", 0.0) or 0.0)
+        offset = 0.0
+        span = duration
+        if clip is not None:
+            offset = float(clip[0])
+            span = max(0.0, float(clip[1]) - offset)
         segments: list[SubtitleSegment] = []
         for seg in segments_iter:  # generator: decoding happens while iterating
             words = None
@@ -257,8 +275,8 @@ class WhisperEngine:
                     words=words,
                 )
             )
-            if on_progress and duration > 0:
-                on_progress(min(0.99, float(seg.end) / duration), "Transcribiendo")
+            if on_progress and span > 0:
+                on_progress(max(0.0, min(0.99, (float(seg.end) - offset) / span)), "Transcribiendo")
         return Transcript(
             language=str(getattr(info, "language", None) or lang or "und"),
             duration_sec=duration,

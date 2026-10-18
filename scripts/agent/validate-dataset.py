@@ -44,9 +44,9 @@ ALWAYS_CONFIRM = {"delete_clip", "export", "face_swap"}
 TIME_FIELDS = ("t", "in", "out")
 GOLDEN_SIZE = 80
 GOLDEN_OP_MIN = 3  # every op at least 3 times in golden (30 multi-op examples, Sprint 3 audit)
-# Sprint 6 Paso 0: ops already in the schema whose dataset examples and system prompt M1 (Guion)
-# writes during the sprint; M1 empties this set (docs/trabajo/sprint6-contratos.md).
-PENDING_OPS = {"delete_words", "fit_duration", "fix_text"}
+# Ops already in the schema whose dataset examples and system prompt are still pending (Sprint 6
+# Paso 0 listed the 3 script ops; M1 Guion wrote them and emptied the set).
+PENDING_OPS: set[str] = set()
 TRAIN_MIN = 200
 FEWSHOT_SIZE = 8
 GOLDEN_MIN_TAGS = {"ambiguo": 8, "multi_op": 5, "typo": 5, "fuera_de_alcance": 5}

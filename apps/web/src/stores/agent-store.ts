@@ -128,7 +128,11 @@ interface AgentState {
   undoAll: (force?: boolean) => Promise<void>;
   dismissUndoConflict: () => void;
   reject: () => Promise<void>;
-  openPlan: (id: string) => void;
+  /**
+   * Show a plan in the Asistente: an id of the history, or a record made elsewhere (Sprint 6:
+   * suggestion cards, Guion «fit_duration»; costura 12 of sprint6-contratos.md).
+   */
+  openPlan: (idOrRecord: string | AgentPlanRecord) => void;
   loadHistory: () => Promise<void>;
   /** Sprint 5: quick (20 commands, default) or full (80). */
   runEval: (models: string[], mode?: "quick" | "full") => Promise<void>;
@@ -190,6 +194,25 @@ function applyResultOf(raw: unknown): AgentApplyResult | undefined {
     steps: r.steps ?? [],
     ...(r.failed && { failed: r.failed }),
   };
+}
+
+/**
+ * H18 (Sprint 6 M3): the plan the Asistente reopens after a reload: the newest `proposed` plan
+ * that was never undone and has something to apply.
+ */
+export function lastOpenPlan(
+  plans: readonly AgentPlanRecord[],
+  undone: Readonly<Record<string, true>> = {},
+): AgentPlanRecord | undefined {
+  return [...plans]
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    .find(
+      (p) =>
+        p.status === "proposed" &&
+        !undone[p.id] &&
+        !(p as { undoneAt?: string | null }).undoneAt &&
+        (p.plan?.ops.length ?? 0) > 0,
+    );
 }
 
 const persisted = typeof window === "undefined" ? {} : loadPersisted();
@@ -489,8 +512,14 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       if (!(err instanceof ApiRequestError)) throw err;
     }
   },
-  openPlan: (id) => {
-    const record = get().plans.find((p) => p.id === id);
+  openPlan: (idOrRecord) => {
+    if (typeof idOrRecord !== "string") {
+      const record = normalizePlanRecord(idOrRecord);
+      addBreadcrumb("ui", "Asistente: abrir plan", { planId: record.id });
+      set({ draft: draftOf(record), run: undefined, plans: upsertPlan(get().plans, record) });
+      return;
+    }
+    const record = get().plans.find((p) => p.id === idOrRecord);
     if (record) set({ draft: draftOf(record), run: undefined });
   },
   loadHistory: async () => {
@@ -498,13 +527,25 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       const projectId = useProjectStore.getState().project.id;
       const list = await agentApi.plans(projectId);
       const mine = list.filter((p) => !p.projectId || p.projectId === projectId);
-      let plans = get().plans;
+      // BEGIN sprint6:M3 (H18) — the plans of another project leave with it
+      let plans = get().plans.filter((p) => !p.projectId || p.projectId === projectId);
+      // END sprint6:M3
       const undone = { ...get().undone };
       for (const p of mine) {
         plans = upsertPlan(plans, p);
         if ((p as { undoneAt?: string }).undoneAt && p.status === "proposed") undone[p.id] = true;
       }
       set({ plans, undone });
+      // BEGIN sprint6:M3 (H18) — after a reload the Asistente reopens the last plan still to
+      // apply (proposed, never undone) of this project; a draft of another project is dropped.
+      const d = get().draft;
+      if (d && d.record.projectId && d.record.projectId !== projectId)
+        set({ draft: undefined, run: undefined });
+      if (!get().draft && !get().proposing) {
+        const last = lastOpenPlan(plans, undone);
+        if (last) set({ draft: draftOf(last), run: undefined });
+      }
+      // END sprint6:M3
     } catch {
       // keep the plans of this session
     }

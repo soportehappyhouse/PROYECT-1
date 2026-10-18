@@ -2605,6 +2605,137 @@ await step("Sprint 6: tarjeta de voz baja → Aplicar → −14 LUFS en el plan"
 });
 // ------------------------------------------------------------------ END sprint6:M3
 
+// ---------------------------------------------------------------- BEGIN sprint6:M1
+/** Guion (M1): 60 s clip transcribed by the workers mock (12 fillers: 8 safe + 4 probable). */
+const s6m1 = {};
+async function s6m1Project() {
+  if (!page.url().startsWith(WEB)) {
+    await page.goto(WEB, { waitUntil: "domcontentloaded" });
+    await timelineReady();
+  }
+  const video = await lavfiUpload("ui-s6-guion.mp4", "color=c=0x303030:s=320x180:r=25:d=60", [
+    "-f",
+    "lavfi",
+    "-i",
+    "sine=frequency=220:sample_rate=48000:duration=60",
+    "-c:v",
+    "libx264",
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-shortest",
+  ]);
+  const p = await apiSend("POST", "/api/projects", { name: "UI S6 guion" });
+  const V = p.tracks.find((t) => t.kind === "video");
+  V.clips = [{ id: "s6m1c", trackId: V.id, assetId: video.id, start: 0, in: 0, out: 60 }];
+  await apiSend("PUT", `/api/projects/${p.id}`, p);
+  const { jobId } = await apiSend("POST", `/api/projects/${p.id}/script/transcribe`, {
+    clipId: "s6m1c",
+  });
+  const job = await waitApiJob(jobId, 120_000);
+  if (job.status !== "succeeded") throw new Error(`script.transcribe ${job.status}: ${job.error}`);
+  s6m1.projectId = p.id;
+  return p.id;
+}
+const scriptPanel = () => page.locator("section[aria-label='Guion']");
+const scriptWord = (text) =>
+  scriptPanel().locator("[data-testid='script-word']", { hasText: new RegExp(`^${text}$`) });
+async function waitDom(fn, arg, timeout = 15_000) {
+  await page.waitForFunction(fn, arg, { timeout, polling: 50 });
+}
+
+await step("Sprint 6: 10 muletillas en < 1 min (Guion: «Quitar seguras» + 2 × Supr)", async () => {
+  const projectId = await s6m1Project();
+  await openProject(projectId);
+  const t0 = Date.now();
+  await page.locator(".dv-tab", { hasText: /^Guion$/ }).click();
+  const panel = scriptPanel();
+  await panel.locator("[data-testid='script-word']").first().waitFor({ timeout: 15_000 });
+  const safeBtn = panel.getByTestId("script-remove-safe");
+  if (!/Quitar seguras \(8\)/.test((await safeBtn.textContent()) ?? ""))
+    throw new Error(`botón: ${await safeBtn.textContent()}`);
+  const probable = await panel.locator("[data-filler='probable']").count();
+  await safeBtn.click(); // gesto 1: 8 cortes
+  await waitDom(
+    () => !document.querySelector("section[aria-label='Guion'] [data-filler='safe']"),
+    undefined,
+  );
+  for (const text of ["Digamos", "este,"]) {
+    // gestos 2 y 3: elegir la palabra y Supr
+    await scriptWord(text).click();
+    await page.keyboard.press("Delete");
+    await waitDom(
+      (t) =>
+        ![
+          ...document.querySelectorAll("section[aria-label='Guion'] [data-testid='script-word']"),
+        ].some((w) => w.textContent === t),
+      text,
+    );
+  }
+  const ms = Date.now() - t0;
+  if (ms >= 60_000) throw new Error(`tardó ${ms} ms`);
+  const words = await panel.locator("[data-testid='script-word']").count();
+  // Un paso de deshacer por gesto: Ctrl+Z devuelve solo «este,».
+  await page.mouse.click(5, 5);
+  await page.keyboard.press("Control+z");
+  await scriptWord("este,").waitFor({ timeout: 5_000 });
+  if (await scriptWord("Digamos").count()) throw new Error("Ctrl+Z deshizo más de un gesto");
+  await scriptWord("este,").click(); // y se vuelve a cortar
+  await page.keyboard.press("Delete");
+  await waitDom(
+    () =>
+      ![
+        ...document.querySelectorAll("section[aria-label='Guion'] [data-testid='script-word']"),
+      ].some((w) => w.textContent === "este,"),
+    undefined,
+  );
+  await page.getByText("Guardado", { exact: true }).waitFor({ timeout: 15_000 });
+  const saved = await apiJson(`/api/projects/${projectId}`);
+  const subs = saved.subtitles.flatMap((s) => s.words ?? []).map((w) => w.word);
+  if (subs.some((w) => /^(eh|ehh|em|mm|ah)$/i.test(w)))
+    throw new Error(`quedan: ${subs.join(" ")}`);
+  return {
+    ms,
+    cuts: 10,
+    wordsLeft: words,
+    probableBefore: probable,
+    shot: await shot(page, "s6-guion-muletillas.png"),
+  };
+});
+
+await step("Sprint 6: corregir una palabra conserva el karaoke (F2, tiempos iguales)", async () => {
+  const projectId = s6m1.projectId ?? (await s6m1Project());
+  if (!s6m1.projectId || !(await scriptPanel().count())) {
+    await openProject(projectId);
+    await page.locator(".dv-tab", { hasText: /^Guion$/ }).click();
+  }
+  await page.getByText("Guardado", { exact: true }).waitFor({ timeout: 15_000 });
+  const before = (await apiJson(`/api/projects/${projectId}`)).subtitles.flatMap(
+    (s) => s.words ?? [],
+  );
+  const orig = before.find((w) => w.word === "canal.");
+  if (!orig) throw new Error("no está «canal.»");
+  await scriptWord("canal\\.").click();
+  await page.keyboard.press("F2");
+  const input = scriptPanel().getByTestId("script-fix-input");
+  await input.fill("canal!");
+  await input.press("Enter");
+  await scriptWord("canal!").waitFor({ timeout: 5_000 });
+  await sleep(1500); // autosave (debounced)
+  await page.getByText("Guardado", { exact: true }).waitFor({ timeout: 15_000 });
+  const after = (await apiJson(`/api/projects/${projectId}`)).subtitles.flatMap(
+    (s) => s.words ?? [],
+  );
+  const fixed = after.find((w) => w.word === "canal!");
+  if (!fixed || fixed.start !== orig.start || fixed.end !== orig.end)
+    throw new Error(`tiempos: ${JSON.stringify(orig)} → ${JSON.stringify(fixed)}`);
+  if (after.length !== before.length)
+    throw new Error(`${before.length} → ${after.length} palabras`);
+  return { word: fixed.word, start: fixed.start, end: fixed.end, words: after.length };
+});
+// ------------------------------------------------------------------ END sprint6:M1
+
 await browser.close();
 console.log(
   `\nconsole errors (${consoleErrors.length}):`,

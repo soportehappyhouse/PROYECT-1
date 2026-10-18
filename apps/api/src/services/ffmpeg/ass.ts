@@ -1,4 +1,20 @@
-import type { CaptionStyle, Rect, Size, SubtitleSegment } from "@studio/shared";
+import {
+  autofixCaptionStyle,
+  captionLayout,
+  captionMaxChars,
+  captionStyleFromTokens,
+  DEFAULT_DESIGN_TOKENS,
+  kitCaptionStyle,
+  paginateCaptions,
+  resolveDesign,
+  segmentWords,
+  type CaptionStyle,
+  type DesignTokens,
+  type Rect,
+  type Size,
+  type SubtitleSegment,
+} from "@studio/shared";
+import { escapeFilterPath } from "./escape.js";
 
 /**
  * Burned subtitles as a real ASS script (feedback 3/4). SRT + `force_style` was unreliable:
@@ -93,53 +109,119 @@ export function marginsForRect(
   return { left, right, vertical };
 }
 
-const DEFAULT_STYLE: Pick<
-  CaptionStyle,
-  "fontFamily" | "fontSize" | "color" | "background" | "position"
-> = {
-  fontFamily: "Inter",
-  fontSize: 60,
-  color: "#ffffff",
-  background: "",
-  position: "bottom",
-};
-
 export interface BuildAssOptions {
   canvas: Size;
   style?: Partial<CaptionStyle>;
   /** Video rect for a timeline time (where the captions must fit). Default: the whole canvas. */
   rectAt?: (t: number) => Rect;
+  /** Sprint 6 M2: design tokens (default: the brand kit registered with setAssDesign). */
+  tokens?: DesignTokens;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Sprint 6 M2: brand kit + bundled fonts for the burn-in (routes/design.ts registers them).
+
+interface AssDesign {
+  tokens: () => DesignTokens;
+  /** Flat folder with the bundled TTFs (libass `fontsdir` is not recursive). */
+  fontsDir: string | null;
+}
+
+let assDesign: AssDesign = { tokens: () => DEFAULT_DESIGN_TOKENS, fontsDir: null };
+
+export function setAssDesign(next: Partial<AssDesign>): void {
+  assDesign = { ...assDesign, ...next };
+}
+
+export function currentAssTokens(): DesignTokens {
+  try {
+    return assDesign.tokens();
+  } catch {
+    return DEFAULT_DESIGN_TOKENS;
+  }
 }
 
 /**
- * ASS script for `segments`. `style.fontSize` is in pixels of a 1080-px frame (CaptionStyle
- * contract) and scales with the shorter side of the video rect, like the Remotion captions.
+ * `subtitles=<file>` + `fontsdir=<bundled fonts>` (escaped absolute path, Windows-safe), so the
+ * burn-in uses the same OFL families as Remotion and the preview, never the system fonts.
+ */
+export function assSubtitlesFilter(file: string, fontsDir = assDesign.fontsDir): string {
+  return fontsDir
+    ? `subtitles=${file}:fontsdir=${escapeFilterPath(fontsDir)}`
+    : `subtitles=${file}`;
+}
+
+const DEFAULT_POSITION: CaptionStyle["position"] = "bottom";
+
+/**
+ * ASS script for `segments`. Sprint 6 M2: the style is the effective one of the brand kit
+ * (captionStyleFromTokens) with the hard design rules auto-fixed (size, outline/box, contrast);
+ * captions are paginated by paginateCaptions (≤ 2 balanced lines, pauses, reading speed) and
+ * written as explicit lines (`WrapStyle: 2`, no libass wrapping), inside the kit safe zone.
+ * Sizes are in pixels of a 1080-px short side (CaptionStyle contract), scaled to the video rect.
  */
 export function buildAss(segments: readonly SubtitleSegment[], o: BuildAssOptions): string {
-  const st = { ...DEFAULT_STYLE, ...o.style };
+  const tokens = o.tokens ?? currentAssTokens();
   const full: Rect = { x: 0, y: 0, width: o.canvas.width, height: o.canvas.height };
   const rectAt = o.rectAt ?? (() => full);
+  const resolved = resolveDesign(tokens, { w: o.canvas.width, h: o.canvas.height });
+  // A partial style is completed with the kit style (outline/box/lines stay derived from tokens).
+  const kitBase = kitCaptionStyle(tokens);
+  delete kitBase.outlineWidth;
+  delete kitBase.outlineColor;
+  delete kitBase.box;
+  delete kitBase.maxLines;
+  delete kitBase.fromBrandKit;
+  const base = o.style ? ({ ...kitBase, ...o.style } as CaptionStyle) : undefined;
+  const st = autofixCaptionStyle(captionStyleFromTokens(tokens, base), resolved);
   const live = segments.filter((s) => s.end > s.start && s.text.trim() !== "");
   const first = live[0] ? rectAt((live[0].start + live[0].end) / 2) : full;
   const unit = Math.min(first.width, first.height) / 1080;
   const fontSize = Math.max(8, Math.round(st.fontSize * unit));
-  const box = Boolean(st.background?.trim());
+  const box = Boolean(st.box);
   const back = cssColorToAss(st.background, "&H80000000");
-  const align = ASS_ALIGNMENT[st.position ?? "bottom"] ?? 2;
-  const m = marginsForRect(first, o.canvas, st.position ?? "bottom");
+  const position = st.position ?? DEFAULT_POSITION;
   const outline = box
     ? Math.max(2, Math.round(fontSize * 0.18))
-    : Math.max(1, Math.round(fontSize * 0.06));
-  const font = (st.fontFamily || "Inter").replace(/,/g, " ");
+    : Math.max(1, Math.round((st.outlineWidth ?? 0) * unit));
+  const font = (st.fontFamily || tokens.font.caption.family).replace(/,/g, " ");
+  // Kit weight (900 = Black) when the family comes from the kit; bold otherwise.
+  const bold = st.fromBrandKit !== false ? tokens.font.caption.weight : -1;
+  // Layout in the video rect's own pixels (pillarbox/letterbox), with the canvas safe zone.
+  const rectDesign = (rect: Rect) => {
+    const r = resolveDesign(
+      tokens,
+      { w: Math.round(rect.width), h: Math.round(rect.height) },
+      resolved.aspect,
+    );
+    return { ...r, canvas: { w: Math.round(rect.width), h: Math.round(rect.height) } };
+  };
+  const marginsFor = (rect: Rect, lines: number) => {
+    const rd = rectDesign(rect);
+    const lay = captionLayout({ position, fontSize: st.fontSize }, rd, lines);
+    const left = Math.round(rect.x + lay.marginL);
+    const right = Math.round(o.canvas.width - rect.x - rect.width + lay.marginR);
+    const vertical =
+      lay.align === 8
+        ? Math.round(rect.y + lay.marginV)
+        : Math.round(o.canvas.height - rect.y - rect.height + lay.marginV);
+    return {
+      left: Math.max(0, left),
+      right: Math.max(0, right),
+      vertical: Math.max(0, vertical),
+      align: lay.align,
+    };
+  };
+  const m0 = marginsFor(first, 1);
   const style = [
     "Default",
     font,
     fontSize,
     cssColorToAss(st.color),
     "&H000000FF",
-    box ? back : "&H00000000",
+    box ? back : cssColorToAss(st.outlineColor, "&H00000000"),
     box ? back : "&H64000000",
-    -1, // bold
+    bold,
     0,
     0,
     0,
@@ -150,22 +232,39 @@ export function buildAss(segments: readonly SubtitleSegment[], o: BuildAssOption
     box ? 3 : 1,
     outline,
     0,
-    align,
-    m.left,
-    m.right,
-    m.vertical,
+    m0.align,
+    m0.left,
+    m0.right,
+    m0.vertical,
     1,
   ].join(",");
-  const events = live.map((s) => {
-    const mm = marginsForRect(rectAt((s.start + s.end) / 2), o.canvas, st.position ?? "bottom");
-    return `Dialogue: 0,${assTime(s.start)},${assTime(s.end)},Default,,${mm.left},${mm.right},${mm.vertical},,${assText(s.text)}`;
+  const events: string[] = [];
+  const karaoke = st.animation === "karaoke";
+  const sorted = live.slice().sort((a, b) => a.start - b.start);
+  sorted.forEach((s, i) => {
+    const rect = rectAt((s.start + s.end) / 2);
+    const rd = rectDesign(rect);
+    const maxChars = captionMaxChars(st, rd);
+    const pages = paginateCaptions(segmentWords(s), tokens.caption, resolved.aspect, {
+      maxChars,
+      karaoke,
+      limitEnd: sorted[i + 1]?.start ?? Infinity,
+    });
+    for (const p of pages) {
+      const mm = marginsFor(rect, p.lines.length);
+      const align = mm.align === m0.align ? "" : `{\\an${mm.align}}`;
+      const text = p.lines.map(assText).join("\\N");
+      events.push(
+        `Dialogue: 0,${assTime(p.start)},${assTime(p.end)},Default,,${mm.left},${mm.right},${mm.vertical},,${align}${text}`,
+      );
+    }
   });
   return [
     "[Script Info]",
     "ScriptType: v4.00+",
     `PlayResX: ${o.canvas.width}`,
     `PlayResY: ${o.canvas.height}`,
-    "WrapStyle: 0",
+    "WrapStyle: 2",
     "ScaledBorderAndShadow: yes",
     "YCbCr Matrix: None",
     "",

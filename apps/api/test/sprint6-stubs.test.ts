@@ -9,13 +9,6 @@ const ROUTES: [string, string, string][] = [
   ["POST", API_ROUTES.scriptTranscribe, SPRINT6_MODULES.M1],
   ["POST", API_ROUTES.scriptCuts, SPRINT6_MODULES.M1],
   ["POST", API_ROUTES.scriptFit, SPRINT6_MODULES.M1],
-  ["GET", API_ROUTES.brandKit, SPRINT6_MODULES.M2],
-  ["PUT", API_ROUTES.brandKit, SPRINT6_MODULES.M2],
-  ["POST", API_ROUTES.brandKitLogo, SPRINT6_MODULES.M2],
-  ["GET", API_ROUTES.designTokens, SPRINT6_MODULES.M2],
-  ["POST", API_ROUTES.designCheck, SPRINT6_MODULES.M2],
-  ["POST", API_ROUTES.motionStill, SPRINT6_MODULES.M2],
-  ["GET", "/fonts/Inter/OFL.txt", SPRINT6_MODULES.M2],
 ];
 
 describe("sprint 6 Paso 0 stubs", () => {

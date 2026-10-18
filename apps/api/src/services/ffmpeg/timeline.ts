@@ -28,7 +28,7 @@ import {
   type VideoEncoderId,
   type AspectFit,
 } from "@studio/shared";
-import { buildAss } from "./ass.js";
+import { assSubtitlesFilter, buildAss } from "./ass.js";
 import { atempoChain, buildAudioFxGraph, duckingFragment } from "./audio-fx.js";
 import {
   blurredBackgroundFilter,
@@ -1146,7 +1146,9 @@ export function compileExport(o: CompileExportOptions): CompiledExport {
       }),
     });
     const next = g.label("c");
-    g.add(`[${cur}]${absTime("subtitles=subs.ass")}[${next}]`);
+    // BEGIN sprint6:M2 — bundled fonts for libass (fontsdir), same families as Remotion.
+    g.add(`[${cur}]${absTime(assSubtitlesFilter("subs.ass"))}[${next}]`);
+    // END sprint6:M2
     cur = next;
   }
 

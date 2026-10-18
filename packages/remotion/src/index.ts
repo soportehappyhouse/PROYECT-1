@@ -17,6 +17,8 @@ export {
 export { applyDesign, TOKEN_PROPS } from "./lib/design.js";
 export { BUNDLED_FONT_FILES, bundledFontPath } from "./font-files.js";
 export { BUNDLED_FONTS_DIR, fontFilesFor } from "./fonts-node.js";
+export { renderTemplateStill, type StillOptions } from "./still.js";
+export { computeSourceHash } from "./bundle.js";
 export {
   checkRemotionAvailable,
   resolveBrowserExecutable,
